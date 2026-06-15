@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
@@ -65,6 +66,13 @@ abstract final class ChurchChatMediaSendService {
       const msg = 'Envio bloqueado — desbloqueie o contacto.';
       onError?.call(msg);
       throw StateError(msg);
+    }
+
+    try {
+      await ensureFirebaseReadyForChatSend();
+    } catch (e) {
+      onError?.call(ChurchChatService.formatInstantSendError(e));
+      rethrow;
     }
 
     try {

@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/firestore_map_fields.dart';
+import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'firestore_stream_utils.dart' show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
 
@@ -129,52 +131,82 @@ class MemberDirectoryEntry {
 
   /// Mescla campos gravados no Firestore — lista/painel actualizam sem reload.
   MemberDirectoryEntry mergeFirestoreFields(Map<String, dynamic> fields) {
-    String? pickStr(List<String> keys) {
-      for (final k in keys) {
-        final v = fields[k];
-        if (v == null) continue;
-        final s = v.toString().trim();
-        if (s.isNotEmpty) return s;
-      }
-      return null;
-    }
-
-    List<String> pickList(String key) {
-      final v = fields[key];
-      if (v is! List) return funcoes;
-      final out = v.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
-      return out.isEmpty ? funcoes : out;
-    }
-
-    final name = pickStr(['NOME_COMPLETO', 'nome', 'name']) ?? displayName;
-    final st = pickStr(['STATUS', 'status']) ?? status;
-    final fn = pickStr(['FUNCAO', 'funcao', 'CARGO', 'cargo']) ?? funcao;
-    final mail = pickStr(['EMAIL', 'email']) ?? email;
-    final tel = pickStr(['TELEFONES', 'telefone']) ?? telefone;
-    final gen = pickStr(['SEXO', 'sexo']) ?? genero;
-    final cpf = pickStr(['CPF', 'cpf']) ?? cpfDigits;
+    final name = FirestoreMapFields.pickString(
+      fields,
+      const ['NOME_COMPLETO', 'nome', 'name'],
+      fallback: displayName,
+    );
+    final st = FirestoreMapFields.pickString(
+      fields,
+      const ['STATUS', 'status'],
+      fallback: status,
+    );
+    final fn = FirestoreMapFields.pickString(
+      fields,
+      const ['FUNCAO', 'funcao', 'CARGO', 'cargo'],
+      fallback: funcao ?? '',
+    );
+    final mail = FirestoreMapFields.pickString(
+      fields,
+      const ['EMAIL', 'email'],
+      fallback: email ?? '',
+    );
+    final tel = FirestoreMapFields.pickString(
+      fields,
+      const ['TELEFONES', 'TELEFONE', 'telefone'],
+      fallback: telefone ?? '',
+    );
+    final gen = FirestoreMapFields.pickString(
+      fields,
+      const ['SEXO', 'sexo', 'genero'],
+      fallback: genero ?? '',
+    );
+    final cpf = FirestoreMapFields.pickCpfDigits(fields);
     final dn = fields['DATA_NASCIMENTO'] ?? fields['dataNascimento'] ?? dataNascimento;
+    final funcoesMerged = FirestoreMapFields.pickStringList(
+      fields,
+      const ['FUNCOES', 'funcoes'],
+      fallback: funcoes,
+    );
 
     return MemberDirectoryEntry(
       memberDocId: memberDocId,
       displayName: name,
-      photoUrl: pickStr(['fotoUrl', 'photoUrl', 'FOTO_URL_OU_ID']) ?? photoUrl,
-      photoThumbUrl:
-          pickStr(['fotoThumbUrl', 'photoThumbUrl', 'photoThumb']) ?? photoThumbUrl,
+      photoUrl: _pickOptional(fields, const ['fotoUrl', 'photoUrl', 'FOTO_URL_OU_ID'], photoUrl),
+      photoThumbUrl: _pickOptional(
+        fields,
+        const ['fotoThumbUrl', 'photoThumbUrl', 'photoThumb'],
+        photoThumbUrl,
+      ),
       fotoUrlCacheRevision: fotoUrlCacheRevision,
       authUid: authUid,
-      cpfDigits: cpf?.replaceAll(RegExp(r'\D'), ''),
-      email: mail,
-      telefone: tel,
+      cpfDigits: cpf.isEmpty ? cpfDigits : cpf,
+      email: mail.isEmpty ? email : mail,
+      telefone: tel.isEmpty ? telefone : tel,
       status: st,
-      funcao: fn,
-      funcoes: pickList('FUNCOES'),
+      funcao: fn.isEmpty ? funcao : fn,
+      funcoes: funcoesMerged,
       departamentos: departamentos,
-      genero: gen,
+      genero: gen.isEmpty ? genero : gen,
       createdAt: createdAt,
       updatedAt: Timestamp.now(),
       dataNascimento: dn,
     );
+  }
+
+  /// Entrada blindada a partir de documento Firestore real.
+  static MemberDirectoryEntry fromFirestoreDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) =>
+      BlindMemberDoc.fromSnapshot(doc).toDirectoryEntry();
+
+  static String? _pickOptional(
+    Map<String, dynamic> fields,
+    List<String> keys,
+    String? current,
+  ) {
+    final picked = FirestoreMapFields.pickString(fields, keys);
+    return picked.isEmpty ? current : picked;
   }
 }
 

@@ -25,13 +25,13 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:intl/intl.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/church_letters_member_pickers.dart';
+import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
+import 'package:gestao_yahweh/services/church_cartas_modelos_service.dart';
 
 enum _CartaKind {
   apresentacao,
@@ -110,14 +110,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   int _histYear = DateTime.now().year;
   DateTimeRange? _histCustomRange;
-  bool _historyLoading = false;
-  String? _historyError;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _historyDocs = const [];
-  Map<String, List<_CloudLetterModel>> _modelosNuvem = const {
-    'apresentacao': [],
-    'transferencia': [],
-    'agradecimento': [],
-  };
+  int _historicoStreamGen = 0;
+  int _modelosStreamGen = 0;
+  bool _savingModelo = false;
 
   DocumentReference<Map<String, dynamic>> get _configRef {
     final id = ChurchRepository.churchId(
@@ -142,7 +137,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging && mounted) {
         setState(() {});
-        if (_tabs.index == 3) unawaited(_loadHistory());
       }
     });
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
@@ -494,7 +488,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       final a = (c['modeloApresentacao'] ?? '').toString().trim();
       final t = (c['modeloTransferencia'] ?? '').toString().trim();
       final g = (c['modeloAgradecimento'] ?? '').toString().trim();
-      final nuvem = _parseModelosNuvem(c['modelosNuvem']);
       if (mounted) {
         setState(() {
           _tplApresentacaoCtrl.text =
@@ -504,11 +497,21 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           _tplAgradecimentoCtrl.text = g.isNotEmpty
               ? g
               : kDefaultChurchLetterAgradecimentoTemplate.trim();
-          _modelosNuvem = nuvem;
           if (_missionCtrl.text.trim().isEmpty) {
             _missionCtrl.text = _defaultMissionText();
           }
         });
+      }
+      if (c['modelosNuvem'] is Map &&
+          (c['modelosNuvem'] as Map).isNotEmpty) {
+        unawaited(
+          ChurchCartasModelosService.migrateLegacyFromConfig(
+            seedTenantId: churchId,
+            modelosNuvem: Map<String, dynamic>.from(c['modelosNuvem'] as Map),
+          ).then((_) {
+            if (mounted) setState(() => _modelosStreamGen++);
+          }),
+        );
       }
     } catch (_) {
       if (mounted) {
@@ -1082,73 +1085,90 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         : 'evangelizar, discipular e servir a comunidade';
   }
 
-  Map<String, List<_CloudLetterModel>> _parseModelosNuvem(dynamic raw) {
-    const keys = ['apresentacao', 'transferencia', 'agradecimento'];
-    final out = <String, List<_CloudLetterModel>>{
-      for (final k in keys) k: <_CloudLetterModel>[],
-    };
-    if (raw is! Map) return out;
-    for (final k in keys) {
-      final list = raw[k];
-      if (list is! List) continue;
-      for (final item in list) {
-        if (item is! Map) continue;
-        final m = Map<String, dynamic>.from(item);
-        final texto = (m['texto'] ?? '').toString();
-        if (texto.trim().isEmpty) continue;
-        out[k]!.add(
-          _CloudLetterModel(
-            id: (m['id'] ?? DateTime.now().microsecondsSinceEpoch.toString())
-                .toString(),
-            nome: (m['nome'] ?? 'Modelo').toString().trim(),
-            texto: texto,
-            favorito: m['favorito'] == true,
-          ),
-        );
-      }
-      out[k]!.sort((a, b) {
-        if (a.favorito != b.favorito) return a.favorito ? -1 : 1;
-        return a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
-      });
+  String get _tenantKey =>
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
+  void _applyModeloDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    final d = doc.data();
+    final kind = _cartaKindFromFirestore((d['kind'] ?? '').toString());
+    final texto = (d['texto'] ?? d['templateText'] ?? '').toString();
+    if (texto.trim().isNotEmpty) {
+      _tplCtrlForKind(kind).text = texto;
     }
-    return out;
-  }
-
-  Map<String, dynamic> _serializeModelosNuvem() {
-    final out = <String, dynamic>{};
-    for (final e in _modelosNuvem.entries) {
-      out[e.key] = e.value
-          .map(
-            (m) => {
-              'id': m.id,
-              'nome': m.nome,
-              'texto': m.texto,
-              'favorito': m.favorito,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-          )
-          .toList();
+    final dest = (d['destIgreja'] ?? '').toString();
+    if (dest.trim().isNotEmpty) {
+      _destIgrejaCtrl.text = dest;
     }
-    return out;
-  }
-
-  List<_CloudLetterModel> _modelosForKind(_CartaKind kind) =>
-      _modelosNuvem[kind.firestoreKind] ?? const [];
-
-  Color _accentForCartaKind(_CartaKind kind) => switch (kind) {
-        _CartaKind.apresentacao => const Color(0xFF2563EB),
-        _CartaKind.transferencia => const Color(0xFFEA580C),
-        _CartaKind.agradecimento => const Color(0xFF16A34A),
-      };
-
-  void _applyCloudModel(_CloudLetterModel model, _CartaKind kind) {
-    _tplCtrlForKind(kind).text = model.texto;
+    final mission = (d['mission'] ?? '').toString();
+    if (mission.trim().isNotEmpty) {
+      _missionCtrl.text = mission;
+    }
+    final sigs = List<String>.from(d['signerMemberIds'] ?? []);
+    if (sigs.isNotEmpty) {
+      _signer1MemberId = sigs[0];
+      _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
+    }
+    final mids = List<String>.from(d['memberDocIds'] ?? []);
+    if (mids.isNotEmpty) {
+      _selectedIds
+        ..clear()
+        ..addAll(mids);
+      _syncSelectedMembersCache();
+    }
+    final mode = (d['signatureMode'] ?? 'digital').toString().trim().toLowerCase();
+    _signatureMode = mode == 'manual'
+        ? _LetterSignatureMode.manual
+        : _LetterSignatureMode.digital;
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar(
-        'Modelo «${model.nome}» aplicado ao editor.',
+        'Modelo «${(d['nome'] ?? 'Modelo').toString()}» aplicado ao editor.',
       ),
     );
+  }
+
+  Future<void> _confirmDeleteModelo(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final nome = (doc.data()['nome'] ?? 'Modelo').toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir modelo?'),
+        content: Text(
+          'O modelo «$nome» será removido da nuvem. Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ChurchCartasModelosService.deleteModelo(
+        seedTenantId: _tenantKey,
+        docId: doc.id,
+      );
+      if (mounted) {
+        setState(() => _modelosStreamGen++);
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('Modelo excluído.'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao excluir: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _promptSaveFavorito(_CartaKind kind) async {
@@ -1158,6 +1178,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Guardar modelo favorito'),
         content: TextField(
           controller: nomeCtrl,
@@ -1185,45 +1208,70 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (nome.isEmpty) return;
     final texto = _tplCtrlForKind(kind).text.trim();
     if (texto.isEmpty) return;
-    final id = DateTime.now().microsecondsSinceEpoch.toString();
-    setState(() {
-      final list = List<_CloudLetterModel>.from(_modelosForKind(kind));
-      list.insert(
-        0,
-        _CloudLetterModel(
-          id: id,
-          nome: nome,
-          texto: texto,
-          favorito: true,
-        ),
+
+    setState(() => _savingModelo = true);
+    try {
+      final signers = <String>[];
+      if (_signer1MemberId != null) signers.add(_signer1MemberId!);
+      if (_signer2MemberId != null &&
+          _signer2MemberId!.isNotEmpty &&
+          _signer2MemberId != _signer1MemberId) {
+        signers.add(_signer2MemberId!);
+      }
+      await ChurchCartasModelosService.saveModelo(
+        seedTenantId: _tenantKey,
+        payload: {
+          'kind': kind.firestoreKind,
+          'nome': nome,
+          'texto': texto,
+          'destIgreja': _destIgrejaCtrl.text.trim(),
+          'mission': _missionCtrl.text.trim(),
+          'signerMemberIds': signers,
+          'memberDocIds': _selectedIds.toList()..sort(),
+          'signatureMode': _signatureMode == _LetterSignatureMode.digital
+              ? 'digital'
+              : 'manual',
+          'favorito': true,
+        },
       );
-      _modelosNuvem = Map<String, List<_CloudLetterModel>>.from(_modelosNuvem)
-        ..[kind.firestoreKind] = list.take(24).toList();
-    });
-    await _saveTemplates(showSnackOnSuccess: false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Modelo «$nome» guardado na nuvem.',
-        ),
-      );
+      if (mounted) {
+        setState(() => _modelosStreamGen++);
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Modelo «$nome» guardado na nuvem.',
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().split('\n').first;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: msg.contains('Limite')
+                ? const Color(0xFFF59E0B)
+                : ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingModelo = false);
     }
   }
 
   Widget _buildModelosNuvemGrid(_CartaKind kind, Color accent) {
-    final models = _modelosForKind(kind);
     final kindAccent = _accentForCartaKind(kind);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            Icon(Icons.cloud_done_rounded, color: kindAccent, size: 20),
+            Icon(Icons.grid_view_rounded, color: kindAccent, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 'Modelos guardados na nuvem',
-                style: TextStyle(
+                style: GoogleFonts.inter(
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
                   color: Colors.grey.shade900,
@@ -1231,195 +1279,224 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 ),
               ),
             ),
+            if (_savingModelo)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
             TextButton.icon(
-              onPressed: () => _promptSaveFavorito(kind),
+              onPressed: _savingModelo ? null : () => _promptSaveFavorito(kind),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Novo favorito'),
+              label: const Text('Salvar modelo'),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        if (models.isEmpty)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: kindAccent.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: kindAccent.withValues(alpha: 0.18)),
-            ),
-            child: Text(
-              'Nenhum modelo favorito ainda. Edite o texto abaixo e use «Guardar modelos na nuvem» ou «Novo favorito».',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade700,
-                height: 1.35,
-              ),
-            ),
-          )
-        else
-          LayoutBuilder(
-            builder: (context, c) {
-              final cols = c.maxWidth >= 720 ? 3 : (c.maxWidth >= 480 ? 2 : 1);
-              final gap = 10.0;
-              final w = (c.maxWidth - gap * (cols - 1)) / cols;
-              return Wrap(
-                spacing: gap,
-                runSpacing: gap,
-                children: [
-                  for (final m in models)
-                    SizedBox(
-                      width: w.clamp(160, c.maxWidth),
-                      child: Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => _applyCloudModel(m, kind),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: kindAccent.withValues(alpha: 0.28),
-                              ),
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  kindAccent.withValues(alpha: 0.14),
-                                  Colors.white,
-                                ],
-                              ),
-                              boxShadow: ThemeCleanPremium.softUiCardShadow,
+        StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+          key: ValueKey('modelos_${kind.firestoreKind}_$_modelosStreamGen'),
+          stream: ChurchCartasModelosService.watchModelos(
+            _tenantKey,
+            kind.firestoreKind,
+          ),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData) {
+              return const Padding(
+                padding: EdgeInsets.all(20),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snap.hasError) {
+              return ChurchPanelResilientLoadBanner(
+                hasLocalData: false,
+                isSyncing: false,
+                errorTitle: 'Erro ao carregar modelos',
+                error: snap.error,
+                onRetry: () => setState(() => _modelosStreamGen++),
+              );
+            }
+            final models = snap.data ?? const [];
+            if (models.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: kindAccent.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: kindAccent.withValues(alpha: 0.18)),
+                ),
+                child: Text(
+                  'Nenhum modelo favorito ainda. Preencha a carta e use «Salvar modelo» para criar um card na galeria.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    height: 1.35,
+                  ),
+                ),
+              );
+            }
+            return LayoutBuilder(
+              builder: (context, c) {
+                final cols = c.maxWidth >= 900
+                    ? 4
+                    : (c.maxWidth >= 640 ? 3 : (c.maxWidth >= 420 ? 2 : 1));
+                return GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                    childAspectRatio: 1.05,
+                  ),
+                  itemCount: models.length,
+                  itemBuilder: (context, i) {
+                    final doc = models[i];
+                    final m = doc.data();
+                    final nome = (m['nome'] ?? 'Modelo').toString();
+                    final texto =
+                        (m['texto'] ?? m['templateText'] ?? '').toString();
+                    final preview = texto.trim().isEmpty
+                        ? '(sem texto)'
+                        : (texto.length > 120
+                            ? '${texto.substring(0, 120)}…'
+                            : texto);
+                    final favorito = m['favorito'] == true;
+                    return Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => _applyModeloDoc(doc),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: kindAccent.withValues(alpha: 0.28),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      m.favorito
-                                          ? Icons.star_rounded
-                                          : Icons.description_outlined,
-                                      color: kindAccent,
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        m.nome,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                        ),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                kindAccent.withValues(alpha: 0.12),
+                                Colors.white,
+                              ],
+                            ),
+                            boxShadow: ThemeCleanPremium.softUiCardShadow,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    favorito
+                                        ? Icons.star_rounded
+                                        : Icons.description_outlined,
+                                    color: kindAccent,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      nome,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 12.5,
                                       ),
                                     ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  m.texto.length > 90
-                                      ? '${m.texto.substring(0, 90)}…'
-                                      : m.texto,
-                                  maxLines: 3,
+                                  ),
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                      minWidth: 32,
+                                      minHeight: 32,
+                                    ),
+                                    tooltip: 'Excluir modelo',
+                                    onPressed: () => _confirmDeleteModelo(doc),
+                                    icon: Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: Colors.red.shade400,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Expanded(
+                                child: Text(
+                                  preview,
+                                  maxLines: 4,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 11.5,
-                                    height: 1.35,
+                                    fontSize: 11,
+                                    height: 1.3,
                                     color: Colors.grey.shade700,
                                   ),
                                 ),
-                                const SizedBox(height: 10),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    'Toque para usar',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w800,
-                                      color: kindAccent,
-                                    ),
-                                  ),
+                              ),
+                              Text(
+                                'Toque para usar',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: kindAccent,
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
+                    );
+                  },
+                );
+              },
+            );
+          },
+        ),
         const SizedBox(height: 14),
       ],
     );
   }
 
-  Future<void> _loadHistory() async {
-    if (_historyLoading) return;
-    setState(() {
-      _historyLoading = true;
-      _historyError = null;
-    });
-    try {
-      final churchId = ChurchRepository.churchId(
-        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-      );
-      if (churchId.isEmpty) {
-        throw StateError('Igreja não identificada (churchId vazio).');
-      }
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchUiCollections.transferencias(churchId)
-            .orderBy('createdAt', descending: true)
-            .limit(240)
-            .get(),
-        maxAttempts: 4,
-      );
-      late final DateTime rangeStart;
-      late final DateTime rangeEnd;
-      if (_histCustomRange != null) {
-        rangeStart = DateTime(
+  Color _accentForCartaKind(_CartaKind kind) => switch (kind) {
+        _CartaKind.apresentacao => const Color(0xFF2563EB),
+        _CartaKind.transferencia => const Color(0xFFEA580C),
+        _CartaKind.agradecimento => const Color(0xFF16A34A),
+      };
+
+  ({DateTime start, DateTime end}) _historicoRange() {
+    if (_histCustomRange != null) {
+      return (
+        start: DateTime(
           _histCustomRange!.start.year,
           _histCustomRange!.start.month,
           _histCustomRange!.start.day,
-        );
-        rangeEnd = DateTime(
+        ),
+        end: DateTime(
           _histCustomRange!.end.year,
           _histCustomRange!.end.month,
           _histCustomRange!.end.day,
           23,
           59,
           59,
-        );
-      } else {
-        rangeStart = DateTime(_histYear, 1, 1);
-        rangeEnd = DateTime(_histYear, 12, 31, 23, 59, 59);
-      }
-      final filtered = snap.docs.where((d) {
-        final ts = d.data()['createdAt'];
-        if (ts is! Timestamp) return false;
-        final dt = ts.toDate();
-        return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-      }).toList();
-      if (!mounted) return;
-      setState(() {
-        _historyDocs = filtered;
-        _historyLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _historyError = e.toString();
-        _historyLoading = false;
-      });
+        ),
+      );
     }
+    return (
+      start: DateTime(_histYear, 1, 1),
+      end: DateTime(_histYear, 12, 31, 23, 59, 59),
+    );
   }
+
+  void _refreshHistoricoStream() =>
+      setState(() => _historicoStreamGen++);
 
   _CartaKind _currentCartaKindForTabs(
     bool transferenciaTab,
@@ -1530,7 +1607,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             'modeloApresentacao': _tplApresentacaoCtrl.text,
             'modeloTransferencia': _tplTransferCtrl.text,
             'modeloAgradecimento': _tplAgradecimentoCtrl.text,
-            'modelosNuvem': _serializeModelosNuvem(),
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
@@ -1926,6 +2002,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     try {
       await doc.reference.delete();
       if (mounted) {
+        setState(() => _historicoStreamGen++);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Registo excluído.'),
         );
@@ -2694,113 +2771,145 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Filtro por ano ou período',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-              color: Colors.grey.shade900,
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              border: Border.all(color: accent.withValues(alpha: 0.15)),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              SizedBox(
-                width: 160,
-                child: DropdownButtonFormField<int>(
-                  value: _histYear,
-                  decoration: premiumField('Ano'),
-                  items: years
-                      .map((y) => DropdownMenuItem(value: y, child: Text('$y')))
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SegmentedButton<int>(
+                  segments: years
+                      .take(4)
+                      .map(
+                        (y) => ButtonSegment(
+                          value: y,
+                          label: Text('$y'),
+                        ),
+                      )
                       .toList(),
-                  onChanged: _histCustomRange != null
+                  selected: _histCustomRange == null ? {_histYear} : {},
+                  onSelectionChanged: _histCustomRange != null
                       ? null
-                      : (v) {
-                          if (v != null) {
-                            setState(() => _histYear = v);
-                            unawaited(_loadHistory());
-                          }
+                      : (s) {
+                          if (s.isEmpty) return;
+                          setState(() => _histYear = s.first);
+                          _refreshHistoricoStream();
                         },
                 ),
-              ),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final now = DateTime.now();
-                  final range = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(now.year - 8),
-                    lastDate: DateTime(now.year + 1),
-                    initialDateRange: _histCustomRange ??
-                        DateTimeRange(
-                          start: DateTime(_histYear, 1, 1),
-                          end: DateTime(_histYear, 12, 31),
+                SizedBox(
+                  width: 140,
+                  child: DropdownButtonFormField<int>(
+                    value: _histYear,
+                    decoration: premiumField('Ano'),
+                    items: years
+                        .map((y) =>
+                            DropdownMenuItem(value: y, child: Text('$y')))
+                        .toList(),
+                    onChanged: _histCustomRange != null
+                        ? null
+                        : (v) {
+                            if (v != null) {
+                              setState(() => _histYear = v);
+                              _refreshHistoricoStream();
+                            }
+                          },
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final now = DateTime.now();
+                    final range = await showDateRangePicker(
+                      context: context,
+                      firstDate: DateTime(now.year - 8),
+                      lastDate: DateTime(now.year + 1),
+                      initialDateRange: _histCustomRange ??
+                          DateTimeRange(
+                            start: DateTime(_histYear, 1, 1),
+                            end: DateTime(_histYear, 12, 31),
+                          ),
+                      builder: (ctx, child) => Theme(
+                        data: Theme.of(ctx).copyWith(
+                          colorScheme: ColorScheme.light(primary: accent),
                         ),
-                    builder: (ctx, child) => Theme(
-                      data: Theme.of(ctx).copyWith(
-                        colorScheme: ColorScheme.light(primary: accent),
+                        child: child!,
                       ),
-                      child: child!,
-                    ),
-                  );
-                  if (range != null) {
-                    setState(() => _histCustomRange = range);
-                    unawaited(_loadHistory());
-                  }
-                },
-                icon: const Icon(Icons.date_range_rounded, size: 20),
-                label: Text(
-                  _histCustomRange == null
-                      ? 'Período personalizado'
-                      : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} — ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
-                ),
-              ),
-              if (_histCustomRange != null)
-                TextButton(
-                  onPressed: () {
-                    setState(() => _histCustomRange = null);
-                    unawaited(_loadHistory());
+                    );
+                    if (range != null) {
+                      setState(() => _histCustomRange = range);
+                      _refreshHistoricoStream();
+                    }
                   },
-                  child: const Text('Limpar período'),
+                  icon: const Icon(Icons.date_range_rounded, size: 20),
+                  label: Text(
+                    _histCustomRange == null
+                        ? 'Período personalizado'
+                        : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} — ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
+                  ),
                 ),
-            ],
+                if (_histCustomRange != null)
+                  TextButton(
+                    onPressed: () {
+                      setState(() => _histCustomRange = null);
+                      _refreshHistoricoStream();
+                    },
+                    child: const Text('Limpar período'),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
-          if (_historyError != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ChurchPanelResilientLoadBanner(
-                hasLocalData: _historyDocs.isNotEmpty,
-                isSyncing: _historyLoading,
-                errorTitle: 'Erro ao carregar histórico',
-                error: _historyError,
-                onRetry: _loadHistory,
-              ),
+          StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            key: ValueKey(
+              'hist_${_historicoStreamGen}_${_histYear}_${_histCustomRange?.start}_${_histCustomRange?.end}',
             ),
-          if (_historyLoading && _historyDocs.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          if (!_historyLoading && _historyDocs.isEmpty && _historyError == null)
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text(
-                'Nenhum registo neste filtro.',
-                style: TextStyle(color: Colors.grey.shade600),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          if (_historyDocs.isNotEmpty)
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _historyDocs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (context, i) {
-                final doc = _historyDocs[i];
+            stream: ChurchCartasModelosService.watchHistorico(_tenantKey),
+            builder: (context, snap) {
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snap.hasError) {
+                return ChurchPanelResilientLoadBanner(
+                  hasLocalData: false,
+                  isSyncing: false,
+                  errorTitle: 'Erro ao carregar histórico',
+                  error: snap.error,
+                  onRetry: _refreshHistoricoStream,
+                );
+              }
+              final range = _historicoRange();
+              final filtered =
+                  ChurchCartasModelosService.filterHistoricoByRange(
+                docs: snap.data ?? const [],
+                rangeStart: range.start,
+                rangeEnd: range.end,
+              );
+              if (filtered.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text(
+                    'Nenhum registo neste filtro.',
+                    style: TextStyle(color: Colors.grey.shade600),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, i) {
+                  final doc = filtered[i];
                   final d = doc.data();
                   final kind = (d['kind'] ?? '').toString();
                   final labelKind = switch (kind) {
@@ -2811,15 +2920,16 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                   final ts = d['createdAt'];
                   DateTime? dt;
                   if (ts is Timestamp) dt = ts.toDate();
-                  final dataStr =
-                      dt != null ? DateFormat('dd/MM/yyyy HH:mm').format(dt) : '—';
+                  final dataStr = dt != null
+                      ? DateFormat('dd/MM/yyyy HH:mm').format(dt)
+                      : '—';
                   final dest = (d['destIgreja'] ?? '').toString();
                   return Material(
                     color: const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(12),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(12),
-                      onTap: () {},
+                      onTap: () => _loadForEdit(doc),
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
@@ -2896,25 +3006,13 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     ),
                   );
                 },
-              ),
+              );
+            },
+          ),
         ],
       ),
     );
   }
-}
-
-class _CloudLetterModel {
-  const _CloudLetterModel({
-    required this.id,
-    required this.nome,
-    required this.texto,
-    this.favorito = false,
-  });
-
-  final String id;
-  final String nome;
-  final String texto;
-  final bool favorito;
 }
 
 /// Cache RAM — membros instantâneos ao reabrir Cartas e transferências.

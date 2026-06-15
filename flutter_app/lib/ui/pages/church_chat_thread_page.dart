@@ -1655,8 +1655,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   void _warmChatFirebaseForPicker() {
+    unawaited(_ensureChatFirebaseReadyForMedia().catchError((_) {}));
     unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));
-    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     unawaited(ImmediateMediaWarm.warmFeed().catchError((_) {}));
     unawaited(
       FastMediaPublishBootstrap.warmForChatSend()
@@ -1665,8 +1665,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  Future<bool> _ensureChatFirebaseReadyForMedia() async {
+    try {
+      await ensureFirebaseReadyForChatSend();
+      return true;
+    } on Object catch (e) {
+      if (!isFirebaseNoAppError(e)) return false;
+      try {
+        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        await ensureFirebaseReadyForChatSend();
+        return true;
+      } on Object {
+        return false;
+      }
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     _warmChatFirebaseForPicker();
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      _showChatAttachmentError(
+        'Firebase ainda não está pronto. Aguarde e tente de novo.',
+      );
+      return;
+    }
     final picker = ImagePicker();
     final x = await picker.pickImage(
       source: source,
@@ -2191,6 +2213,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     await _awaitOperationalTenantId();
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      final i =
+          _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage =
+            'Firebase ainda não está pronto. Toque em «Tentar de novo».';
+        if (mounted) setState(() {});
+      }
+      return;
+    }
     final replyTo =
         pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
     unawaited(

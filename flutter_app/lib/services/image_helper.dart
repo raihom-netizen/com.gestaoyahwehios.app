@@ -118,6 +118,16 @@ class ImageHelper {
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {
     if (list.isEmpty) return list;
+    if (kIsWeb) {
+      try {
+        final compressed = await MediaService.compressImageBytes(
+          list,
+          profile: MediaImageProfile.patrimonio,
+        );
+        if (compressed.isNotEmpty) return compressed;
+      } catch (_) {}
+      return list;
+    }
     // FlutterImageCompress usa platform channel — não pode correr em isolate (UnimplementedError).
     var quality = kPatrimonioWebpQuality;
     Uint8List? best;

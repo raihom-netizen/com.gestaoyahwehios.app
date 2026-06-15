@@ -427,6 +427,39 @@
       ]
     },
     {
+      "collectionGroup": "certificados_emitidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dataEmissao", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "certificados_historico",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dataEmissao", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cartas_modelos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "updatedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cartas_modelos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "updatedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "patrimonio_inventario_historico",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

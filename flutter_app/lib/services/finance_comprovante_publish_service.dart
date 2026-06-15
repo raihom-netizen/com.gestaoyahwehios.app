@@ -201,7 +201,7 @@ abstract final class FinanceComprovantePublishService {
       timeout: const Duration(seconds: 12),
     );
     final snap = await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.get(const GetOptions(source: Source.server)),
+      () => docRef.get(const GetOptions(source: Source.serverAndCache)),
       maxAttempts: 4,
     );
     final data = snap.data() ?? {};
@@ -309,9 +309,11 @@ abstract final class FinanceComprovantePublishService {
     final m = mimeType.toLowerCase();
     if (m.contains('pdf')) return 'pdf';
     if (m.contains('png')) return 'png';
+    if (m.contains('webp')) return 'webp';
     final fn = (fileName ?? '').toLowerCase();
     if (fn.endsWith('.pdf')) return 'pdf';
     if (fn.endsWith('.png')) return 'png';
+    if (fn.endsWith('.webp')) return 'webp';
     return 'jpg';
   }
 

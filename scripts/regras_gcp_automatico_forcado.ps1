@@ -50,8 +50,8 @@ if (-not $SkipSetup) {
     }
 }
 
-Write-Host "`n[deploy] Preflight + publicacao forcada..." -ForegroundColor Yellow
-& (Join-Path $RepoRoot 'scripts\deploy_firebase_rules.ps1') -ForcePublish -MaxAttempts 25
+Write-Host "`n[deploy] Forcar publicacao (Owner + certificado raiz)..." -ForegroundColor Yellow
+& (Join-Path $RepoRoot 'scripts\forcar_regras_gcp_owner.ps1')
 $rulesExit = $LASTEXITCODE
 
 if ($rulesExit -ne 0) {

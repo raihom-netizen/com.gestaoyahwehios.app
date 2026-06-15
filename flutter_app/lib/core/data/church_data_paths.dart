@@ -32,9 +32,13 @@ abstract final class ChurchDataPaths {
   /// Cartão membro — docs em `cartoes` ou `config/carteira` (legado).
   static const String cartoes = 'cartoes';
   static const String certificados = 'certificados_emitidos';
+  static const String certificadosHistorico = 'certificados_historico';
+  static const String certificadosProtocolIndex = 'certificados_protocol_index';
   static const String pedidosOracao = 'pedidosOracao';
   /// Transferências — coleção real `cartas_historico`.
   static const String transferencias = 'cartas_historico';
+  /// Modelos/favoritos de cartas — `cartas_modelos`.
+  static const String cartasModelos = 'cartas_modelos';
 
   /// Legado — leitura só até migração CF concluir.
   static const String legacyEventosNoticias = 'noticias';
@@ -82,7 +86,10 @@ abstract final class ChurchDataPaths {
     mercadopago,
     cartoes,
     certificados,
+    certificadosHistorico,
+    certificadosProtocolIndex,
     pedidosOracao,
     transferencias,
+    cartasModelos,
   ];
 }

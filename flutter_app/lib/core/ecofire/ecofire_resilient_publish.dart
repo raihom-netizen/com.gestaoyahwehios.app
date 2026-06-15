@@ -328,12 +328,11 @@ abstract final class EcoFireResilientPublish {
         );
         scheduleSync(reason: 'finance_comprovante_web_direct');
         return;
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint(
-            'EcoFireResilientPublish: web comprovante direct falhou, outbox: $e',
-          );
-        }
+      } catch (e, st) {
+        debugPrint(
+          'EcoFireResilientPublish: web comprovante direct falhou: $e\n$st',
+        );
+        rethrow;
       }
     }
 

@@ -83,7 +83,10 @@ function Get-ServiceAccountAccessTokenViaNode {
 }
 
 function Get-GoogleCloudAccessToken {
-    param([string] $RepoRoot = '')
+    param(
+        [string] $RepoRoot = '',
+        [switch] $PreferOwner
+    )
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
         $RepoRoot = Split-Path -Parent $PSScriptRoot
     }
@@ -99,15 +102,27 @@ function Get-GoogleCloudAccessToken {
     $ErrorActionPreference = 'SilentlyContinue'
     try {
         & gcloud config set project $script:GoogleCloudProjectId 2>$null | Out-Null
-        $t = (& gcloud auth print-access-token 2>$null | Select-Object -First 1)
-        if ($t -and $t.ToString().Trim().Length -gt 20) {
-            $script:GoogleCloudAuthSource = 'gcloud_user'
-            return $t.ToString().Trim()
+        if (-not $PreferOwner) {
+            $t = (& gcloud auth print-access-token 2>$null | Select-Object -First 1)
+            if ($t -and $t.ToString().Trim().Length -gt 20) {
+                $acct = (& gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>$null | Select-Object -First 1)
+                if ($acct -and $acct -notmatch '\.iam\.gserviceaccount\.com$') {
+                    $script:GoogleCloudAuthSource = 'gcloud_user'
+                    return $t.ToString().Trim()
+                }
+            }
         }
         $t2 = (& gcloud auth application-default print-access-token 2>$null | Select-Object -First 1)
         if ($t2 -and $t2.ToString().Trim().Length -gt 20) {
             $script:GoogleCloudAuthSource = 'gcloud_adc'
             return $t2.ToString().Trim()
+        }
+        if (-not $PreferOwner) {
+            $t3 = (& gcloud auth print-access-token 2>$null | Select-Object -First 1)
+            if ($t3 -and $t3.ToString().Trim().Length -gt 20) {
+                $script:GoogleCloudAuthSource = 'gcloud_user'
+                return $t3.ToString().Trim()
+            }
         }
     } finally {
         $ErrorActionPreference = $oldEap
@@ -142,12 +157,13 @@ function Ensure-GoogleCloudServiceAccountSession {
 function Ensure-GoogleCloudAuth {
     param(
         [string] $RepoRoot = '',
-        [switch] $Quiet
+        [switch] $Quiet,
+        [switch] $PreferOwner
     )
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
         $RepoRoot = Split-Path -Parent $PSScriptRoot
     }
-    if ($script:GoogleCloudAuthReady -and (Get-GoogleCloudAccessToken -RepoRoot $RepoRoot)) {
+    if ($script:GoogleCloudAuthReady -and (Get-GoogleCloudAccessToken -RepoRoot $RepoRoot -PreferOwner:$PreferOwner)) {
         return $true
     }
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -160,9 +176,9 @@ function Ensure-GoogleCloudAuth {
         Ensure-GcloudInstalled -RepoRoot $RepoRoot -Quiet:$Quiet | Out-Null
     }
     Add-GcloudToPath
-    $token = Get-GoogleCloudAccessToken -RepoRoot $RepoRoot
+    $token = Get-GoogleCloudAccessToken -RepoRoot $RepoRoot -PreferOwner:$PreferOwner
     if (-not $token) {
-        if (Ensure-GoogleCloudServiceAccountSession -RepoRoot $RepoRoot) {
+        if (-not $PreferOwner -and (Ensure-GoogleCloudServiceAccountSession -RepoRoot $RepoRoot)) {
             $token = Get-GoogleCloudAccessToken -RepoRoot $RepoRoot
         }
     }

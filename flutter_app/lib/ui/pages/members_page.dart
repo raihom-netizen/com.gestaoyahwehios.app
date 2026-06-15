@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
@@ -443,7 +444,8 @@ class _MembersPageState extends State<MembersPage> {
   /// Lista completa via `_panel_cache/members_directory` (62+ membros) — não paginar na UI.
   static const int _membersListInstantCap = 500;
   /// Leitura Firestore inicial — evita baixar 500 docs pesados na abertura.
-  static const int _membersFirestoreInitialLimit = 120;
+  static const int _membersFirestoreInitialLimit =
+      YahwehPerformanceV4.blindListPageSize;
   int _membersVisibleCount = _membersPageSize;
 
   /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
@@ -754,62 +756,8 @@ class _MembersPageState extends State<MembersPage> {
 
   MemberDirectoryEntry _directoryEntryFromFirestoreDoc(
     DocumentSnapshot<Map<String, dynamic>> d,
-  ) {
-    final data = d.data() ?? <String, dynamic>{};
-    final photo = imageUrlFromMap(data);
-    final cpf = (data['CPF'] ?? data['cpf'] ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\D'), '');
-    final funcoesRaw = data['FUNCOES'] ?? data['funcoes'];
-    final funcoes = funcoesRaw is List
-        ? funcoesRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
-        : <String>[];
-    final deptRaw = data['DEPARTAMENTOS'] ?? data['departamentos'];
-    final departamentos = deptRaw is List
-        ? deptRaw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList()
-        : <String>[];
-    final status =
-        (data['STATUS'] ?? data['status'] ?? 'ativo').toString().toLowerCase();
-    return MemberDirectoryEntry(
-      memberDocId: d.id,
-      displayName:
-          (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? 'Membro')
-              .toString(),
-      photoUrl: photo.isEmpty ? null : photo,
-      fotoUrlCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
-      authUid: _memberAuthUidFromData(data),
-      cpfDigits: cpf.length == 11 ? cpf : null,
-      email: (data['EMAIL'] ?? data['email'] ?? '').toString().trim().isEmpty
-          ? null
-          : (data['EMAIL'] ?? data['email'] ?? '').toString(),
-      telefone: (data['TELEFONES'] ?? data['TELEFONE'] ?? data['telefone'] ?? '')
-              .toString()
-              .trim()
-              .isEmpty
-          ? null
-          : (data['TELEFONES'] ?? data['TELEFONE'] ?? data['telefone'] ?? '')
-              .toString(),
-      status: status,
-      funcao: (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '')
-              .toString()
-              .trim()
-              .isEmpty
-          ? null
-          : (data['FUNCAO'] ?? data['funcao'] ?? data['CARGO'] ?? data['role'] ?? '')
-              .toString(),
-      funcoes: funcoes,
-      departamentos: departamentos,
-      genero: (data['SEXO'] ?? data['sexo'] ?? data['genero'] ?? '')
-              .toString()
-              .trim()
-              .isEmpty
-          ? null
-          : (data['SEXO'] ?? data['sexo'] ?? data['genero'] ?? '').toString(),
-      createdAt: data['createdAt'] is Timestamp ? data['createdAt'] as Timestamp : null,
-      updatedAt: data['updatedAt'] is Timestamp ? data['updatedAt'] as Timestamp : null,
-      dataNascimento: data['DATA_NASCIMENTO'] ?? data['dataNascimento'],
-    );
-  }
+  ) =>
+      MemberDirectoryEntry.fromFirestoreDoc(d);
 
   Future<void> _applyMembrosRealtimeSnapshot(
     QuerySnapshot<Map<String, dynamic>> snap,
@@ -1133,7 +1081,7 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  static const int _membersLoadLimit = YahwehPerformanceV4.adminExportBatchLimit;
+  static const int _membersLoadLimit = YahwehPerformanceV4.blindListPageSize;
   int get _membersQueryLimit =>
       _directoryCache.hasEntries ? _membersFirestoreInitialLimit : _membersLoadLimit;
   static const Duration _membersCoreLoadTimeout = Duration(seconds: 18);
@@ -9818,12 +9766,14 @@ Map<String, dynamic> _mergeMemberPhotoFields(
 
 String _str(Map<String, dynamic> d, String key1,
     [String? key2, String? key3, String? key4, String? key5]) {
-  final v = d[key1] ??
-      (key2 != null ? d[key2] : null) ??
-      (key3 != null ? d[key3] : null) ??
-      (key4 != null ? d[key4] : null) ??
-      (key5 != null ? d[key5] : null);
-  return (v ?? '').toString();
+  final keys = [
+    key1,
+    if (key2 != null) key2,
+    if (key3 != null) key3,
+    if (key4 != null) key4,
+    if (key5 != null) key5,
+  ];
+  return FirestoreMapFields.pickString(d, keys);
 }
 
 /// UID do Firebase quando a foto no Storage foi salva com esse id (doc do membro pode ser CPF).

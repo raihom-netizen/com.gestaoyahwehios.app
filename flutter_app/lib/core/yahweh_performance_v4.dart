@@ -37,13 +37,15 @@ abstract final class YahwehPerformanceV4 {
 
   // ——— Paginação Firestore ———
   static const int defaultPageSize = 20;
+  /// Listagens blindadas (Membros, Financeiro, etc.) — primeira página.
+  static const int blindListPageSize = 30;
   /// Exportações admin (CSV/PDF) — lote único, não é lista UI.
   static const int adminExportBatchLimit = 500;
   /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
   static const int dashboardStatsSampleLimit = 100;
   static const int financeChartsSampleLimit = 500;
-  static const int financeListInitialLimit = 250;
-  static const int financeListPageStep = 100;
+  static const int financeListInitialLimit = blindListPageSize;
+  static const int financeListPageStep = blindListPageSize;
   static const int publicFeedPageSize = 20;
   /// Chat — só as 50 mensagens mais recentes (sem histórico inteiro).
   static const int chatMessagesPageSize = 40;

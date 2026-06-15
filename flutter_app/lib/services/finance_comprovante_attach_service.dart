@@ -282,7 +282,7 @@ abstract final class FinanceComprovanteAttachService {
       return FinanceComprovanteAttachment(
         bytes: bytes,
         fileName: xfile.name,
-        mimeType: 'image/webp',
+        mimeType: 'image/jpeg',
       );
     } catch (e) {
       _showSnack(
@@ -307,7 +307,7 @@ abstract final class FinanceComprovanteAttachService {
     final compressed = await ImageHelper.compressPatrimonioPhotoForUpload(
       attachment.bytes,
     );
-    return (bytes: compressed, mimeType: 'image/webp');
+    return (bytes: compressed, mimeType: 'image/jpeg');
   }
 
   static Future<void> viewFromDoc(

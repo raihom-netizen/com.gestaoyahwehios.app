@@ -260,12 +260,31 @@ abstract final class _EventTemplatesRamCache {
 String _eventTemplatesMemKey(String tenantId) =>
     '${tenantId.trim()}_event_templates_all';
 
+/// Garante núcleo Firebase antes de qualquer leitura/gravação do módulo Eventos.
+Future<bool> _awaitEventosFirebasePanelReady() async {
+  try {
+    await ensureFirebaseReadyForPanelRead();
+    return true;
+  } on Object catch (e) {
+    if (!isFirebaseNoAppError(e)) return false;
+    try {
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+      await ensureFirebaseReadyForPanelRead();
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+}
+
 class _EventsManagerPageState extends State<EventsManagerPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
   Map<String, dynamic>? _tenantData;
   /// Mesmo critério que Chat/Mural: ID em `users` ganha sobre doc “irmão” do resolver.
   String? _firestoreTenantId;
+  bool _firebaseReady = FirebaseBootstrapService.isReady();
+  String? _firebaseInitError;
   String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
@@ -388,11 +407,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   String? _eventsModuleBarSubtitle() {
-    final user = firebaseDefaultAuth.currentUser;
-    final dn = (user?.displayName ?? '').trim();
-    if (dn.isNotEmpty) return dn;
-    final email = (user?.email ?? '').trim();
-    return email.isNotEmpty ? email : null;
+    if (!_firebaseReady) return null;
+    try {
+      final user = firebaseDefaultAuth.currentUser;
+      final dn = (user?.displayName ?? '').trim();
+      if (dn.isNotEmpty) return dn;
+      final email = (user?.email ?? '').trim();
+      return email.isNotEmpty ? email : null;
+    } on Object {
+      return null;
+    }
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
@@ -427,6 +451,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   Future<void> _openResumedEventDoc(String eventDocId) async {
     try {
       await _bootstrapFirestoreTenant();
+      if (!_firebaseReady) return;
       final snap = await _noticias.doc(eventDocId).get();
       if (!mounted || !snap.exists) return;
       unawaited(
@@ -458,7 +483,21 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
-    unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
+    if (!_firebaseReady) {
+      final ok = await _awaitEventosFirebasePanelReady();
+      if (!mounted) return;
+      if (!ok) {
+        setState(() {
+          _firebaseInitError =
+              'A sincronizar com o servidor… tente de novo em instantes.';
+        });
+        return;
+      }
+      setState(() {
+        _firebaseReady = true;
+        _firebaseInitError = null;
+      });
+    }
     final initial = ChurchContextService.panelChurchId(widget.tenantId.trim());
     if (!mounted) return;
     if (initial.isNotEmpty) {
@@ -490,6 +529,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _loadTenantDoc() async {
+    if (!await _awaitEventosFirebasePanelReady()) return;
     try {
       final op = ChurchRepository.churchId(_tid.trim());
       final snap = await ChurchUiCollections.churchDoc(op)
@@ -1290,6 +1330,26 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   @override
   Widget build(BuildContext context) {
+    if (!_firebaseReady && _firebaseInitError == null) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        body: const SafeArea(child: ChurchPanelLoadingBody()),
+      );
+    }
+    if (!_firebaseReady && _firebaseInitError != null) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        body: SafeArea(
+          child: ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Firebase ainda não está pronto',
+            error: _firebaseInitError,
+            onRetry: () => unawaited(_bootstrapFirestoreTenant()),
+          ),
+        ),
+      );
+    }
     final isMobile = ThemeCleanPremium.isMobile(context);
     final showAppBar = !widget.embeddedInShell &&
         (!isMobile || Navigator.canPop(context));
@@ -1632,6 +1692,14 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       return;
     }
     try {
+      if (!await _awaitEventosFirebasePanelReady()) {
+        if (!mounted) return;
+        setState(() {
+          _fetching = false;
+          _loadError = 'A sincronizar com o servidor… tente de novo em instantes.';
+        });
+        return;
+      }
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
@@ -3153,6 +3221,17 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _bootstrapFeed() async {
+    if (!await _awaitEventosFirebasePanelReady()) {
+      if (mounted) {
+        setState(() {
+          _isInitialLoading = false;
+          _feedLoadError = StateError(
+            'A sincronizar com o servidor… tente de novo em instantes.',
+          );
+        });
+      }
+      return;
+    }
     final seed = ChurchRepository.churchId(widget.tenantId.trim());
     if (seed.isNotEmpty) {
       final ram = ChurchEventosLoadService.peekRam(seed, limit: _feedPageSize) ??
@@ -3244,6 +3323,17 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _loadInitialEvents({bool backgroundRefresh = false}) async {
+    if (!backgroundRefresh && !await _awaitEventosFirebasePanelReady()) {
+      if (mounted) {
+        setState(() {
+          _isInitialLoading = false;
+          _feedLoadError = StateError(
+            'A sincronizar com o servidor… tente de novo em instantes.',
+          );
+        });
+      }
+      return;
+    }
     if (!backgroundRefresh) {
       setState(() {
         _isInitialLoading = _loadedDocs.isEmpty;
@@ -9993,6 +10083,9 @@ class _FixosTabState extends State<_FixosTab> {
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
     final tid = widget.templates.parent?.id ?? '';
     if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+    if (!await _awaitEventosFirebasePanelReady()) {
+      return _lastGoodTemplatesSnap ?? const MergedFirestoreQuerySnapshot([]);
+    }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -11571,6 +11664,15 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       });
     }
     final tid = widget.noticias.parent?.id ?? '';
+    if (!await _awaitEventosFirebasePanelReady()) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'A sincronizar com o servidor… tente de novo em instantes.';
+        });
+      }
+      return;
+    }
     try {
       QuerySnapshot<Map<String, dynamic>> snap;
       final ram = tid.isNotEmpty ? _EventosNoticiasRamCache.peek(tid) : null;

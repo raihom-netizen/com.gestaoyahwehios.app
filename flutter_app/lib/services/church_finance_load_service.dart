@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -47,7 +48,7 @@ abstract final class ChurchFinanceLoadService {
   ChurchFinanceLoadService._();
 
   static const String kHiveContas = 'finance_contas';
-  static const int kDefaultLancamentosLimit = 250;
+  static const int kDefaultLancamentosLimit = 30;
 
   static final Map<
       String,
@@ -82,6 +83,27 @@ abstract final class ChurchFinanceLoadService {
   ) =>
       _peekRam(_ramContas, cacheKeyContas(_resolve(seedTenantId)));
 
+  /// Lançamentos já carregados (qualquer limite RAM) — seed instantâneo na UI.
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekLancamentosRamAny(
+    String seedTenantId,
+  ) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    for (final limit in [800, kDefaultLancamentosLimit, 400, 250, 80, 50]) {
+      final hit = peekLancamentosRam(churchId, limit: limit);
+      if (hit != null && hit.isNotEmpty) return hit;
+    }
+    final prefix = '${churchId}_finance_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    for (final e in _ramLancamentos.entries) {
+      if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
+      if (best == null || e.value.docs.length > best.length) {
+        best = e.value.docs;
+      }
+    }
+    return best;
+  }
+
   static String resolveChurchId(String hint) => _resolve(hint);
 
   static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
@@ -107,12 +129,8 @@ abstract final class ChurchFinanceLoadService {
     map[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
-  static DateTime? _financeCreatedAt(Map<String, dynamic> data) {
-    final raw = data['createdAt'] ?? data['date'] ?? data['data'];
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    return DateTime.tryParse(raw?.toString() ?? '');
-  }
+  static DateTime? _financeCreatedAt(Map<String, dynamic> data) =>
+      financeLancamentoDate(data);
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortFinanceDocs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,

@@ -6468,9 +6468,6 @@ class _CertificadosEmitidosHistoricoViewState
   DateTime? _diaFiltro;
   DateTime? _periodoInicio;
   DateTime? _periodoFim;
-  bool _loading = true;
-  String? _loadError;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
 
   static const _chartPalette = [
     Color(0xFF2563EB),
@@ -6486,7 +6483,7 @@ class _CertificadosEmitidosHistoricoViewState
   @override
   void initState() {
     super.initState();
-    unawaited(_loadHistorico());
+    unawaited(CertificateEmitidoService.refreshHistoricoPanel(widget.tenantId));
   }
 
   @override
@@ -6499,33 +6496,20 @@ class _CertificadosEmitidosHistoricoViewState
   void didUpdateWidget(covariant _CertificadosEmitidosHistoricoView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
-      unawaited(_loadHistorico(force: true));
+      unawaited(
+        CertificateEmitidoService.refreshHistoricoPanel(
+          widget.tenantId,
+          forceRefresh: true,
+        ),
+      );
     }
   }
 
-  Future<void> _loadHistorico({bool force = false}) async {
-    setState(() {
-      _loading = _docs.isEmpty;
-      _loadError = null;
-    });
-    try {
-      final docs = await CertificateEmitidoService.loadHistorico(
+  Future<void> _loadHistorico({bool force = false}) =>
+      CertificateEmitidoService.refreshHistoricoPanel(
         widget.tenantId,
         forceRefresh: force,
       );
-      if (!mounted) return;
-      setState(() {
-        _docs = docs;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loadError = e.toString();
-        _loading = false;
-      });
-    }
-  }
 
   void _limparFiltros() {
     setState(() {
@@ -6982,23 +6966,40 @@ class _CertificadosEmitidosHistoricoViewState
   Widget build(BuildContext context) {
     final edge = ThemeCleanPremium.pagePadding(context);
 
-    if (_loading && _docs.isEmpty) {
+    return ValueListenableBuilder<CertificadosHistoricoState>(
+      valueListenable:
+          CertificateEmitidoService.historicoNotifier(widget.tenantId),
+      builder: (context, state, _) {
+        return _buildHistoricoBody(context, edge, state);
+      },
+    );
+  }
+
+  Widget _buildHistoricoBody(
+    BuildContext context,
+    EdgeInsets edge,
+    CertificadosHistoricoState state,
+  ) {
+    final loading = state.loading;
+    final loadError = state.error;
+    final docs = state.docs;
+
+    if (loading && docs.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_loadError != null && _docs.isEmpty) {
+    if (loadError != null && docs.isEmpty) {
       return Padding(
         padding: edge,
         child: ChurchPanelResilientLoadBanner(
           hasLocalData: false,
-          isSyncing: _loading,
+          isSyncing: loading,
           errorTitle: 'Erro ao carregar emissões',
-          error: _loadError,
+          error: loadError,
           onRetry: () => _loadHistorico(force: true),
         ),
       );
     }
 
-    final docs = _docs;
     if (docs.isEmpty) {
       return Padding(
         padding: edge,
@@ -7064,7 +7065,7 @@ class _CertificadosEmitidosHistoricoViewState
           parent: BouncingScrollPhysics(),
         ),
         slivers: [
-          if (_loadError != null)
+          if (loadError != null)
             SliverToBoxAdapter(
               child: Padding(
                 padding: edge.copyWith(top: 8, bottom: 4),
@@ -7072,7 +7073,7 @@ class _CertificadosEmitidosHistoricoViewState
                   hasLocalData: true,
                   isSyncing: false,
                   errorTitle: 'Erro ao sincronizar',
-                  error: _loadError,
+                  error: loadError,
                   onRetry: () => _loadHistorico(force: true),
                 ),
               ),
@@ -7775,6 +7776,34 @@ class _CertificadosEmitidosHistoricoViewState
                       );
                     },
                     childCount: filtrados.length,
+                  ),
+                ),
+              ),
+            if (widget.showList && state.hasMore)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: edge.copyWith(top: 8, bottom: 24),
+                  child: Center(
+                    child: OutlinedButton.icon(
+                      onPressed: loading
+                          ? null
+                          : () => CertificateEmitidoService.loadMoreHistoricoPanel(
+                                widget.tenantId,
+                              ),
+                      icon: loading
+                          ? SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: ThemeCleanPremium.primary,
+                              ),
+                            )
+                          : const Icon(Icons.expand_more_rounded),
+                      label: Text(
+                        loading ? 'A carregar…' : 'Carregar mais emissões',
+                      ),
+                    ),
                   ),
                 ),
               ),

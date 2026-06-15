@@ -3,7 +3,7 @@
 
 param(
     [switch] $StartBackground,
-    [int] $IntervalMinutes = 15
+    [int] $IntervalMinutes = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,10 +23,16 @@ function Invoke-WatchdogLoop {
     . (Join-Path $RepoRoot 'scripts\ensure_gestao_yahweh_toolchain_path.ps1')
     Write-Log 'Watchdog GCP iniciado.'
     $round = 0
-    while ($round -lt 96) {
+    while ($round -lt 48) {
         $round++
+        $pubLock = Join-Path $RepoRoot '.deploy-state\firebase-rules-publish.lock'
+        if (Test-Path $pubLock) {
+            Write-Log 'Skip: publish lock activo.'
+            Start-Sleep -Seconds (60 * $IntervalMinutes)
+            continue
+        }
         Write-Log "Rodada $round"
-        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=8 2>&1
+        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=12 --prefer-adc 2>&1
         $text = $out | Out-String
         Add-Content -Path $log -Value $text -Encoding UTF8
         if ($LASTEXITCODE -eq 0) {

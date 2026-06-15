@@ -13,14 +13,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-
-const repoRoot = path.join(__dirname, '..');
+const { getAccessToken, findCredentialKeyFile, repoRoot } = require('./gcp_rules_auth.cjs');
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const onlyArg = args.find((a) => a.startsWith('--only='));
 const only = onlyArg ? onlyArg.split('=')[1] : 'all';
 const maxArg = args.find((a) => a.startsWith('--max-attempts='));
 const maxAttempts = maxArg ? parseInt(maxArg.split('=')[1], 10) : (force ? 40 : 12);
+const preferAdc = args.includes('--prefer-adc') || String(process.env.YAHWEH_GCP_PREFER_ADC || '') === '1';
 const projectId =
   args.find((a) => !a.startsWith('--')) ||
   process.env.GCLOUD_PROJECT ||
@@ -39,42 +39,13 @@ function fingerprintFor(content) {
   return crypto.createHash('sha256').update(content, 'utf8').digest('base64');
 }
 
-function findServiceAccountKey() {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-    return process.env.GOOGLE_APPLICATION_CREDENTIALS;
+async function resolveAccessToken(attempt) {
+  if (attempt > 1 && (attempt - 1) % 5 === 0) {
+    process.stderr.write(`[auth] token OAuth renovado (tentativa ${attempt})\n`);
   }
-  for (const dir of [path.join(repoRoot, 'ANDROID'), path.join(repoRoot, 'secrets')]) {
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      if (name.includes('firebase-adminsdk') && name.endsWith('.json')) {
-        return path.join(dir, name);
-      }
-    }
-  }
-  return null;
-}
-
-async function getAccessToken() {
-  const keyPath = findServiceAccountKey();
-  if (!keyPath) throw new Error('Conta de servico nao encontrada (ANDROID/*-firebase-adminsdk*.json)');
-  const functionsDir = path.join(repoRoot, 'functions');
-  if (!fs.existsSync(path.join(functionsDir, 'node_modules', 'google-auth-library'))) {
-    throw new Error('Execute: cd functions && npm install');
-  }
-  process.chdir(functionsDir);
-  const { GoogleAuth } = require('google-auth-library');
-  const auth = new GoogleAuth({
-    keyFile: keyPath,
-    scopes: [
-      'https://www.googleapis.com/auth/cloud-platform',
-      'https://www.googleapis.com/auth/firebase',
-    ],
-  });
-  const client = await auth.getClient();
-  const res = await client.getAccessToken();
-  const token = (res && res.token) ? res.token : String(res || '');
-  if (token.length < 20) throw new Error('Token OAuth vazio');
-  return token;
+  const auth = await getAccessToken({ preferAdc });
+  process.stderr.write(`[auth] fonte=${auth.source}${auth.keyFile ? ` key=${path.basename(auth.keyFile)}` : ''}\n`);
+  return auth.token;
 }
 
 function decodeRulesFileContent(raw) {
@@ -109,7 +80,7 @@ async function apiCall(method, url, token, body, attempt) {
 
 function isTransient(err) {
   const s = String(err.status || err.message || '');
-  return s === '503' || s === '504' || s === '429' || /unavailable|timeout|ECONNRESET/i.test(String(err.message));
+  return s === '503' || s === '504' || s === '429' || /unavailable|timeout|ECONNRESET|RESOURCE_EXHAUSTED|RATE_LIMIT/i.test(String(err.message));
 }
 
 async function withRetry(label, fn) {
@@ -120,12 +91,36 @@ async function withRetry(label, fn) {
     } catch (err) {
       lastErr = err;
       if (!isTransient(err) || a >= maxAttempts) break;
-      const wait = Math.min(600, 8 * a + Math.floor(Math.random() * 12));
-      process.stderr.write(`[${label}] 503/transiente tentativa ${a}/${maxAttempts}, aguardar ${wait}s...\n`);
+      const status = String(err.status || '');
+      const wait = status === '429'
+        ? Math.min(600, 90 + 15 * a)
+        : Math.min(600, 8 * a + Math.floor(Math.random() * 12));
+      process.stderr.write(`[${label}] ${status || 'transiente'}/retry ${a}/${maxAttempts}, aguardar ${wait}s...\n`);
       await new Promise((r) => setTimeout(r, wait * 1000));
     }
   }
   throw lastErr;
+}
+
+function acquirePublishLock() {
+  const lockDir = path.join(repoRoot, '.deploy-state');
+  if (!fs.existsSync(lockDir)) fs.mkdirSync(lockDir, { recursive: true });
+  const lockPath = path.join(lockDir, 'firebase-rules-publish.lock');
+  if (fs.existsSync(lockPath)) {
+    const ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
+    if (ageMs < 45 * 60 * 1000) {
+      throw new Error(`Publicacao rules ja em curso (lock ${Math.round(ageMs / 1000)}s). Aguarde ou apague ${lockPath}`);
+    }
+    fs.unlinkSync(lockPath);
+  }
+  fs.writeFileSync(lockPath, `${process.pid}\n${new Date().toISOString()}`, 'utf8');
+  return lockPath;
+}
+
+function releasePublishLock(lockPath) {
+  try {
+    if (lockPath && fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+  } catch (_) {}
 }
 
 async function resolveStorageReleaseName(base, token) {
@@ -137,6 +132,17 @@ async function resolveStorageReleaseName(base, token) {
     }
   }
   return `firebase.storage/${projectId}.firebasestorage.app`;
+}
+
+async function resolveFirestoreReleaseName(base, token) {
+  const resp = await apiCall('GET', `${base}/releases?pageSize=100`, token, null, 1);
+  for (const r of resp.releases || []) {
+    const n = String(r.name || '');
+    if (n.includes('cloud.firestore')) {
+      return n.replace(/^projects\/[^/]+\/releases\//, '');
+    }
+  }
+  return 'cloud.firestore';
 }
 
 async function getReleaseRulesContent(base, token, releaseName) {
@@ -179,9 +185,13 @@ async function publishRulesTarget(base, token, targetKey) {
   const releaseName =
     targetKey === 'storage'
       ? await resolveStorageReleaseName(base, token)
-      : cfg.release;
+      : await resolveFirestoreReleaseName(base, token);
 
-  const remote = await getReleaseRulesContent(base, token, releaseName).catch(() => null);
+  process.stderr.write(`[${targetKey}] release=${releaseName}\n`);
+  const remote = await getReleaseRulesContent(base, token, releaseName).catch((e) => {
+    process.stderr.write(`[${targetKey}] read release: ${String(e.message || e).slice(0, 120)}\n`);
+    return null;
+  });
   const localNorm = content.replace(/\r\n/g, '\n').trim();
   const remoteNorm = remote ? remote.replace(/\r\n/g, '\n').trim() : '';
   if (localNorm === remoteNorm) {
@@ -191,6 +201,7 @@ async function publishRulesTarget(base, token, targetKey) {
   let rulesetName = await findRulesetByFingerprint(base, token, fp).catch(() => null);
 
   if (!rulesetName) {
+    process.stderr.write(`[${targetKey}] criar ruleset...\n`);
     const created = await apiCall(
       'POST',
       `${base}/rulesets`,
@@ -205,6 +216,7 @@ async function publishRulesTarget(base, token, targetKey) {
     rulesetName = created.name;
   }
 
+  process.stderr.write(`[${targetKey}] patch release ruleset=${rulesetName}\n`);
   const releaseUrl = `${base}/releases/${encodeURIComponent(releaseName)}`;
   const fullReleaseName = `projects/${projectId}/releases/${releaseName}`;
   const patchBodies = [
@@ -247,19 +259,21 @@ function writeDeployState(results) {
 }
 
 async function main() {
+  const lockPath = acquirePublishLock();
+  try {
+  const keyHint = findCredentialKeyFile();
+  if (keyHint) {
+    process.stderr.write(`[auth] chave disponivel: ${path.basename(keyHint)}\n`);
+  }
   const targets = only === 'all' ? ['firestore', 'storage'] : [only];
-  let token = await getAccessToken();
+  let token = await resolveAccessToken(1);
   const base = `https://firebaserules.googleapis.com/v1/projects/${projectId}`;
   const results = [];
 
   for (const t of targets) {
     try {
       const r = await withRetry(t, async (attempt) => {
-        // 503 prolongado: renova OAuth a cada 5 tentativas (evita token expirado em fila longa).
-        if (attempt > 1 && (attempt - 1) % 5 === 0) {
-          token = await getAccessToken();
-          process.stderr.write(`[${t}] token OAuth renovado (tentativa ${attempt})\n`);
-        }
+        token = await resolveAccessToken(attempt);
         return publishRulesTarget(base, token, t);
       });
       results.push(r);
@@ -276,10 +290,18 @@ async function main() {
   process.stdout.write(
     `YAHWEH_GCP_OK=${JSON.stringify({ ok: true, projectId, results })}\n`
   );
-  process.exit(0);
+  } finally {
+    releasePublishLock(lockPath);
+  }
 }
 
-main().catch((err) => {
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+  try {
+    const lockPath = path.join(repoRoot, '.deploy-state', 'firebase-rules-publish.lock');
+    if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
+  } catch (_) {}
   const pendingPath = path.join(repoRoot, '.deploy-state', 'firebase-rules-pending.json');
   try {
     const dir = path.join(repoRoot, '.deploy-state');

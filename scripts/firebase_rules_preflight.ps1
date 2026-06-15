@@ -264,6 +264,9 @@ function Invoke-FirebaseRulesGcpPublish {
         $nodeArgs += '--force'
         $nodeArgs += "--max-attempts=$MaxAttempts"
     }
+    if ($env:YAHWEH_GCP_PREFER_ADC -eq '1' -or $env:YAHWEH_GCP_PREFER_OWNER -eq '1') {
+        $nodeArgs += '--prefer-adc'
+    }
     $lines = & node @nodeArgs 2>&1
     $text = ($lines | ForEach-Object { "$_" }) -join "`n"
     $okLine = $lines | Where-Object { $_ -match '^YAHWEH_GCP_OK=' } | Select-Object -Last 1

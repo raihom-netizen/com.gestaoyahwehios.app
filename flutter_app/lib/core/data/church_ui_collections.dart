@@ -72,11 +72,22 @@ abstract final class ChurchUiCollections {
   static CollectionReference<Map<String, dynamic>> certificados([String? h]) =>
       ref(ChurchDataPaths.certificados, churchIdHint: h);
 
+  static CollectionReference<Map<String, dynamic>> certificadosHistorico(
+          [String? h]) =>
+      ref(ChurchDataPaths.certificadosHistorico, churchIdHint: h);
+
+  static CollectionReference<Map<String, dynamic>> certificadosProtocolIndex(
+          [String? h]) =>
+      ref(ChurchDataPaths.certificadosProtocolIndex, churchIdHint: h);
+
   static CollectionReference<Map<String, dynamic>> pedidosOracao([String? h]) =>
       ref(ChurchDataPaths.pedidosOracao, churchIdHint: h);
 
   static CollectionReference<Map<String, dynamic>> transferencias([String? h]) =>
       ref(ChurchDataPaths.transferencias, churchIdHint: h);
+
+  static CollectionReference<Map<String, dynamic>> cartasModelos([String? h]) =>
+      ref(ChurchDataPaths.cartasModelos, churchIdHint: h);
 
   static CollectionReference<Map<String, dynamic>> visitantes([String? h]) =>
       ref('visitantes', churchIdHint: h);

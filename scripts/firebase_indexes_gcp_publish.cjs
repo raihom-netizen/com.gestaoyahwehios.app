@@ -8,8 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-
-const repoRoot = path.join(__dirname, '..');
+const { getAccessToken, findCredentialKeyFile, repoRoot } = require('./gcp_rules_auth.cjs');
 const args = process.argv.slice(2);
 const force = args.includes('--force');
 const maxArg = args.find((a) => a.startsWith('--max-attempts='));
@@ -31,38 +30,14 @@ function readIndexesJson() {
 }
 
 function findServiceAccountKey() {
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
-    return process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  }
-  for (const dir of [path.join(repoRoot, 'ANDROID'), path.join(repoRoot, 'secrets')]) {
-    if (!fs.existsSync(dir)) continue;
-    for (const name of fs.readdirSync(dir)) {
-      if (name.includes('firebase-adminsdk') && name.endsWith('.json')) {
-        return path.join(dir, name);
-      }
-    }
-  }
-  return null;
+  return findCredentialKeyFile();
 }
 
-async function getAccessToken() {
-  const keyPath = findServiceAccountKey();
-  if (!keyPath) throw new Error('Conta de servico nao encontrada (ANDROID/*-firebase-adminsdk*.json)');
-  const functionsDir = path.join(repoRoot, 'functions');
-  if (!fs.existsSync(path.join(functionsDir, 'node_modules', 'google-auth-library'))) {
-    throw new Error('Execute: cd functions && npm install');
-  }
-  process.chdir(functionsDir);
-  const { GoogleAuth } = require('google-auth-library');
-  const auth = new GoogleAuth({
-    keyFile: keyPath,
-    scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/datastore'],
+async function getAccessTokenLocal() {
+  const auth = await getAccessToken({
+    preferAdc: String(process.env.YAHWEH_GCP_PREFER_ADC || '') === '1',
   });
-  const client = await auth.getClient();
-  const res = await client.getAccessToken();
-  const token = (res && res.token) ? res.token : String(res || '');
-  if (token.length < 20) throw new Error('Token OAuth vazio');
-  return token;
+  return auth.token;
 }
 
 async function apiCall(method, url, token, body) {
@@ -194,9 +169,9 @@ function writeDeployStateIndexes(results) {
 
 async function main() {
   const local = readIndexesJson();
-  let token = await getAccessToken();
+  let token = await getAccessTokenLocal();
   const remote = await withRetry('list', async (attempt) => {
-    if (attempt > 1 && (attempt - 1) % 5 === 0) token = await getAccessToken();
+    if (attempt > 1 && (attempt - 1) % 5 === 0) token = await getAccessTokenLocal();
     return listRemoteIndexes(token);
   });
 
@@ -222,7 +197,7 @@ async function main() {
     const key = indexKey(ix);
     try {
       const op = await withRetry(key, async (attempt) => {
-        if (attempt > 1 && (attempt - 1) % 4 === 0) token = await getAccessToken();
+        if (attempt > 1 && (attempt - 1) % 4 === 0) token = await getAccessTokenLocal();
         return createIndex(token, ix);
       });
       results.created.push({ key, name: op.name || null, state: op.state || 'CREATING' });

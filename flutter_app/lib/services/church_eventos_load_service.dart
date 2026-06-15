@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -61,6 +62,10 @@ abstract final class ChurchEventosLoadService {
 
   static String galleryCacheKey(String churchId) =>
       '${churchId.trim()}_eventos_gallery_$kGalleryLimit';
+
+  static Future<void> _ensureFirebaseForRead() async {
+    await ensureFirebaseReadyForPanelRead();
+  }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
@@ -161,6 +166,18 @@ abstract final class ChurchEventosLoadService {
 
     final path = 'igrejas/$churchId/eventos';
     final ramKey = cacheKey(churchId, limit);
+
+    try {
+      await _ensureFirebaseForRead();
+    } catch (e) {
+      return ChurchEventosLoadResult(
+        churchId: churchId,
+        docs: const [],
+        readSource: 'firebase_not_ready',
+        collectionPath: path,
+        softError: e.toString(),
+      );
+    }
 
     if (!forceRefresh && !forceServer) {
       final ramHit = peekRam(churchId, limit: limit);
@@ -512,6 +529,18 @@ abstract final class ChurchEventosLoadService {
     const limit = kGalleryLimit;
     final path = 'igrejas/$churchId/eventos';
     final ramKey = galleryCacheKey(churchId);
+
+    try {
+      await _ensureFirebaseForRead();
+    } catch (e) {
+      return ChurchEventosLoadResult(
+        churchId: churchId,
+        docs: const [],
+        readSource: 'firebase_not_ready',
+        collectionPath: path,
+        softError: e.toString(),
+      );
+    }
 
     if (!forceRefresh && !forceServer) {
       final ramHit = _peekRam(ramKey);

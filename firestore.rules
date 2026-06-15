@@ -837,6 +837,10 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id);
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
       }
+      match /cartas_modelos/{modeloId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
       // Certificados emitidos (dados completos + QR) â€” por igreja.
       match /certificados_emitidos/{certId} {
         allow get: if true;

@@ -373,7 +373,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
   List<_MemberItem> _seedMemberItems = [];
-  int _membersListLimit = YahwehPerformanceV4.adminExportBatchLimit;
+  int _membersListLimit = YahwehPerformanceV4.blindListPageSize;
   bool _membersListLoadingMore = false;
   bool _membersListHasMore = true;
 
@@ -598,10 +598,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<void> _bootstrapOperationalTenant() async {
     _resolveOperationalTenantOnce();
-    if (!mounted) return;
-    if (!_isRestrictedMember) {
-      unawaited(_reloadMembersList());
-    }
   }
 
   Future<_CardData?> _bootstrapAndLoadCard() async {
@@ -673,48 +669,45 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   Future<List<_MemberItem>> _loadMemberItemsForPicker({int? limit}) async {
-    final tid = await _effectiveIgrejaDocId();
-    final lim = limit ?? YahwehPerformanceV4.memberCardListPageSize;
-    final entries = await MemberCardDirectoryService.loadMembers(
-      tenantId: tid,
-      limit: lim,
-    );
-    final list = entries
-        .map((e) => _MemberItem(
-              id: e.id,
-              name: e.name,
-              photoUrl: e.photoUrl,
-              data: e.data,
-            ))
-        .toList();
-    if (tid.isNotEmpty) _MemberCardListRamCache.put(tid, list);
-    return list;
-  }
-
-  Future<void> _openMemberCardFast() async {
-    final seed = (_cachedIgrejaDocId ?? widget.tenantId).trim();
-    if (seed.isEmpty) return;
-
-    if (_seedMemberItems.isEmpty) {
-      try {
-        final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
-        if (!mounted) return;
-        setState(() {
-          _seedMemberItems = list;
-          _membersListFuture = Future.value(list);
-          _membersListHasMore = list.length >= _membersListLimit;
-        });
-      } catch (_) {}
+    try {
+      final tid = await _effectiveIgrejaDocId();
+      final lim = limit ?? YahwehPerformanceV4.memberCardListPageSize;
+      if (tid.isEmpty) {
+        debugPrint('MemberCardPage._loadMemberItemsForPicker: churchId vazio');
+        return const [];
+      }
+      final entries = await MemberCardDirectoryService.loadMembers(
+        tenantId: tid,
+        limit: lim,
+      );
+      final list = entries
+          .map((e) => _MemberItem(
+                id: e.id,
+                name: e.name,
+                photoUrl: e.photoUrl,
+                data: e.data,
+              ))
+          .toList();
+      if (tid.isNotEmpty) _MemberCardListRamCache.put(tid, list);
+      return list;
+    } catch (e, st) {
+      debugPrint('MemberCardPage._loadMemberItemsForPicker: $e\n$st');
+      rethrow;
     }
   }
 
-  Future<List<_MemberItem>> _loadMembersList() =>
-      _loadMemberItemsForPicker(limit: _membersListLimit);
+  Future<List<_MemberItem>> _loadMembersList() async {
+    final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
+    if (mounted) {
+      _seedMemberItems = list;
+      _membersListHasMore = list.length >= _membersListLimit;
+    }
+    return list;
+  }
 
   Future<void> _reloadMembersList() async {
     final prev = _seedMemberItems;
     setState(() {
-      _membersListLimit = YahwehPerformanceV4.adminExportBatchLimit;
       _membersListHasMore = true;
       _membersListFuture =
           prev.isNotEmpty ? Future.value(prev) : _loadMembersList();
@@ -728,7 +721,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
           _membersListHasMore = list.length >= _membersListLimit;
         });
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MemberCardPage._reloadMembersList: $e\n$st');
+      if (mounted) {
+        setState(() {
+          _membersListFuture = Future<List<_MemberItem>>.error(e, st);
+        });
+      }
+    }
   }
 
   Future<void> _loadMoreMembersList() async {
@@ -949,16 +949,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
           ? Future.value(cached)
           : _bootstrapAndLoadCard();
     } else {
-      final hint = widget.tenantId.trim();
+      final hint = _resolvedChurchIdHint();
       final ram = hint.isNotEmpty ? _MemberCardListRamCache.peek(hint) : null;
       if (ram != null && ram.isNotEmpty) {
         _seedMemberItems = List.from(ram);
         _membersListFuture = Future.value(_seedMemberItems);
         _membersListHasMore = ram.length >= _membersListLimit;
       } else {
-        _membersListFuture = Future.value(const <_MemberItem>[]);
+        _membersListFuture = _loadMembersList();
       }
-      unawaited(_openMemberCardFast());
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
@@ -8177,31 +8176,46 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         future: _membersListFuture,
                         builder: (context, snap) {
                           if (snap.hasError) {
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                      'Erro ao carregar membros: ${snap.error}',
-                                      style: TextStyle(
+                            return SizedBox.expand(
+                              child: Center(
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Erro ao carregar membros: ${snap.error}',
+                                        style: TextStyle(
                                           fontSize: 13,
-                                          color: Colors.red.shade700),
-                                      textAlign: TextAlign.center),
-                                  const SizedBox(height: 8),
-                                  TextButton.icon(
-                                      onPressed: () => _reloadMembersList(),
-                                      icon: const Icon(Icons.refresh_rounded,
-                                          size: 18),
-                                      label: const Text('Tentar novamente')),
-                                ],
+                                          color: Colors.red.shade700,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      TextButton.icon(
+                                        onPressed: () => _reloadMembersList(),
+                                        icon: const Icon(Icons.refresh_rounded,
+                                            size: 18),
+                                        label: const Text('Tentar novamente'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             );
                           }
-                          if (snap.connectionState == ConnectionState.waiting &&
-                              !snap.hasData &&
-                              _seedMemberItems.isEmpty) {
-                            return _buildMemberListLoadingSkeleton();
+                          if ((snap.connectionState ==
+                                      ConnectionState.waiting ||
+                                  snap.connectionState ==
+                                      ConnectionState.active) &&
+                              _seedMemberItems.isEmpty &&
+                              (snap.data == null || snap.data!.isEmpty)) {
+                            return SizedBox.expand(
+                              child: SingleChildScrollView(
+                                child: _buildMemberListLoadingSkeleton(),
+                              ),
+                            );
                           }
                           final all = snap.data ?? _seedMemberItems;
                           final filtered =
@@ -8222,50 +8236,68 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             });
                           }
                           if (filtered.isEmpty) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8, bottom: 4),
-                              child: Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 22,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.05),
-                                  borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusMd,
-                                  ),
-                                  border: Border.all(
-                                    color: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.14),
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      all.isEmpty
-                                          ? Icons.people_outline_rounded
-                                          : Icons.search_off_rounded,
-                                      size: 40,
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.35),
+                            return SizedBox.expand(
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(
+                                      top: 8, bottom: 4, left: 8, right: 8),
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 22,
                                     ),
-                                    const SizedBox(height: 10),
-                                    Text(
-                                      all.isEmpty
-                                          ? 'Nenhum membro cadastrado.'
-                                          : 'Nenhum membro corresponde à busca e aos filtros.',
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        height: 1.45,
-                                        color: ThemeCleanPremium.onSurfaceVariant,
-                                        fontWeight: FontWeight.w500,
+                                    decoration: BoxDecoration(
+                                      color: ThemeCleanPremium.primary
+                                          .withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusMd,
+                                      ),
+                                      border: Border.all(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.14),
                                       ),
                                     ),
-                                  ],
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          all.isEmpty
+                                              ? Icons.people_outline_rounded
+                                              : Icons.search_off_rounded,
+                                          size: 40,
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.35),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          all.isEmpty
+                                              ? 'Nenhum membro cadastrado.'
+                                              : 'Nenhum membro corresponde à busca e aos filtros.',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            height: 1.45,
+                                            color: ThemeCleanPremium
+                                                .onSurfaceVariant,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        if (all.isEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          TextButton.icon(
+                                            onPressed: () =>
+                                                _reloadMembersList(),
+                                            icon: const Icon(
+                                                Icons.refresh_rounded,
+                                                size: 18),
+                                            label: const Text(
+                                                'Recarregar lista'),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ),
                             );

@@ -50,6 +50,8 @@ Thumbs.db
 .env
 .env.*
 secrets/
+gestaoyahweh-gcp-deploy-key.json
+gestaoyahweh*-firebase-adminsdk*.json
 .firebase/
 artifacts/
 _deploy_out/

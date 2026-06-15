@@ -2211,6 +2211,15 @@ class _ResumoTabState extends State<_ResumoTab> {
       (_seedContasDocs?.isNotEmpty ?? false) ||
       accountsCache.hasData;
 
+  bool _resumoShouldShowStaleBanner({bool fromCache = false}) {
+    if (!AppConnectivityService.instance.isOnline) {
+      return fromCache ||
+          (_seedFinanceDocs?.isNotEmpty ?? false) ||
+          (_seedContasDocs?.isNotEmpty ?? false);
+    }
+    return false;
+  }
+
   void _startResumoWebCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
@@ -2221,7 +2230,7 @@ class _ResumoTabState extends State<_ResumoTab> {
       setState(() {
         _fetching = false;
         if (hadLocal) {
-          _showingStaleCache = true;
+          _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: true);
           _loadHint = null;
         } else {
           _loadHint ??=
@@ -2264,6 +2273,9 @@ class _ResumoTabState extends State<_ResumoTab> {
 
   Future<List<dynamic>> _loadFinanceBundle({required bool forceFresh}) async {
     final tid = ChurchRepository.churchId(widget.tenantId);
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
     final l = await ChurchFinanceLoadService.loadLancamentos(
       seedTenantId: tid,
@@ -2286,18 +2298,23 @@ class _ResumoTabState extends State<_ResumoTab> {
     if (mounted) {
       final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
           (_seedContasDocs?.isNotEmpty ?? false);
-      if (l.docs.isNotEmpty) {
+      if (l.docs.isNotEmpty || c.docs.isNotEmpty) {
         _loadHint = null;
-      } else if (l.softError != null) {
+        _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: l.fromCache);
+      } else if (l.softError != null && l.softError!.trim().isNotEmpty) {
         final ui = PanelResilientLoad.afterFetch(
           hadLocalData: hadLocal,
           newItems: l.docs,
-          fromCache: false,
+          fromCache: l.fromCache,
           softError: l.softError,
           forceFresh: forceFresh,
         );
         if (!hadLocal) _loadHint = ui.loadError;
-        _showingStaleCache = ui.showingStaleCache;
+        _showingStaleCache = ui.showingStaleCache &&
+            !AppConnectivityService.instance.isOnline;
+      } else {
+        _loadHint = null;
+        _showingStaleCache = false;
       }
     }
     return [l.snapshot, c.snapshot, s];
@@ -2306,7 +2323,8 @@ class _ResumoTabState extends State<_ResumoTab> {
   void _seedFinanceCaches(int limit) {
     final churchId = ChurchRepository.churchId(widget.tenantId);
     _seedFinanceDocs =
-        ChurchFinanceLoadService.peekLancamentosRam(churchId, limit: limit) ??
+        ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
+            ChurchFinanceLoadService.peekLancamentosRam(churchId, limit: limit) ??
             const [];
     _seedContasDocs =
         ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
@@ -2325,8 +2343,13 @@ class _ResumoTabState extends State<_ResumoTab> {
     final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
         (_seedContasDocs?.isNotEmpty ?? false);
     _fetching = true;
-    if (!forceFresh && hadLocal) _showingStaleCache = true;
-    if (forceFresh) _loadHint = null;
+    if (!forceFresh && hadLocal) {
+      _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: true);
+    }
+    if (forceFresh) {
+      _loadHint = null;
+      _showingStaleCache = false;
+    }
     _startResumoWebCap();
 
     final instantBundle = <dynamic>[
@@ -2336,9 +2359,7 @@ class _ResumoTabState extends State<_ResumoTab> {
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    unawaited(_loadFinanceBundle(forceFresh: forceFresh)
-        .timeout(PanelResilientLoad.queryCap)
-        .then((fresh) {
+    unawaited(_loadFinanceBundle(forceFresh: forceFresh).then((fresh) {
       if (!mounted) return;
       _webLoadCap?.cancel();
       setState(() {
@@ -2362,7 +2383,8 @@ class _ResumoTabState extends State<_ResumoTab> {
       );
       setState(() {
         _fetching = ui.fetching;
-        _showingStaleCache = ui.showingStaleCache;
+        _showingStaleCache = ui.showingStaleCache &&
+            !AppConnectivityService.instance.isOnline;
         if (!hadLocalData) _loadHint = ui.loadError;
       });
     }));
@@ -2544,7 +2566,9 @@ class _ResumoTabState extends State<_ResumoTab> {
           final dt = financeLancamentoDate(d.data());
           return _inRange(dt);
         }).toList();
-        final contasDocs = contasSnap?.docs ?? [];
+        final contasDocs = contasSnap?.docs.isNotEmpty == true
+            ? contasSnap!.docs
+            : (_seedContasDocs ?? contasSnap?.docs ?? []);
         double totalReceitas = 0, totalDespesas = 0;
         final now = DateTime.now();
 
@@ -8830,33 +8854,48 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         previousPayloadForSaldo: data,
       );
       if (pendingBytes != null && pendingMime != null) {
-        await GestaoYahwehWriteFirstPublishService.queueFinanceComprovanteAfterSave(
-          churchId: ChurchRepository.churchId(tenantId),
-          docRef: existingDoc.reference,
-          bytes: pendingBytes,
-          mimeType: pendingMime,
-          fileName: pendingFileName,
-          referenceDate: FinanceComprovantePublishService.referenceDateFromMap(
-            {...?data, ...patch},
-          ),
-          previousStoragePath:
-              (data?['comprovanteStoragePath'] ?? '').toString(),
-          previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
-        );
-        if (context.mounted) {
-          showFinanceSaveSnackBar(
-            context,
-            message:
-                'Lançamento salvo — comprovante sincroniza em background.',
+        if (kIsWeb && AppConnectivityService.instance.isOnline) {
+          await persistComprovante(
+            docRef: existingDoc.reference,
+            refData: {...?data, ...patch},
+            bytes: pendingBytes,
+            mime: pendingMime,
+            fileName: pendingFileName,
+            prevPath: (data?['comprovanteStoragePath'] ?? '').toString(),
+            prevUrl: (data?['comprovanteUrl'] ?? '').toString(),
           );
+          if (context.mounted) {
+            showFinanceSaveSnackBar(
+              context,
+              message: 'Lançamento e comprovante atualizados!',
+            );
+          }
+        } else {
+          await GestaoYahwehWriteFirstPublishService.queueFinanceComprovanteAfterSave(
+            churchId: ChurchRepository.churchId(tenantId),
+            docRef: existingDoc.reference,
+            bytes: pendingBytes,
+            mimeType: pendingMime,
+            fileName: pendingFileName,
+            referenceDate: FinanceComprovantePublishService.referenceDateFromMap(
+              {...?data, ...patch},
+            ),
+            previousStoragePath:
+                (data?['comprovanteStoragePath'] ?? '').toString(),
+            previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
+          );
+          if (context.mounted) {
+            showFinanceSaveSnackBar(
+              context,
+              message:
+                  'Lançamento salvo — comprovante sincroniza em background.',
+            );
+          }
         }
-      }
-      if (context.mounted) {
+      } else if (context.mounted) {
         showFinanceSaveSnackBar(
           context,
-          message: pendingBytes != null
-              ? 'Lançamento e comprovante atualizados!'
-              : 'Lançamento atualizado!',
+          message: 'Lançamento atualizado!',
         );
       }
     } else {
@@ -8884,23 +8923,43 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       );
 
       if (pendingAddBytes != null && pendingAddMime != null) {
-        await GestaoYahwehWriteFirstPublishService.queueFinanceComprovanteAfterSave(
-          churchId: ChurchRepository.churchId(tenantId),
-          docRef: preRef,
-          bytes: pendingAddBytes,
-          mimeType: pendingAddMime,
-          fileName: pendingAddFileName,
-          referenceDate:
-              FinanceComprovantePublishService.referenceDateFromMap(result),
-        );
-      }
-
-      if (context.mounted) {
+        if (kIsWeb && AppConnectivityService.instance.isOnline) {
+          await persistComprovante(
+            docRef: preRef,
+            refData: result,
+            bytes: pendingAddBytes,
+            mime: pendingAddMime,
+            fileName: pendingAddFileName,
+          );
+          if (context.mounted) {
+            showFinanceSaveSnackBar(
+              context,
+              message: 'Lançamento e comprovante salvos!',
+            );
+          }
+        } else {
+          await GestaoYahwehWriteFirstPublishService.queueFinanceComprovanteAfterSave(
+            churchId: ChurchRepository.churchId(tenantId),
+            docRef: preRef,
+            bytes: pendingAddBytes,
+            mimeType: pendingAddMime,
+            fileName: pendingAddFileName,
+            referenceDate:
+                FinanceComprovantePublishService.referenceDateFromMap(result),
+          );
+          if (context.mounted) {
+            showFinanceSaveSnackBar(
+              context,
+              message: pendingAddBytes != null
+                  ? 'Lançamento salvo — comprovante sincroniza em background.'
+                  : 'Lançamento salvo!',
+            );
+          }
+        }
+      } else if (context.mounted) {
         showFinanceSaveSnackBar(
           context,
-          message: pendingAddBytes != null
-              ? 'Lançamento salvo — comprovante sincroniza em background.'
-              : 'Lançamento salvo!',
+          message: 'Lançamento salvo!',
         );
       }
     }

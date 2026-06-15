@@ -434,22 +434,33 @@ String? _extractChurchSlugFromHost(String host) {
 }
 
 void main() async {
+  // 1. Bindings Flutter antes de qualquer plugin nativo/async.
   WidgetsFlutterBinding.ensureInitialized();
-  // Controle Total: um único initializeApp (firebase/firebase_bootstrap.dart).
+
+  // 2. Firebase — único initializeApp (DefaultFirebaseOptions via FirebaseBootstrap).
+  //    Aguarda conclusão antes de Firestore, Auth, Storage ou runApp.
   await FirebaseBootstrap.ensureInitialized();
-  try {
-    unawaited(
-      OfflineFirstCoordinator.initialize().catchError((Object e, StackTrace st) {
-        if (kDebugMode) {
-          debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
-        }
-      }),
-    );
-  } catch (e, st) {
-    if (kDebugMode) {
-      debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+
+  // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
+  final firebaseBoot = await FirebaseBootstrapService.initialize();
+
+  // 4. Offline/Hive — só após bootstrap OK (configureFirestoreForOfflineAndSpeed).
+  if (firebaseBoot.isReady) {
+    try {
+      unawaited(
+        OfflineFirstCoordinator.initialize().catchError((Object e, StackTrace st) {
+          if (kDebugMode) {
+            debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+          }
+        }),
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+      }
     }
   }
+
   // Controle Total: cache de imagens conservador (menos GC em listas com fotos).
   if (kIsWeb) {
     PaintingBinding.instance.imageCache.maximumSize = 200;
@@ -497,13 +508,12 @@ void main() async {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
-  // Health check + Firestore settings — sem segundo initializeApp.
-  final firebaseBoot = await FirebaseBootstrapService.initialize();
   await Future.wait<void>([
     LoginPreferences.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
     AuthProfileCacheService.warmUpForStartup(),
   ]);
+
   if (!firebaseBoot.isReady) {
     runApp(
       MaterialApp(
@@ -519,6 +529,8 @@ void main() async {
     );
     return;
   }
+
+  // 5. runApp — só com Firebase inicializado e health OK.
   await runGestaoYahwehAfterFirebaseBootstrap();
 }
 

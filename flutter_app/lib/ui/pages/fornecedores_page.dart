@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
@@ -1429,7 +1430,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _fornecedoresSnap = MergedFirestoreQuerySnapshot(seeded);
     _fornecedoresFetching = seeded.isEmpty;
     _fornecedoresError = null;
-    _fornecedoresShowingStaleCache = seeded.isNotEmpty;
+    _fornecedoresShowingStaleCache = false;
+  }
+
+  bool _fornecedoresShouldShowStaleBanner({bool fromCache = false}) {
+    if (!AppConnectivityService.instance.isOnline) {
+      return fromCache || (_fornecedoresSnap?.docs.isNotEmpty ?? false);
+    }
+    return false;
   }
 
   void _startFornecedoresWebCap() {
@@ -1441,7 +1449,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       setState(() {
         _fornecedoresFetching = false;
         if (hasLocal) {
-          _fornecedoresShowingStaleCache = true;
+          _fornecedoresShowingStaleCache =
+              !AppConnectivityService.instance.isOnline;
           _fornecedoresError = null;
         } else {
           _fornecedoresError ??=
@@ -1499,12 +1508,9 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           _fornecedoresSnap = snap;
           _fornecedoresFetching = false;
           _fornecedoresError = null;
-          _fornecedoresShowingStaleCache = {
-            'ram',
-            'hive',
-            'firestore_mem',
-            'firestore_cache',
-          }.contains(result.readSource);
+          _fornecedoresShowingStaleCache = _fornecedoresShouldShowStaleBanner(
+            fromCache: result.fromCache,
+          );
           _loadHint =
               'igrejas/$tid/fornecedores (${result.readSource}, ${result.docs.length})';
         });
@@ -1521,7 +1527,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         setState(() {
           _loadHint = result.softError;
           _fornecedoresFetching = ui.fetching;
-          _fornecedoresShowingStaleCache = ui.showingStaleCache;
+          _fornecedoresShowingStaleCache = ui.showingStaleCache &&
+              !AppConnectivityService.instance.isOnline;
           _fornecedoresError = ui.loadError;
         });
       } else {
@@ -1539,7 +1546,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       setState(() {
         _loadHint = '$e';
         _fornecedoresFetching = ui.fetching;
-        _fornecedoresShowingStaleCache = ui.showingStaleCache;
+        _fornecedoresShowingStaleCache = ui.showingStaleCache &&
+            !AppConnectivityService.instance.isOnline;
         _fornecedoresError = ui.loadError;
       });
     } finally {
@@ -1750,7 +1758,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   CollectionReference<Map<String, dynamic>> get _col =>
       ChurchUiCollections.fornecedores(_effectiveTenantId);
 
-  void _openHub(String id, {int initialTabIndex = 0}) {
+  void _openHub(
+    String id, {
+    int initialTabIndex = 0,
+    Map<String, dynamic>? initialData,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FornecedorHubPage(
@@ -1758,6 +1770,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           role: widget.role,
           fornecedorId: id,
           initialTabIndex: initialTabIndex,
+          initialData: initialData ??
+              ChurchFornecedoresLoadService.peekDocData(_effectiveTenantId, id),
           podeVerFinanceiro: widget.podeVerFinanceiro,
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
@@ -1766,7 +1780,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     );
   }
 
-  Future<void> _openEditor({String? docId}) async {
+  Future<void> _openEditor({
+    String? docId,
+    Map<String, dynamic>? initialData,
+  }) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1775,6 +1792,13 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         tenantId: _effectiveTenantId,
         col: _col,
         docId: docId,
+        initialData: initialData ??
+            (docId != null
+                ? ChurchFornecedoresLoadService.peekDocData(
+                    _effectiveTenantId,
+                    docId,
+                  )
+                : null),
       ),
     );
     if (mounted) setState(_reloadFornecedoresList);
@@ -2279,7 +2303,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 if (_cadastrosSelectionMode) {
                   _toggleCadastrosSelect(d.id);
                 } else {
-                  _openHub(d.id);
+                  _openHub(d.id, initialData: m);
                 }
               },
               borderRadius: BorderRadius.circular(22),
@@ -2434,7 +2458,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       if (!_cadastrosSelectionMode && _canWrite) ...[
                         IconButton(
                           tooltip: 'Editar',
-                          onPressed: () => _openEditor(docId: d.id),
+                          onPressed: () => _openEditor(docId: d.id, initialData: m),
                           icon: Icon(
                             Icons.edit_rounded,
                             color: ThemeCleanPremium.primary,
@@ -3946,11 +3970,13 @@ class _FornecedorFormSheet extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> col;
   final String? docId;
+  final Map<String, dynamic>? initialData;
 
   const _FornecedorFormSheet({
     required this.tenantId,
     required this.col,
     this.docId,
+    this.initialData,
   });
 
   @override
@@ -4003,38 +4029,90 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     _obsCtrl = TextEditingController();
     _pixChaveCtrl = TextEditingController();
     _notaInternaCtrl = TextEditingController();
-    if (_isEdit) _load();
+    if (widget.initialData != null) {
+      _populateFromMap(widget.initialData!);
+    }
+    if (_isEdit) unawaited(_load());
+  }
+
+  void _populateFromMap(Map<String, dynamic> m) {
+    _tipo = (m['tipoPessoa'] ?? 'pj').toString();
+    _status = (m['status'] ?? 'ativo').toString();
+    _nomeCtrl.text = (m['nome'] ?? '').toString();
+    _cpfCnpjCtrl.text = (m['cpfCnpj'] ?? '').toString();
+    _cepCtrl.text = (m['cep'] ?? '').toString();
+    _logCtrl.text = (m['logradouro'] ?? '').toString();
+    _numCtrl.text = (m['numero'] ?? '').toString();
+    _compCtrl.text = (m['complemento'] ?? '').toString();
+    _bairroCtrl.text = (m['bairro'] ?? '').toString();
+    _cidadeCtrl.text = (m['cidade'] ?? '').toString();
+    _ufCtrl.text = (m['uf'] ?? '').toString();
+    _telCtrl.text = (m['telefone'] ?? '').toString();
+    _waCtrl.text = (m['whatsapp'] ?? '').toString();
+    _emailCtrl.text = (m['email'] ?? '').toString();
+    _obsCtrl.text = (m['observacoes'] ?? '').toString();
+    _pixChaveCtrl.text = (m['pixChave'] ?? '').toString();
+    _notaInternaCtrl.text = (m['notaInterna'] ?? '').toString();
+    final pt = (m['pixTipo'] ?? 'aleatoria').toString();
+    _pixTipo = pt.isEmpty ? 'aleatoria' : pt;
+    final av = m['avaliacao'];
+    _avaliacao = av is int
+        ? av.clamp(0, 5)
+        : (int.tryParse('$av') ?? 0).clamp(0, 5);
   }
 
   Future<void> _load() async {
-    final d = await widget.col.doc(widget.docId).get();
-    if (!d.exists || !mounted) return;
-    final m = d.data()!;
-    setState(() {
-      _tipo = (m['tipoPessoa'] ?? 'pj').toString();
-      _status = (m['status'] ?? 'ativo').toString();
-      _nomeCtrl.text = (m['nome'] ?? '').toString();
-      _cpfCnpjCtrl.text = (m['cpfCnpj'] ?? '').toString();
-      _cepCtrl.text = (m['cep'] ?? '').toString();
-      _logCtrl.text = (m['logradouro'] ?? '').toString();
-      _numCtrl.text = (m['numero'] ?? '').toString();
-      _compCtrl.text = (m['complemento'] ?? '').toString();
-      _bairroCtrl.text = (m['bairro'] ?? '').toString();
-      _cidadeCtrl.text = (m['cidade'] ?? '').toString();
-      _ufCtrl.text = (m['uf'] ?? '').toString();
-      _telCtrl.text = (m['telefone'] ?? '').toString();
-      _waCtrl.text = (m['whatsapp'] ?? '').toString();
-      _emailCtrl.text = (m['email'] ?? '').toString();
-      _obsCtrl.text = (m['observacoes'] ?? '').toString();
-      _pixChaveCtrl.text = (m['pixChave'] ?? '').toString();
-      _notaInternaCtrl.text = (m['notaInterna'] ?? '').toString();
-      final pt = (m['pixTipo'] ?? 'aleatoria').toString();
-      _pixTipo = pt.isEmpty ? 'aleatoria' : pt;
-      final av = m['avaliacao'];
-      _avaliacao = av is int
-          ? av.clamp(0, 5)
-          : (int.tryParse('$av') ?? 0).clamp(0, 5);
-    });
+    final docId = widget.docId?.trim();
+    if (docId == null || docId.isEmpty) return;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      DocumentSnapshot<Map<String, dynamic>>? snap;
+      try {
+        snap = await FirestoreWebGuard.runWithWebRecovery(
+          () async {
+            try {
+              return await widget.col.doc(docId).get(
+                    const GetOptions(source: Source.serverAndCache),
+                  );
+            } catch (_) {
+              return await widget.col.doc(docId).get(
+                    const GetOptions(source: Source.cache),
+                  );
+            }
+          },
+          maxAttempts: 4,
+        );
+      } catch (e, st) {
+        debugPrint('fornecedor edit load: $e\n$st');
+      }
+      Map<String, dynamic>? data;
+      if (snap != null && snap.exists) {
+        data = snap.data();
+      } else {
+        data = widget.initialData ??
+            ChurchFornecedoresLoadService.peekDocData(widget.tenantId, docId);
+      }
+      if (data == null || !mounted) {
+        if (mounted && widget.initialData == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Não foi possível carregar o cadastro. Verifique a conexão.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      setState(() => _populateFromMap(data!));
+    } catch (e, st) {
+      debugPrint('fornecedor edit load fatal: $e\n$st');
+      if (widget.initialData != null && mounted) {
+        setState(() => _populateFromMap(widget.initialData!));
+      }
+    }
   }
 
   Future<void> _buscarCep() async {
@@ -4524,6 +4602,7 @@ class FornecedorHubPage extends StatefulWidget {
   final String role;
   final String fornecedorId;
   final int initialTabIndex;
+  final Map<String, dynamic>? initialData;
   final bool? podeVerFinanceiro;
   final bool? podeVerFornecedores;
   final List<String>? permissions;
@@ -4534,6 +4613,7 @@ class FornecedorHubPage extends StatefulWidget {
     required this.role,
     required this.fornecedorId,
     this.initialTabIndex = 0,
+    this.initialData,
     this.podeVerFinanceiro,
     this.podeVerFornecedores,
     this.permissions,
@@ -4739,16 +4819,24 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
+    final seedData = widget.initialData ??
+        ChurchFornecedoresLoadService.peekDocData(
+          widget.tenantId,
+          widget.fornecedorId,
+        );
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _fornecedorRef.watchSafe(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Fornecedor')),
-            body: const ChurchPanelLoadingBody(),
-          );
-        }
-        if (!snap.hasData || !snap.data!.exists) {
+        final liveData =
+            snap.hasData && snap.data!.exists ? snap.data!.data() : null;
+        final cadastro = liveData ?? seedData;
+        if (cadastro == null) {
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return Scaffold(
+              appBar: AppBar(title: const Text('Fornecedor')),
+              body: const ChurchPanelLoadingBody(),
+            );
+          }
           return Scaffold(
             appBar: AppBar(title: const Text('Fornecedor')),
             body: ChurchPanelResilientLoadBanner(
@@ -4761,7 +4849,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
             ),
           );
         }
-        final nome = (snap.data!.data()?['nome'] ?? 'Fornecedor').toString();
+        final nome = (cadastro['nome'] ?? 'Fornecedor').toString();
         return Scaffold(
           backgroundColor: ThemeCleanPremium.surfaceVariant,
           appBar: AppBar(
@@ -4845,6 +4933,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               _CadastroTab(
                 fornecedorRef: _fornecedorRef,
                 tenantId: widget.tenantId,
+                seedData: cadastro,
                 canWrite: ChurchRolePermissions.isCorporateModuleTeam(
                   widget.role,
                 ),
@@ -4882,11 +4971,13 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 class _CadastroTab extends StatelessWidget {
   final DocumentReference<Map<String, dynamic>> fornecedorRef;
   final String tenantId;
+  final Map<String, dynamic>? seedData;
   final bool canWrite;
 
   const _CadastroTab({
     required this.fornecedorRef,
     required this.tenantId,
+    this.seedData,
     this.canWrite = false,
   });
 
@@ -4895,9 +4986,19 @@ class _CadastroTab extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: fornecedorRef.watchSafe(),
       builder: (context, snap) {
-        final m = snap.data?.data();
+        final m = (snap.hasData && snap.data!.exists)
+            ? snap.data!.data()
+            : seedData;
         if (m == null) {
-          return const Center(child: CircularProgressIndicator());
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: snap.connectionState == ConnectionState.waiting,
+            errorTitle: 'Cadastro indisponível',
+            error: 'Não foi possível carregar os dados deste fornecedor.',
+          );
         }
         final end = [
           m['logradouro'],
@@ -4939,6 +5040,7 @@ class _CadastroTab extends StatelessWidget {
                       tenantId: tenantId,
                       col: fornecedorRef.parent,
                       docId: fornecedorRef.id,
+                      initialData: Map<String, dynamic>.from(m),
                     ),
                   );
                 },

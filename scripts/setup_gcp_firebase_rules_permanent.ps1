@@ -78,10 +78,15 @@ $nodeArgs = @(
     (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_publish.cjs'),
     $ProjectId,
     '--force',
-    '--max-attempts=40'
+    '--max-attempts=40',
+    '--prefer-adc'
 )
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & node @nodeArgs
-if ($LASTEXITCODE -ne 0) {
+$rulesExit = $LASTEXITCODE
+$ErrorActionPreference = $oldEap
+if ($rulesExit -ne 0) {
     Write-Host ''
     Write-Host 'API ainda indisponivel (503). Watchdog em background:' -ForegroundColor Yellow
     & (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1') -StartBackground
