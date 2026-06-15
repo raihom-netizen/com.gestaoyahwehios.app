@@ -125,22 +125,20 @@ service firebase.storage {
 
     function storageMembroLinkedByUserDoc(igrejaId) {
       let rootUser = firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
-      if (!rootUser.exists) {
-        return false;
-      }
-      let chosen = storageMemberDocIdFromUser(rootUser.data);
-      if (chosen.size() > 0) {
-        let p = firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(chosen));
-        return p.exists
-          && (p.data.authUid == request.auth.uid || p.data.firebaseUid == request.auth.uid);
-      }
-      let cpf = storageCpf11FromUser(rootUser.data);
-      if (cpf.size() == 11) {
-        let p = firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(cpf));
-        return p.exists
-          && (p.data.authUid == request.auth.uid || p.data.firebaseUid == request.auth.uid);
-      }
-      return false;
+      let chosen = rootUser.exists ? storageMemberDocIdFromUser(rootUser.data) : '';
+      let pByChosen = chosen.size() > 0
+        ? firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(chosen))
+        : firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/__none__);
+      let cpf = rootUser.exists ? storageCpf11FromUser(rootUser.data) : '';
+      let pByCpf = cpf.size() == 11
+        ? firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(cpf))
+        : firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/__none__);
+      return (rootUser.exists && chosen.size() > 0 && pByChosen.exists
+          && (pByChosen.data.authUid == request.auth.uid
+              || pByChosen.data.firebaseUid == request.auth.uid))
+        || (rootUser.exists && cpf.size() == 11 && pByCpf.exists
+          && (pByCpf.data.authUid == request.auth.uid
+              || pByCpf.data.firebaseUid == request.auth.uid));
     }
 
     function isChurchMember(igrejaId) {
