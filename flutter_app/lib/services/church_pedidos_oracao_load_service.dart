@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -12,7 +12,6 @@ import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -142,7 +141,8 @@ abstract final class ChurchPedidosOracaoLoadService {
     if (respondidaFilter == null) return docs;
     return docs.where((d) {
       final r = d.data()['respondida'];
-      return respondidaFilter ? r == true : r == false;
+      if (respondidaFilter) return r == true;
+      return r != true;
     }).toList();
   }
 
@@ -303,61 +303,11 @@ abstract final class ChurchPedidosOracaoLoadService {
       return ChurchPedidosOracaoLoadResult(
         churchId: churchId,
         docs: docs,
-        readSource: forceServer ? 'server' : 'firestore_full',
+        readSource: forceServer ? 'server' : 'firestore_plain',
         collectionPath: path,
       );
     } catch (e) {
       lastError = e;
-    }
-
-    try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'pedidosOracao',
-        moduleLabel: 'Pedidos de Oração',
-        limit: limit,
-        cacheKey: '${ramKey}_direct',
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
-      var docs = _filterRespondida(snap.docs, respondidaFilter);
-      docs = _sortByCreatedAt(docs);
-      _putRam(ramKey, docs);
-      if (respondidaFilter == null) {
-        _putRam(allKey, _sortByCreatedAt(snap.docs));
-        unawaited(_persistHive(churchId, snap.docs));
-      }
-      return ChurchPedidosOracaoLoadResult(
-        churchId: churchId,
-        docs: docs,
-        readSource: 'direct_list',
-        collectionPath: path,
-      );
-    } catch (e) {
-      lastError ??= e;
-    }
-
-    try {
-      final repo = await ChurchRepository.pedidosOracao.listCacheFirst(
-        churchIdHint: churchId,
-        limit: limit,
-        firestoreCacheKey: ramKey,
-      );
-      if (repo.items.isNotEmpty || repo.error == null) {
-        var docs = _filterRespondida(repo.items, respondidaFilter);
-        docs = _sortByCreatedAt(docs);
-        _putRam(ramKey, docs);
-        return ChurchPedidosOracaoLoadResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: 'repository_cache_first',
-          collectionPath: path,
-          fromCache: repo.error == null && docs.isNotEmpty,
-          softError: repo.error,
-        );
-      }
-    } catch (e) {
-      lastError ??= e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -458,97 +408,39 @@ abstract final class ChurchPedidosOracaoLoadService {
     required bool forceServer,
     required int limit,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
     final col = ChurchUiCollections.pedidosOracao(churchId);
+    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: col,
+      cacheKey: cacheKey,
+      limit: limit,
+      forceServer: forceServer,
+      sortDocs: _sortByCreatedAt,
+    );
+    return _filterRespondida(docs, respondidaFilter);
+  }
 
-    Query<Map<String, dynamic>> ordered() {
-      if (respondidaFilter == true) {
-        return col
-            .where('respondida', isEqualTo: true)
-            .orderBy('createdAt', descending: true)
-            .limit(limit);
-      }
-      if (respondidaFilter == false) {
-        return col
-            .where('respondida', isEqualTo: false)
-            .orderBy('createdAt', descending: true)
-            .limit(limit);
-      }
-      return col.orderBy('createdAt', descending: true).limit(limit);
-    }
+  /// Atualiza RAM após gravação — evita `invalidate` + reload completo.
+  static Future<void> refreshRamFromCache(String seedTenantId) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    try {
+      final snap = await ChurchUiCollections.pedidosOracao(churchId)
+          .limit(kDefaultLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (snap.docs.isEmpty) return;
+      putRam(churchId, _sortByCreatedAt(snap.docs));
+    } catch (_) {}
+  }
 
-    if (!forceServer) {
-      try {
-        final cacheSnap = await col
-            .limit(limit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          return _sortByCreatedAt(
-            _filterRespondida(cacheSnap.docs, respondidaFilter),
-          );
-        }
-      } catch (_) {}
-    }
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
-      final plain = await FirestoreReadResilience.getQuery(
-        col.limit(limit),
-        cacheKey: '${cacheKey}_plain',
-        maxAttempts: kIsWeb ? 4 : 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
-      return _sortByCreatedAt(_filterRespondida(plain.docs, respondidaFilter));
-    }
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readServer() async {
-      // Prefer plain load + client filter (avoids compound index hangs on web).
-      if (respondidaFilter != null) {
-        try {
-          return await plainLoad();
-        } catch (_) {}
-      }
-      try {
-        final snap = await FirestoreReadResilience.getQuery(
-          ordered(),
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-        return _sortByCreatedAt(snap.docs);
-      } catch (_) {
-        return plainLoad();
-      }
-    }
-
-    if (kIsWeb) {
-      try {
-        final plain = await FirestoreWebGuard.runWithWebRecovery(
-          plainLoad,
-          maxAttempts: 4,
-        ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
-        if (plain.isNotEmpty) return plain;
-      } catch (_) {}
-    }
-
-    final docs = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 14))
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    if (docs.isEmpty) {
-      try {
-        return await plainLoad();
-      } catch (_) {}
-    }
-    return docs;
+  static Future<void> _writePedidoFast(Future<void> Function() write) async {
+    await runFirestorePublishWithRecovery(
+      write,
+      maxAttempts: 2,
+      criticalWrite: true,
+    ).timeout(
+      kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 15),
+    );
   }
 
   static void removeFromRam(String seedTenantId, Iterable<String> docIds) {
@@ -566,7 +458,7 @@ abstract final class ChurchPedidosOracaoLoadService {
     }
   }
 
-  /// Gravação rápida — OptimisticFirestoreWrite + stamp tenant.
+  /// Gravação rápida — escrita directa com timeout curto (sem 5 retries).
   static Future<String> savePedido({
     required String churchId,
     required Map<String, dynamic> payload,
@@ -580,12 +472,14 @@ abstract final class ChurchPedidosOracaoLoadService {
 
     if (existingDocId != null && existingDocId.trim().isNotEmpty) {
       final id = existingDocId.trim();
-      await OptimisticFirestoreWrite.update(
-        ref: col.doc(id),
-        data: data,
-        module: OfflineModules.pedidosOracao,
-        tenantId: cid,
+      final ref = col.doc(id);
+      await _writePedidoFast(
+        () => ref.update({
+          ...data,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
       );
+      unawaited(refreshRamFromCache(cid));
       return id;
     }
 
@@ -597,12 +491,8 @@ abstract final class ChurchPedidosOracaoLoadService {
       ..putIfAbsent('respondida', () => false)
       ..['createdAt'] = FieldValue.serverTimestamp();
 
-    await OptimisticFirestoreWrite.set(
-      ref: docRef,
-      data: create,
-      module: OfflineModules.pedidosOracao,
-      tenantId: cid,
-    );
+    await _writePedidoFast(() => docRef.set(create));
+    unawaited(refreshRamFromCache(cid));
     return docRef.id;
   }
 

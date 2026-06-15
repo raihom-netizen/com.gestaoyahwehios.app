@@ -50,7 +50,6 @@ import 'pages/member_card_page.dart';
 import 'pages/members_page.dart';
 import 'pages/mural_page.dart';
 import 'pages/my_schedules_page.dart';
-import 'pages/plans/express_renew_gate_page.dart';
 import 'pages/plans/renew_plan_page.dart';
 import 'pages/subscription_expired_page.dart';
 import 'pages/schedules_page.dart';
@@ -192,6 +191,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _canPurchaseLicense =>
       AppPermissions.canPurchaseChurchLicense(_panelRole);
 
+  /// Android/Web: botão «Alterar plano». iOS Reader: oculto (Apple 3.1.1).
+  bool get _showUpgradePlanUi =>
+      _canPurchaseLicense && !IosPaymentsGate.hideInAppPlanPurchaseUi;
+
   void _syncPanelRoleFromChurch(Map<String, dynamic>? churchData) {
     final user = firebaseDefaultAuth.currentUser;
     final resolved = AuthGatePanelRole.resolve(
@@ -269,19 +272,26 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
       return;
     }
+    // iOS Reader: sem checkout nem link de vendas no app.
+    if (IosPaymentsGate.hideInAppPlanPurchaseUi) {
+      return;
+    }
     unawaited(ExpressRenewBootstrap.instance.warmUp());
-    // iPhone: fluxo in-app (expresso) — evita cold start do Safari.
-    if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
-      final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
-      Navigator.push(
-        context,
-        ThemeCleanPremium.fadeSlideRoute(
-          ExpressRenewGatePage(
-            prefillEmail: email.isEmpty ? null : email,
-            openedFromIosApp: true,
-          ),
-        ),
+    // Android: fluxo web Mercado Pago (PIX / cartão 6x) no navegador.
+    if (IosPaymentsGate.isAndroidNative) {
+      final ok = await IosPaymentsGate.openUpgradePlansExternally(
+        source: 'android_shell',
       );
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível abrir o navegador. Tente novamente ou acesse o painel web pelo computador.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
     Navigator.push(
@@ -472,6 +482,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       await _resolveOperationalTenant(forceRefresh: false);
+      await _preloadTenantDocSnapshot();
       if (!mounted) return;
       setState(() => _tenantResolveComplete = true);
       ChurchTenantConsolidationService.ensureConsolidated(
@@ -590,6 +601,51 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
+  /// Cache-first antes do StreamBuilder — evita erro «conexão» na web ao abrir o painel.
+  Future<void> _preloadTenantDocSnapshot() async {
+    final tid = _moduleTenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final ref = ChurchUiCollections.churchDoc(tid);
+      final snap = await FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await ref
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await ref.get().timeout(const Duration(seconds: 14));
+        }
+      }, maxAttempts: 4);
+      if (!mounted) return;
+      if (snap.exists) {
+        setState(() {
+          _lastGoodTenantDoc = snap;
+        });
+        _syncPanelRoleFromChurch(snap.data());
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildTenantBootstrapScaffold({required Widget child}) {
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
+        ),
+        child: SafeArea(child: child),
+      ),
+    );
+  }
+
+  void _retryTenantDocLoad() {
+    setState(() => _tenantStreamRetry++);
+    unawaited(_preloadTenantDocSnapshot());
+  }
+
   @override
   void didUpdateWidget(covariant IgrejaCleanShell oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -602,6 +658,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _tenantResolveComplete = false;
       unawaited(() async {
         await _resolveOperationalTenant(forceRefresh: true);
+        await _preloadTenantDocSnapshot();
         if (mounted) setState(() => _tenantResolveComplete = true);
       }());
       unawaited(_bootstrapChatPresenceHeartbeat());
@@ -1469,7 +1526,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     ),
                   ),
                 ),
-                if (_canPurchaseLicense)
+                if (_showUpgradePlanUi)
                   IconButton(
                     tooltip: IosPaymentsGate.shouldHidePayments
                         ? 'Atualizar plano'
@@ -1482,7 +1539,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         IconButton.styleFrom(minimumSize: const Size(48, 48)),
                   ),
               ],
-              if (_isMobile && _canPurchaseLicense)
+              if (_isMobile && _showUpgradePlanUi)
                 IconButton(
                   icon: const Icon(Icons.emoji_events_rounded,
                       color: Colors.white, size: 22),
@@ -1800,7 +1857,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ThemeCleanPremium.spaceSm,
                 compact ? 6 : ThemeCleanPremium.spaceSm,
                 ThemeCleanPremium.spaceMd),
-            child: _canPurchaseLicense
+            child: _showUpgradePlanUi
                 ? (compact
                     ? Tooltip(
                         message: IosPaymentsGate.shouldHidePayments
@@ -2028,7 +2085,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     activeColor: ThemeCleanPremium.navSidebarAccent,
                   ),
                 ),
-              if (_canPurchaseLicense)
+              if (_showUpgradePlanUi)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
                   child: Material(
@@ -2555,9 +2612,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           );
         }
       },
-      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      child: !_tenantResolveComplete
+          ? _buildTenantBootstrapScaffold(
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_${_moduleTenantId}_$_tenantStreamRetry'),
-        stream: ChurchUiCollections.churchDoc(_moduleTenantId).watchSafe(),
+        stream: ChurchUiCollections.churchDoc(_moduleTenantId).watchBootstrap(),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
             _lastGoodTenantDoc = tenantSnap.data;
@@ -2565,62 +2628,39 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           }
           final tenantDoc =
               tenantSnap.hasData ? tenantSnap.data : _lastGoodTenantDoc;
+          final hasCachedTenant = tenantDoc != null && tenantDoc.exists;
 
-          if (tenantSnap.hasError && tenantDoc == null) {
-            return Scaffold(
-              backgroundColor: ThemeCleanPremium.surfaceVariant,
-              body: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
-                ),
-                child: SafeArea(
-                  child: ChurchPanelResilientLoadBanner(
-                    hasLocalData: false,
-                    isSyncing: false,
-                    errorTitle: 'Não foi possível carregar os dados da igreja',
-                    error: tenantSnap.error,
-                    onRetry: () => setState(() => _tenantStreamRetry++),
-                  ),
-                ),
+          if (tenantSnap.hasError && !hasCachedTenant) {
+            return _buildTenantBootstrapScaffold(
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: false,
+                isSyncing: false,
+                errorTitle: 'Não foi possível carregar os dados da igreja',
+                error: tenantSnap.error,
+                onRetry: _retryTenantDocLoad,
               ),
             );
           }
           // Evita spinner ao voltar de outra aba quando já houve snapshot.
-          if (tenantDoc == null &&
+          if (!hasCachedTenant &&
               tenantSnap.connectionState == ConnectionState.waiting) {
-            return Scaffold(
-              backgroundColor: ThemeCleanPremium.surfaceVariant,
-              body: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
-                ),
-                child: const SafeArea(
-                  child: Center(
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                ),
+            return _buildTenantBootstrapScaffold(
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             );
           }
-          if (tenantDoc == null &&
+          if (!hasCachedTenant &&
               tenantSnap.connectionState == ConnectionState.done) {
-            return Scaffold(
-              backgroundColor: ThemeCleanPremium.surfaceVariant,
-              body: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
-                ),
-                child: SafeArea(
-                  child: ChurchPanelResilientLoadBanner(
-                    hasLocalData: false,
-                    isSyncing: false,
-                    errorTitle: 'Igreja não encontrada no painel',
-                    error:
-                        'Não foi possível carregar igrejas/$_moduleTenantId. '
-                        'Verifique o ID da igreja no seu usuário ou entre novamente.',
-                    onRetry: () => setState(() => _tenantStreamRetry++),
-                  ),
-                ),
+            return _buildTenantBootstrapScaffold(
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: false,
+                isSyncing: false,
+                errorTitle: 'Igreja não encontrada no painel',
+                error:
+                    'Não foi possível carregar igrejas/$_moduleTenantId. '
+                    'Verifique o ID da igreja no seu usuário ou entre novamente.',
+                onRetry: _retryTenantDocLoad,
               ),
             );
           }

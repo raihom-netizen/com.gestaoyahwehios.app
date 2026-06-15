@@ -16,7 +16,9 @@ import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
@@ -357,7 +359,8 @@ abstract final class _MemberCardDataRamCache {
   }
 }
 
-class _MemberCardPageState extends State<MemberCardPage> {
+class _MemberCardPageState extends State<MemberCardPage>
+    with SingleTickerProviderStateMixin {
   /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
   static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
     85.6 * 72 / 25.4,
@@ -406,6 +409,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// Preview gestor — membro escolhido na lista (não depende só de widget.memberId).
   String? _gestorPreviewMemberId;
   Map<String, dynamic>? _gestorPreviewMemberSeed;
+
+  TabController? _emissaoTabController;
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
 
@@ -650,27 +655,59 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
+  List<({String id, String name})> _deptDocsToFilterItems(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final list = docs
+        .map((d) => (id: d.id, name: churchDepartmentNameFromDoc(d)))
+        .where((e) => e.name.isNotEmpty)
+        .toList();
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return list;
+  }
+
   Future<List<({String id, String name})>> _loadDepartmentsForCarteira() async {
     try {
-      final tid = await _effectiveIgrejaDocId();
-      final snap = await ChurchTenantResilientReads.departamentos(tid);
-      final list = snap.docs
-          .map((d) => (
-                id: d.id,
-                name: churchDepartmentNameFromDoc(d),
-              ))
-          .where((e) => e.name.isNotEmpty)
-          .toList();
-      list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      return list;
-    } catch (_) {
-      return [];
+      var tid = (_cachedIgrejaDocId ?? _resolvedChurchIdHint()).trim();
+      if (tid.isEmpty) tid = await _effectiveIgrejaDocId();
+      if (tid.isEmpty) return const [];
+
+      final ram = ChurchDepartmentsLoadService.peekRam(tid);
+      if (ram != null && ram.isNotEmpty) {
+        return _deptDocsToFilterItems(ram);
+      }
+
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: tid,
+      );
+      if (result.docs.isNotEmpty) {
+        return _deptDocsToFilterItems(result.docs);
+      }
+      return const [];
+    } catch (e, st) {
+      debugPrint('MemberCardPage._loadDepartmentsForCarteira: $e\n$st');
+      return const [];
     }
+  }
+
+  String _deptFilterDropdownValue() {
+    if (_filtroDepartamentoCarteira == 'todos') return 'todos';
+    for (final d in _deptFilterItems) {
+      if (d.id == _filtroDepartamentoCarteira) return d.id;
+    }
+    return 'todos';
+  }
+
+  Future<void> _warmMembersDirectoryIndex() async {
+    final tid = (_cachedIgrejaDocId ?? _resolvedChurchIdHint()).trim();
+    if (tid.isEmpty) return;
+    unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
   }
 
   Future<List<_MemberItem>> _loadMemberItemsForPicker({int? limit}) async {
     try {
-      final tid = await _effectiveIgrejaDocId();
+      var tid = (_cachedIgrejaDocId ?? _resolvedChurchIdHint()).trim();
+      if (tid.isEmpty) tid = await _effectiveIgrejaDocId();
       final lim = limit ?? YahwehPerformanceV4.memberCardListPageSize;
       if (tid.isEmpty) {
         debugPrint('MemberCardPage._loadMemberItemsForPicker: churchId vazio');
@@ -958,6 +995,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       } else {
         _membersListFuture = _loadMembersList();
       }
+      _emissaoTabController = TabController(length: 2, vsync: this);
+      unawaited(_warmMembersDirectoryIndex());
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
@@ -977,6 +1016,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   @override
   void dispose() {
+    _emissaoTabController?.dispose();
     _cardLoadCap?.cancel();
     _memberSearchDebounce?.cancel();
     _memberSearchController.dispose();
@@ -3620,7 +3660,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
               IconButton(
                 tooltip: 'Atualizar lista',
                 visualDensity: VisualDensity.compact,
-                onPressed: () => unawaited(_reloadMembersList()),
+                onPressed: () {
+                  unawaited(_reloadMembersList());
+                  unawaited(_loadDepartmentsForCarteira().then((list) {
+                    if (mounted) setState(() => _deptFilterItems = list);
+                  }));
+                },
                 icon: const Icon(Icons.refresh_rounded, size: 20),
               ),
               TextButton(
@@ -3695,10 +3740,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
-            value: _filtroDepartamentoCarteira,
+            value: _deptFilterDropdownValue(),
             isExpanded: true,
             decoration: InputDecoration(
-              labelText: 'Departamento',
+              labelText: _deptFilterItems.isEmpty
+                  ? 'Departamento'
+                  : 'Departamento (${_deptFilterItems.length})',
               isDense: true,
               filled: true,
               fillColor: const Color(0xFFF8FAFC),
@@ -7733,6 +7780,362 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return base;
   }
 
+  Widget _buildMemberCarteiraListTile(_MemberItem m) {
+    final cpfLista =
+        (m.data['CPF'] ?? m.data['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final sel = _carteiraListaSelecionados.contains(m.id);
+    return Material(
+      color: sel
+          ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
+          : Colors.white,
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      child: CheckboxListTile(
+        value: sel,
+        onChanged: !_canManage
+            ? null
+            : (v) {
+                setState(() {
+                  if (v == true) {
+                    _carteiraListaSelecionados.add(m.id);
+                  } else {
+                    _carteiraListaSelecionados.remove(m.id);
+                  }
+                });
+                _refreshGestorPreviewForSelection();
+              },
+        secondary: InkWell(
+          onTap: () => _openMemberCardCnhFor(context, m.id),
+          borderRadius: BorderRadius.circular(22),
+          child: FotoMembroWidget(
+            imageUrl: m.photoUrl,
+            tenantId: _cachedIgrejaDocId ?? widget.tenantId,
+            memberId: m.id,
+            cpfDigits: cpfLista.length == 11 ? cpfLista : null,
+            memberData: m.data.isNotEmpty ? m.data : null,
+            authUid: _memberAuthUidForCarteiraFoto(m.data),
+            size: 44,
+            backgroundColor: ThemeCleanPremium.primary.withOpacity(0.15),
+            fallbackIcon: Icons.person_rounded,
+            memCacheWidth: 150,
+            memCacheHeight: 150,
+          ),
+        ),
+        title: Text(
+          m.name,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: !_canManage
+            ? null
+            : Row(
+                children: [
+                  _buildCarteiraStatusChip(m.data),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Toque na foto para ver',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+        controlAffinity: ListTileControlAffinity.leading,
+      ),
+    );
+  }
+
+  Widget _buildMembersListPane({
+    required List<_MemberItem> all,
+    required List<_MemberItem> filtered,
+  }) {
+    if (filtered.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              border: Border.all(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  all.isEmpty
+                      ? Icons.people_outline_rounded
+                      : Icons.search_off_rounded,
+                  size: 40,
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  all.isEmpty
+                      ? 'Nenhum membro cadastrado.'
+                      : 'Nenhum membro corresponde à busca e aos filtros.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.45,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (all.isEmpty) ...[
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    onPressed: () => unawaited(_reloadMembersList()),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Recarregar lista'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${filtered.length} visível(is) · ${all.length} carregado(s)',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (_canManage && _carteiraListaSelecionados.isNotEmpty)
+                TextButton(
+                  onPressed: () => setState(_carteiraListaSelecionados.clear),
+                  child: const Text('Limpar seleção'),
+                ),
+            ],
+          ),
+        ),
+        if (_canManage)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                TextButton(
+                  onPressed: () => setState(() {
+                    for (final x in filtered) {
+                      _carteiraListaSelecionados.add(x.id);
+                    }
+                  }),
+                  child: const Text('Marcar visíveis'),
+                ),
+                if (_carteiraListaSelecionados.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Chip(
+                      avatar: Icon(Icons.checklist_rounded,
+                          size: 18, color: ThemeCleanPremium.primary),
+                      label: Text(
+                        '${_carteiraListaSelecionados.length} selecionado(s)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                      backgroundColor:
+                          ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        if (_membersListHasMore)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: LazyLoadMoreFooter(
+              loading: _membersListLoadingMore,
+              onLoadMore: _loadMoreMembersList,
+            ),
+          ),
+        Expanded(
+          child: ListView.separated(
+            itemCount: filtered.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
+            itemBuilder: (_, i) => _buildMemberCarteiraListTile(filtered[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmissaoMainPanel(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+        ),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _memberSearchController,
+            decoration: InputDecoration(
+              labelText: 'Buscar membro',
+              hintText: 'Nome ou CPF...',
+              prefixIcon: Icon(
+                Icons.search_rounded,
+                size: 22,
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.8),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderSide: BorderSide(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.18),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderSide: BorderSide(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+                  width: 1.4,
+                ),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+            onChanged: (_) {
+              _memberSearchDebounce?.cancel();
+              _memberSearchDebounce = Timer(const Duration(milliseconds: 180),
+                  () {
+                if (!mounted) return;
+                setState(() => _memberSearch = _memberSearchController.text);
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          _buildCarteiraFiltersCompact(),
+          const SizedBox(height: 10),
+          if (_canManage && _emissaoTabController != null)
+            TabBar(
+              controller: _emissaoTabController,
+              labelColor: ThemeCleanPremium.primary,
+              unselectedLabelColor: Colors.grey.shade600,
+              indicatorColor: ThemeCleanPremium.primary,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(
+                  icon: Icon(Icons.people_rounded, size: 20),
+                  text: 'Membros',
+                ),
+                Tab(
+                  icon: Icon(Icons.draw_rounded, size: 20),
+                  text: 'Assinar / Exportar',
+                ),
+              ],
+            ),
+          if (_canManage && _emissaoTabController != null)
+            const SizedBox(height: 8),
+          Expanded(
+            child: FutureBuilder<List<_MemberItem>>(
+              future: _membersListFuture,
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Erro ao carregar membros: ${snap.error}',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.red.shade700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () => unawaited(_reloadMembersList()),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Tentar novamente'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                if ((snap.connectionState == ConnectionState.waiting ||
+                        snap.connectionState == ConnectionState.active) &&
+                    _seedMemberItems.isEmpty &&
+                    (snap.data == null || snap.data!.isEmpty)) {
+                  return _buildMemberListLoadingSkeleton();
+                }
+                final all = snap.data ?? _seedMemberItems;
+                final filtered =
+                    all.where(_memberMatchesCarteiraFilters).toList();
+                final preloadUrls = filtered
+                    .take(18)
+                    .map((m) => (m.photoUrl ?? '').trim())
+                    .where((u) => u.isNotEmpty)
+                    .toList();
+                final fp =
+                    '${filtered.length}|${_memberSearch.hashCode}|${preloadUrls.join('|')}';
+                if (fp != _memberListPreloadFingerprint) {
+                  _memberListPreloadFingerprint = fp;
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!context.mounted) return;
+                    preloadNetworkImages(context, preloadUrls, maxItems: 18);
+                  });
+                }
+
+                if (_canManage && _emissaoTabController != null) {
+                  return TabBarView(
+                    controller: _emissaoTabController,
+                    children: [
+                      _buildMembersListPane(all: all, filtered: filtered),
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.only(top: 4, bottom: 12),
+                        child: _buildGestorPainelAcoesRapidas(
+                          context,
+                          allMembers: all,
+                          filtered: filtered,
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return _buildMembersListPane(all: all, filtered: filtered);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmissaoCarteirinhaHeroBanner() {
     return Container(
       width: double.infinity,
@@ -8106,391 +8509,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               return LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth >= 960;
-                  final emissaoPanel = Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                      border: Border.all(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      ),
-                      boxShadow: ThemeCleanPremium.softUiCardShadow,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                        controller: _memberSearchController,
-                        decoration: InputDecoration(
-                          labelText: 'Buscar membro',
-                          hintText: 'Nome ou CPF...',
-                          prefixIcon: Icon(Icons.search_rounded, size: 22,
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.8)),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd,
-                            ),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd,
-                            ),
-                            borderSide: BorderSide(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.18),
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd,
-                            ),
-                            borderSide: BorderSide(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.65),
-                              width: 1.4,
-                            ),
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFF8FAFC),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                        ),
-                        onChanged: (_) {
-                          _memberSearchDebounce?.cancel();
-                          _memberSearchDebounce = Timer(
-                              const Duration(milliseconds: 180), () {
-                            if (!mounted) return;
-                            setState(() =>
-                                _memberSearch = _memberSearchController.text);
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      _buildCarteiraFiltersCompact(),
-                      const SizedBox(height: 12),
-                      Expanded(
-                        child: FutureBuilder<List<_MemberItem>>(
-                        future: _membersListFuture,
-                        builder: (context, snap) {
-                          if (snap.hasError) {
-                            return SizedBox.expand(
-                              child: Center(
-                                child: Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        'Erro ao carregar membros: ${snap.error}',
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: Colors.red.shade700,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      TextButton.icon(
-                                        onPressed: () => _reloadMembersList(),
-                                        icon: const Icon(Icons.refresh_rounded,
-                                            size: 18),
-                                        label: const Text('Tentar novamente'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-                          if ((snap.connectionState ==
-                                      ConnectionState.waiting ||
-                                  snap.connectionState ==
-                                      ConnectionState.active) &&
-                              _seedMemberItems.isEmpty &&
-                              (snap.data == null || snap.data!.isEmpty)) {
-                            return SizedBox.expand(
-                              child: SingleChildScrollView(
-                                child: _buildMemberListLoadingSkeleton(),
-                              ),
-                            );
-                          }
-                          final all = snap.data ?? _seedMemberItems;
-                          final filtered =
-                              all.where(_memberMatchesCarteiraFilters).toList();
-                          final preloadUrls = filtered
-                              .take(18)
-                              .map((m) => (m.photoUrl ?? '').trim())
-                              .where((u) => u.isNotEmpty)
-                              .toList();
-                          final fp =
-                              '${filtered.length}|${_memberSearch.hashCode}|${preloadUrls.join('|')}';
-                          if (fp != _memberListPreloadFingerprint) {
-                            _memberListPreloadFingerprint = fp;
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!context.mounted) return;
-                              preloadNetworkImages(context, preloadUrls,
-                                  maxItems: 18);
-                            });
-                          }
-                          if (filtered.isEmpty) {
-                            return SizedBox.expand(
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(
-                                      top: 8, bottom: 4, left: 8, right: 8),
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 22,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.05),
-                                      borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusMd,
-                                      ),
-                                      border: Border.all(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.14),
-                                      ),
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          all.isEmpty
-                                              ? Icons.people_outline_rounded
-                                              : Icons.search_off_rounded,
-                                          size: 40,
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.35),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Text(
-                                          all.isEmpty
-                                              ? 'Nenhum membro cadastrado.'
-                                              : 'Nenhum membro corresponde à busca e aos filtros.',
-                                          textAlign: TextAlign.center,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            height: 1.45,
-                                            color: ThemeCleanPremium
-                                                .onSurfaceVariant,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        if (all.isEmpty) ...[
-                                          const SizedBox(height: 12),
-                                          TextButton.icon(
-                                            onPressed: () =>
-                                                _reloadMembersList(),
-                                            icon: const Icon(
-                                                Icons.refresh_rounded,
-                                                size: 18),
-                                            label: const Text(
-                                                'Recarregar lista'),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          }
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (_canManage) ...[
-                                _buildGestorPainelAcoesRapidas(
-                                  context,
-                                  allMembers: all,
-                                  filtered: filtered,
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Text(
-                                  '${filtered.length} visível(is) · ${all.length} carregado(s)',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              if (_membersListHasMore)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: LazyLoadMoreFooter(
-                                    loading: _membersListLoadingMore,
-                                    onLoadMore: _loadMoreMembersList,
-                                  ),
-                                ),
-                              if (_canManage &&
-                                  _carteiraListaSelecionados.isNotEmpty) ...[
-                                Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 14, vertical: 12),
-                                  margin: const EdgeInsets.only(bottom: 10),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.1),
-                                        const Color(0xFFEFF6FF),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusMd),
-                                    border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.22),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.checklist_rounded,
-                                          color: ThemeCleanPremium.primary,
-                                          size: 22),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          '${_carteiraListaSelecionados.length} selecionado(s) • ${filtered.length} visível(is)',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                            color: ThemeCleanPremium.primary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              if (_canManage) ...[
-                                Row(
-                                  children: [
-                                    TextButton(
-                                      onPressed: () => setState(() {
-                                        for (final x in filtered) {
-                                          _carteiraListaSelecionados.add(x.id);
-                                        }
-                                      }),
-                                      child: const Text('Marcar visíveis'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => setState(
-                                          _carteiraListaSelecionados.clear),
-                                      child: const Text('Limpar seleção'),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                              ],
-                              Expanded(
-                                child: ListView.separated(
-                                  itemCount: filtered.length,
-                                  separatorBuilder: (_, __) =>
-                                      const SizedBox(height: 4),
-                                  itemBuilder: (_, i) {
-                                    final m = filtered[i];
-                                    final cpfLista =
-                                        (m.data['CPF'] ?? m.data['cpf'] ?? '')
-                                            .toString()
-                                            .replaceAll(RegExp(r'\D'), '');
-                                    final sel = _carteiraListaSelecionados
-                                        .contains(m.id);
-                                    return Material(
-                                      color: sel
-                                          ? ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.06)
-                                          : Colors.white,
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusMd),
-                                      child: CheckboxListTile(
-                                      value: sel,
-                                      onChanged: !_canManage
-                                          ? null
-                                          : (v) {
-                                              setState(() {
-                                                if (v == true) {
-                                                  _carteiraListaSelecionados
-                                                      .add(m.id);
-                                                } else {
-                                                  _carteiraListaSelecionados
-                                                      .remove(m.id);
-                                                }
-                                              });
-                                              _refreshGestorPreviewForSelection();
-                                            },
-                                      secondary: InkWell(
-                                        onTap: () {
-                                          _openMemberCardCnhFor(context, m.id);
-                                        },
-                                        borderRadius: BorderRadius.circular(22),
-                                        child: FotoMembroWidget(
-                                          imageUrl: m.photoUrl,
-                                          tenantId:
-                                              _cachedIgrejaDocId ?? widget.tenantId,
-                                          memberId: m.id,
-                                          cpfDigits: cpfLista.length == 11
-                                              ? cpfLista
-                                              : null,
-                                          memberData:
-                                              m.data.isNotEmpty ? m.data : null,
-                                          authUid: _memberAuthUidForCarteiraFoto(
-                                              m.data),
-                                          size: 44,
-                                          backgroundColor: ThemeCleanPremium
-                                              .primary
-                                              .withOpacity(0.15),
-                                          fallbackIcon: Icons.person_rounded,
-                                          memCacheWidth: 150,
-                                          memCacheHeight: 150,
-                                        ),
-                                      ),
-                                      title: Text(m.name,
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600)),
-                                      subtitle: !_canManage
-                                          ? null
-                                          : Row(
-                                              children: [
-                                                _buildCarteiraStatusChip(m.data),
-                                                const SizedBox(width: 6),
-                                                Expanded(
-                                                  child: Text(
-                                                    'Toque na foto para ver',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color: Colors.grey.shade600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                      controlAffinity:
-                                          ListTileControlAffinity.leading,
-                                    ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                      ),
-                    ],
-                  ),
-                  );
-
+                  final emissaoPanel = _buildEmissaoMainPanel(context);
                   return Padding(
                     padding: ThemeCleanPremium.pagePadding(context)
                         .copyWith(top: 8, bottom: 12),

@@ -4219,11 +4219,12 @@ class _PublicFooter extends StatelessWidget {
             spacing: 12,
             runSpacing: 12,
             children: [
-              _PublicFooterPrimaryCta(
-                label: 'Adquirir sistema',
-                icon: Icons.shopping_bag_outlined,
-                onTap: onAdquirirSistema,
-              ),
+              if (!IosPaymentsGate.isIosNative)
+                _PublicFooterPrimaryCta(
+                  label: 'Adquirir sistema',
+                  icon: Icons.shopping_bag_outlined,
+                  onTap: onAdquirirSistema,
+                ),
               _PublicFooterOutlineCta(
                 label: 'Desenvolvedor $kDeveloperPublicName',
                 icon: Icons.code_rounded,

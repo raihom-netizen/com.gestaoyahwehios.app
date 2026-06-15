@@ -376,26 +376,170 @@ abstract final class ChurchAgendaLoadService {
     bool forceRefresh = false,
     bool forceServer = false,
   }) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) {
+      return const ChurchAgendaLoadResult(
+        churchId: '',
+        docs: [],
+        readSource: 'empty_id',
+        collectionPath: 'agenda',
+        softError: 'Igreja não identificada.',
+      );
+    }
+
+    final path = 'igrejas/$churchId/agenda';
+    final rangeKey = cacheKey(churchId, start, end);
+
+    if (!forceRefresh && !forceServer) {
+      final ramHit = _peekRamEntry(rangeKey);
+      if (ramHit != null) {
+        unawaited(_refreshRangeInBackground(
+          churchId: churchId,
+          start: start,
+          end: end,
+          rangeKey: rangeKey,
+        ));
+        return ChurchAgendaLoadResult(
+          churchId: churchId,
+          docs: ramHit,
+          readSource: 'ram_range',
+          collectionPath: path,
+        );
+      }
+      final peek = peekAnyRam(churchId, start: start, end: end);
+      if (peek != null && peek.isNotEmpty) {
+        _putRam(rangeKey, peek);
+        unawaited(_refreshRangeInBackground(
+          churchId: churchId,
+          start: start,
+          end: end,
+          rangeKey: rangeKey,
+        ));
+        return ChurchAgendaLoadResult(
+          churchId: churchId,
+          docs: peek,
+          readSource: 'ram_all_filtered',
+          collectionPath: path,
+        );
+      }
+    }
+
+    Object? lastError;
+    try {
+      final docs = await _loadFirestoreRange(
+        churchId: churchId,
+        start: start,
+        end: end,
+        cacheKey: rangeKey,
+        forceServer: forceServer,
+      );
+      if (docs.isNotEmpty) {
+        _putRam(rangeKey, docs);
+        unawaited(_persistHive(churchId, docs));
+      }
+      return ChurchAgendaLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: forceServer ? 'server_range' : 'firestore_range',
+        collectionPath: path,
+      );
+    } catch (e) {
+      lastError = e;
+    }
+
     final all = await loadAll(
       seedTenantId: seedTenantId,
       forceRefresh: forceRefresh,
       forceServer: forceServer,
     );
     final filtered = _sortByStartTime(_filterByRange(all.docs, start, end));
-    final churchId = all.churchId;
-    final path = all.collectionPath;
     if (filtered.isNotEmpty) {
-      _putRam(cacheKey(churchId, start, end), filtered);
+      _putRam(rangeKey, filtered);
     }
     return ChurchAgendaLoadResult(
       churchId: churchId,
       docs: filtered,
-      readSource: filtered.isEmpty && all.docs.isNotEmpty
-          ? '${all.readSource}_filtered_empty'
-          : all.readSource,
+      readSource: filtered.isEmpty
+          ? all.readSource
+          : '${all.readSource}_filtered',
       collectionPath: path,
-      softError: filtered.isEmpty ? all.softError : null,
+      softError: filtered.isEmpty ? (all.softError ?? _humanizeError(lastError)) : null,
     );
+  }
+
+  static Future<void> _refreshRangeInBackground({
+    required String churchId,
+    required Timestamp start,
+    required Timestamp end,
+    required String rangeKey,
+  }) async {
+    try {
+      final docs = await _loadFirestoreRange(
+        churchId: churchId,
+        start: start,
+        end: end,
+        cacheKey: rangeKey,
+        forceServer: false,
+      );
+      if (docs.isNotEmpty) {
+        _putRam(rangeKey, docs);
+        await _persistHive(churchId, docs);
+      }
+    } catch (_) {}
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadFirestoreRange({
+    required String churchId,
+    required Timestamp start,
+    required Timestamp end,
+    required String cacheKey,
+    required bool forceServer,
+  }) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> runQuery(
+      Query<Map<String, dynamic>> query,
+      String suffix,
+    ) async {
+      return FirestoreWebGuard.runWithWebRecovery(() async {
+        final snap = await FirestoreReadResilience.getQuery(
+          query,
+          cacheKey: '${cacheKey}_$suffix',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: kIsWeb
+              ? const Duration(seconds: 12)
+              : ChurchPanelReadTimeouts.queryCap,
+        );
+        return _sortByStartTime(
+          filterActiveDocs(snap.docs),
+        );
+      }, maxAttempts: 4);
+    }
+
+    try {
+      final ranged = await runQuery(
+        ChurchUiCollections.agenda(churchId)
+            .where('startTime', isGreaterThanOrEqualTo: start)
+            .where('startTime', isLessThanOrEqualTo: end)
+            .orderBy('startTime'),
+        'startTime',
+      );
+      if (ranged.isNotEmpty) return ranged;
+    } catch (_) {}
+
+    final plain = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.agenda(churchId),
+      cacheKey: '${cacheKey}_plain',
+      limit: _plainFallbackLimit,
+      forceServer: forceServer,
+      orderByField: 'startTime',
+      orderDescending: false,
+      sortDocs: _sortByStartTime,
+    );
+    return _sortByStartTime(_filterByRange(plain, start, end));
   }
 
   static String? _humanizeError(Object? e) {

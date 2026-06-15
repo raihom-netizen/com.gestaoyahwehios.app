@@ -9,13 +9,16 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Logo institucional — **fonte única**: `logoPath` → Storage canónico.
+/// Logo institucional — Firestore `logoPath` = URL https; `logoStoragePath` = objeto no bucket.
 abstract final class ChurchBrandService {
   ChurchBrandService._();
 
@@ -60,7 +63,7 @@ abstract final class ChurchBrandService {
   static String _cacheKey(String churchId, Map<String, dynamic>? data) =>
       '${churchId.trim()}|${_updatedAtKey(data)}';
 
-  /// Path canónico no Storage — Firestore `logoPath` ou fallback padrão.
+  /// Path canónico no Storage — `logoStoragePath` ou extraído de `logoPath` (URL ou path).
   static Future<String?> getLogoPath({
     required String churchId,
     Map<String, dynamic>? tenantData,
@@ -87,7 +90,7 @@ abstract final class ChurchBrandService {
     return path;
   }
 
-  /// URL dinâmica via SDK (`getDownloadURL`) — **nunca** persistida no Firestore.
+  /// URL https para exibição — prioriza `logoPath`/`logoUrl` gravados; fallback `getDownloadURL`.
   static Future<String?> getLogoUrl({
     required String churchId,
     Map<String, dynamic>? tenantData,
@@ -124,10 +127,23 @@ abstract final class ChurchBrandService {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
+
+      final persistedHttps = ChurchImageFields.logoHttpsUrlFromDoc(data);
+      if (persistedHttps != null && persistedHttps.isNotEmpty) {
+        final url = sanitizeImageUrl(persistedHttps);
+        final path = logoPathFromData(data, churchId: churchId);
+        _cache[cacheKey] = _BrandCacheEntry(
+          path: path ?? '',
+          url: url,
+          updatedAtKey: _updatedAtKey(data),
+        );
+        return url;
+      }
+
       final path = logoPathFromData(data, churchId: churchId);
       if (path == null || path.isEmpty) return null;
 
-      unawaited(_repairLegacyLogoUrlInFirestore(churchId, path));
+      unawaited(_upgradePathOnlyLogoInFirestore(churchId, path));
 
       try {
         final md = await firebaseDefaultStorage
@@ -226,13 +242,21 @@ abstract final class ChurchBrandService {
     }
   }
 
-  /// Patch Firestore — só `logoPath`; remove URLs legadas.
-  static Map<String, dynamic> logoPathFirestorePatch(String storagePath) {
+  /// Patch Firestore — `logoPath` = URL https (token); `logoStoragePath` = objeto no bucket.
+  static Map<String, dynamic> logoPathFirestorePatch({
+    required String storagePath,
+    required String downloadUrl,
+  }) {
+    final path = storagePath.trim();
+    final url = sanitizeImageUrl(downloadUrl.trim());
     final patch = <String, dynamic>{
-      'logoPath': storagePath.trim(),
+      'logoPath': url,
+      'logoStoragePath': path,
+      'logoUrl': url,
       'updatedAt': FieldValue.serverTimestamp(),
     };
     for (final k in legacyLogoUrlFirestoreKeys) {
+      if (k == 'logoUrl') continue;
       patch[k] = FieldValue.delete();
     }
     return patch;
@@ -241,6 +265,7 @@ abstract final class ChurchBrandService {
   static Future<void> persistLogoPath({
     required String churchId,
     required String storagePath,
+    String? downloadUrl,
     int? cacheRevision,
   }) async {
     final cid = churchId.trim();
@@ -253,16 +278,32 @@ abstract final class ChurchBrandService {
     if (cid.isEmpty || path.isEmpty) {
       throw StateError('churchId ou storagePath vazio.');
     }
-    if (!path.startsWith('igrejas/') || path.contains('firebasestorage')) {
-      throw StateError('logoPath inválido — use igrejas/{id}/configuracoes/logo_igreja.png');
+    if (!path.startsWith('igrejas/')) {
+      throw StateError(
+        'logoStoragePath inválido — use igrejas/{id}/configuracoes/logo_igreja.png',
+      );
     }
     await ensureFirebaseReadyForPublishUpload();
     await ChurchStorageMetadataVerify.assertExists(path);
+
+    var url = sanitizeImageUrl((downloadUrl ?? '').trim());
+    if (url.isEmpty || !url.toLowerCase().startsWith('http')) {
+      url = sanitizeImageUrl(
+        await StorageMediaService.publishableHttpsUrlForFirestore(path) ?? '',
+      );
+    }
+    if (url.isEmpty) {
+      throw StateError('Não foi possível obter URL https da logo após upload.');
+    }
+
     await runFirestorePublishWithRecovery(
       () => FirestoreWebGuard.runWithWebRecovery(
         () => ChurchOperationalPaths.churchDoc(cid).set(
               {
-                ...logoPathFirestorePatch(path),
+                ...logoPathFirestorePatch(
+                  storagePath: path,
+                  downloadUrl: url,
+                ),
                 'logoCacheRevision': rev,
               },
               SetOptions(merge: true),
@@ -272,15 +313,15 @@ abstract final class ChurchBrandService {
       maxAttempts: 5,
     );
     invalidate(churchId: cid);
-    unawaited(_repairLegacyLogoUrlInFirestore(cid, path));
+    unawaited(ChurchPanelLocalCache.saveLogoPath(churchId: cid, logoPath: url));
     TenantResolverService.invalidateRegistrationContextCache(
       seedId: cid,
       userUid: firebaseDefaultAuth.currentUser?.uid,
     );
   }
 
-  /// Se `logoPath` ainda guarda URL https, corrige para path canónico (silencioso).
-  static Future<void> _repairLegacyLogoUrlInFirestore(
+  /// Docs antigos com path relativo em `logoPath` — atualiza para URL https (silencioso).
+  static Future<void> _upgradePathOnlyLogoInFirestore(
     String churchId,
     String canonicalPath,
   ) async {
@@ -288,9 +329,17 @@ abstract final class ChurchBrandService {
       final snap = await ChurchOperationalPaths.churchDoc(churchId).get();
       final raw = (snap.data()?['logoPath'] ?? '').toString().trim();
       final low = raw.toLowerCase();
-      if (!low.startsWith('http://') && !low.startsWith('https://')) return;
+      if (low.startsWith('http://') || low.startsWith('https://')) return;
+      if (!raw.startsWith('igrejas/')) return;
+      final url = await StorageMediaService.publishableHttpsUrlForFirestore(
+        canonicalPath,
+      );
+      if (url == null || url.isEmpty) return;
       await ChurchOperationalPaths.churchDoc(churchId).set(
-        logoPathFirestorePatch(canonicalPath),
+        logoPathFirestorePatch(
+          storagePath: canonicalPath,
+          downloadUrl: url,
+        ),
         SetOptions(merge: true),
       );
     } catch (_) {}

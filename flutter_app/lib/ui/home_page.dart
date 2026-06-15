@@ -232,18 +232,11 @@ class _HeroLeft extends StatelessWidget {
               onPressed: () => Navigator.pushNamed(context, '/admin'),
               child: const Text('Login Administrador'),
             ),
-            TextButton(
-              onPressed: () {
-                if (IosPaymentsGate.isIosNative) {
-                  unawaited(IosPaymentsGate.openUpgradePlansExternally());
-                } else {
-                  Navigator.pushNamed(context, '/planos');
-                }
-              },
-              child: Text(
-                IosPaymentsGate.isIosNative ? 'Planos no site' : 'Ver planos',
+            if (!IosPaymentsGate.hideInAppPlanPurchaseUi)
+              TextButton(
+                onPressed: () => Navigator.pushNamed(context, '/planos'),
+                child: const Text('Ver planos'),
               ),
-            ),
             if (!IosPaymentsGate.hideOrganizationSignup)
               TextButton(
                 onPressed: () => Navigator.pushNamed(context, '/signup'),

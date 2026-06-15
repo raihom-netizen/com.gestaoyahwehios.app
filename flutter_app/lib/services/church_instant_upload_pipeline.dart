@@ -6,7 +6,11 @@ import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -120,7 +124,47 @@ abstract final class ChurchInstantUploadPipeline {
     String? localPath,
     void Function(double progress)? onProgress,
   }) async {
-    await ensureFirebaseCore(requireAuth: true);
+    Object? last;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) {
+          FastMediaPublishBootstrap.resetSessionWarm();
+          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        }
+        await ensureFirebaseCore(requireAuth: true);
+        return await _uploadSimpleFeedPhotoSlotOnce(
+          postType: postType,
+          tenantId: tenantId,
+          postId: postId,
+          slotIndex: slotIndex,
+          bytes: bytes,
+          localPath: localPath,
+          onProgress: onProgress,
+        );
+      } catch (e) {
+        last = e;
+        if (attempt < 2 && isFirebaseNoAppError(e)) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 280 * (attempt + 1)),
+          );
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw last ?? StateError('Upload de foto falhou.');
+  }
+
+  static Future<FeedPhotoSlotResult> _uploadSimpleFeedPhotoSlotOnce({
+    required String postType,
+    required String tenantId,
+    required String postId,
+    required int slotIndex,
+    Uint8List? bytes,
+    String? localPath,
+    void Function(double progress)? onProgress,
+  }) async {
     Uint8List? prepared = bytes;
     if (prepared == null || prepared.isEmpty) {
       if (localPath != null && localPath.isNotEmpty) {

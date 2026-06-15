@@ -99,7 +99,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 14), () {
+    _webLoadCap = Timer(const Duration(seconds: 12), () {
       if (!mounted || !_fetching) return;
       setState(() {
         _fetching = false;
@@ -128,7 +128,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       final all = ChurchPedidosOracaoLoadService.peekRam(churchId) ?? const [];
       docs = all.where((d) {
         final r = d.data()['respondida'];
-        return filter ? r == true : r == false;
+        return filter ? r == true : r != true;
       }).toList();
     }
     _pedidosDocs = docs;
@@ -158,8 +158,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           forceRefresh: forceFresh,
           forceServer: forceFresh,
         ),
-        maxAttempts: 4,
-      ).timeout(const Duration(seconds: 14));
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 12));
       if (!mounted) return;
       final hadLocal = _pedidosDocs.isNotEmpty;
       final ui = PanelResilientLoad.afterFetch(
@@ -804,7 +804,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       ),
     );
     if (mounted && saved == true) {
-      unawaited(_fetchPedidos(forceFresh: true));
+      _seedPedidosLocal();
+      unawaited(_fetchPedidos());
     }
   }
 
@@ -2368,9 +2369,6 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
         payload: payload,
         existingDocId: _isEdit ? widget.editDoc!.id : null,
       );
-      unawaited(ChurchPedidosOracaoLoadService.invalidate(
-        ChurchRepository.churchId(widget.tenantId),
-      ));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

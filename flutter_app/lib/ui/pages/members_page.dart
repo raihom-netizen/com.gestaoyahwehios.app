@@ -6175,7 +6175,7 @@ class _MembersPageState extends State<MembersPage> {
                 : (widget.subscription?['planId'] ?? '').toString().trim(),
       );
       if (result.isBlocked && context.mounted) {
-        // Em iOS sob o gate, "Atualizar plano" leva a tela com link externo.
+        // iOS Reader: só «Entendi» — sem CTA de plano (Apple 3.1.1).
         final iosReader = IosPaymentsGate.shouldHidePayments;
         await showDialog(
           context: context,
@@ -6190,12 +6190,13 @@ class _MembersPageState extends State<MembersPage> {
               TextButton(
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Entendi')),
-              FilledButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    IosPaymentsGate.navigateToUpgradePlans(context);
-                  },
-                  child: Text(iosReader ? 'Atualizar plano' : 'Ver planos')),
+              if (!iosReader)
+                FilledButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      IosPaymentsGate.navigateToUpgradePlans(context);
+                    },
+                    child: const Text('Ver planos')),
             ],
           ),
         );
@@ -9524,11 +9525,9 @@ class _MembersLimitBanner extends StatelessWidget {
                       color: Colors.white, fontWeight: FontWeight.w600)),
               backgroundColor: ThemeCleanPremium.success,
               behavior: SnackBarBehavior.floating,
-              action: isBlocked
+              action: isBlocked && !IosPaymentsGate.shouldHidePayments
                   ? SnackBarAction(
-                      label: IosPaymentsGate.shouldHidePayments
-                          ? 'Atualizar plano'
-                          : 'Ver planos',
+                      label: 'Ver planos',
                       textColor: Colors.white,
                       onPressed: () {
                         IosPaymentsGate.navigateToUpgradePlans(context);

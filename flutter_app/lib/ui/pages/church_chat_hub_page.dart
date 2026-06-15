@@ -51,6 +51,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/church_chat_hub_departments_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
@@ -879,6 +880,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
+    unawaited(ChurchChatAutoRecoveryService.recoverOnSessionStart());
+    unawaited(
+      ChurchChatMediaOutboxService.resumeRecoverableNow().catchError((_) {}),
+    );
     _scheduleLazyMemberWarmup(tid);
     unawaited(_primeConversasListFromFallback(tid));
     unawaited(_reloadLocalConversations());
@@ -2482,7 +2487,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ChurchChatPendingStatusBanner(
           tenantId: tid,
           compact: true,
-          alwaysOfferClear: true,
+          alwaysOfferClear: false,
           role: widget.role,
           permissions: widget.permissions,
         ),

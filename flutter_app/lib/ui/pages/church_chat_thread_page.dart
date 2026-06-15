@@ -404,7 +404,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           tenantId: _tid,
           threadId: widget.threadId,
           uid: uid,
-          maxAge: const Duration(minutes: 1),
+          maxAge: Duration.zero,
         );
       }
     } catch (_) {}
@@ -1995,6 +1995,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (!mounted) return;
     setState(() => _pendingOutbound.insert(0, pending));
     _warmPendingImagePreview(pending);
+    Future<void>.delayed(const Duration(seconds: 95), () {
+      if (!mounted) return;
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i < 0 || _pendingOutbound[i].failed) return;
+      if (_pendingOutbound[i].progress >= 0.99) return;
+      _pendingOutbound[i].failed = true;
+      _pendingOutbound[i].errorMessage =
+          'Envio demorou demais. Toque em «Tentar de novo».';
+      if (mounted) setState(() {});
+    });
   }
 
   void _warmPendingImagePreview(ChurchChatOutboundPending pending) {
@@ -2680,17 +2690,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             body,
-            const SizedBox(height: 6),
-            if (!p.failed && p.kind != 'text')
-              ValueListenableBuilder<double>(
-                valueListenable: p.progressListenable,
-                builder: (context, progress, _) => LinearProgressIndicator(
-                  value: progress > 0 && progress < 1 ? progress : null,
-                  minHeight: 3,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              )
-            else if (p.failed)
+            if (p.failed)
               TextButton(
                 onPressed: () {
                   if (p.kind == 'text') {
@@ -3698,7 +3698,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       }
                       final delivery =
                           (m['deliveryStatus'] ?? '').toString();
-                      if (delivery == 'uploading') {
+                      if (delivery == 'uploading' ||
+                          delivery == 'queued' ||
+                          delivery == 'sending') {
+                        final sp =
+                            ChurchChatMessageFields.storagePath(m).trim();
+                        if (sp.isNotEmpty &&
+                            (m['senderUid'] ?? '').toString() == uid) {
+                          unawaited(
+                            ChatStrictPublishService.tryFinalizeIfStorageReady(
+                              tenantId: _tid,
+                              threadId: widget.threadId,
+                              messageId: d.id,
+                              data: m,
+                            ),
+                          );
+                        }
                         final created = m['createdAt'];
                         if (created is Timestamp) {
                           final age = DateTime.now()

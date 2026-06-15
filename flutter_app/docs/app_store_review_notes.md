@@ -11,7 +11,10 @@ Documento de apoio à revisão da App Store: notas para colar no App Store Conne
 Gestão YAHWEH is a **B2B / multi-tenant church management SaaS**. Churches use the app to manage members, schedules, finances, communications, etc.
 
 **Digital goods / subscriptions (Guideline 3.1.x)**  
-The **platform subscription** (church license) is **not sold inside the iOS app**. On **iOS**, the app runs in a **Reader / account-management** style mode: **no in-app checkout** and **no in-app prices** for the platform subscription. Managers who need to renew or change the plan are directed to complete **authentication and payment on our website** in the system browser (Safari). The iOS app then reflects the updated license via the same signed-in account / backend.
+The **platform subscription** (church license) is **not sold inside the iOS app**. On **iOS**, the app is a **Reader mirror**: **no in-app checkout**, **no subscription prices**, **no “upgrade plan” buttons**, and **no external links to the sales/checkout website**. When the license expires, a **neutral blocked screen** appears (contact administrator / use the web panel — text only, no payment CTAs). Payment (Mercado Pago PIX / card) happens **only on the website** in a browser outside the app; Firestore is updated via webhook; the app reads the license status after login.
+
+**Android**  
+Managers can tap **Alterar plano** — opens the web flow (`/atualizar-plano`) in Chrome for Mercado Pago (PIX or card up to 6 installments).
 
 **Remote Config**  
 Feature flag `exibir_pagamento_ios` (Firebase Remote Config) defaults to **off** on iOS so reviewers and end users do not see purchase UI in the native build unless we explicitly enable it for a future product decision.
@@ -42,7 +45,10 @@ The app is **not** a registered charitable organization. On **iOS**, the in-app 
 O **Gestão YAHWEH** é um **SaaS B2B multi-inquilino** para **gestão de igrejas** (membros, escalas, finanças, comunicação, etc.).
 
 **Assinatura da plataforma / Guideline 3.1**  
-A **assinatura da plataforma** (licença da igreja) **não é vendida dentro da app iOS**. No **iPhone/iPad**, a app funciona em modo **gestão de conta / Reader**: **sem checkout** e **sem preços** da assinatura da plataforma **dentro do binário**. Quem precisa de renovar ou mudar de plano faz **login e pagamento no site**, no **Safari** (navegador do sistema). A app iOS reflete o estado da licença após o backend atualizar.
+A **assinatura da plataforma** **não é vendida dentro da app iOS**. No **iPhone/iPad**, a app é **espelho**: **sem checkout**, **sem preços**, **sem botão «Alterar plano»** e **sem links externos** para o site de vendas. Licença vencida → ecrã neutro (contactar administrador / painel web — só texto). Pagamento (Mercado Pago) só na **web**; webhook atualiza Firestore; a app lê o estado após login.
+
+**Android**  
+Gestor toca **Alterar plano** → abre `/atualizar-plano` no Chrome (PIX / cartão até 6x).
 
 **Remote Config**  
 A flag `exibir_pagamento_ios` (Firebase Remote Config) vem **desligada por defeito** no iOS, para não aparecer UI de pagamento da plataforma na app nativa durante a revisão (e em produção), salvo decisão explícita de produto.

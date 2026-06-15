@@ -547,6 +547,9 @@ class InstagramMuralState extends State<InstagramMural> {
     }
     try {
       await ensureFirebaseReadyForPublishUpload();
+      unawaited(
+        FastMediaPublishBootstrap.warmForFeedPublish().catchError((_) {}),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3728,7 +3731,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final titulo = _title.text.trim();
     final startSlot = existingUrls.length;
     final videoPath = _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
-    final hasVideo = videoPath != null || _videoUrl.text.trim().isNotEmpty;
+    final localVideoPath = _pendingLocalVideoPathForEvento();
+    final hasVideo = videoPath != null ||
+        localVideoPath != null ||
+        _videoUrl.text.trim().isNotEmpty;
+    final hasNewPhotos = compressedNewPhotos.isNotEmpty;
 
     unawaited(
       EventosPublishVerificationService.logPublishPhase(
@@ -3743,24 +3750,21 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       ),
     );
 
-    EcofirePublishProgressUi.schedule<void>(
-      context: context,
-      uploadLabel: 'A enviar fotos e vídeo…',
-      saveLabel: 'A gravar evento…',
-      distributeLabel: 'A notificar e publicar no site…',
-      successMessage:
-          isNewDoc ? 'Evento publicado com sucesso.' : 'Evento atualizado.',
-      closeEditor: () {
-        if (mounted) {
-          Navigator.pop(context, <String, dynamic>{
-            'ok': true,
-            'bg': true,
-            'docId': docRef.id,
-          });
-        }
-      },
-      action: (reportProgress) async {
-        try {
+    try {
+      await EcofirePublishProgressUi.runWithProgress<void>(
+        context,
+        uploadLabel: hasNewPhotos || localVideoPath != null
+            ? 'A enviar fotos e vídeo…'
+            : 'A preparar…',
+        saveLabel: 'A gravar evento…',
+        distributeLabel: 'A notificar e publicar no site…',
+        action: (reportProgress) async {
+          await EventoPublishService.prepareFullPipeline(
+            logLabel: hasNewPhotos || localVideoPath != null
+                ? 'evento_ui_publish_media'
+                : 'evento_ui_publish',
+            withMedia: hasNewPhotos || localVideoPath != null || hasVideo,
+          );
           await EventoStrictPublishService.publish(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -3769,11 +3773,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
             hasVideo: hasVideo,
-            newImagesBytes:
-                compressedNewPhotos.isNotEmpty ? compressedNewPhotos : null,
+            newImagesBytes: hasNewPhotos ? compressedNewPhotos : null,
             newImagePaths: null,
             videoStoragePath: videoPath,
-            localVideoPath: null,
+            localVideoPath: localVideoPath,
             publicSite: _publicSite,
             eventStartAt: _eventStartAtForSave(),
             location: _localSalvo(),
@@ -3793,13 +3796,38 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               eventoId: docRef.id,
             ),
           );
-          EventosPublishVerificationService.clearLastError();
-        } catch (e) {
-          EventosPublishVerificationService.rememberLastError(e);
-          rethrow;
-        }
-      },
-    );
+        },
+      );
+      EventosPublishVerificationService.clearLastError();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          isNewDoc ? 'Evento publicado com sucesso.' : 'Evento atualizado.',
+        ),
+      );
+      Navigator.pop(context, true);
+    } catch (e, st) {
+      EventosPublishVerificationService.rememberLastError(e);
+      await CrashlyticsService.record(e, st, reason: 'eventos_publish');
+      if (mounted) {
+        ThemeCleanPremium.showErrorSnackBarWithRetry(
+          context,
+          formatUploadErrorForUser(e),
+          onRetry: _save,
+        );
+      }
+    }
+  }
+
+  String? _pendingLocalVideoPathForEvento() {
+    final raw = _videoUrl.text.trim();
+    if (raw.isEmpty) return null;
+    final low = raw.toLowerCase();
+    if (low.startsWith('http://') || low.startsWith('https://')) return null;
+    if (raw.startsWith('/') || raw.contains('\\') || low.startsWith('file://')) {
+      return raw;
+    }
+    return null;
   }
 
   void _clearNewPhotosAfterPublish() {
@@ -3938,6 +3966,21 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     _publicSite = data['publicSite'] != false;
     unawaited(_resolveOperationalTenantForEditor());
     unawaited(_preloadChurchAddress());
+    if (widget.type == 'aviso') {
+      unawaited(
+        AvisoPublishService.prepareFullPipeline(
+          logLabel: 'aviso_editor_open',
+          withPhotos: false,
+        ).catchError((_) {}),
+      );
+    } else if (widget.type == 'evento') {
+      unawaited(
+        EventoPublishService.prepareFullPipeline(
+          logLabel: 'evento_editor_open',
+          withMedia: true,
+        ).catchError((_) {}),
+      );
+    }
   }
 
   Future<void> _preloadChurchAddress() async {
@@ -4781,8 +4824,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     final startSlot = existingUrls.length;
+    final hasNewPhotos = compressedNewPhotos.isNotEmpty;
 
-    if (compressedNewPhotos.isNotEmpty) {
+    if (hasNewPhotos) {
       await MuralPostPendingMediaCache.put(
         tenantId: publishTenantId,
         postId: docRef.id,
@@ -4803,24 +4847,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       ),
     );
 
-    EcofirePublishProgressUi.schedule<void>(
-      context: context,
-      uploadLabel: 'A enviar fotos…',
-      saveLabel: 'A gravar aviso…',
-      distributeLabel: 'A notificar e publicar no site…',
-      successMessage:
-          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
-      closeEditor: () {
-        if (mounted) {
-          Navigator.pop(context, <String, dynamic>{
-            'ok': true,
-            'bg': true,
-            'docId': docRef.id,
-          });
-        }
-      },
-      action: (reportProgress) async {
-        try {
+    try {
+      await EcofirePublishProgressUi.runWithProgress<void>(
+        context,
+        uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
+        saveLabel: 'A gravar aviso…',
+        distributeLabel: 'A notificar e publicar no site…',
+        action: (reportProgress) async {
+          await AvisoPublishService.prepareFullPipeline(
+            logLabel: hasNewPhotos ? 'aviso_ui_publish_photos' : 'aviso_ui_publish',
+            withPhotos: hasNewPhotos,
+          );
           await YahwehCentralEngineService.executeInstantSaveAviso(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -4828,8 +4865,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             isNewDoc: isNewDoc,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            newImagesBytes:
-                compressedNewPhotos.isNotEmpty ? compressedNewPhotos : null,
+            newImagesBytes: hasNewPhotos ? compressedNewPhotos : null,
             newImagePaths: null,
             publicSite: _publicSite,
             calendarDate: _validUntil,
@@ -4849,13 +4885,27 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               docId: docRef.id,
             ),
           );
-          AvisosPublishVerificationService.clearLastError();
-        } catch (e) {
-          AvisosPublishVerificationService.rememberLastError(e);
-          rethrow;
-        }
-      },
-    );
+        },
+      );
+      AvisosPublishVerificationService.clearLastError();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
+        ),
+      );
+      Navigator.pop(context, true);
+    } catch (e, st) {
+      AvisosPublishVerificationService.rememberLastError(e);
+      await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      if (mounted) {
+        ThemeCleanPremium.showErrorSnackBarWithRetry(
+          context,
+          formatUploadErrorForUser(e),
+          onRetry: _save,
+        );
+      }
+    }
   }
 
   Future<void> _save() async {

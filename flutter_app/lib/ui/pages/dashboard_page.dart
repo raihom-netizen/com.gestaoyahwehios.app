@@ -156,11 +156,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
     Widget banner() {
       final status = (widget.subscription?['status'] ?? '').toString().toUpperCase();
-      // Em iOS sob o gate, o botao leva para a tela "Atualizar plano" que abre
-      // o site externo (Apple 3.1.3 / Multiplatform Service).
-      final iosReader = IosPaymentsGate.shouldHidePayments;
-      final ctaLabel = iosReader ? 'Atualizar plano' : 'Ativar plano';
-      final ctaLabelTrial = iosReader ? 'Atualizar plano' : 'Ver planos';
+      final iosReader = IosPaymentsGate.hideInAppPlanPurchaseUi;
+      const ctaLabel = 'Alterar plano';
+      const ctaLabelTrial = 'Alterar plano';
 
       if (widget.trialExpired) {
         return Container(
@@ -177,18 +175,20 @@ class _DashboardPageState extends State<DashboardPage> {
               Expanded(
                 child: Text(
                   iosReader
-                      ? 'Seu teste gratis expirou. Para continuar usando todos os recursos, atualize seu plano no site.'
-                      : 'Seu teste gratis expirou. Para continuar usando todos os recursos, ative um plano.',
+                      ? 'Seu teste grátis expirou. Contacte o administrador da igreja ou regularize a licença no painel web.'
+                      : 'Seu teste grátis expirou. Para continuar usando todos os recursos, ative um plano.',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-              const SizedBox(width: 10),
-              ElevatedButton(
-                onPressed: () {
-                  IosPaymentsGate.navigateToUpgradePlans(context);
-                },
-                child: Text(ctaLabel),
-              ),
+              if (!iosReader) ...[
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  onPressed: () {
+                    IosPaymentsGate.navigateToUpgradePlans(context);
+                  },
+                  child: const Text(ctaLabel),
+                ),
+              ],
             ],
           ),
         );
@@ -209,18 +209,20 @@ class _DashboardPageState extends State<DashboardPage> {
               Expanded(
                 child: Text(
                   iosReader
-                      ? 'Teste gratis ativo. Para nao perder acesso quando o periodo encerrar, atualize seu plano no site.'
-                      : 'Teste gratis ativo. Vincule o pagamento para nao perder acesso quando o periodo encerrar.',
+                      ? 'Teste grátis ativo. Para não perder acesso, regularize o plano no painel web antes do fim do período.'
+                      : 'Teste grátis ativo. Vincule o pagamento para não perder acesso quando o período encerrar.',
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-              const SizedBox(width: 10),
-              OutlinedButton(
-                onPressed: () {
-                  IosPaymentsGate.navigateToUpgradePlans(context);
-                },
-                child: Text(ctaLabelTrial),
-              ),
+              if (!iosReader) ...[
+                const SizedBox(width: 10),
+                OutlinedButton(
+                  onPressed: () {
+                    IosPaymentsGate.navigateToUpgradePlans(context);
+                  },
+                  child: const Text(ctaLabelTrial),
+                ),
+              ],
             ],
           ),
         );

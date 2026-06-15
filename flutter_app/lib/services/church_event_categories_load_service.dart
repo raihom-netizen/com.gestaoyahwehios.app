@@ -4,12 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -132,15 +131,11 @@ abstract final class ChurchEventCategoriesLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.eventCategories,
         ).timeout(const Duration(seconds: 2));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.eventCategories,
-          );
+        if (hive.isNotEmpty) {
           final docs = _sortByNome(
             TenantModuleHiveCache.toQueryDocuments(hive),
           );
@@ -170,45 +165,8 @@ abstract final class ChurchEventCategoriesLoadService {
       return ChurchEventCategoriesLoadResult(
         churchId: churchId,
         docs: docs,
-        readSource: forceServer ? 'server' : 'firestore_full',
+        readSource: forceServer ? 'server' : 'firestore_plain',
       );
-    } catch (e) {
-      lastError = e;
-    }
-
-    try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'event_categories',
-        moduleLabel: 'Categorias de evento',
-        limit: 120,
-        cacheKey: '${ramKey}_direct',
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-      final docs = _sortByNome(snap.docs);
-      _putRam(ramKey, docs);
-      unawaited(_persistHive(churchId, docs));
-      return ChurchEventCategoriesLoadResult(
-        churchId: churchId,
-        docs: docs,
-        readSource: 'direct_list',
-      );
-    } catch (e) {
-      lastError = e;
-    }
-
-    try {
-      final list = await ChurchEventosLoadService.loadEventCategories(
-        seedTenantId: churchId,
-      );
-      if (list.isNotEmpty) {
-        _putRam(ramKey, list);
-        unawaited(_persistHive(churchId, list));
-        return ChurchEventCategoriesLoadResult(
-          churchId: churchId,
-          docs: list,
-          readSource: 'eventos_service',
-        );
-      }
     } catch (e) {
       lastError = e;
     }
@@ -255,13 +213,86 @@ abstract final class ChurchEventCategoriesLoadService {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    final q = await ChurchTenantResilientReads.eventCategories(churchId)
-        .timeout(ChurchPanelReadTimeouts.queryCap);
-    final docs = _sortByNome(q.docs);
-    if (docs.isEmpty && !forceServer) {
-      return docs;
-    }
-    return docs;
+    return ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.eventCategories(churchId),
+      cacheKey: ramKey,
+      limit: 120,
+      forceServer: forceServer,
+      sortDocs: _sortByNome,
+    );
+  }
+
+  static Future<void> _writeFast(Future<void> Function() write) async {
+    await runFirestorePublishWithRecovery(
+      write,
+      maxAttempts: 2,
+      criticalWrite: true,
+    ).timeout(
+      kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 15),
+    );
+  }
+
+  static Future<void> refreshRamFromCache(String seedTenantId) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    try {
+      final snap = await ChurchUiCollections.eventCategories(churchId)
+          .limit(120)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (snap.docs.isEmpty) return;
+      _putRam(cacheKey(churchId), _sortByNome(snap.docs));
+    } catch (_) {}
+  }
+
+  static void removeFromRam(String seedTenantId, String docId) {
+    final key = cacheKey(_resolve(seedTenantId));
+    final hit = _ram[key];
+    if (hit == null) return;
+    _ram[key] = (
+      docs: hit.docs.where((d) => d.id != docId).toList(),
+      at: DateTime.now(),
+    );
+  }
+
+  /// Cria categoria — escrita directa com timeout curto.
+  static Future<String> saveCategory({
+    required String seedTenantId,
+    required String nome,
+    required int colorValue,
+  }) async {
+    final churchId = _resolve(seedTenantId);
+    final trimmed = nome.trim();
+    if (churchId.isEmpty) throw StateError('Igreja não identificada.');
+    if (trimmed.isEmpty) throw ArgumentError('Nome da categoria vazio.');
+
+    final ref = ChurchUiCollections.eventCategories(churchId).doc();
+    final payload = ChurchTenantFields.stamp(churchId, {
+      'nome': trimmed,
+      'cor': colorValue,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await _writeFast(() => ref.set(payload));
+    unawaited(refreshRamFromCache(churchId));
+    unawaited(_persistHive(churchId, peekRam(churchId) ?? const []));
+    return ref.id;
+  }
+
+  /// Remove categoria.
+  static Future<void> deleteCategory({
+    required String seedTenantId,
+    required String docId,
+  }) async {
+    final churchId = _resolve(seedTenantId);
+    final id = docId.trim();
+    if (churchId.isEmpty || id.isEmpty) return;
+
+    await _writeFast(
+      () => ChurchUiCollections.eventCategories(churchId).doc(id).delete(),
+    );
+    removeFromRam(churchId, id);
+    unawaited(refreshRamFromCache(churchId));
   }
 
   static Future<void> _persistHive(

@@ -38,18 +38,18 @@ class MembersLimitResult {
   int get slotsLeftInPlan => planLimit - currentCount;
 
   /// Mensagem curta para banner/aviso.
-  /// Em iOS sob o gate (Apple 3.1.3), texto orienta a "atualizar plano"
-  /// (que leva ao site externo) sem call-to-action interno de compra.
   String get shortMessage {
     final iosReader = IosPaymentsGate.shouldHidePayments;
     if (isBlocked) {
       return iosReader
-          ? 'Limite do plano atingido. Atualize seu plano para cadastrar novos membros.'
+          ? 'Limite do plano atingido. Contacte o administrador da igreja para ampliar o plano.'
           : 'Limite do plano atingido. Faça upgrade para cadastrar novos membros.';
     }
     if (isOverLimitWarning) {
       final rest = slotsLeftBeforeBlock;
-      return 'Você está $rest cadastro(s) do bloqueio. Atualize seu plano.';
+      return iosReader
+          ? 'Você está $rest cadastro(s) do bloqueio. Contacte o administrador da igreja.'
+          : 'Você está $rest cadastro(s) do bloqueio. Atualize seu plano.';
     }
     if (planLimit > 0 && slotsLeftInPlan <= 10 && slotsLeftInPlan > 0) {
       return 'Faltam $slotsLeftInPlan membros para o limite do plano.';
@@ -61,14 +61,13 @@ class MembersLimitResult {
   }
 
   /// Mensagem para diálogo quando bloqueado.
-  /// Em iOS sob o gate, evita o termo "Assinatura" (menu interno) e orienta
-  /// o usuario a usar o botao "Atualizar plano" — que leva ao site externo.
   String get blockedDialogMessage {
     if (IosPaymentsGate.shouldHidePayments) {
       return 'Seu plano ($planName) permite até $planLimit membros. '
           'Você já utilizou a tolerância de '
           '${AppConstants.membersGraceOverLimit} membros a mais. '
-          'Para cadastrar novos membros, atualize seu plano.';
+          'Para cadastrar novos membros, contacte o administrador da igreja '
+          'ou regularize o plano no painel web.';
     }
     return 'Seu plano ($planName) permite até $planLimit membros. '
         'Você já utilizou a tolerância de ${AppConstants.membersGraceOverLimit} membros a mais. '

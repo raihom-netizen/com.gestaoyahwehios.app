@@ -22,8 +22,8 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
+import 'package:gestao_yahweh/services/church_calendar_load_service.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
@@ -33,7 +33,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -136,8 +135,9 @@ class _CalendarPageState extends State<CalendarPage>
   Map<String, List<_CalendarEvent>> _eventsByDay = {};
   Map<String, List<_CalendarEvent>> _legacyEventsByDay = {};
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _agendaDocs = [];
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _agendaSub;
   Timer? _webLoadCap;
+  Timer? _mobileRefreshTimer;
+  int _calendarLoadToken = 0;
   /// Dias (yyyy-MM-dd) com pelo menos uma escala de ministério — alerta no calendário.
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
@@ -853,9 +853,6 @@ class _CalendarPageState extends State<CalendarPage>
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
-  Duration get _agendaWebQueryCap =>
-      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap;
-
   String _agendaCacheKey() {
     final (rangeStart, rangeEnd) = _computeLoadRange();
     return '${_tid.trim()}_${_dayKey(rangeStart)}_${_dayKey(rangeEnd)}';
@@ -876,7 +873,6 @@ class _CalendarPageState extends State<CalendarPage>
     if (resolved.isEmpty || !mounted) return;
     if (resolved == _effectiveTenantId) return;
     setState(() => _effectiveTenantId = resolved);
-    _restartAgendaSubscription();
   }
 
   CollectionReference<Map<String, dynamic>> get _agenda =>
@@ -942,8 +938,8 @@ class _CalendarPageState extends State<CalendarPage>
     _fetching = _agendaDocs.isEmpty && _eventsByDay.isEmpty;
     _loading = _fetching;
     _startWebLoadingCap();
-    _restartAgendaSubscription();
-    unawaited(_bootstrapAndLoadEvents());
+    unawaited(_reloadCalendar());
+    _scheduleMobileAgendaRefresh();
     unawaited(PdfSuperPremiumTheme.loadRobotoPdfTheme());
     _pdfBrandingFuture = loadReportPdfBranding(_churchId).then((b) {
       _pdfBrandingReady = b;
@@ -1000,7 +996,7 @@ class _CalendarPageState extends State<CalendarPage>
       showStaleCache: _showingStaleCache && !_fetching,
       errorTitle: 'Não foi possível carregar alguns eventos',
       error: _loadError,
-      onRetry: onRetry ?? () => _loadEvents(forceRefresh: true),
+      onRetry: onRetry ?? () => _reloadCalendar(forceRefresh: true),
       staleMessage:
           'Modo offline — agenda com últimos compromissos guardados. Puxe para atualizar.',
       syncMessage:
@@ -1008,13 +1004,23 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  /// Resolve tenant + Firestore pronto; carga em paralelo (não bloqueia UI).
-  Future<void> _bootstrapAndLoadEvents() async {
+  /// Carga única — agenda + eventos + cultos (sem triplicar queries).
+  Future<void> _reloadCalendar({bool forceRefresh = false}) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    unawaited(_bootstrapAgendaTenant());
-    if (mounted) await _loadEvents();
+    await _bootstrapAgendaTenant();
+    if (mounted) await _loadEvents(forceRefresh: forceRefresh);
+  }
+
+  /// Mobile: polling leve — evita `watchSafe` na coleção inteira (instável na Web).
+  void _scheduleMobileAgendaRefresh() {
+    _mobileRefreshTimer?.cancel();
+    if (kIsWeb) return;
+    _mobileRefreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (!mounted || _fetching) return;
+      unawaited(_reloadCalendar());
+    });
   }
 
   @override
@@ -1026,16 +1032,15 @@ class _CalendarPageState extends State<CalendarPage>
       _eventsByDay = {};
       _agendaDocs = [];
       _hydrateAgendaFromRam();
-      unawaited(_loadEvents());
-      _restartAgendaSubscription();
-      unawaited(_bootstrapAgendaTenant());
+      unawaited(_reloadCalendar());
+      _scheduleMobileAgendaRefresh();
     }
   }
 
   @override
   void dispose() {
     _webLoadCap?.cancel();
-    _agendaSub?.cancel();
+    _mobileRefreshTimer?.cancel();
     _slideCtrl.dispose();
     super.dispose();
   }
@@ -1125,105 +1130,6 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  Future<void> _loadAgendaDocsForRange({bool forceRefresh = false}) async {
-    final (rangeStart, rangeEnd) = _computeLoadRange();
-    final start = Timestamp.fromDate(rangeStart);
-    final end = Timestamp.fromDate(rangeEnd);
-    final ram = ChurchAgendaLoadService.peekAnyRam(
-      _churchId,
-      start: start,
-      end: end,
-    );
-    if (ram != null && mounted) {
-      setState(() {
-        _agendaDocs = ram;
-        _loading = false;
-      });
-      _rebuildMerged();
-    } else if (mounted && _agendaDocs.isEmpty) {
-      setState(() => _loading = true);
-    }
-    try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final result = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchAgendaLoadService.loadByStartTimeRange(
-          seedTenantId: _churchId,
-          start: start,
-          end: end,
-          forceRefresh: forceRefresh,
-        ),
-        maxAttempts: 4,
-      ).timeout(_agendaWebQueryCap);
-      if (!mounted) return;
-      final hadLocal = _agendaDocs.isNotEmpty;
-      setState(() {
-        if (result.docs.isNotEmpty) {
-          _agendaDocs = result.docs;
-          _showingStaleCache = false;
-          _loadError = null;
-        } else if (result.softError != null) {
-          if (!hadLocal && _agendaDocs.isEmpty) {
-            _loadError ??= result.softError;
-          } else {
-            _showingStaleCache = true;
-            _loadError = null;
-          }
-        }
-        _loading = false;
-        _fetching = false;
-      });
-      _rebuildMerged();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _fetching = false;
-          _loading = false;
-          if (_agendaDocs.isEmpty && !_agendaHasLocalData) {
-            _loadError ??= e.toString();
-          } else {
-            _showingStaleCache = true;
-            _loadError = null;
-          }
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _fetching = false;
-          _loading = false;
-        });
-      }
-      _webLoadCap?.cancel();
-    }
-  }
-
-  void _restartAgendaSubscription() {
-    _agendaSub?.cancel();
-    _agendaSub = null;
-    unawaited(_loadAgendaDocsForRange());
-    if (kIsWeb) return;
-    final (rangeStart, rangeEnd) = _computeLoadRange();
-    _agendaSub = _agenda
-        .limit(ChurchAgendaLoadService.plainFallbackLimit)
-        .watchSafe()
-        .listen((snap) {
-      if (!mounted) return;
-      final filtered = snap.docs.where((d) {
-        if (!ChurchModuleFirestoreListRead.isActiveRecord(d.data())) {
-          return false;
-        }
-        final ts = ChurchAgendaLoadService.docStartTimestamp(d.data());
-        if (ts == null) return false;
-        final dt = ts.toDate();
-        return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-      }).toList();
-      setState(() => _agendaDocs = filtered);
-      _rebuildMerged();
-    });
-  }
-
   void _clearAgendaBulkUi() {
     _agendaBulkSelectMode = false;
     _agendaSelectedIds.clear();
@@ -1308,8 +1214,7 @@ class _CalendarPageState extends State<CalendarPage>
     try {
       await _deleteAgendaDocsInRange(start, end);
       _clearAgendaBulkUi();
-      await _loadEvents(forceRefresh: true);
-      _restartAgendaSubscription();
+      await _reloadCalendar(forceRefresh: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1639,8 +1544,7 @@ class _CalendarPageState extends State<CalendarPage>
         await batch.commit();
       }
       _clearAgendaBulkUi();
-      await _loadEvents(forceRefresh: true);
-      _restartAgendaSubscription();
+      await _reloadCalendar(forceRefresh: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1973,6 +1877,7 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Future<void> _loadEvents({bool forceRefresh = false}) async {
+    final loadToken = ++_calendarLoadToken;
     if (forceRefresh) {
       unawaited(ChurchAgendaLoadService.invalidate(_churchId));
     }
@@ -1995,8 +1900,6 @@ class _CalendarPageState extends State<CalendarPage>
       });
     }
     final (rangeStart, rangeEnd) = _computeLoadRange();
-    final start = Timestamp.fromDate(rangeStart);
-    final end = Timestamp.fromDate(rangeEnd);
 
     final map = <String, List<_CalendarEvent>>{};
     final seenNoticiaIds = <String>{};
@@ -2080,128 +1983,32 @@ class _CalendarPageState extends State<CalendarPage>
       }
     }
 
-    Future<QuerySnapshot<Map<String, dynamic>>> loadNoticiasPorData() async {
-      try {
-        return await ChurchTenantResilientReads.eventosByDataEventoRange(
-          _tid,
-          start: start,
-          end: end,
-        ).timeout(_agendaWebQueryCap);
-      } catch (e) {
-        err ??= e is TimeoutException
-            ? 'Tempo esgotado ao carregar eventos.'
-            : e.toString();
-        return const MergedFirestoreQuerySnapshot([]);
-      }
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> loadCultosPorData() async {
-      try {
-        return await ChurchTenantResilientReads.cultosByDateRange(
-          _tid,
-          start: start,
-          end: end,
-        ).timeout(_agendaWebQueryCap);
-      } catch (e) {
-        err ??= e is TimeoutException
-            ? 'Tempo esgotado ao carregar eventos.'
-            : e.toString();
-        return const MergedFirestoreQuerySnapshot([]);
-      }
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>?> loadMuralEventos() async {
-      try {
-        return await ChurchTenantResilientReads.muralEventosByStartAtRange(
-          _tid,
-          start: start,
-          end: end,
-        ).timeout(_agendaWebQueryCap);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>?> loadEscalasNoPeriodo() async {
-      try {
-        return await ChurchTenantResilientReads.escalasByDateRange(
-          _tid,
-          start: start,
-          end: end,
-        ).timeout(_agendaWebQueryCap);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-        loadAgendaInterna() async {
-      try {
-        final result = await FirestoreWebGuard.runWithWebRecovery(
-          () => ChurchAgendaLoadService.loadAll(
-            seedTenantId: _churchId,
-            forceRefresh: forceRefresh,
-          ),
-          maxAttempts: 4,
-        ).timeout(_agendaWebQueryCap);
-        final filtered = result.docs.where((d) {
-          final ts = ChurchAgendaLoadService.docStartTimestamp(d.data());
-          if (ts == null) return false;
-          final dt = ts.toDate();
-          return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-        }).toList();
-        return filtered;
-      } catch (e) {
-        err ??= e is TimeoutException
-            ? 'Tempo esgotado ao carregar agenda.'
-            : e.toString();
-        final fallback = ChurchAgendaLoadService.peekAnyRam(
-          _churchId,
-          start: start,
-          end: end,
-        );
-        return fallback ?? const [];
-      }
-    }
-
     var escalaKeys = <String>{};
     var agendaDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
-    try {
-      final parallel = await Future.wait<dynamic>([
-        loadNoticiasPorData(),
-        loadCultosPorData(),
-        loadMuralEventos(),
-        loadEscalasNoPeriodo(),
-        loadAgendaInterna(),
-      ]);
-      // Mural (`type: evento` + startAt) primeiro: define hora correta antes do índice por dataEvento.
-      final muralSnap =
-          parallel[2] as QuerySnapshot<Map<String, dynamic>>?;
-      if (muralSnap != null) {
-        addNoticias(muralSnap, allowStartAtFallback: true);
+      final loaded = await ChurchCalendarLoadService.loadMonth(
+        seedTenantId: _churchId,
+        rangeStart: rangeStart,
+        rangeEnd: rangeEnd,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted || loadToken != _calendarLoadToken) return;
+      err = loaded.softError;
+      if (loaded.muralEventos != null) {
+        addNoticias(loaded.muralEventos!, allowStartAtFallback: true);
       }
-      addNoticias(parallel[0] as QuerySnapshot<Map<String, dynamic>>);
-      addCultos(parallel[1] as QuerySnapshot<Map<String, dynamic>>);
-      final escSnap = parallel[3] as QuerySnapshot<Map<String, dynamic>>?;
+      addNoticias(loaded.eventosByDataEvento);
+      addCultos(loaded.cultos);
+      final escSnap = loaded.escalas;
       if (escSnap != null) {
         for (final d in escSnap.docs) {
           final dt = (d.data()['date'] as Timestamp?)?.toDate();
           if (dt != null) escalaKeys.add(_dayKey(dt));
         }
       }
-      agendaDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-        parallel[4] as List<QueryDocumentSnapshot<Map<String, dynamic>>>,
-      );
-    } catch (e) {
-      err ??= e is TimeoutException
-          ? 'Tempo esgotado ao carregar eventos.'
-          : e.toString();
-    }
+      agendaDocs = loaded.agendaDocs;
 
-    try {
-      final tplSnap = await ChurchTenantResilientReads.eventTemplates(_tid)
-          .timeout(const Duration(seconds: 8));
+      final tplSnap = loaded.eventTemplates;
       final dedupe = <String>{};
       for (final list in map.values) {
         for (final ev in list) {
@@ -2248,53 +2055,54 @@ class _CalendarPageState extends State<CalendarPage>
               ));
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      err ??= e is TimeoutException
+          ? 'Tempo esgotado ao carregar eventos.'
+          : e.toString();
+    }
 
     _suppressCultosWhenFeedCoversSameTitle(map);
 
     for (final list in map.values) {
       list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
     }
-    } finally {
-      if (mounted) {
-        final hasNewData = map.isNotEmpty || agendaDocs.isNotEmpty;
-        final hadCachedUi = _legacyEventsByDay.isNotEmpty ||
-            _agendaDocs.isNotEmpty ||
-            _eventsByDay.isNotEmpty;
+    if (!mounted || loadToken != _calendarLoadToken) return;
+    final hasNewData = map.isNotEmpty || agendaDocs.isNotEmpty;
+    final hadCachedUi = _legacyEventsByDay.isNotEmpty ||
+        _agendaDocs.isNotEmpty ||
+        _eventsByDay.isNotEmpty;
 
-        if (hasNewData) {
-          setState(() {
-            _legacyEventsByDay = map;
-            _escalaDayKeys = escalaKeys;
-            _agendaDocs = agendaDocs;
-            _loading = false;
-            _fetching = false;
-            _showingStaleCache = false;
-            _loadError = null;
-          });
-          _AgendaRamCache.put(cacheKey, map, escalaKeys);
-        } else if (hadCachedUi) {
-          setState(() {
-            _loading = false;
-            _fetching = false;
-            _showingStaleCache = true;
-            _loadError = null;
-          });
-        } else {
-          setState(() {
-            _legacyEventsByDay = map;
-            _escalaDayKeys = escalaKeys;
-            _agendaDocs = agendaDocs;
-            _loading = false;
-            _fetching = false;
-            _showingStaleCache = false;
-            _loadError = err;
-          });
-        }
-        _rebuildMerged();
-      }
-      _webLoadCap?.cancel();
+    if (hasNewData) {
+      setState(() {
+        _legacyEventsByDay = map;
+        _escalaDayKeys = escalaKeys;
+        _agendaDocs = agendaDocs;
+        _loading = false;
+        _fetching = false;
+        _showingStaleCache = false;
+        _loadError = null;
+      });
+      _AgendaRamCache.put(cacheKey, map, escalaKeys);
+    } else if (hadCachedUi) {
+      setState(() {
+        _loading = false;
+        _fetching = false;
+        _showingStaleCache = true;
+        _loadError = null;
+      });
+    } else {
+      setState(() {
+        _legacyEventsByDay = map;
+        _escalaDayKeys = escalaKeys;
+        _agendaDocs = agendaDocs;
+        _loading = false;
+        _fetching = false;
+        _showingStaleCache = false;
+        _loadError = err;
+      });
     }
+    _rebuildMerged();
+    _webLoadCap?.cancel();
   }
 
   String _normalizeType(String raw) {
@@ -2413,7 +2221,7 @@ class _CalendarPageState extends State<CalendarPage>
                 child: _buildSplitCalendarBody(wide: wide, isMobile: isMobile),
               )
             : RefreshIndicator(
-                onRefresh: () => _loadEvents(forceRefresh: true),
+                onRefresh: () => _reloadCalendar(forceRefresh: true),
                 child: ListView(
                   padding: pad,
                   children: [
@@ -2483,7 +2291,7 @@ class _CalendarPageState extends State<CalendarPage>
         isMobile && !_embeddedMobile ? 72.0 : ThemeCleanPremium.spaceMd;
 
     Widget unifiedScroll() => RefreshIndicator(
-          onRefresh: () => _loadEvents(forceRefresh: true),
+          onRefresh: () => _reloadCalendar(forceRefresh: true),
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(
               parent: BouncingScrollPhysics(),
@@ -2729,9 +2537,7 @@ class _CalendarPageState extends State<CalendarPage>
                   () {
                     setState(() => _agendaView = _AgendaViewKind.list);
                     WidgetsBinding.instance
-                        .addPostFrameCallback((_) => _loadEvents());
-                    WidgetsBinding.instance
-                        .addPostFrameCallback((_) => _restartAgendaSubscription());
+                        .addPostFrameCallback((_) => _reloadCalendar());
                   })),
         ],
       ),
@@ -2837,8 +2643,7 @@ class _CalendarPageState extends State<CalendarPage>
       onTap: () {
         onTap();
         if (_agendaView != _AgendaViewKind.list) {
-          _loadEvents();
-          _restartAgendaSubscription();
+          _reloadCalendar();
         }
       },
       child: AnimatedContainer(
@@ -3070,8 +2875,7 @@ class _CalendarPageState extends State<CalendarPage>
           onPageChanged: (focused) {
             _focusedDay = focused;
             _focusedMonth = DateTime(focused.year, focused.month, 1);
-            _loadEvents();
-            _restartAgendaSubscription();
+            _reloadCalendar();
           },
         ),
       ),
@@ -3952,8 +3756,7 @@ class _CalendarPageState extends State<CalendarPage>
           _listFilter = 'mes_livre';
           _listMonthAnchor = DateTime(d.year, d.month, 1);
         });
-        await _loadEvents(forceRefresh: true);
-        _restartAgendaSubscription();
+        await _reloadCalendar(forceRefresh: true);
       }
       return;
     }
@@ -3977,13 +3780,11 @@ class _CalendarPageState extends State<CalendarPage>
           _periodStart = start;
           _periodEnd = end;
         });
-        await _loadEvents(forceRefresh: true);
-        _restartAgendaSubscription();
+        await _reloadCalendar(forceRefresh: true);
       }
     } else {
       setState(() => _listFilter = value);
-      await _loadEvents(forceRefresh: true);
-      _restartAgendaSubscription();
+      await _reloadCalendar(forceRefresh: true);
     }
   }
 
@@ -4861,8 +4662,7 @@ class _CalendarPageState extends State<CalendarPage>
                         await _noticias.doc(ev.id).delete();
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
-                        await _loadEvents(forceRefresh: true);
-                        _restartAgendaSubscription();
+                        await _reloadCalendar(forceRefresh: true);
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           ThemeCleanPremium.successSnackBar('Evento removido.'),
@@ -4917,8 +4717,7 @@ class _CalendarPageState extends State<CalendarPage>
                         await _cultos.doc(ev.id).delete();
                         if (!ctx.mounted) return;
                         Navigator.pop(ctx);
-                        await _loadEvents(forceRefresh: true);
-                        _restartAgendaSubscription();
+                        await _reloadCalendar(forceRefresh: true);
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           ThemeCleanPremium.successSnackBar('Culto removido.'),
@@ -5105,8 +4904,7 @@ class _CalendarPageState extends State<CalendarPage>
         DateTime(day.year, day.month, day.day),
         DateTime(day.year, day.month, day.day, 23, 59, 59),
       );
-      await _loadEvents(forceRefresh: true);
-      _restartAgendaSubscription();
+      await _reloadCalendar(forceRefresh: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -7259,8 +7057,7 @@ class _CalendarPageState extends State<CalendarPage>
         _focusedDay = _selectedDay!;
         _focusedMonth = DateTime(savedDate.year, savedDate.month, 1);
       });
-      await _loadEvents(forceRefresh: true);
-      _restartAgendaSubscription();
+      await _reloadCalendar(forceRefresh: true);
     }
   }
 }

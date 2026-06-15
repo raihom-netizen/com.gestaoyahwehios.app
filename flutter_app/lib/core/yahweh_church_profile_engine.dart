@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
@@ -47,9 +48,15 @@ abstract final class YahwehChurchProfileEngine {
       out.putIfAbsent('saldoAtual', () => fm['saldoAtual'] ?? fm['saldo_atual']);
     }
 
-    final logoPath = ChurchBrandService.logoPathFromData(raw, churchId: id);
-    if (logoPath != null && logoPath.isNotEmpty) {
-      out['logoPath'] = logoPath;
+    final logoHttps = ChurchImageFields.logoHttpsUrlFromDoc(raw);
+    if (logoHttps != null && logoHttps.isNotEmpty) {
+      out['logoPath'] = logoHttps;
+      out['logoUrl'] = logoHttps;
+    } else {
+      final logoPath = ChurchBrandService.logoPathFromData(raw, churchId: id);
+      if (logoPath != null && logoPath.isNotEmpty) {
+        out['logoStoragePath'] = logoPath;
+      }
     }
 
     return out;

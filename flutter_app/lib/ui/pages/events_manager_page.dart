@@ -1528,14 +1528,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 }
 
-/// CRUD simples de categorias (nome + cor) na subcoleção `event_categories`.
-class _EventCategoriesManagerSheet extends StatefulWidget {
+/// CRUD categorias (nome + cor) — `igrejas/{id}/event_categories`.
+class _EventCategoriesManagerPage extends StatefulWidget {
   final String tenantId;
-  const _EventCategoriesManagerSheet({required this.tenantId});
+  const _EventCategoriesManagerPage({required this.tenantId});
 
   @override
-  State<_EventCategoriesManagerSheet> createState() =>
-      _EventCategoriesManagerSheetState();
+  State<_EventCategoriesManagerPage> createState() =>
+      _EventCategoriesManagerPageState();
 }
 
 class _EventsGalleryHeroHeader extends StatelessWidget {
@@ -2877,7 +2877,7 @@ class _EventGalleryDetailPage extends StatelessWidget {
   }
 }
 
-class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerSheet> {
+class _EventCategoriesManagerPageState extends State<_EventCategoriesManagerPage> {
   static const List<Color> _palette = [
     Color(0xFF2563EB),
     Color(0xFF16A34A),
@@ -2893,63 +2893,72 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
   Color _selectedColor = _palette[0];
   bool _saving = false;
   bool _loadingList = true;
+  String? _loadError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
 
-  Future<String> _operationalTenantId() async =>
-      ChurchRepository.churchId(widget.tenantId);
-
-  CollectionReference<Map<String, dynamic>> _colFor(String tid) =>
-      ChurchUiCollections.eventCategories(tid);
+  String get _churchId => ChurchRepository.churchId(widget.tenantId);
 
   @override
   void initState() {
     super.initState();
+    final peek = ChurchEventCategoriesLoadService.peekRam(_churchId);
+    if (peek != null && peek.isNotEmpty) {
+      _docs = peek;
+      _loadingList = false;
+    }
     unawaited(_reloadList());
   }
 
   Future<void> _reloadList({bool forceRefresh = false}) async {
-    final seed = await _operationalTenantId();
-    final peek = ChurchEventCategoriesLoadService.peekRam(seed);
-    if (peek != null && peek.isNotEmpty && mounted) {
+    if (_docs.isEmpty && mounted) {
       setState(() {
-        _docs = peek;
-        _loadingList = false;
+        _loadingList = true;
+        _loadError = null;
       });
-    } else if (mounted) {
-      setState(() => _loadingList = true);
     }
     try {
-      final result = await ChurchEventCategoriesLoadService.load(
-        seedTenantId: seed,
-        forceRefresh: forceRefresh || peek == null,
-      );
-      if (mounted) {
-        setState(() {
-          _docs = result.docs;
-          _loadingList = false;
-        });
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-    } catch (_) {
-      if (mounted) setState(() => _loadingList = false);
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchEventCategoriesLoadService.load(
+          seedTenantId: _churchId,
+          forceRefresh: forceRefresh,
+        ),
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      setState(() {
+        _docs = result.docs;
+        _loadingList = false;
+        _loadError = result.docs.isEmpty ? result.softError : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _loadError ??= e.toString();
+      });
     }
   }
 
   Future<void> _add() async {
     final nome = _nome.text.trim();
-    if (nome.isEmpty) return;
+    if (nome.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Digite o nome da categoria.')),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
-      final tid = await _operationalTenantId();
-      await FirestoreWebGuard.runChatWriteWithRecovery(
-        () => _colFor(tid).add({
-          'nome': nome,
-          'cor': _selectedColor.value,
-          'createdAt': FieldValue.serverTimestamp(),
-        }),
+      await ChurchEventCategoriesLoadService.saveCategory(
+        seedTenantId: _churchId,
+        nome: nome,
+        colorValue: _selectedColor.toARGB32(),
       );
       _nome.clear();
-      ChurchEventCategoriesLoadService.invalidate(tid);
-      await _reloadList(forceRefresh: true);
+      await _reloadList();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Categoria adicionada.'),
@@ -2988,11 +2997,11 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
     );
     if (ok != true) return;
     try {
-      await FirestoreWebGuard.runChatWriteWithRecovery(
-        () => doc.reference.delete(),
+      await ChurchEventCategoriesLoadService.deleteCategory(
+        seedTenantId: _churchId,
+        docId: doc.id,
       );
-      ChurchEventCategoriesLoadService.invalidate(await _operationalTenantId());
-      await _reloadList(forceRefresh: true);
+      await _reloadList();
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
@@ -3010,66 +3019,91 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
     super.dispose();
   }
 
+  void _closePage() => Navigator.maybePop(context);
+
   @override
   Widget build(BuildContext context) {
+    final pagePad = ThemeCleanPremium.pagePadding(context);
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottom),
-      child: SafeArea(
+
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: _closePage,
+        ),
+        title: const Text(
+          'Categorias de eventos',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+        ),
+        actions: [
+          TextButton(
+            onPressed: _closePage,
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          padding: pagePad.copyWith(top: 12, bottom: 16 + bottom),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
               Text(
-                'Categorias de eventos',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 17,
-                  color: Colors.grey.shade900,
-                ),
+                'Organize eventos por cor na agenda e no mural.',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               TextField(
                 controller: _nome,
+                textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(
                   labelText: 'Nova categoria',
+                  hintText: 'Ex.: Culto de casais',
                   prefixIcon: Icon(Icons.label_outline_rounded),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                onSubmitted: (_) {
+                  if (!_saving) unawaited(_add());
+                },
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Cor na agenda',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
                 ),
               ),
-              const SizedBox(height: 10),
-              Text('Cor na agenda',
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700)),
               const SizedBox(height: 8),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
                   for (final c in _palette)
                     InkWell(
                       onTap: () => setState(() => _selectedColor = c),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                       child: Container(
-                        width: 36,
-                        height: 36,
+                        width: 40,
+                        height: 40,
                         decoration: BoxDecoration(
                           color: c,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: _selectedColor == c
                                 ? Colors.black87
@@ -3081,7 +3115,7 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
                     ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               FilledButton.icon(
                 onPressed: _saving ? null : _add,
                 icon: _saving
@@ -3089,46 +3123,122 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.add_rounded),
-                label: Text(_saving ? 'Salvando…' : 'Adicionar'),
+                label: Text(_saving ? 'Salvando…' : 'Adicionar categoria'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
               const SizedBox(height: 16),
-              if (_loadingList)
-                const Center(child: CircularProgressIndicator())
-              else if (_docs.isEmpty)
-                Text(
-                  'Nenhuma categoria ainda.',
-                  style: TextStyle(color: Colors.grey.shade600),
-                )
-              else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Cadastradas',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.grey.shade800)),
-                    const SizedBox(height: 8),
-                    ..._docs.map((d) {
-                      final nome = (d.data()['nome'] ?? d.id).toString();
-                      final cor = d.data()['cor'];
-                      final color = cor is int ? Color(cor) : Colors.grey;
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: CircleAvatar(
-                          backgroundColor: color,
-                          radius: 12,
-                        ),
-                        title: Text(nome),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded),
-                          onPressed: () => _delete(d),
-                        ),
-                      );
-                    }),
-                  ],
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Cadastradas (${_docs.length})',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        color: Colors.grey.shade900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Atualizar lista',
+                    onPressed: _loadingList
+                        ? null
+                        : () => _reloadList(forceRefresh: true),
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
+              ),
+              if (_loadError != null && _docs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: _loadingList,
+                    errorTitle: 'Não foi possível carregar categorias',
+                    error: _loadError,
+                    onRetry: () => _reloadList(forceRefresh: true),
+                  ),
                 ),
+              Expanded(
+                child: _loadingList && _docs.isEmpty
+                    ? const Center(child: ChurchPanelLoadingBody(itemCount: 5))
+                    : _docs.isEmpty
+                        ? Center(
+                            child: Text(
+                              'Nenhuma categoria ainda.\nAdicione a primeira acima.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: Colors.grey.shade600),
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: _docs.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (context, i) {
+                              final d = _docs[i];
+                              final nome =
+                                  (d.data()['nome'] ?? d.id).toString();
+                              final cor = d.data()['cor'];
+                              final color =
+                                  cor is int ? Color(cor) : Colors.grey;
+                              return Card(
+                                elevation: 0,
+                                color: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(
+                                    color: color.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: color,
+                                    radius: 14,
+                                  ),
+                                  title: Text(
+                                    nome,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  trailing: IconButton(
+                                    tooltip: 'Excluir',
+                                    icon: const Icon(
+                                      Icons.delete_outline_rounded,
+                                    ),
+                                    onPressed: () => _delete(d),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _closePage,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      label: const Text('Voltar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _closePage,
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -7107,7 +7217,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     super.initState();
     _operationalTenantId =
         ChurchRepository.churchId(widget.resolvedTenantId).trim();
-    _firebaseBootstrapReady = true;
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     _seedEventCategoriesSync();
     unawaited(_loadCategories());
@@ -7227,7 +7336,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _bootstrapEventForm() async {
     try {
-      await EventoCreatePublishService.ensureReady(logLabel: 'evento_form');
+      await EventoPublishService.prepareFullPipeline(
+        logLabel: 'evento_form',
+        withMedia: true,
+      );
       if (mounted) {
         setState(() {
           _firebaseBootstrapReady = true;
@@ -7237,6 +7349,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
+          _firebaseBootstrapReady = false;
           _firebaseBootstrapError = formatUploadErrorForUser(e);
         });
       }
@@ -7339,10 +7452,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       setState(() => _loadingCategories = true);
     }
     try {
-      final result = await ChurchEventCategoriesLoadService.load(
-        seedTenantId: _editorTenantId,
-        forceRefresh: forceRefresh,
-      );
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchEventCategoriesLoadService.load(
+          seedTenantId: _editorTenantId,
+          forceRefresh: forceRefresh,
+        ),
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 12));
       if (mounted) {
         setState(() {
           if (result.docs.isNotEmpty || _categoryDocs.isEmpty) {
@@ -8345,26 +8464,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       payload.remove('videoUrl');
 
-      EcofirePublishProgressUi.schedule<void>(
-        context: context,
-        uploadLabel: 'A enviar fotos e vídeo…',
-        saveLabel: 'A gravar evento…',
-        distributeLabel: 'A notificar e publicar no site…',
-        successMessage: isNewDoc
-            ? 'Evento publicado com sucesso.'
-            : 'Evento atualizado.',
-        closeEditor: () {
-          _clearPendingEventPhotosAfterPublish();
-          if (mounted) {
-            Navigator.pop(context, <String, dynamic>{
-              'ok': true,
-              'bg': true,
-              'docId': postId,
-            });
-          }
-        },
-        action: (reportProgress) async {
-          try {
+      try {
+        await EcofirePublishProgressUi.runWithProgress<void>(
+          context,
+          uploadLabel: 'A enviar fotos e vídeo…',
+          saveLabel: 'A gravar evento…',
+          distributeLabel: 'A notificar e publicar no site…',
+          action: (reportProgress) async {
             await EventoCreatePublishService.publish(
               docRef: docRef,
               tenantId: publishTenantId,
@@ -8398,15 +8504,34 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 eventoId: postId,
               ),
             );
-            EventosPublishVerificationService.clearLastError();
-          } catch (e) {
-            EventosPublishVerificationService.rememberLastError(e);
-            rethrow;
-          }
-        },
-      );
-
-      unawaited(IosPublishMemory.releaseAfterHeavyWork());
+          },
+        );
+        EventosPublishVerificationService.clearLastError();
+        _clearPendingEventPhotosAfterPublish();
+        unawaited(IosPublishMemory.releaseAfterHeavyWork());
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            isNewDoc
+                ? 'Evento publicado com sucesso.'
+                : 'Evento atualizado.',
+          ),
+        );
+        Navigator.pop(context, <String, dynamic>{
+          'ok': true,
+          'docId': postId,
+        });
+      } catch (e, st) {
+        EventosPublishVerificationService.rememberLastError(e);
+        await CrashlyticsService.record(e, st, reason: 'eventos_publish');
+        if (mounted) {
+          ThemeCleanPremium.showErrorSnackBarWithRetry(
+            context,
+            formatUploadErrorForUser(e),
+            onRetry: _save,
+          );
+        }
+      }
     } catch (e, st) {
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         _clearPendingEventPhotosAfterPublish();
@@ -9111,15 +9236,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   alignment: Alignment.centerLeft,
                   child: TextButton.icon(
                     onPressed: () async {
-                      await showModalBottomSheet<void>(
-                        context: context,
-                        isScrollControlled: true,
-                        shape: const RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.vertical(top: Radius.circular(20)),
-                        ),
-                        builder: (ctx) => _EventCategoriesManagerSheet(
-                          tenantId: widget.tenantId,
+                      await Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          fullscreenDialog: true,
+                          builder: (ctx) => _EventCategoriesManagerPage(
+                            tenantId: widget.tenantId,
+                          ),
                         ),
                       );
                       await _loadCategories(forceRefresh: true);

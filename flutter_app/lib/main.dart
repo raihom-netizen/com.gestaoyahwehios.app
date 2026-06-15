@@ -58,6 +58,7 @@ import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
@@ -404,34 +405,8 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard>
   }
 }
 
-String? _extractChurchSlugFromHost(String host) {
-  final raw = host.trim().toLowerCase();
-  if (raw.isEmpty) return null;
-  if (raw == 'localhost' || raw.startsWith('localhost:')) return null;
-  if (raw == '127.0.0.1' || raw.startsWith('127.0.0.1:')) return null;
-  final withoutPort = raw.split(':').first;
-  final parts = withoutPort.split('.').where((e) => e.isNotEmpty).toList();
-  if (parts.length < 3) return null;
-
-  // Firebase Hosting: <projeto>.web.app — o 1º segmento é o ID do projeto, não slug de igreja.
-  final n = parts.length;
-  if (n >= 3 && parts[n - 2] == 'web' && parts[n - 1] == 'app') {
-    return null;
-  }
-
-  // Domínio .com.br na raiz: `marca.com.br` tem 3 partes (marca, com, br).
-  // Só há subdomínio de igreja em `igreja.marca.com.br` (4+ partes).
-  if (n == 3 && parts[1] == 'com' && parts[2] == 'br') {
-    return null;
-  }
-
-  final sub = parts.first;
-  if (sub == 'www') return null;
-  if (AppConstants.reservedChurchSlugs.contains(sub)) return null;
-  if (AppConstants.isMarketingBrandSlug(sub)) return null;
-  if (!RegExp(r'^[a-z0-9_-]{2,}$').hasMatch(sub)) return null;
-  return sub;
-}
+String? _extractChurchSlugFromHost(String host) =>
+    PublicWebOrigin.churchTenantSlugFromHost(host);
 
 void main() async {
   // 1. Bindings Flutter antes de qualquer plugin nativo/async.
@@ -560,7 +535,8 @@ String _resolveWebInitialRouteFast() {
   final syncUser = FirebaseAuth.instance.currentUser;
   if (syncUser != null && !syncUser.isAnonymous) {
     const entryRoutes = {'/', '', '/login', '/igreja/login'};
-    if (entryRoutes.contains(initialRoute)) {
+    if (entryRoutes.contains(initialRoute) &&
+        !PublicWebOrigin.isMarketingPublicHomeRoute(initialRoute)) {
       return '/painel';
     }
   }
@@ -594,7 +570,9 @@ Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
         }
       }
     }
-    if (hasSession && (initialRoute == '/' || initialRoute.isEmpty)) {
+    if (hasSession &&
+        (initialRoute == '/' || initialRoute.isEmpty) &&
+        !PublicWebOrigin.isMarketingPublicHomeRoute(initialRoute)) {
       initialRoute = '/painel';
     }
     final autoPainel = await ChurchAutoSessionService
@@ -956,7 +934,8 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       }
       if (kIsWeb &&
           AuthService.hasActiveSession &&
-          (initialRoute == '/' || initialRoute.isEmpty)) {
+          (initialRoute == '/' || initialRoute.isEmpty) &&
+          !PublicWebOrigin.isMarketingPublicHomeRoute(initialRoute)) {
         initialRoute = '/painel';
       }
       final autoPainel = await ChurchAutoSessionService

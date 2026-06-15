@@ -6,29 +6,24 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
-import 'package:gestao_yahweh/ui/pages/plans/express_renew_gate_page.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_license_reader_blocked_view.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Controla se o app pode exibir UI de cobranca direta (Mercado Pago / cartao / PIX)
-/// em iOS, conforme Guideline 3.1.1 da App Store (compras digitais devem usar IAP
-/// ou o app precisa se comportar como "Reader/SaaS" — sem botoes de compra).
+/// Gate Apple Guideline 3.1.1 — app iOS como **espelho** da licença no Firestore.
 ///
-/// Em Android, Web e Desktop o gate fica sempre aberto.
-/// Em iOS, leitura do Firebase Remote Config:
-///   chave: `exibir_pagamento_ios`
-///   default: `false` (= comportar-se como Reader/SaaS — sem checkout no app)
+/// **iOS nativo** (`exibir_pagamento_ios` = false, default):
+///   - Sem checkout Mercado Pago, preços, PIX/cartão ou botões de assinar.
+///   - **Sem** links externos para site de vendas / `/atualizar-plano`.
+///   - Licença vencida → ecrã neutro; gestor regulariza no **painel web** (Safari/PC).
 ///
-/// Quando o gate esta `closed`:
-///   - `RenewPlanPage` exibe `IosPaymentUnavailableView` (sem precos / sem checkout).
-///   - Banners e botoes "Adquirir Plano" / "Ver planos" sao escondidos.
-///   - Dialogos de limite usam mensagem neutra ("Limite atingido. Contate o
-///     administrador.") sem direcionar para checkout.
+/// **Android / Web / Desktop:** checkout e «Alterar plano» → fluxo web Mercado Pago
+/// (PIX + cartão até 6x) conforme produto.
 ///
-/// Para liberar pagamentos em iOS sem republicar o IPA: alterar a chave
-/// `exibir_pagamento_ios` para `true` no console do Firebase Remote Config.
+/// Remote Config `exibir_pagamento_ios`: só alterar para `true` se a Apple autorizar
+/// IAP ou novo modelo — default conservador = `false`.
 class IosPaymentsGate {
   IosPaymentsGate._();
 
@@ -100,6 +95,9 @@ class IosPaymentsGate {
   /// Atalho semantico: esta em iOS com a flag desligada (modo Reader/SaaS).
   static bool get shouldHidePayments => !paymentsAllowed;
 
+  /// Sem menu «Alterar plano», checkout nem links de vendas no binário iOS.
+  static bool get hideInAppPlanPurchaseUi => shouldHidePayments;
+
   /// Inicializa Remote Config com defaults e busca a flag.
   /// Nunca propaga excecao — em qualquer falha mantem o default conservador
   /// ([_defaultIosShowPayments] = false em iOS).
@@ -165,19 +163,21 @@ class IosPaymentsGate {
   }) =>
       churchAtualizarPlanoExpressUri(utmMedium: utmMedium, email: email);
 
-  /// Navegação unificada — iPhone: [ExpressRenewGatePage] in-app; demais: [RenewPlanPage].
+  /// iOS: ecrã informativo neutro (sem pagamento). Android: abre web MP. Web: [RenewPlanPage].
   static void navigateToUpgradePlans(BuildContext context) {
     if (!context.mounted) return;
     if (shouldHidePayments && !kIsWeb) {
-      final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
       Navigator.of(context).push(
         ThemeCleanPremium.fadeSlideRoute(
-          ExpressRenewGatePage(
-            prefillEmail: email.isEmpty ? null : email,
-            openedFromIosApp: true,
+          const IosLicenseReaderBlockedView(
+            variant: IosLicenseBlockedVariant.planManagement,
           ),
         ),
       );
+      return;
+    }
+    if (isAndroidNative) {
+      unawaited(openUpgradePlansExternally(source: 'android_app'));
       return;
     }
     Navigator.of(context).push(
@@ -185,12 +185,13 @@ class IosPaymentsGate {
     );
   }
 
-  /// Em iOS Reader/SaaS: abre o site no **login da igreja**; depois do login
-  /// segue para alteração de plano (PIX/cartão na própria página web).
-  /// Inclui e-mail atual (quando disponível) para pré-preencher o login.
+  /// Abre `/atualizar-plano` no navegador — **Android/Web**; bloqueado no iOS Reader.
   static Future<bool> openUpgradePlansExternally({
-    String source = 'ios_app',
+    String source = 'android_app',
   }) async {
+    if (isIosNative && shouldHidePayments) {
+      return false;
+    }
     final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
     final uri = churchWebLoginThenAtualizarPlanoUri(
       utmMedium: source,

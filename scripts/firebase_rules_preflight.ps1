@@ -267,7 +267,10 @@ function Invoke-FirebaseRulesGcpPublish {
     if ($env:YAHWEH_GCP_PREFER_ADC -eq '1' -or $env:YAHWEH_GCP_PREFER_OWNER -eq '1') {
         $nodeArgs += '--prefer-adc'
     }
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     $lines = & node @nodeArgs 2>&1
+    $ErrorActionPreference = $oldEap
     $text = ($lines | ForEach-Object { "$_" }) -join "`n"
     $okLine = $lines | Where-Object { $_ -match '^YAHWEH_GCP_OK=' } | Select-Object -Last 1
     $ok = ($LASTEXITCODE -eq 0) -or ($okLine -match '"ok"\s*:\s*true')

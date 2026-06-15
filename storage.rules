@@ -102,6 +102,47 @@ service firebase.storage {
         );
     }
 
+    /// Membro com ficha `membros/{cpf}` ou `memberDocId` em `users/{uid}`.
+    function storageMemberDocIdFromUser(d) {
+      return ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+    }
+
+    function storageCpf11FromUser(d) {
+      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
+      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
+      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
+      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
+      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
+      return c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
+        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
+        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
+        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
+        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
+    }
+
+    function storageMembroLinkedByUserDoc(igrejaId) {
+      let rootUser = firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+      if (!rootUser.exists) {
+        return false;
+      }
+      let chosen = storageMemberDocIdFromUser(rootUser.data);
+      if (chosen.size() > 0) {
+        let p = firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(chosen));
+        return p.exists
+          && (p.data.authUid == request.auth.uid || p.data.firebaseUid == request.auth.uid);
+      }
+      let cpf = storageCpf11FromUser(rootUser.data);
+      if (cpf.size() == 11) {
+        let p = firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(cpf));
+        return p.exists
+          && (p.data.authUid == request.auth.uid || p.data.firebaseUid == request.auth.uid);
+      }
+      return false;
+    }
+
     function isChurchMember(igrejaId) {
       return isSignedIn() && (
         (fsUser().exists && (
@@ -115,10 +156,26 @@ service firebase.storage {
         || fsMembro(igrejaId).exists
         || fsTenantUser(igrejaId).exists
         || storageGestorEmailMatches(igrejaId)
+        || storageMembroLinkedByUserDoc(igrejaId)
       );
     }
 
-    /// Staff: gestor, admin, pastor, secretário, tesoureiro, líder (+ e-mail gestor + permissões mural).
+    function storageFinancePermissionList(perms) {
+      return perms is list && perms.hasAny([
+        'financeiro', 'fornecedores', 'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
+      ]);
+    }
+
+    function storageTenantUserFinanceAccess(igrejaId) {
+      return fsTenantUser(igrejaId).exists && (
+        (fsTenantUser(igrejaId).data.permissions is list
+          && storageFinancePermissionList(fsTenantUser(igrejaId).data.permissions))
+        || (fsTenantUser(igrejaId).data.roles is list
+          && storageFinancePermissionList(fsTenantUser(igrejaId).data.roles))
+      );
+    }
+
+    /// Staff: gestor, admin, pastor, secretário, tesoureiro, líder (+ e-mail gestor + permissões).
     function isChurchStaffWriter(igrejaId) {
       return isSignedIn() && (
         storageStaffRoleMatches(storageUserRole())
@@ -129,6 +186,7 @@ service firebase.storage {
           && storageStaffRoleMatches(storageMemberRole(fsMembro(igrejaId).data)))
         || storageGestorEmailMatches(igrejaId)
         || (isChurchMember(igrejaId) && storageTenantUserMuralEdit(igrejaId))
+        || (isChurchMember(igrejaId) && storageTenantUserFinanceAccess(igrejaId))
       );
     }
 
@@ -298,7 +356,7 @@ service firebase.storage {
         && comprovanteOrBlob();
     }
 
-    // Financeiro — comprovantes: só staff (gestor, pastor, secretário, tesoureiro)
+    // Financeiro — comprovantes: leitura membro da igreja; escrita staff/gestor e-mail
     match /igrejas/{igrejaId}/financeiro/{path=**} {
       allow read: if isChurchMember(igrejaId);
       allow write: if isChurchStaffWriter(igrejaId)
@@ -306,24 +364,24 @@ service firebase.storage {
         && comprovanteOrBlob();
     }
 
-    // Mural eventos/avisos — só staff (+ MIME)
+    // Mural eventos/avisos — qualquer membro da igreja (controle de criação no app).
     match /igrejas/{igrejaId}/eventos/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow write: if isChurchMember(igrejaId)
         && authMediaWriteMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
     }
 
     match /igrejas/{igrejaId}/noticias/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow write: if isChurchMember(igrejaId)
         && authMediaWriteMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
     }
 
     match /igrejas/{igrejaId}/avisos/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow write: if isChurchMember(igrejaId)
         && authMediaWriteMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
     }
@@ -398,6 +456,14 @@ service firebase.storage {
         && photoImageOrBlob();
     }
 
+    // Fornecedores — comprovantes de compromissos (foto/PDF)
+    match /igrejas/{igrejaId}/fornecedores/{path=**} {
+      allow read: if true;
+      allow write: if isChurchStaffWriter(igrejaId)
+        && request.resource.size < 15 * 1024 * 1024
+        && (photoImageOrBlob() || comprovanteOrBlob());
+    }
+
     // Uploads genéricos — membro da igreja (chat legado) ou staff
     match /igrejas/{igrejaId}/uploads/{path=**} {
       allow read: if isChurchMember(igrejaId);
@@ -443,6 +509,7 @@ service firebase.storage {
         && seg != 'cartao_membro'
         && seg != 'comprovantes'
         && seg != 'financeiro'
+        && seg != 'fornecedores'
         && seg != 'certificados_gestor'
         && seg != 'membros'
         && request.resource.size < 10 * 1024 * 1024

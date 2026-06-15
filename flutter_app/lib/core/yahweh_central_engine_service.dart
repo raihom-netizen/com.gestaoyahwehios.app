@@ -372,6 +372,7 @@ abstract final class YahwehCentralEngineService {
     await ChurchBrandService.persistLogoPath(
       churchId: cid,
       storagePath: upload.storagePath,
+      downloadUrl: upload.downloadUrl,
       cacheRevision: YahwehMediaCacheBust.freshRevisionMs(),
     );
     scheduleBackgroundSync(reason: 'logo_igreja');

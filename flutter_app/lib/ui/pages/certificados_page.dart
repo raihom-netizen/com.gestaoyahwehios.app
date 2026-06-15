@@ -3758,7 +3758,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             .doc('certificados')
             .set({
           'logoUrl': primaryHttps.trim(),
-          'logoPath': upload.storagePath,
+          'logoPath': primaryHttps.trim(),
+          'logoStoragePath': upload.storagePath,
           'logoVariants': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));

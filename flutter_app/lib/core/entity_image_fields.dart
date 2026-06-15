@@ -38,12 +38,12 @@ abstract final class ChurchImageFields {
         .toString()
         .trim();
     for (final k in [
+      'logoStoragePath',
+      'logo_storage_path',
       'logoPath',
       'logo_path',
-      'logo_storage_path',
       'churchLogoPath',
       'church_logo_path',
-      'logoStoragePath',
       'imageStoragePath',
     ]) {
       final v = (m[k] ?? '').toString().trim();

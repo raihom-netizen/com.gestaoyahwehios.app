@@ -21,10 +21,28 @@ const only = onlyArg ? onlyArg.split('=')[1] : 'all';
 const maxArg = args.find((a) => a.startsWith('--max-attempts='));
 const maxAttempts = maxArg ? parseInt(maxArg.split('=')[1], 10) : (force ? 40 : 12);
 const preferAdc = args.includes('--prefer-adc') || String(process.env.YAHWEH_GCP_PREFER_ADC || '') === '1';
+const skipRulesetLookup = args.includes('--skip-ruleset-lookup') || force;
 const projectId =
   args.find((a) => !a.startsWith('--')) ||
   process.env.GCLOUD_PROJECT ||
   'gestaoyahweh-21e23';
+
+/** Quota GCP: 1 pedido de gestao/min em firebaserules.googleapis.com */
+const MANAGEMENT_MIN_GAP_MS = Math.max(
+  65000,
+  parseInt(process.env.YAHWEH_RULES_MIN_GAP_SEC || '70', 10) * 1000
+);
+let lastManagementCallAt = 0;
+
+async function throttleManagement(label) {
+  const elapsed = Date.now() - lastManagementCallAt;
+  if (lastManagementCallAt > 0 && elapsed < MANAGEMENT_MIN_GAP_MS) {
+    const waitSec = Math.ceil((MANAGEMENT_MIN_GAP_MS - elapsed) / 1000);
+    process.stderr.write(`[quota] aguardar ${waitSec}s antes de ${label} (1 req/min firebaserules)\n`);
+    await new Promise((r) => setTimeout(r, waitSec * 1000));
+  }
+  lastManagementCallAt = Date.now();
+}
 
 const rulesFiles = {
   firestore: { local: 'firestore.rules', release: 'cloud.firestore', fileName: 'firestore.rules' },
@@ -93,8 +111,10 @@ async function withRetry(label, fn) {
       if (!isTransient(err) || a >= maxAttempts) break;
       const status = String(err.status || '');
       const wait = status === '429'
-        ? Math.min(600, 90 + 15 * a)
-        : Math.min(600, 8 * a + Math.floor(Math.random() * 12));
+        ? Math.min(600, Math.max(90, MANAGEMENT_MIN_GAP_MS / 1000) + 15 * a)
+        : status === '503' || status === '504'
+          ? Math.min(600, 60 + 30 * a)
+          : Math.min(600, 8 * a + Math.floor(Math.random() * 12));
       process.stderr.write(`[${label}] ${status || 'transiente'}/retry ${a}/${maxAttempts}, aguardar ${wait}s...\n`);
       await new Promise((r) => setTimeout(r, wait * 1000));
     }
@@ -198,10 +218,14 @@ async function publishRulesTarget(base, token, targetKey) {
     return { target: targetKey, release: releaseName, action: 'already_synced', ruleset: null };
   }
 
-  let rulesetName = await findRulesetByFingerprint(base, token, fp).catch(() => null);
+  let rulesetName = null;
+  if (!skipRulesetLookup) {
+    rulesetName = await findRulesetByFingerprint(base, token, fp).catch(() => null);
+  }
 
   if (!rulesetName) {
     process.stderr.write(`[${targetKey}] criar ruleset...\n`);
+    await throttleManagement(`POST rulesets (${targetKey})`);
     const created = await apiCall(
       'POST',
       `${base}/rulesets`,
@@ -217,6 +241,7 @@ async function publishRulesTarget(base, token, targetKey) {
   }
 
   process.stderr.write(`[${targetKey}] patch release ruleset=${rulesetName}\n`);
+  await throttleManagement(`PATCH release (${targetKey})`);
   const releaseUrl = `${base}/releases/${encodeURIComponent(releaseName)}`;
   const fullReleaseName = `projects/${projectId}/releases/${releaseName}`;
   const patchBodies = [
@@ -270,7 +295,12 @@ async function main() {
   const base = `https://firebaserules.googleapis.com/v1/projects/${projectId}`;
   const results = [];
 
-  for (const t of targets) {
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    if (i > 0) {
+      process.stderr.write(`[quota] pausa entre alvos (${targets[i - 1]} -> ${t})...\n`);
+      await throttleManagement(`alvo ${t}`);
+    }
     try {
       const r = await withRetry(t, async (attempt) => {
         token = await resolveAccessToken(attempt);

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import 'package:gestao_yahweh/core/app_constants.dart';
+
 /// Domínios oficiais do Gestão YAHWEH — mesmo Firebase, mesmo hosting, mesmas regras.
 ///
 /// [gestaoyahweh.com.br](https://gestaoyahweh.com.br) e
@@ -60,5 +62,42 @@ abstract final class PublicWebOrigin {
   static bool isCentralGestaoBase(String base) {
     final b = base.toLowerCase().replaceAll(RegExp(r'/$'), '');
     return centralPublicBases.contains(b);
+  }
+
+  /// Slug de igreja no subdomínio (`igreja.dominio.com.br`). Raiz `.com.br` → null.
+  static String? churchTenantSlugFromHost(String? host) {
+    final raw = (host ?? Uri.base.host).trim().toLowerCase();
+    if (raw.isEmpty) return null;
+    if (raw == 'localhost' || raw.startsWith('localhost:')) return null;
+    if (raw == '127.0.0.1' || raw.startsWith('127.0.0.1:')) return null;
+    final withoutPort = raw.split(':').first;
+    final parts = withoutPort.split('.').where((e) => e.isNotEmpty).toList();
+    if (parts.length < 3) return null;
+
+    final n = parts.length;
+    if (n >= 3 && parts[n - 2] == 'web' && parts[n - 1] == 'app') {
+      return null;
+    }
+    if (n == 3 && parts[1] == 'com' && parts[2] == 'br') {
+      return null;
+    }
+
+    final sub = parts.first;
+    if (sub == 'www') return null;
+    if (AppConstants.reservedChurchSlugs.contains(sub)) return null;
+    if (AppConstants.isMarketingBrandSlug(sub)) return null;
+    if (!RegExp(r'^[a-z0-9_-]{2,}$').hasMatch(sub)) return null;
+    return sub;
+  }
+
+  /// `/` no domínio central (marketing) — **não** redirecionar sessão para `/painel`.
+  static bool isMarketingPublicHomeRoute(String route) {
+    if (!kIsWeb) return false;
+    final r = route.trim();
+    if (r.isNotEmpty && r != '/') return false;
+    if (!isRunningOnOfficialHost) return false;
+    final host = Uri.base.host.trim().toLowerCase();
+    if (host == 'localhost' || host.startsWith('127.0.0.1')) return false;
+    return churchTenantSlugFromHost(host) == null;
   }
 }

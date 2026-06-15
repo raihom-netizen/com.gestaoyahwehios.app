@@ -2387,7 +2387,7 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 6),
             Text(
               iosReader
-                  ? 'Veja a capacidade de cada plano. Para contratar ou trocar de plano, use o botão abaixo — a contratação é feita no nosso site.'
+                  ? 'Capacidade de cada plano (informação). A contratação é feita fora deste aplicativo, no painel web.'
                   : 'Mensalidades aproximadas; no cadastro você confirma o plano e a forma de pagamento.',
               style: TextStyle(
                 fontSize: 12,
@@ -2453,25 +2453,23 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               );
             }),
-            const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.center,
-              child: TextButton.icon(
-                onPressed: iosReader
-                    ? _openExternalUpgradePlanFromLogin
-                    : () => Navigator.pushNamed(context, '/planos'),
-                icon: Icon(Icons.open_in_new_rounded, size: 18, color: theme),
-                label: Text(
-                  iosReader
-                      ? 'Atualizar plano no site'
-                      : 'Ver página completa de planos',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: theme,
+            if (!iosReader) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: () => Navigator.pushNamed(context, '/planos'),
+                  icon: Icon(Icons.open_in_new_rounded, size: 18, color: theme),
+                  label: Text(
+                    'Ver página completa de planos',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: theme,
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -3019,10 +3017,8 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {}
   }
 
-  /// Abre Safari no **login web da igreja**; após autenticar segue para
-  /// atualização de plano (PIX/cartão na mesma página).
-  ///
-  /// Usado pelo card pré-login em iOS native (Apple Guideline 3.1.1).
+  /// Abre Safari no **login web da igreja** — removido do fluxo iOS Reader (Apple 3.1.1).
+  @Deprecated('Não usar no iOS Reader — pagamento só fora do app.')
   Future<void> _openExternalUpgradePlanFromLogin() async {
     final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
     final uri = IosPaymentsGate.churchWebLoginThenAtualizarPlanoUri(

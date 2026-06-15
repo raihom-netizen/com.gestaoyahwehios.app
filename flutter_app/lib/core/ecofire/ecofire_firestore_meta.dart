@@ -19,7 +19,8 @@ abstract final class EcoFireFirestoreMeta {
   }) =>
       {
         'logoUrl': downloadUrl,
-        'logoPath': storagePath,
+        'logoPath': downloadUrl,
+        'logoStoragePath': storagePath,
         'fotoUrl': downloadUrl,
         'contentLastUpdated': DateTime.now().toUtc().toIso8601String(),
       };

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
@@ -159,6 +160,7 @@ class ChurchAutoSessionService {
 
     const entryRoutes = {'/', '', '/login', '/igreja/login'};
     if (!entryRoutes.contains(r)) return null;
+    if (PublicWebOrigin.isMarketingPublicHomeRoute(r)) return null;
 
     unawaited(preheatPanelCaches());
     return '/painel';

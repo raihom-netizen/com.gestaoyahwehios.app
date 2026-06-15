@@ -8,7 +8,10 @@ abstract final class EventoCreatePublishService {
   EventoCreatePublishService._();
 
   static Future<void> ensureReady({String logLabel = 'evento_create'}) async {
-    await EventoPublishService.ensureReady(logLabel: logLabel);
+    await EventoPublishService.prepareFullPipeline(
+      logLabel: logLabel,
+      withMedia: false,
+    );
   }
 
   static Future<String> publish({

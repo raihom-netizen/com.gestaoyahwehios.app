@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_license_reader_blocked_view.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -34,6 +35,17 @@ class SubscriptionExpiredPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Apple 3.1.1 — espelho: sem botão de pagamento nem link de vendas no iOS.
+    if (IosPaymentsGate.hideInAppPlanPurchaseUi) {
+      return IosLicenseReaderBlockedView(
+        variant: IosLicenseBlockedVariant.expired,
+        churchName: churchName,
+        logoUrl: logoUrl,
+        onLogout: onLogout,
+        showBackButton: false,
+      );
+    }
+
     final hasLogo = (logoUrl ?? '').trim().isNotEmpty;
     return Scaffold(
       body: Stack(
@@ -128,11 +140,7 @@ class SubscriptionExpiredPage extends StatelessWidget {
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10)),
                             ),
-                            label: Text(
-                              IosPaymentsGate.shouldHidePayments
-                                  ? 'Atualizar plano'
-                                  : 'Renovar Licença / Pagar Agora',
-                            ),
+                            label: const Text('Alterar plano / Pagar agora'),
                           ),
                         ),
                       const SizedBox(height: 10),

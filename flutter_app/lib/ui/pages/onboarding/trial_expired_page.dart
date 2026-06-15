@@ -10,7 +10,7 @@ class TrialExpiredPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iosReader = IosPaymentsGate.shouldHidePayments;
+    final iosReader = IosPaymentsGate.hideInAppPlanPurchaseUi;
     return Scaffold(
       body: SafeArea(
         child: AppShell(
@@ -27,27 +27,28 @@ class TrialExpiredPage extends StatelessWidget {
               SectionCard(
                 child: Text(
                   iosReader
-                      ? 'Veja os planos disponiveis e finalize a contratacao no nosso site. Apos o pagamento o plano eh ativado automaticamente neste app.'
+                      ? 'Entre em contato com o administrador da sua igreja ou acesse o painel web para contratar um plano. Após a ativação no servidor, entre novamente neste aplicativo.'
                       : 'Nesta base você já tem o fluxo completo. O botão abaixo ativa o plano em modo DEMO (sem pagamento) apenas para validar o sistema. Depois, você integra Mercado Pago e webhooks.',
                   style: const TextStyle(height: 1.35),
                 ),
               ),
 
               const Spacer(),
-              PrimaryButton(
-                text: iosReader ? 'Atualizar plano' : 'Escolher plano',
-                icon: Icons.workspace_premium,
-                onPressed: () {
-                  if (iosReader && IosPaymentsGate.isIosNative) {
-                    IosPaymentsGate.openUpgradePlansExternally(
-                        source: 'trial_expired_page');
-                    return;
-                  }
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const RenewPlanPage()),
-                  );
-                },
-              ),
+              if (!iosReader)
+                PrimaryButton(
+                  text: 'Escolher plano',
+                  icon: Icons.workspace_premium,
+                  onPressed: () {
+                    if (IosPaymentsGate.isAndroidNative) {
+                      IosPaymentsGate.openUpgradePlansExternally(
+                          source: 'trial_expired_page');
+                      return;
+                    }
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const RenewPlanPage()),
+                    );
+                  },
+                ),
               const SizedBox(height: 10),
             ],
           ),

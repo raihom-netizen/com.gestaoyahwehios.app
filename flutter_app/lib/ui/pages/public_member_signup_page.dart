@@ -1088,22 +1088,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               TextButton(
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Entendi')),
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  if (IosPaymentsGate.shouldHidePayments &&
-                      IosPaymentsGate.isIosNative) {
-                    IosPaymentsGate.openUpgradePlansExternally(
-                        source: 'public_member_signup_limit');
-                    return;
-                  }
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const RenewPlanPage()));
-                },
-                child: Text(IosPaymentsGate.shouldHidePayments
-                    ? 'Atualizar plano'
-                    : 'Ver planos'),
-              ),
+              if (!IosPaymentsGate.shouldHidePayments)
+                FilledButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const RenewPlanPage()));
+                  },
+                  child: const Text('Ver planos'),
+                ),
             ],
           ),
         );

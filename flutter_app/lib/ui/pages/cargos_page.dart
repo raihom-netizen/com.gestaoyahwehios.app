@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
+import 'package:gestao_yahweh/services/church_cargo_members_load_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -52,34 +53,19 @@ Future<List<String>> _cargoMemberMergeTenantIds(String seed) async {
 }
 
 /// Chave principal de cargo/função — alinhado a [MembersPage] (`FUNCAO`, `FUNCAO_PERMISSOES`, `CARGO`).
-String _memberPrimaryCargoKey(Map<String, dynamic> d) {
-  return (d['FUNCAO'] ??
-          d['FUNCAO_PERMISSOES'] ??
-          d['CARGO'] ??
-          d['cargo'] ??
-          d['funcao'] ??
-          d['role'] ??
-          '')
-      .toString()
-      .trim()
-      .toLowerCase();
-}
+String _memberPrimaryCargoKey(Map<String, dynamic> d) =>
+    ChurchCargoMembersLoadService.memberPrimaryCargoKey(d);
 
 bool _memberMatchesCargo(
   Map<String, dynamic> d,
   String cargoKeyNorm,
   String cargoNameNorm,
-) {
-  final funcoes = d['FUNCOES'] ?? d['funcoes'];
-  if (funcoes is List) {
-    for (final f in funcoes) {
-      final s = (f ?? '').toString().trim().toLowerCase();
-      if (s == cargoKeyNorm || s == cargoNameNorm) return true;
-    }
-  }
-  final primary = _memberPrimaryCargoKey(d);
-  return primary == cargoKeyNorm || primary == cargoNameNorm;
-}
+) =>
+    ChurchCargoMembersLoadService.memberMatchesCargo(
+      d,
+      cargoKey: cargoKeyNorm,
+      cargoName: cargoNameNorm,
+    );
 
 Future<Map<String, dynamic>> _memberRolePatchForFuncao({
   required String tenantId,
@@ -2154,103 +2140,66 @@ class _CargoMembrosPage extends StatefulWidget {
 class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   List<_MemberWithRef> _members = [];
   bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    _loadMembers();
+    unawaited(_loadMembers());
   }
 
-  Future<void> _loadMembers() async {
+  _MemberWithRef _rowToMember(ChurchCargoMemberRow row) =>
+      _MemberWithRef(id: row.id, data: row.data, ref: row.ref);
+
+  Future<void> _loadMembers({bool forceRefresh = false}) async {
     if (!mounted) return;
-    setState(() => _loading = true);
-    List<String> allIds;
-    try {
-      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
-    } catch (_) {
-      allIds = [widget.tenantId];
-    }
-    final db = firebaseDefaultFirestore;
-    final seen = <String>{};
-    final list = <_MemberWithRef>[];
-    final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
-    final cargoNameNorm = widget.cargoName.toLowerCase().trim();
-
-    try {
-      final snaps = await Future.wait(
-        allIds.map(
-          (clusterTid) => ChurchUiCollections.membros(clusterTid)
-              .limit(500)
-              .get(const GetOptions(source: Source.serverAndCache)),
-        ),
-      );
-      for (final snap in snaps) {
-        for (final doc in snap.docs) {
-          if (seen.contains(doc.id)) continue;
-          final d = doc.data();
-          if (_memberMatchesCargo(d, cargoKeyNorm, cargoNameNorm)) {
-            seen.add(doc.id);
-            list.add(_MemberWithRef(id: doc.id, data: d, ref: doc.reference));
-          }
-        }
-      }
-    } catch (_) {}
-
-    list.sort((a, b) {
-      final na = _nome(a.data).toLowerCase();
-      final nb = _nome(b.data).toLowerCase();
-      return na.compareTo(nb);
+    setState(() {
+      _loading = true;
+      _loadError = null;
     });
-    if (mounted) {
+    try {
+      final result = await ChurchCargoMembersLoadService.loadLinked(
+        seedTenantId: widget.tenantId,
+        cargoKey: widget.cargoKey,
+        cargoName: widget.cargoName,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
       setState(() {
-        _members = list;
-        _loading = false;
+        _members = result.members.map(_rowToMember).toList();
+        _loadError =
+            result.members.isEmpty ? result.softError : null;
       });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadError = e.toString());
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   static String _nome(Map<String, dynamic> d) =>
       (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? 'Membro').toString().trim();
 
-  bool _memberHasCargo(Map<String, dynamic> d) {
-    final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
-    final cargoNameNorm = widget.cargoName.toLowerCase().trim();
-    return _memberMatchesCargo(d, cargoKeyNorm, cargoNameNorm);
-  }
+  bool _memberHasCargo(Map<String, dynamic> d) =>
+      ChurchCargoMembersLoadService.memberMatchesCargo(
+        d,
+        cargoKey: widget.cargoKey,
+        cargoName: widget.cargoName,
+      );
 
   Future<List<_MemberWithRef>> _fetchAllMembersForPicker() async {
-    List<String> allIds;
-    try {
-      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
-    } catch (_) {
-      allIds = [widget.tenantId];
-    }
-    final db = firebaseDefaultFirestore;
-    final seen = <String>{};
-    final list = <_MemberWithRef>[];
-    try {
-      final snaps = await Future.wait(
-        allIds.map(
-          (clusterTid) => ChurchUiCollections.membros(clusterTid)
-              .limit(500)
-              .get(const GetOptions(source: Source.serverAndCache)),
-        ),
-      );
-      for (final snap in snaps) {
-        for (final doc in snap.docs) {
-          if (seen.contains(doc.id)) continue;
-          seen.add(doc.id);
-          list.add(_MemberWithRef(id: doc.id, data: doc.data(), ref: doc.reference));
-        }
-      }
-    } catch (_) {}
-    list.sort((a, b) => _nome(a.data).toLowerCase().compareTo(_nome(b.data).toLowerCase()));
-    return list;
+    final result = await ChurchCargoMembersLoadService.loadAllForPicker(
+      seedTenantId: widget.tenantId,
+    );
+    return result.members.map(_rowToMember).toList();
   }
 
   Future<void> _linkMemberToCargo(_MemberWithRef m) async {
     if (!_canWrite) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
+    if (churchId.isEmpty) return;
     final cargoKey = widget.cargoKey.trim();
     if (cargoKey.isEmpty) return;
 
@@ -2258,13 +2207,11 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     var funcoes = funcoesRaw is List
         ? funcoesRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toList()
         : <String>[];
-    final kNorm = cargoKey.toLowerCase();
-    final nNorm = widget.cargoName.toLowerCase().trim();
-    final already = funcoes.any((f) {
-      final s = f.toLowerCase();
-      return s == kNorm || s == nNorm;
-    });
-    if (already) {
+    if (ChurchCargoMembersLoadService.memberMatchesCargo(
+      m.data,
+      cargoKey: cargoKey,
+      cargoName: widget.cargoName,
+    )) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Este membro já possui este cargo.')),
@@ -2287,18 +2234,17 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       );
     }
 
-    List<String> allIds;
     try {
-      allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
-    } catch (_) {
-      allIds = [widget.tenantId];
-    }
-    final db = firebaseDefaultFirestore;
-    for (final tid in allIds) {
-      try {
-        final op = ChurchRepository.churchId(tid.trim());
-        await ChurchUiCollections.membros(op).doc(m.id).set(updates, SetOptions(merge: true));
-      } catch (_) {}
+      await ChurchUiCollections.membros(churchId)
+          .doc(m.id)
+          .set(updates, SetOptions(merge: true));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao vincular membro: $e')),
+        );
+      }
+      return;
     }
 
     List<String> extraMods = [];
@@ -2310,7 +2256,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     final authUid = (m.data['authUid'] ?? '').toString().trim();
     if (authUid.isNotEmpty) {
       try {
-        final uref = db.collection('users').doc(authUid);
+        final uref = firebaseDefaultFirestore.collection('users').doc(authUid);
         final userPatch = <String, dynamic>{'FUNCOES': funcoes};
         if (hadEmptyPrimary && funcoes.isNotEmpty) {
           final rolePatch = await _memberRolePatchForFuncao(
@@ -2341,7 +2287,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         ),
       );
       widget.onChanged();
-      _loadMembers();
+      unawaited(_loadMembers(forceRefresh: true));
     }
   }
 
@@ -2392,21 +2338,29 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       ),
     );
     if (ok != true || !mounted) return;
+    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
+    if (churchId.isEmpty) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final funcoesRaw = m.data['FUNCOES'] ?? m.data['funcoes'];
       List<String> funcoes = funcoesRaw is List
           ? funcoesRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toList()
           : [];
-      final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
-      final cargoNameNorm = widget.cargoName.toLowerCase().trim();
       funcoes.removeWhere((f) {
-        final s = f.toLowerCase();
-        return s == cargoKeyNorm || s == cargoNameNorm;
+        final s = (f ?? '').toString().trim();
+        if (s.isEmpty) return false;
+        return ChurchCargoMembersLoadService.memberMatchesCargo(
+          {'FUNCOES': [s], 'FUNCAO': s, 'CARGO': s},
+          cargoKey: widget.cargoKey,
+          cargoName: widget.cargoName,
+        );
       });
       final primary = _memberPrimaryCargoKey(m.data);
       if (funcoes.isEmpty &&
-          (primary == cargoKeyNorm || primary == cargoNameNorm)) {
+          ChurchCargoMembersLoadService.memberMatchesCargo(
+            m.data,
+            cargoKey: widget.cargoKey,
+            cargoName: widget.cargoName,
+          )) {
         funcoes = ['membro'];
       }
       if (funcoes.isEmpty) funcoes = ['membro'];
@@ -2416,19 +2370,9 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         funcaoFinal: funcaoFinal,
         funcoes: funcoes,
       );
-      List<String> allIds;
-      try {
-        allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
-      } catch (_) {
-        allIds = [widget.tenantId];
-      }
-      final db = firebaseDefaultFirestore;
-      for (final tid in allIds) {
-        try {
-          final op = ChurchRepository.churchId(tid.trim());
-          await ChurchUiCollections.membros(op).doc(m.id).set(updates, SetOptions(merge: true));
-        } catch (_) {}
-      }
+      await ChurchUiCollections.membros(churchId)
+          .doc(m.id)
+          .set(updates, SetOptions(merge: true));
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
@@ -2445,7 +2389,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cargo removido.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
-        _loadMembers();
+        unawaited(_loadMembers(forceRefresh: true));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
@@ -2507,14 +2451,22 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       ),
     );
     if (ok != true || selectedKey == null || !mounted) return;
+    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
+    if (churchId.isEmpty) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final funcoesRaw = m.data['FUNCOES'] ?? m.data['funcoes'];
       List<String> funcoes = funcoesRaw is List
           ? funcoesRaw.map((e) => (e ?? '').toString().trim()).where((s) => s.isNotEmpty).toList()
           : [];
-      final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
-      funcoes.removeWhere((f) => f.toLowerCase() == cargoKeyNorm);
+      funcoes.removeWhere((f) {
+        final s = (f ?? '').toString().trim();
+        if (s.isEmpty) return false;
+        return ChurchCargoMembersLoadService.memberMatchesCargo(
+          {'FUNCOES': [s], 'FUNCAO': s, 'CARGO': s},
+          cargoKey: widget.cargoKey,
+          cargoName: widget.cargoName,
+        );
+      });
       funcoes.add(selectedKey!);
       final funcaoFinal = selectedKey!;
       final updates = await _memberRolePatchForFuncao(
@@ -2522,18 +2474,9 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         funcaoFinal: funcaoFinal,
         funcoes: funcoes,
       );
-      List<String> allIds;
-      try {
-        allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
-      } catch (_) {
-        allIds = [widget.tenantId];
-      }
-      final db = firebaseDefaultFirestore;
-      for (final tid in allIds) {
-        try {
-          await ChurchUiCollections.membros(tid).doc(m.id).set(updates, SetOptions(merge: true));
-        } catch (_) {}
-      }
+      await ChurchUiCollections.membros(churchId)
+          .doc(m.id)
+          .set(updates, SetOptions(merge: true));
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
@@ -2550,7 +2493,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cargo alterado.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
-        _loadMembers();
+        unawaited(_loadMembers(forceRefresh: true));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
@@ -2584,7 +2527,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
-            onPressed: _loadMembers,
+            onPressed: () => _loadMembers(forceRefresh: true),
             tooltip: 'Atualizar',
             style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
           ),
@@ -2610,7 +2553,23 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                 ],
               ),
             )
-          : _members.isEmpty
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_loadError != null && _loadError!.trim().isNotEmpty)
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(padding.left, 8, padding.right, 0),
+                    child: ChurchPanelResilientLoadBanner(
+                      hasLocalData: _members.isNotEmpty,
+                      isSyncing: false,
+                      showStaleCache: _members.isNotEmpty,
+                      errorTitle: 'Não foi possível carregar todos os membros',
+                      error: _loadError,
+                      onRetry: () => _loadMembers(forceRefresh: true),
+                    ),
+                  ),
+                Expanded(
+                  child: _members.isEmpty
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(32),
@@ -2653,7 +2612,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                   ),
                 )
               : RefreshIndicator(
-                  onRefresh: _loadMembers,
+                  onRefresh: () => _loadMembers(forceRefresh: true),
                   color: ThemeCleanPremium.primary,
                   child: ListView.builder(
                     padding: EdgeInsets.fromLTRB(padding.left, 16, padding.right, padding.bottom + 24),
@@ -2849,6 +2808,9 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                     },
                   ),
                 ),
+                ),
+              ],
+            ),
     );
   }
 }

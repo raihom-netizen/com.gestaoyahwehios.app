@@ -21,18 +21,40 @@ function Write-Log([string]$msg) {
 
 function Invoke-WatchdogLoop {
     . (Join-Path $RepoRoot 'scripts\ensure_gestao_yahweh_toolchain_path.ps1')
-    Write-Log 'Watchdog GCP iniciado.'
+    $rootKey = Join-Path $RepoRoot 'gestaoyahweh-gcp-deploy-key.json'
+    if (Test-Path $rootKey) {
+        $env:GOOGLE_APPLICATION_CREDENTIALS = $rootKey
+        $env:YAHWEH_GCP_KEY_FILE = $rootKey
+    }
+    $env:YAHWEH_GCP_PREFER_ADC = '0'
+    $env:YAHWEH_GCP_PREFER_OWNER = '0'
+    Write-Log 'Watchdog GCP iniciado (chave SA raiz, firestore only se storage OK).'
     $round = 0
     while ($round -lt 48) {
         $round++
         $pubLock = Join-Path $RepoRoot '.deploy-state\firebase-rules-publish.lock'
         if (Test-Path $pubLock) {
-            Write-Log 'Skip: publish lock activo.'
-            Start-Sleep -Seconds (60 * $IntervalMinutes)
-            continue
+            $age = (Get-Date) - (Get-Item $pubLock).LastWriteTime
+            if ($age.TotalMinutes -lt 90) {
+                Write-Log 'Skip: publish lock activo.'
+                Start-Sleep -Seconds (60 * $IntervalMinutes)
+                continue
+            }
+            Remove-Item $pubLock -Force -ErrorAction SilentlyContinue
+            Write-Log 'Lock expirado (>90min) — removido.'
         }
-        Write-Log "Rodada $round"
-        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=12 --prefer-adc 2>&1
+        $only = 'all'
+        $syncPath = Join-Path $RepoRoot '.deploy-state\firebase-sync.json'
+        if (Test-Path $syncPath) {
+            try {
+                $sync = Get-Content $syncPath -Raw | ConvertFrom-Json
+                $hasStorage = @($sync.results) | Where-Object { $_.target -eq 'storage' -and $_.action -match 'published|already_synced' }
+                $hasFirestore = @($sync.results) | Where-Object { $_.target -eq 'firestore' -and $_.action -match 'published|already_synced' }
+                if ($hasStorage -and -not $hasFirestore) { $only = 'firestore' }
+            } catch { }
+        }
+        Write-Log "Rodada $round (only=$only)"
+        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=8 --only=$only 2>&1
         $text = $out | Out-String
         Add-Content -Path $log -Value $text -Encoding UTF8
         if ($LASTEXITCODE -eq 0) {

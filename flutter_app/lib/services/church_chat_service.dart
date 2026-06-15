@@ -1833,25 +1833,12 @@ class ChurchChatService {
         await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
       }
       await _ensureDmThreadDocBeforeSend(tid, threadId);
-      final initialStatus = AppConnectivityService.instance.isOnline
-          ? deliverySending
+      final deliveryStatus = AppConnectivityService.instance.isOnline
+          ? deliverySent
           : deliveryLocal;
       await FirestoreWebGuard.runChatWriteWithRecovery(
-        () => commitOnce(deliveryStatus: initialStatus),
+        () => commitOnce(deliveryStatus: deliveryStatus),
       );
-      if (AppConnectivityService.instance.isOnline) {
-        unawaited(
-          FirestoreWebGuard.runChatWriteWithRecovery(
-            () => msgRef.set(
-              {
-                'deliveryStatus': deliverySent,
-                'status': deliverySent,
-              },
-              SetOptions(merge: true),
-            ),
-          ).catchError((_) {}),
-        );
-      }
       unawaited(
         markThreadLastSeen(tenantId: tid, threadId: threadId),
       );

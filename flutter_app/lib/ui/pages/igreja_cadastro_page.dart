@@ -1805,6 +1805,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         await ChurchBrandService.persistLogoPath(
           churchId: resolvedId,
           storagePath: upload.storagePath,
+          downloadUrl: upload.downloadUrl,
         );
       }
       _logoStagedNotUploaded = false;
@@ -2093,13 +2094,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         data['whatsapp'] = waDigits;
       }
 
-      if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
-        final normalized =
-            StorageMediaService.normalizeFirestoreStoragePath(_logoStoragePath) ??
-                _logoStoragePath!.trim();
-        data['logoPath'] = normalized;
+      if (_logoUrl != null && _logoUrl!.trim().isNotEmpty) {
+        final url = sanitizeImageUrl(_logoUrl!.trim());
+        data['logoPath'] = url;
+        data['logoUrl'] = url;
+        if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
+          final normalized = StorageMediaService.normalizeFirestoreStoragePath(
+                _logoStoragePath,
+              ) ??
+              _logoStoragePath!.trim();
+          data['logoStoragePath'] = normalized;
+        }
       }
       for (final k in ChurchBrandService.legacyLogoUrlFirestoreKeys) {
+        if (k == 'logoUrl') continue;
         data[k] = FieldValue.delete();
       }
       final enderecoCompleto = _buildEnderecoCompleto();

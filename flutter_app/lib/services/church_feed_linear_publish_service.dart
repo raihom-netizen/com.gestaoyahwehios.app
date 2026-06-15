@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
@@ -121,12 +122,14 @@ abstract final class ChurchFeedLinearPublishService {
     final docId = docRef.id;
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
 
-    await ensureFirebaseReadyForPublishUpload();
+    await ensureFirebaseCore(requireAuth: true);
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
-    await FastMediaPublishBootstrap.warmForFeedPublish()
-        .timeout(const Duration(seconds: 28));
+    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      await FastMediaPublishBootstrap.warmForFeedPublish()
+          .timeout(const Duration(seconds: 28));
+    }
 
     if (isEvento) {
       ChurchPublishFlowLog.eventoStart();

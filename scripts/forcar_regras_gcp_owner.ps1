@@ -86,6 +86,11 @@ $rulesOk = ($LASTEXITCODE -eq 0) -or ($rulesOut -match 'YAHWEH_GCP_OK=.*"ok":tru
 if (-not $rulesOk) {
     Write-Host '   REST com ADC falhou — retry com chave SA raiz...' -ForegroundColor DarkYellow
     $env:YAHWEH_GCP_PREFER_ADC = '0'
+    $env:YAHWEH_GCP_PREFER_OWNER = '0'
+    if (Test-Path $rootKey) {
+        $env:GOOGLE_APPLICATION_CREDENTIALS = $rootKey
+        $env:YAHWEH_GCP_KEY_FILE = $rootKey
+    }
     $rulesOut2 = & node @nodeArgs 2>&1
     $rulesOut2 | ForEach-Object { Write-Host $_ }
     $rulesOk = ($LASTEXITCODE -eq 0) -or ($rulesOut2 -match 'YAHWEH_GCP_OK=.*"ok":true')

@@ -304,21 +304,17 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Entendi'),
             ),
-            FilledButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                if (iosReader && IosPaymentsGate.isIosNative) {
-                  IosPaymentsGate.openUpgradePlansExternally(
-                      source: 'internal_new_member_limit');
-                  return;
-                }
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const RenewPlanPage()),
-                );
-              },
-              child: Text(iosReader ? 'Atualizar plano' : 'Ver planos'),
-            ),
+            if (!iosReader)
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const RenewPlanPage()),
+                  );
+                },
+                child: const Text('Ver planos'),
+              ),
           ],
         ),
       );

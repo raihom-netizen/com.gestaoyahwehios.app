@@ -111,8 +111,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   int _histYear = DateTime.now().year;
   DateTimeRange? _histCustomRange;
   int _historicoStreamGen = 0;
-  int _modelosStreamGen = 0;
-  bool _savingModelo = false;
 
   DocumentReference<Map<String, dynamic>> get _configRef {
     final id = ChurchRepository.churchId(
@@ -508,9 +506,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           ChurchCartasModelosService.migrateLegacyFromConfig(
             seedTenantId: churchId,
             modelosNuvem: Map<String, dynamic>.from(c['modelosNuvem'] as Map),
-          ).then((_) {
-            if (mounted) setState(() => _modelosStreamGen++);
-          }),
+          ),
         );
       }
     } catch (_) {
@@ -1088,388 +1084,89 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   String get _tenantKey =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
-  void _applyModeloDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data();
-    final kind = _cartaKindFromFirestore((d['kind'] ?? '').toString());
-    final texto = (d['texto'] ?? d['templateText'] ?? '').toString();
-    if (texto.trim().isNotEmpty) {
-      _tplCtrlForKind(kind).text = texto;
-    }
-    final dest = (d['destIgreja'] ?? '').toString();
-    if (dest.trim().isNotEmpty) {
-      _destIgrejaCtrl.text = dest;
-    }
-    final mission = (d['mission'] ?? '').toString();
-    if (mission.trim().isNotEmpty) {
-      _missionCtrl.text = mission;
-    }
-    final sigs = List<String>.from(d['signerMemberIds'] ?? []);
-    if (sigs.isNotEmpty) {
-      _signer1MemberId = sigs[0];
-      _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
-    }
-    final mids = List<String>.from(d['memberDocIds'] ?? []);
-    if (mids.isNotEmpty) {
-      _selectedIds
-        ..clear()
-        ..addAll(mids);
-      _syncSelectedMembersCache();
-    }
-    final mode = (d['signatureMode'] ?? 'digital').toString().trim().toLowerCase();
-    _signatureMode = mode == 'manual'
-        ? _LetterSignatureMode.manual
-        : _LetterSignatureMode.digital;
-    setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar(
-        'Modelo «${(d['nome'] ?? 'Modelo').toString()}» aplicado ao editor.',
-      ),
-    );
-  }
-
-  Future<void> _confirmDeleteModelo(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
-    final nome = (doc.data()['nome'] ?? 'Modelo').toString();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Excluir modelo?'),
-        content: Text(
-          'O modelo «$nome» será removido da nuvem. Esta ação não pode ser desfeita.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    try {
-      await ChurchCartasModelosService.deleteModelo(
-        seedTenantId: _tenantKey,
-        docId: doc.id,
-      );
-      if (mounted) {
-        setState(() => _modelosStreamGen++);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Modelo excluído.'),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _promptSaveFavorito(_CartaKind kind) async {
-    final nomeCtrl = TextEditingController(
-      text: 'Modelo ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
-    );
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        ),
-        title: const Text('Guardar modelo favorito'),
-        content: TextField(
-          controller: nomeCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Nome do modelo',
-            hintText: 'Ex.: Apresentação padrão 2026',
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Guardar'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    final nome = nomeCtrl.text.trim();
-    nomeCtrl.dispose();
-    if (nome.isEmpty) return;
-    final texto = _tplCtrlForKind(kind).text.trim();
-    if (texto.isEmpty) return;
-
-    setState(() => _savingModelo = true);
-    try {
-      final signers = <String>[];
-      if (_signer1MemberId != null) signers.add(_signer1MemberId!);
-      if (_signer2MemberId != null &&
-          _signer2MemberId!.isNotEmpty &&
-          _signer2MemberId != _signer1MemberId) {
-        signers.add(_signer2MemberId!);
-      }
-      await ChurchCartasModelosService.saveModelo(
-        seedTenantId: _tenantKey,
-        payload: {
-          'kind': kind.firestoreKind,
-          'nome': nome,
-          'texto': texto,
-          'destIgreja': _destIgrejaCtrl.text.trim(),
-          'mission': _missionCtrl.text.trim(),
-          'signerMemberIds': signers,
-          'memberDocIds': _selectedIds.toList()..sort(),
-          'signatureMode': _signatureMode == _LetterSignatureMode.digital
-              ? 'digital'
-              : 'manual',
-          'favorito': true,
-        },
-      );
-      if (mounted) {
-        setState(() => _modelosStreamGen++);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Modelo «$nome» guardado na nuvem.',
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        final msg = e.toString().split('\n').first;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(msg),
-            backgroundColor: msg.contains('Limite')
-                ? const Color(0xFFF59E0B)
-                : ThemeCleanPremium.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _savingModelo = false);
-    }
-  }
-
-  Widget _buildModelosNuvemGrid(_CartaKind kind, Color accent) {
-    final kindAccent = _accentForCartaKind(kind);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.grid_view_rounded, color: kindAccent, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Modelos guardados na nuvem',
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                  color: Colors.grey.shade900,
-                  letterSpacing: -0.2,
-                ),
-              ),
-            ),
-            if (_savingModelo)
-              const Padding(
-                padding: EdgeInsets.only(right: 8),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            TextButton.icon(
-              onPressed: _savingModelo ? null : () => _promptSaveFavorito(kind),
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Salvar modelo'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-          key: ValueKey('modelos_${kind.firestoreKind}_$_modelosStreamGen'),
-          stream: ChurchCartasModelosService.watchModelos(
-            _tenantKey,
-            kind.firestoreKind,
-          ),
-          builder: (context, snap) {
-            if (snap.connectionState == ConnectionState.waiting &&
-                !snap.hasData) {
-              return const Padding(
-                padding: EdgeInsets.all(20),
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snap.hasError) {
-              return ChurchPanelResilientLoadBanner(
-                hasLocalData: false,
-                isSyncing: false,
-                errorTitle: 'Erro ao carregar modelos',
-                error: snap.error,
-                onRetry: () => setState(() => _modelosStreamGen++),
-              );
-            }
-            final models = snap.data ?? const [];
-            if (models.isEmpty) {
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: kindAccent.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: kindAccent.withValues(alpha: 0.18)),
-                ),
-                child: Text(
-                  'Nenhum modelo favorito ainda. Preencha a carta e use «Salvar modelo» para criar um card na galeria.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey.shade700,
-                    height: 1.35,
-                  ),
-                ),
-              );
-            }
-            return LayoutBuilder(
-              builder: (context, c) {
-                final cols = c.maxWidth >= 900
-                    ? 4
-                    : (c.maxWidth >= 640 ? 3 : (c.maxWidth >= 420 ? 2 : 1));
-                return GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: 1.05,
-                  ),
-                  itemCount: models.length,
-                  itemBuilder: (context, i) {
-                    final doc = models[i];
-                    final m = doc.data();
-                    final nome = (m['nome'] ?? 'Modelo').toString();
-                    final texto =
-                        (m['texto'] ?? m['templateText'] ?? '').toString();
-                    final preview = texto.trim().isEmpty
-                        ? '(sem texto)'
-                        : (texto.length > 120
-                            ? '${texto.substring(0, 120)}…'
-                            : texto);
-                    final favorito = m['favorito'] == true;
-                    return Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => _applyModeloDoc(doc),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: kindAccent.withValues(alpha: 0.28),
-                            ),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                kindAccent.withValues(alpha: 0.12),
-                                Colors.white,
-                              ],
-                            ),
-                            boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    favorito
-                                        ? Icons.star_rounded
-                                        : Icons.description_outlined,
-                                    color: kindAccent,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      nome,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: GoogleFonts.inter(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 12.5,
-                                      ),
-                                    ),
-                                  ),
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(
-                                      minWidth: 32,
-                                      minHeight: 32,
-                                    ),
-                                    tooltip: 'Excluir modelo',
-                                    onPressed: () => _confirmDeleteModelo(doc),
-                                    icon: Icon(
-                                      Icons.delete_outline_rounded,
-                                      size: 18,
-                                      color: Colors.red.shade400,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Expanded(
-                                child: Text(
-                                  preview,
-                                  maxLines: 4,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    height: 1.3,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                'Toque para usar',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: kindAccent,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            );
-          },
-        ),
-        const SizedBox(height: 14),
-      ],
-    );
-  }
-
   Color _accentForCartaKind(_CartaKind kind) => switch (kind) {
         _CartaKind.apresentacao => const Color(0xFF2563EB),
         _CartaKind.transferencia => const Color(0xFFEA580C),
         _CartaKind.agradecimento => const Color(0xFF16A34A),
       };
+
+  /// Botões do histórico — coloridos; empilham no mobile e alinham em linha no web/tablet.
+  Widget _buildHistoricoActionBar({
+    required VoidCallback onReprint,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
+    required bool stackVertical,
+  }) {
+    ButtonStyle pill(Color bg, Color fg) => FilledButton.styleFrom(
+          backgroundColor: bg.withValues(alpha: 0.14),
+          foregroundColor: fg,
+          elevation: 0,
+          shadowColor: Colors.transparent,
+          padding: EdgeInsets.symmetric(
+            horizontal: stackVertical ? 14 : 16,
+            vertical: 12,
+          ),
+          minimumSize: Size(
+            stackVertical ? double.infinity : ThemeCleanPremium.minTouchTarget,
+            ThemeCleanPremium.minTouchTarget,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        );
+
+    final reprint = FilledButton.icon(
+      onPressed: onReprint,
+      style: pill(const Color(0xFF2563EB), const Color(0xFF1D4ED8)),
+      icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+      label: const Text(
+        'Reimprimir',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
+    final edit = FilledButton.icon(
+      onPressed: onEdit,
+      style: pill(const Color(0xFF16A34A), const Color(0xFF15803D)),
+      icon: const Icon(Icons.edit_rounded, size: 20),
+      label: const Text(
+        'Editar',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
+    final delete = FilledButton.icon(
+      onPressed: onDelete,
+      style: pill(const Color(0xFFDC2626), const Color(0xFFB91C1C)),
+      icon: const Icon(Icons.delete_outline_rounded, size: 20),
+      label: const Text(
+        'Excluir',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+    );
+
+    if (stackVertical) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          reprint,
+          const SizedBox(height: 8),
+          edit,
+          const SizedBox(height: 8),
+          delete,
+        ],
+      );
+    }
+
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        reprint,
+        edit,
+        delete,
+      ],
+    );
+  }
 
   ({DateTime start, DateTime end}) _historicoRange() {
     if (_histCustomRange != null) {
@@ -2462,14 +2159,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 16),
-                              _buildModelosNuvemGrid(
-                                _currentCartaKindForTabs(
-                                  transferenciaTab,
-                                  agradecimentoTab,
-                                ),
-                                accent,
-                              ),
                               const SizedBox(height: 8),
                               Container(
                                 decoration: BoxDecoration(
@@ -2897,8 +2586,11 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 return Padding(
                   padding: const EdgeInsets.all(20),
                   child: Text(
-                    'Nenhum registo neste filtro.',
-                    style: TextStyle(color: Colors.grey.shade600),
+                    'Nenhum registo neste filtro. Ao gerar uma carta, ela aparece aqui — use «Editar» para reabrir e alterar.',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      height: 1.4,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 );
@@ -2907,12 +2599,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: filtered.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, i) {
                   final doc = filtered[i];
                   final d = doc.data();
-                  final kind = (d['kind'] ?? '').toString();
-                  final labelKind = switch (kind) {
+                  final kindRaw = (d['kind'] ?? '').toString();
+                  final cartaKind = _cartaKindFromFirestore(kindRaw);
+                  final kindAccent = _accentForCartaKind(cartaKind);
+                  final labelKind = switch (kindRaw) {
                     'transferencia' => 'Transferência',
                     'agradecimento' => 'Agradecimento',
                     _ => 'Apresentação',
@@ -2924,33 +2618,53 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                       ? DateFormat('dd/MM/yyyy HH:mm').format(dt)
                       : '—';
                   final dest = (d['destIgreja'] ?? '').toString();
+                  final stackActions = ThemeCleanPremium.isMobile(context) ||
+                      MediaQuery.sizeOf(context).width < 560;
                   return Material(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    elevation: 0,
+                    shadowColor: Colors.transparent,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       onTap: () => _loadForEdit(doc),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
+                      child: Container(
+                        padding: EdgeInsets.all(stackActions ? 14 : 16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: kindAccent.withValues(alpha: 0.22),
+                          ),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              kindAccent.withValues(alpha: 0.08),
+                              const Color(0xFFF8FAFC),
+                            ],
+                          ),
+                          boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        ),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
+                                    horizontal: 10,
+                                    vertical: 5,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: accent.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(8),
+                                    color: kindAccent.withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
                                     labelKind,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      color: accent,
+                                      color: kindAccent,
                                       fontSize: 12,
                                     ),
                                   ),
@@ -2966,39 +2680,20 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Text(
                               dest.isEmpty ? '(sem destinatário)' : dest,
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 14,
+                                fontSize: 15,
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                TextButton.icon(
-                                  onPressed: () => _reprintFromDoc(doc),
-                                  icon: const Icon(Icons.picture_as_pdf_rounded,
-                                      size: 18),
-                                  label: const Text('Reimprimir'),
-                                ),
-                                TextButton.icon(
-                                  onPressed: () => _loadForEdit(doc),
-                                  icon:
-                                      const Icon(Icons.edit_rounded, size: 18),
-                                  label: const Text('Editar'),
-                                ),
-                                const Spacer(),
-                                IconButton(
-                                  tooltip: 'Excluir',
-                                  onPressed: () => _confirmDelete(doc),
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Colors.red.shade700,
-                                  ),
-                                ),
-                              ],
+                            const SizedBox(height: 12),
+                            _buildHistoricoActionBar(
+                              stackVertical: stackActions,
+                              onReprint: () => _reprintFromDoc(doc),
+                              onEdit: () => _loadForEdit(doc),
+                              onDelete: () => _confirmDelete(doc),
                             ),
                           ],
                         ),

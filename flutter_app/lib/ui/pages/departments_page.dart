@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_department_members_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -99,12 +100,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   int _deptListTab = 0;
 
   /// Membros por id do documento do departamento (pré-visualização na lista).
-  Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _membersByDeptId =
+  Map<String, List<ChurchDepartmentMemberRow>> _membersByDeptId =
       const {};
 
-  /// CPF canónico (11 dígitos) → doc em [membros] (foto do líder na lista).
-  Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocByNormCpf =
-      const {};
+  /// CPF canónico (11 dígitos) → dados do membro (foto/nome do líder na lista).
+  Map<String, Map<String, dynamic>> _memberDataByNormCpf = const {};
 
   Timer? _webLoadCap;
   int _deptLoadRetryGen = 0;
@@ -336,7 +336,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       _hydratedDeptDocs = null;
       _cpfToMemberName = const {};
       _membersByDeptId = const {};
-      _memberDocByNormCpf = const {};
+      _memberDataByNormCpf = const {};
       _deptListTab = 0;
       _memberLookupDone = false;
       _emptyServerDeptFetchTried = false;
@@ -545,74 +545,26 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         return;
       }
 
-      final snap = await ChurchRepository.collection('membros', churchIdHint: tid)
-          .limit(120)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 4));
-      QuerySnapshot<Map<String, dynamic>> rosterSnap = snap;
-      if (rosterSnap.docs.isEmpty) {
-        rosterSnap = await ChurchRepository.collection('membros', churchIdHint: tid)
-            .limit(120)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 8));
-      }
+      final grouped = await ChurchDepartmentMembersLoadService.loadGroupedByDepartment(
+        seedTenantId: tid,
+      ).timeout(const Duration(seconds: 16));
+      final allMembers = await ChurchDepartmentMembersLoadService.loadAllForPicker(
+        seedTenantId: tid,
+      ).timeout(const Duration(seconds: 16));
+
       final map = <String, String>{..._cpfToMemberName};
-      final byDept =
-          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
-      final byCpf = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+      final byDept = grouped.byDepartmentId;
+      final byCpf = <String, Map<String, dynamic>>{};
 
-      String memberSortKey(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-        final data = d.data();
-        final t = (data['NOME_COMPLETO'] ??
-                data['nome'] ??
-                data['name'] ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
-        return t.isEmpty ? d.id.toLowerCase() : t;
-      }
-
-      for (final d in rosterSnap.docs) {
-        final data = d.data();
-        final nome = (data['NOME_COMPLETO'] ??
-                data['nome'] ??
-                data['name'] ??
-                '')
-            .toString()
-            .trim();
+      for (final row in allMembers.members) {
+        final data = row.data;
+        final nome = row.displayName;
         final cpfRaw = (data['CPF'] ?? data['cpf'] ?? '').toString();
         final digits = cpfRaw.replaceAll(RegExp(r'\D'), '');
         if (digits.length >= 9 && digits.length <= 11) {
           final c = ChurchDepartmentLeaders.canonicalCpfDigits(digits);
-          byCpf[c] = d;
-          if (nome.isNotEmpty) {
-            map[c] = nome;
-          }
-        }
-
-        final deptIds = <String>{};
-        void addDeptId(Object? raw) {
-          final s = (raw ?? '').toString().trim();
-          if (s.isNotEmpty) deptIds.add(s);
-        }
-
-        for (final e in (data['DEPARTAMENTOS'] as List?) ?? const []) {
-          addDeptId(e);
-        }
-        for (final e in (data['departamentosIds'] as List?) ?? const []) {
-          addDeptId(e);
-        }
-        for (final deptId in deptIds) {
-          byDept.putIfAbsent(deptId, () => []).add(d);
-        }
-      }
-
-      for (final e in byDept.entries) {
-        e.value.sort(
-            (a, b) => memberSortKey(a).compareTo(memberSortKey(b)));
-        if (e.value.length > 48) {
-          e.value.removeRange(48, e.value.length);
+          byCpf[c] = data;
+          if (nome.isNotEmpty) map[c] = nome;
         }
       }
 
@@ -620,7 +572,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       setState(() {
         _cpfToMemberName = map;
         _membersByDeptId = byDept;
-        _memberDocByNormCpf = byCpf;
+        _memberDataByNormCpf = byCpf;
         _memberLookupDone = true;
       });
     } catch (e) {
@@ -636,8 +588,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return DepartmentMemberIntegrationService.buildLeaderFirestorePayload(
       tenantId: _tid,
       leaderCpfs: cpfs,
-      memberDataByCpf:
-          _memberDocByNormCpf.map((k, v) => MapEntry(k, v.data())),
+      memberDataByCpf: _memberDataByNormCpf,
       nameByCpf: _cpfToMemberName,
     );
   }
@@ -1056,77 +1007,76 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required BuildContext context,
     required String deptId,
     required String deptName,
+    int accent1 = 0xFF2563EB,
+    int accent2 = 0xFF3B82F6,
   }) async {
     if (!_canWrite) return;
     try {
-      final membersList =
-          await ChurchRepository.membros.listCacheFirst(
-        churchIdHint: _tid,
-        limit: 500,
-      );
-      final members = membersList.items;
-      if (members.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text(
-                    'Não há membros cadastrados. Cadastre membros em Pessoas > Membros.')),
-          );
-        }
-        return;
-      }
-      final selecionados = <String>{};
-      for (final doc in members) {
-        final depts = (doc.data()['DEPARTAMENTOS'] as List?)
-                ?.map((e) => e.toString())
-                .toList() ??
-            [];
-        if (depts.contains(deptId)) selecionados.add(doc.id);
-      }
       if (!context.mounted) return;
       final result = await Navigator.of(context).push<Set<String>>(
         MaterialPageRoute<Set<String>>(
           fullscreenDialog: true,
           builder: (ctx) => _VincularMembrosSheet(
             tenantId: _tid,
+            deptId: deptId,
             deptName: deptName,
-            members: members,
-            selecionados: selecionados,
+            accent1: accent1,
+            accent2: accent2,
           ),
         ),
       );
       if (result == null || !mounted) return;
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      for (final doc in members) {
-        final id = doc.id;
-        final estava = selecionados.contains(id);
+
+      final allMembers =
+          await ChurchDepartmentMembersLoadService.loadAllForPicker(
+        seedTenantId: _tid,
+      ).timeout(const Duration(seconds: 16));
+      final byId = {
+        for (final r in allMembers.members) r.memberDocId: r,
+      };
+      final previouslyLinked = <String>{};
+      for (final r in allMembers.members) {
+        if (ChurchDepartmentMembersLoadService.memberInDepartment(
+          r.data,
+          deptId,
+        )) {
+          previouslyLinked.add(r.memberDocId);
+        }
+      }
+
+      for (final id in {...previouslyLinked, ...result}) {
+        final estava = previouslyLinked.contains(id);
         final ficou = result.contains(id);
         if (estava == ficou) continue;
-        final data = doc.data();
+        final row = byId[id];
+        if (row == null) continue;
         if (ficou) {
           await DepartmentMemberIntegrationService.linkMember(
             tenantId: _tid,
             departmentId: deptId,
             memberDocId: id,
-            memberData: data,
+            memberData: row.data,
           );
         } else {
           await DepartmentMemberIntegrationService.unlinkMember(
             tenantId: _tid,
             departmentId: deptId,
             memberDocId: id,
-            memberData: data,
+            memberData: row.data,
           );
         }
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  'Membros atualizados. Use esse vínculo para escalas e reuniões.',
-                  style: TextStyle(color: Colors.white)),
-              backgroundColor: Colors.green),
+            content: Text(
+              'Membros atualizados. Use esse vínculo para escalas e reuniões.',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+          ),
         );
+        unawaited(_loadMemberCpfLookup(includeMemberRoster: true));
         _refreshDepartments(forceServer: true);
       }
     } catch (e) {
@@ -1765,6 +1715,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             context: ctx,
             deptId: deptDoc.id,
             deptName: churchDepartmentNameFromDoc(deptDoc),
+            accent1: c1,
+            accent2: c2,
           );
         },
         onAddLeader: () async {
@@ -2502,12 +2454,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   child: FotoMembroWidget(
                     size: 28,
                     tenantId: _tid,
-                    memberId: shown[i].id,
-                    imageUrl: imageUrlFromMap(shown[i].data()),
+                    memberId: shown[i].memberDocId,
+                    imageUrl: imageUrlFromMap(shown[i].data),
                     cpfDigits:
-                        (shown[i].data()['CPF'] ?? shown[i].data()['cpf'] ?? '')
+                        (shown[i].data['CPF'] ?? shown[i].data['cpf'] ?? '')
                             .toString(),
-                    memberData: shown[i].data(),
+                    memberData: shown[i].data,
+                    preferListThumbnail: true,
+                    memCacheWidth: 96,
                   ),
                 ),
               ),
@@ -3527,7 +3481,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   bool _hubLoading = true;
   Object? _hubError;
   Map<String, dynamic>? _deptData;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocs = const [];
+  List<ChurchDepartmentMemberRow> _memberRows = const [];
   final TextEditingController _memberSearchCtrl = TextEditingController();
   String _memberSearch = '';
   Timer? _memberSearchDebounce;
@@ -3559,17 +3513,17 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     });
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterDocsBySearch(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  List<ChurchDepartmentMemberRow> _filterRowsBySearch(
+    List<ChurchDepartmentMemberRow> rows,
   ) {
     final q = _memberSearch.trim().toLowerCase();
-    if (q.isEmpty) return docs;
-    return docs
-        .where((d) => _nomeMembro(d).toLowerCase().contains(q))
+    if (q.isEmpty) return rows;
+    return rows
+        .where((r) => r.displayName.toLowerCase().contains(q))
         .toList();
   }
 
-  Future<void> _loadHubData() async {
+  Future<void> _loadHubData({bool forceRefresh = false}) async {
     final churchId = ChurchRepository.churchId(widget.tenantId);
     final path =
         'igrejas/$churchId/departamentos/${widget.deptId}/membros_vinculados';
@@ -3584,73 +3538,33 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 
-      // Cache-first: lista aparece rápido offline/online.
+      final loaded = await ChurchDepartmentMembersLoadService.loadLinked(
+        seedTenantId: widget.tenantId,
+        departmentId: widget.deptId,
+        forceRefresh: forceRefresh,
+      );
+
+      Map<String, dynamic>? deptData = _deptData;
       try {
-        final cached = await ChurchRepository.membros.listCacheFirst(
-          churchIdHint: widget.tenantId,
-          limit: 500,
-        );
-        final filtered = cached.items.where((d) {
-          final depts = (d.data()['DEPARTAMENTOS'] as List?)
-                  ?.map((e) => e.toString())
-                  .toList() ??
-              [];
-          return depts.contains(widget.deptId);
-        }).toList();
-        if (filtered.isNotEmpty && mounted) {
-          setState(() {
-            _memberDocs = filtered;
-            _hubLoading = false;
-          });
-        }
+        final deptSnap = await FirestoreWebGuard.runWithWebRecovery(
+          () => firestoreDocumentGetReliable(widget.deptRef),
+          maxAttempts: 3,
+        ).timeout(const Duration(seconds: 12));
+        deptData = deptSnap.data();
       } catch (_) {}
-
-      final deptSnap = await FirestoreWebGuard.runWithWebRecovery(
-        () => firestoreDocumentGetReliable(widget.deptRef),
-        maxAttempts: 4,
-      ).timeout(const Duration(seconds: 14));
-
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> memberDocs;
-      try {
-        final memberSnap = await FirestoreWebGuard.runWithWebRecovery(
-          () => firestoreQueryGetReliable(
-            widget.membersCol
-                .where('DEPARTAMENTOS', arrayContains: widget.deptId)
-                .limit(200),
-          ),
-          maxAttempts: 4,
-        ).timeout(const Duration(seconds: 14));
-        memberDocs = memberSnap.docs;
-      } catch (_) {
-        if (_memberDocs.isNotEmpty) {
-          memberDocs = _memberDocs;
-        } else {
-          final cached = await ChurchRepository.membros.listCacheFirst(
-            churchIdHint: widget.tenantId,
-            limit: 500,
-          );
-          memberDocs = cached.items.where((d) {
-            final depts = (d.data()['DEPARTAMENTOS'] as List?)
-                    ?.map((e) => e.toString())
-                    .toList() ??
-                [];
-            return depts.contains(widget.deptId);
-          }).toList();
-        }
-      }
 
       if (!mounted) return;
       setState(() {
-        _deptData = deptSnap.data();
-        _memberDocs = memberDocs;
+        _deptData = deptData;
+        _memberRows = loaded.members;
         _hubLoading = false;
-        _hubError = null;
+        _hubError = loaded.members.isEmpty ? loaded.softError : null;
       });
       ChurchModuleQueryProbe.logSuccess(
         module: 'Departamentos-Hub',
         churchId: churchId,
         path: path,
-        totalDocs: memberDocs.length,
+        totalDocs: loaded.members.length,
       );
     } catch (e, st) {
       ChurchModuleQueryProbe.logError(
@@ -3665,6 +3579,8 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         _hubError = e;
         _hubLoading = false;
       });
+    } finally {
+      if (mounted) setState(() => _hubLoading = false);
     }
   }
 
@@ -3700,14 +3616,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     );
   }
 
-  static String _nomeMembro(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data();
-    return (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? doc.id)
-        .toString()
-        .trim();
-  }
-
-  static String _cpfDigits(Map<String, dynamic> d) =>
+  static String _cpfDigitsMap(Map<String, dynamic> d) =>
       (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
 
   static String _cpfMask(String cpf) {
@@ -3754,7 +3663,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Líder removido.'),
         );
-        unawaited(_loadHubData());
+        unawaited(_loadHubData(forceRefresh: true));
       }
     } catch (e) {
       if (context.mounted) {
@@ -3766,9 +3675,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
 
   Future<void> _removerMembroHub(
     BuildContext context,
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    ChurchDepartmentMemberRow row,
   ) async {
-    final nome = _nomeMembro(doc);
+    final nome = row.displayName;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -3794,10 +3703,10 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       await DepartmentMemberIntegrationService.unlinkMember(
         tenantId: widget.tenantId,
         departmentId: widget.deptId,
-        memberDocId: doc.id,
-        memberData: doc.data(),
+        memberDocId: row.memberDocId,
+        memberData: row.data,
       );
-      final cpf = _cpfDigits(doc.data());
+      final cpf = _cpfDigitsMap(row.data);
       if (cpf.length == 11) {
         final dSnap = await widget.deptRef.get();
         final leaders =
@@ -3821,7 +3730,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
               style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.green,
         ));
-        unawaited(_loadHubData());
+        unawaited(_loadHubData(forceRefresh: true));
       }
     } catch (e) {
       if (context.mounted) {
@@ -3833,11 +3742,11 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
 
   Widget _leaderCard({
     required BuildContext context,
-    required QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    required ChurchDepartmentMemberRow row,
   }) {
-    final data = doc.data();
-    final nome = _nomeMembro(doc);
-    final cpf = _cpfDigits(data);
+    final data = row.data;
+    final nome = row.displayName;
+    final cpf = _cpfDigitsMap(data);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -3865,7 +3774,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           memberData: data,
           departmentNames: [widget.deptName],
           tenantId: widget.tenantId,
-          memberDocId: doc.id,
+          memberDocId: row.memberDocId,
           memberRole: widget.memberRole,
         ),
         contentPadding:
@@ -3873,11 +3782,12 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         leading: FotoMembroWidget(
           size: 48,
           tenantId: widget.tenantId,
-          memberId: doc.id,
+          memberId: row.memberDocId,
           imageUrl: imageUrlFromMap(data),
           cpfDigits: cpf,
           memberData: data,
           preferListThumbnail: true,
+          memCacheWidth: 120,
         ),
         title: Row(
           children: [
@@ -3914,7 +3824,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 viewerCpfDigits: '',
                 memberData: data,
                 displayName: nome,
-                memberDocId: doc.id,
+                memberDocId: row.memberDocId,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 22),
@@ -3926,7 +3836,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                   context,
                   data,
                   tenantId: widget.tenantId,
-                  memberDocId: doc.id,
+                  memberDocId: row.memberDocId,
                 ),
               ),
               icon: const WhatsappBrandIcon(size: 22),
@@ -3989,9 +3899,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     );
   }
 
-  Widget _memberRow(
-      BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  Widget _memberRow(BuildContext context, ChurchDepartmentMemberRow row) {
+    final data = row.data;
+    final nome = row.displayName;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -4017,19 +3927,20 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           memberData: data,
           departmentNames: [widget.deptName],
           tenantId: widget.tenantId,
-          memberDocId: doc.id,
+          memberDocId: row.memberDocId,
           memberRole: widget.memberRole,
         ),
         leading: FotoMembroWidget(
           size: 40,
           tenantId: widget.tenantId,
-          memberId: doc.id,
+          memberId: row.memberDocId,
           imageUrl: imageUrlFromMap(data),
-          cpfDigits: _cpfDigits(data),
+          cpfDigits: _cpfDigitsMap(data),
           memberData: data,
           preferListThumbnail: true,
+          memCacheWidth: 96,
         ),
-        title: Text(_nomeMembro(doc)),
+        title: Text(nome),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -4041,8 +3952,8 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 memberRole: widget.memberRole,
                 viewerCpfDigits: '',
                 memberData: data,
-                displayName: _nomeMembro(doc),
-                memberDocId: doc.id,
+                displayName: nome,
+                memberDocId: row.memberDocId,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 20),
@@ -4054,7 +3965,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                   context,
                   data,
                   tenantId: widget.tenantId,
-                  memberDocId: doc.id,
+                  memberDocId: row.memberDocId,
                 ),
               ),
               icon: const WhatsappBrandIcon(size: 20),
@@ -4062,7 +3973,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             if (widget.canWrite)
               IconButton(
                 tooltip: 'Remover do departamento',
-                onPressed: () => _removerMembroHub(context, doc),
+                onPressed: () => _removerMembroHub(context, row),
                 icon: const Icon(Icons.person_remove_rounded,
                     color: Color(0xFFDC2626), size: 22),
               ),
@@ -4073,10 +3984,22 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   }
 
   Widget _buildHubMembersPane() {
-    if (_hubLoading && _memberDocs.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (_hubLoading && _memberRows.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: _cA),
+            const SizedBox(height: 16),
+            Text(
+              'Carregando membros…',
+              style: TextStyle(color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      );
     }
-    if (_hubError != null && _memberDocs.isEmpty) {
+    if (_hubError != null && _memberRows.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -4086,7 +4009,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
               Text('Erro ao carregar: $_hubError'),
               const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _loadHubData,
+                onPressed: () => _loadHubData(forceRefresh: true),
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Tentar novamente'),
               ),
@@ -4097,38 +4020,34 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     }
     final leaderCpfs =
         ChurchDepartmentLeaders.cpfsFromDepartmentData(_deptData);
-    final docs = _memberDocs;
-    String cpfOf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-      return (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
-          .toString()
-          .replaceAll(RegExp(r'\D'), '');
-    }
+    final rows = _memberRows;
+    String cpfOfRow(ChurchDepartmentMemberRow r) => _cpfDigitsMap(r.data);
 
-    final byCpf = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    for (final d in docs) {
-      final c = cpfOf(d);
-      if (c.length == 11) byCpf[c] = d;
+    final byCpf = <String, ChurchDepartmentMemberRow>{};
+    for (final r in rows) {
+      final c = cpfOfRow(r);
+      if (c.length == 11) byCpf[c] = r;
     }
-    final leaderDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final leaderRows = <ChurchDepartmentMemberRow>[];
     final orphanCpfs = <String>[];
     for (final cpf in leaderCpfs) {
       final found = byCpf[cpf];
       if (found != null) {
-        leaderDocs.add(found);
+        leaderRows.add(found);
       } else {
         orphanCpfs.add(cpf);
       }
     }
     final leaderSet = leaderCpfs.toSet();
-    var otherDocs = docs
-        .where((d) => !leaderSet.contains(cpfOf(d)))
+    var otherRows = rows
+        .where((r) => !leaderSet.contains(cpfOfRow(r)))
         .toList();
-    otherDocs.sort((a, b) => _nomeMembro(a)
+    otherRows.sort((a, b) => a.displayName
         .toLowerCase()
-        .compareTo(_nomeMembro(b).toLowerCase()));
+        .compareTo(b.displayName.toLowerCase()));
 
-    final filteredLeaderDocs = _filterDocsBySearch(leaderDocs);
-    otherDocs = _filterDocsBySearch(otherDocs);
+    final filteredLeaderRows = _filterRowsBySearch(leaderRows);
+    otherRows = _filterRowsBySearch(otherRows);
     final searchActive = _memberSearch.trim().isNotEmpty;
 
     return ListView(
@@ -4136,7 +4055,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       children: [
         _sectionTitle('Liderança'),
         const SizedBox(height: 8),
-        if (leaderDocs.isEmpty && orphanCpfs.isEmpty)
+        if (leaderRows.isEmpty && orphanCpfs.isEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
@@ -4149,8 +4068,8 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
               ),
             ),
           ),
-        ...filteredLeaderDocs.map(
-          (doc) => _leaderCard(context: context, doc: doc),
+        ...filteredLeaderRows.map(
+          (row) => _leaderCard(context: context, row: row),
         ),
         ...orphanCpfs.map((cpf) => _orphanLeaderTile(context, cpf)),
         const SizedBox(height: 16),
@@ -4171,7 +4090,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 border: Border.all(color: _cA.withValues(alpha: 0.28)),
               ),
               child: Text(
-                '${docs.length}',
+                '${rows.length}',
                 style: TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 12,
@@ -4182,17 +4101,19 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           ],
         ),
         const SizedBox(height: 10),
-        if (docs.isEmpty)
+        if (rows.isEmpty)
           Text(
             'Nenhum membro vinculado.',
             style: TextStyle(color: Colors.grey.shade600),
           )
-        else if (searchActive && otherDocs.isEmpty && filteredLeaderDocs.isEmpty)
+        else if (searchActive &&
+            otherRows.isEmpty &&
+            filteredLeaderRows.isEmpty)
           Text(
             'Nenhum membro corresponde à busca.',
             style: TextStyle(color: Colors.grey.shade600),
           ),
-        ...otherDocs.map((doc) => _memberRow(context, doc)),
+        ...otherRows.map((row) => _memberRow(context, row)),
       ],
     );
   }
@@ -4301,31 +4222,33 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                           backgroundColor: Colors.white.withValues(alpha: 0.9),
                         ),
                       ),
-                      FilledButton.tonalIcon(
-                        onPressed: () async {
-                          await widget.onAddMember();
-                          if (mounted) unawaited(_loadHubData());
-                        },
-                        icon: Icon(Icons.person_add_rounded,
-                            size: 18, color: _cA),
-                        label: const Text('Membro'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _cB.withValues(alpha: 0.14),
-                          foregroundColor: Colors.grey.shade900,
-                        ),
-                      ),
                       FilledButton.icon(
                         onPressed: () async {
-                          await widget.onAddLeader();
-                          if (mounted) unawaited(_loadHubData());
+                          await widget.onAddMember();
+                          if (mounted) unawaited(_loadHubData(forceRefresh: true));
                         },
-                        icon: Icon(Icons.star_rounded,
-                            size: 18, color: _onAccentFg(_cA)),
-                        label: Text('Líder',
-                            style: TextStyle(color: _onAccentFg(_cA))),
+                        icon: const Icon(Icons.group_add_rounded, size: 18),
+                        label: const Text('Vincular membros'),
                         style: FilledButton.styleFrom(
                           backgroundColor: _cA,
                           foregroundColor: _onAccentFg(_cA),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () async {
+                          await widget.onAddLeader();
+                          if (mounted) unawaited(_loadHubData(forceRefresh: true));
+                        },
+                        icon: Icon(Icons.star_rounded,
+                            size: 18, color: _cA),
+                        label: const Text('Líder'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _cB.withValues(alpha: 0.14),
+                          foregroundColor: Colors.grey.shade900,
                         ),
                       ),
                     ],
@@ -4370,7 +4293,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                   ),
                 ),
               ),
-              if (_hubLoading && _memberDocs.isNotEmpty)
+              if (_hubLoading && _memberRows.isNotEmpty)
                 LinearProgressIndicator(
                   minHeight: 2,
                   color: _cA,
@@ -4581,18 +4504,20 @@ class _VerMembrosSheetState extends State<_VerMembrosSheet> {
   }
 }
 
-/// Sheet para vincular membros ao departamento (escalas, reuniões).
+/// Tela «Vincular membros» — lista com filtros (igual mobile).
 class _VincularMembrosSheet extends StatefulWidget {
   final String tenantId;
+  final String deptId;
   final String deptName;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> members;
-  final Set<String> selecionados;
+  final int accent1;
+  final int accent2;
 
   const _VincularMembrosSheet({
     required this.tenantId,
+    required this.deptId,
     required this.deptName,
-    required this.members,
-    required this.selecionados,
+    this.accent1 = 0xFF2563EB,
+    this.accent2 = 0xFF3B82F6,
   });
 
   @override
@@ -4601,29 +4526,57 @@ class _VincularMembrosSheet extends StatefulWidget {
 
 class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
   late Set<String> _selected;
-  late List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedMembers;
+  List<ChurchDepartmentMemberRow> _members = const [];
+  bool _loading = true;
+  String? _loadError;
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchQuery = '';
   Timer? _searchDebounce;
-
-  /// '' = todos; [genderCategoryFromMemberData] `M` ou `F`.
   String _sexFilter = '';
-
-  /// `todos` ou presets de faixa/perfil (exige idade quando aplicável).
   String _presetFilter = 'todos';
+
+  Color get _cA => Color(widget.accent1);
+  Color get _cB => Color(widget.accent2);
 
   @override
   void initState() {
     super.initState();
-    _selected = Set<String>.from(widget.selecionados);
-    _sortedMembers = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-      widget.members,
-    )..sort(
-        (a, b) => _memberName(a)
-            .toLowerCase()
-            .compareTo(_memberName(b).toLowerCase()),
-      );
+    _selected = {};
     _searchCtrl.addListener(_onSearchChanged);
+    unawaited(_loadMembers());
+  }
+
+  Future<void> _loadMembers() async {
+    if (!mounted) setState(() => _loading = true);
+    try {
+      final loaded = await ChurchDepartmentMembersLoadService.loadAllForPicker(
+        seedTenantId: widget.tenantId,
+      ).timeout(const Duration(seconds: 16));
+      if (!mounted) return;
+      final selected = <String>{};
+      for (final row in loaded.members) {
+        if (ChurchDepartmentMembersLoadService.memberInDepartment(
+          row.data,
+          widget.deptId,
+        )) {
+          selected.add(row.memberDocId);
+        }
+      }
+      setState(() {
+        _members = loaded.members;
+        _selected = selected;
+        _loading = false;
+        _loadError = loaded.members.isEmpty ? loaded.softError : null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   void _onSearchChanged() {
@@ -4643,27 +4596,15 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
     super.dispose();
   }
 
-  String _memberName(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data();
-    return (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? doc.id)
-        .toString()
-        .trim();
-  }
-
-  String _memberCpfDigits(Map<String, dynamic> d) =>
-      (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-
-  bool _memberMatchesFilters(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final d = doc.data();
+  bool _memberMatchesFilters(ChurchDepartmentMemberRow row) {
+    final d = row.data;
     final q = _searchQuery.toLowerCase();
     if (q.isNotEmpty) {
-      final name = _memberName(doc).toLowerCase();
+      final name = row.displayName.toLowerCase();
       if (!name.contains(q)) return false;
     }
-
     final gender = genderCategoryFromMemberData(d);
     if (_sexFilter.isNotEmpty && gender != _sexFilter) return false;
-
     final age = ageFromMemberData(d);
     switch (_presetFilter) {
       case 'todos':
@@ -4695,21 +4636,33 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
     }
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _visibleMembers =>
-      _sortedMembers.where(_memberMatchesFilters).toList();
+  List<ChurchDepartmentMemberRow> get _visibleMembers {
+    final sorted = List<ChurchDepartmentMemberRow>.from(_members)
+      ..sort((a, b) => a.displayName
+          .toLowerCase()
+          .compareTo(b.displayName.toLowerCase()));
+    return sorted.where(_memberMatchesFilters).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
     final visible = _visibleMembers;
     final pagePad = ThemeCleanPremium.pagePadding(context);
-
     void closeSheet() => Navigator.pop(context);
 
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: ThemeCleanPremium.primary,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [_cA, _cB],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         foregroundColor: Colors.white,
         leading: IconButton(
           tooltip: 'Voltar',
@@ -4729,10 +4682,7 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
             onPressed: closeSheet,
             child: const Text(
               'Cancelar',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -4744,242 +4694,241 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            Text(
-              '${widget.deptName} — marque os membros que fazem parte para escalas e reuniões.',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _searchCtrl,
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Buscar por nome…',
-                prefixIcon: const Icon(Icons.search_rounded, size: 22),
-                suffixIcon: _searchCtrl.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Limpar',
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _searchQuery = '');
-                        },
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                      ),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.grey.shade300),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: ThemeCleanPremium.primary,
-                    width: 1.4,
+              Text(
+                '${widget.deptName} — marque os membros que fazem parte para escalas e reuniões.',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _searchCtrl,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Buscar por nome…',
+                  prefixIcon: Icon(Icons.search_rounded, size: 22, color: _cA),
+                  suffixIcon: _searchCtrl.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Limpar',
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _cA.withValues(alpha: 0.25)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _cA.withValues(alpha: 0.25)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: _cA, width: 1.4),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Sexo',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade700,
-                letterSpacing: 0.4,
+              const SizedBox(height: 10),
+              Text('Sexo',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.grey.shade700)),
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Todos'),
+                      selected: _sexFilter.isEmpty,
+                      selectedColor: _cA.withValues(alpha: 0.18),
+                      onSelected: (v) {
+                        if (v) setState(() => _sexFilter = '');
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Masculino'),
+                      selected: _sexFilter == 'M',
+                      selectedColor: _cA.withValues(alpha: 0.18),
+                      onSelected: (v) {
+                        if (v) setState(() => _sexFilter = 'M');
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    ChoiceChip(
+                      label: const Text('Feminino'),
+                      selected: _sexFilter == 'F',
+                      selectedColor: _cA.withValues(alpha: 0.18),
+                      onSelected: (v) {
+                        if (v) setState(() => _sexFilter = 'F');
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Todos'),
-                    selected: _sexFilter.isEmpty,
-                    onSelected: (v) {
-                      if (v) setState(() => _sexFilter = '');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Masculino'),
-                    selected: _sexFilter == 'M',
-                    onSelected: (v) {
-                      if (v) setState(() => _sexFilter = 'M');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Feminino'),
-                    selected: _sexFilter == 'F',
-                    onSelected: (v) {
-                      if (v) setState(() => _sexFilter = 'F');
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Idade / perfil',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: Colors.grey.shade700,
-                letterSpacing: 0.4,
-              ),
-            ),
-            const SizedBox(height: 6),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('Todos'),
-                    selected: _presetFilter == 'todos',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'todos');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Criança'),
-                    selected: _presetFilter == 'crianca',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'crianca');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Menino'),
-                    selected: _presetFilter == 'menino',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'menino');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Menina'),
-                    selected: _presetFilter == 'menina',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'menina');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Homem'),
-                    selected: _presetFilter == 'homem',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'homem');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Mulher'),
-                    selected: _presetFilter == 'mulher',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'mulher');
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Idoso'),
-                    selected: _presetFilter == 'idoso',
-                    onSelected: (v) {
-                      if (v) setState(() => _presetFilter = 'idoso');
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Ordem alfabética · ${visible.length} de ${_sortedMembers.length} na lista'
-              '${_presetFilter != 'todos' ? ' · idade: usa a data de nascimento da ficha' : ''}'
-              '${_sexFilter.isNotEmpty ? ' · sexo: quem sem sexo na ficha não aparece' : ''}',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: visible.isEmpty
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text(
-                          'Nenhum membro corresponde aos filtros. Ajuste a busca ou use «Todos».',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            height: 1.35,
-                          ),
+              const SizedBox(height: 10),
+              Text('Idade / perfil',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.grey.shade700)),
+              const SizedBox(height: 6),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final (id, label) in [
+                      ('todos', 'Todos'),
+                      ('crianca', 'Criança'),
+                      ('menino', 'Menino'),
+                      ('menina', 'Menina'),
+                      ('homem', 'Homem'),
+                      ('mulher', 'Mulher'),
+                      ('idoso', 'Idoso'),
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(label),
+                          selected: _presetFilter == id,
+                          selectedColor: _cB.withValues(alpha: 0.2),
+                          onSelected: (v) {
+                            if (v) setState(() => _presetFilter = id);
+                          },
                         ),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: visible.length,
-                      itemBuilder: (context, i) {
-                  final doc = visible[i];
-                  final id = doc.id;
-                  final nome = _memberName(doc);
-                  final checked = _selected.contains(id);
-                  return CheckboxListTile(
-                    value: checked,
-                    title: Text(nome),
-                    secondary: FotoMembroWidget(
-                      size: 40,
-                      tenantId: widget.tenantId,
-                      memberId: id,
-                      imageUrl: imageUrlFromMap(doc.data()),
-                      cpfDigits: _memberCpfDigits(doc.data()),
-                      memberData: doc.data(),
-                    ),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    onChanged: (v) {
-                      setState(() {
-                        if (v == true) {
-                          _selected.add(id);
-                        } else {
-                          _selected.remove(id);
-                        }
-                      });
-                    },
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: closeSheet,
-                    child: const Text('Cancelar'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => Navigator.pop(context, _selected),
-                    icon: const Icon(Icons.check_rounded, size: 20),
-                    label: Text('Salvar (${_selected.length})'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ThemeCleanPremium.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
+              const SizedBox(height: 6),
+              Text(
+                'Ordem alfabética · ${visible.length} de ${_members.length} na lista',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: _loading
+                    ? Center(child: CircularProgressIndicator(color: _cA))
+                    : _loadError != null && _members.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_loadError!,
+                                    textAlign: TextAlign.center),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: _loadMembers,
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Tentar novamente'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : visible.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'Nenhum membro corresponde aos filtros.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey.shade600),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: visible.length,
+                                itemBuilder: (context, i) {
+                                  final row = visible[i];
+                                  final id = row.memberDocId;
+                                  final checked = _selected.contains(id);
+                                  return Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    elevation: 0,
+                                    color: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      side: BorderSide(
+                                        color: checked
+                                            ? _cA.withValues(alpha: 0.45)
+                                            : _cA.withValues(alpha: 0.1),
+                                      ),
+                                    ),
+                                    child: CheckboxListTile(
+                                      value: checked,
+                                      activeColor: _cA,
+                                      title: Text(
+                                        row.displayName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      secondary: FotoMembroWidget(
+                                        size: 44,
+                                        tenantId: widget.tenantId,
+                                        memberId: id,
+                                        imageUrl: imageUrlFromMap(row.data),
+                                        cpfDigits: (row.data['CPF'] ??
+                                                row.data['cpf'] ??
+                                                '')
+                                            .toString(),
+                                        memberData: row.data,
+                                        preferListThumbnail: true,
+                                        memCacheWidth: 120,
+                                      ),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      onChanged: (v) {
+                                        setState(() {
+                                          if (v == true) {
+                                            _selected.add(id);
+                                          } else {
+                                            _selected.remove(id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: closeSheet,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _cA,
+                        side: BorderSide(color: _cA.withValues(alpha: 0.5)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text('Cancelar'),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => Navigator.pop(context, _selected),
+                      icon: const Icon(Icons.check_rounded, size: 20),
+                      label: Text('Salvar (${_selected.length})'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _cA,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
