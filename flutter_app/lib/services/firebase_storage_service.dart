@@ -419,6 +419,18 @@ class FirebaseStorageService {
     if (_memberPhotoUrlCache.containsKey(cacheKey)) {
       return _memberPhotoUrlCache[cacheKey];
     }
+    // Web: sem URL/path no Firestore — não sondar dezenas de caminhos legados (404 em massa).
+    if (kIsWeb && memberFirestoreHint != null) {
+      final hasHttps = MemberImageFields.photoDownloadUrl(memberFirestoreHint) !=
+              null ||
+          MemberImageFields.photoThumbDownloadUrl(memberFirestoreHint) != null;
+      final hasPath = MemberImageFields.photoStoragePath(memberFirestoreHint) !=
+              null ||
+          MemberImageFields.photoThumbStoragePath(memberFirestoreHint) != null;
+      if (!hasHttps && !hasPath) {
+        return null;
+      }
+    }
     if (kIsWeb) {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       try {
@@ -539,23 +551,27 @@ class FirebaseStorageService {
       }
     }
     // Vários caminhos legados: falha (objeto inexistente) costuma ser rápida — timeout curto.
-    // Lotes em paralelo reduzem espera na lista de membros (antes: sequencial × 8s).
-    const perTimeout = Duration(seconds: 2);
-    const batchSize = 8;
+    final perTimeout =
+        Duration(seconds: kIsWeb ? 1 : 2);
+    final batchSize = kIsWeb ? 3 : 8;
+    final maxPaths = kIsWeb ? 12 : paths.length;
+    final pathsToTry = paths.length > maxPaths ? paths.sublist(0, maxPaths) : paths;
     Future<String?> tryPath(String path) async {
       try {
-        final ref = FirebaseStorage.instance.ref(path);
+        final ref = firebaseDefaultStorage.ref(path);
         final url = await ref.getDownloadURL().timeout(perTimeout);
         if (url.isNotEmpty) return url;
       } catch (e) {
-        debugPrint(
-            'FirebaseStorageService.getMemberProfilePhotoDownloadUrl ($path): $e');
+        if (kDebugMode) {
+          debugPrint(
+              'FirebaseStorageService.getMemberProfilePhotoDownloadUrl ($path): $e');
+        }
       }
       return null;
     }
-    for (var i = 0; i < paths.length; i += batchSize) {
-      final end = i + batchSize > paths.length ? paths.length : i + batchSize;
-      final batch = paths.sublist(i, end);
+    for (var i = 0; i < pathsToTry.length; i += batchSize) {
+      final end = i + batchSize > pathsToTry.length ? pathsToTry.length : i + batchSize;
+      final batch = pathsToTry.sublist(i, end);
       final results = await Future.wait(batch.map(tryPath));
       for (final u in results) {
         if (u != null && u.isNotEmpty) {

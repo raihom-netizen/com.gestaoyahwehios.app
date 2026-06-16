@@ -79,6 +79,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/legal_documents_service.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/sync_feedback_listener.dart';
@@ -824,6 +825,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       if (kDebugMode) debugPrint('YahwehObservability: $e\n$st');
     }),
   );
+  unawaited(LegalDocumentsService.warmCache());
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||

@@ -1,13 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
@@ -53,67 +52,64 @@ abstract final class ChurchTenantDashboardWarmupService {
     } catch (_) {
       return;
     }
-    var tenantId = tenantIdRaw;
-    try {
-      final r = await TenantResolverService
-          .resolveEffectiveTenantIdPreferringUserBinding(
-        tenantIdRaw,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
-      if (r.trim().isNotEmpty) tenantId = r.trim();
-    } catch (_) {}
+    var tenantId = ChurchPanelTenant.resolve(tenantIdRaw);
 
     // 1) Cache Firestore local primeiro (líderes/membros/avisos aparecem já).
     final panel = await PanelDashboardSnapshotService.readOnce(tenantId);
     final membersDir = await MembersDirectorySnapshotService.readOnce(tenantId);
     if (!context.mounted) return;
 
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesForPanel(
-        tenantId: tenantId,
-        panel: panel,
-      ),
-    );
-    if (membersDir.hasEntries && context.mounted) {
-      ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
-        context: context,
-        tenantId: tenantId,
-        directory: membersDir,
-        maxMembers: 120,
+    // Web: não aquecer dezenas de fotos legadas no 1.º frame (evita 1000+ 404 Storage).
+    if (!kIsWeb) {
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesForPanel(
+          tenantId: tenantId,
+          panel: panel,
+        ),
       );
-    }
+      if (membersDir.hasEntries && context.mounted) {
+        ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
+          context: context,
+          tenantId: tenantId,
+          directory: membersDir,
+          maxMembers: 120,
+        );
+      }
 
-    final prefetch = await PanelMediaPrefetchService.readOnce(tenantId);
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tenantId, prefetch),
-    );
+      final prefetch = await PanelMediaPrefetchService.readOnce(tenantId);
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tenantId, prefetch),
+      );
+      if (context.mounted) {
+        ChurchGalleryPhotoWarmup.schedulePanelHome(
+          context: context,
+          tenantId: tenantId,
+          panel: panel,
+          force: true,
+        );
+      }
+    }
 
     // Callable em background — não bloqueia fotos do painel/chat.
     unawaited(PanelDashboardSnapshotService.warmFromCallableIfStale(tenantId));
     unawaited(_warmPerformanceCaches(tenantId));
-    if (context.mounted) {
-      ChurchGalleryPhotoWarmup.schedulePanelHome(
-        context: context,
-        tenantId: tenantId,
-        panel: panel,
-        force: true,
+
+    if (!kIsWeb) {
+      final urls = <String>[];
+      for (final m in panel.birthdaysToday.take(16)) {
+        final u = ProgressiveMediaResolver.memberListUrl(m.toMemberDataMap());
+        if (u.isNotEmpty) urls.add(u);
+      }
+      for (final a in panel.homeAvisos.take(8)) {
+        final u = a.coverPhotoUrl ?? '';
+        if (u.isNotEmpty) urls.add(u);
+      }
+      await YahwehMediaPreloadService.preloadForScreen(
+        context,
+        urls,
+        maxItems: 28,
       );
     }
-
-    final urls = <String>[];
-    for (final m in panel.birthdaysToday.take(16)) {
-      final u = ProgressiveMediaResolver.memberListUrl(m.toMemberDataMap());
-      if (u.isNotEmpty) urls.add(u);
-    }
-    for (final a in panel.homeAvisos.take(8)) {
-      final u = a.coverPhotoUrl ?? '';
-      if (u.isNotEmpty) urls.add(u);
-    }
-    await YahwehMediaPreloadService.preloadForScreen(
-      context,
-      urls,
-      maxItems: 28,
-    );
     _done = true;
   }
 

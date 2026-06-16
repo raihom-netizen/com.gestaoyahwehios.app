@@ -289,7 +289,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     try {
       await _prepareDeptRead();
       final result = await ChurchDepartmentsLoadService.load(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: _loadChurchId,
         forceRefresh: false,
       );
       if (!mounted) return;
@@ -316,7 +316,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Future<void> _refreshDepartmentsBackground({bool forceRefresh = false}) async {
     try {
       final result = await ChurchDepartmentsLoadService.load(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: _loadChurchId,
         forceRefresh: forceRefresh,
         forceServer: forceRefresh,
       );
@@ -359,7 +359,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     try {
       _bindPanelChurchId();
       final result = await ChurchDepartmentsLoadService.load(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: _loadChurchId,
         forceRefresh: forceServer,
         forceServer: forceServer,
       );
@@ -396,7 +396,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
     if (result.docs.isEmpty && _churchId.isNotEmpty && !forceServer) {
       result = await ChurchDepartmentsLoadService.load(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: _loadChurchId,
         forceRefresh: true,
         forceServer: true,
       );

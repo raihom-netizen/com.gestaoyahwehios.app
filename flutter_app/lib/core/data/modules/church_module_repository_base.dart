@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_result.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 
@@ -48,6 +51,11 @@ abstract class ChurchModuleRepositoryBase {
           subcollectionName: subcollection,
           limit: limit,
           cacheKey: cacheKey,
+        ),
+      ).timeout(
+        ChurchPanelReadTimeouts.queryCap,
+        onTimeout: () => throw TimeoutException(
+          'Tempo esgotado ao carregar $subcollection.',
         ),
       );
       return churchDataListFromSnapshot(

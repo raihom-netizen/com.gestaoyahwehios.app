@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/legal_document_models.dart';
+import 'package:gestao_yahweh/services/legal_documents_defaults.dart';
+import 'package:gestao_yahweh/services/legal_documents_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Data exibida no topo dos documentos (atualizar quando o texto mudar).
-const String kLegalDocumentsLastUpdated = 'Abril de 2026';
+export 'package:gestao_yahweh/services/legal_documents_defaults.dart'
+    show
+        kDeveloperPublicName,
+        kLegalDocumentsLastUpdatedDefault,
+        kLegalSupportEmail,
+        kLegalSupportWhatsAppDisplay,
+        kLegalSupportWhatsAppWaMe;
 
-/// Contato para dúvidas (termos, privacidade e suporte).
-const String kLegalSupportEmail = 'raihom@gmail.com';
-const String kLegalSupportWhatsAppDisplay = '(62) 9 9170-5247';
+/// Alias legado — preferir [LegalDocumentsService] / `lastUpdatedLabel` remoto.
+const String kLegalDocumentsLastUpdated = kLegalDocumentsLastUpdatedDefault;
 
-/// Mesmo número que [kLegalSupportWhatsAppDisplay], para `wa.me/…` (E.164 BR).
-const String kLegalSupportWhatsAppWaMe = '5562991705247';
-
-/// Nome exibido no rodapé de divulgação / site público.
-const String kDeveloperPublicName = 'Raihom Barbosa';
-
-// --- Termos de Uso (estrutura inspirada no Controle Total, texto Gestão YAHWEH) ---
+// --- Termos de Uso ---
 
 class TermosDeUsoPage extends StatelessWidget {
   /// Quando [true], oculta AppBar/barra inferior para uso dentro de modal premium.
@@ -24,83 +25,10 @@ class TermosDeUsoPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _LegalDocumentScaffold(
+    return _RemoteLegalDocumentView(
       embeddedInDialog: embeddedInDialog,
       heroIcon: Icons.gavel_rounded,
-      heroSubtitle: 'Gestão YAHWEH — Última atualização: $kLegalDocumentsLastUpdated',
-      title: 'Termos de Uso',
-      intro:
-          'Leia atentamente estes Termos de Uso antes de utilizar o Gestão YAHWEH. '
-          'Documento elaborado em observância à legislação brasileira aplicável, '
-          'incluindo a Lei Geral de Proteção de Dados (Lei nº 13.709/2018), quando pertinente.',
-      sections: [
-        _LegalSection(
-          title: '1. Aceitação',
-          body:
-              'Ao utilizar o Gestão YAHWEH (aplicativo, painel web e funcionalidades disponíveis), '
-              'você concorda com estes Termos de Uso e com a Política de Privacidade. '
-              'Se não concordar, não utilize o serviço.',
-        ),
-        _LegalSection(
-          title: '2. Serviço',
-          body:
-              'O Gestão YAHWEH oferece ferramentas para gestão eclesiástica e administrativa: '
-              'cadastro de membros e visitantes, departamentos, escalas e agendas, comunicação '
-              '(avisos, notificações, mural), documentos (certificados, carteirinhas), finanças, '
-              'patrimônio e demais módulos conforme o plano contratado. O acesso pode ser feito '
-              'por celular, tablet ou computador (incluindo versão web/PWA). '
-              'O ambiente é pensado para ser limpo e seguro, sem propagandas indesejadas no produto. '
-              'Funcionalidades e limites seguem o plano Premium ou equivalente contratado pela igreja.',
-        ),
-        _LegalSection(
-          title: '3. Conta e licença',
-          body:
-              'Você é responsável por manter a confidencialidade do login e pela atividade realizada '
-              'na sua conta. O acesso depende de licença ativa (período de teste, assinatura ou '
-              'condições comerciais vigentes). Licença vencida ou suspensa pode restringir o uso '
-              'conforme a política do serviço e o contrato com a igreja.',
-        ),
-        _LegalSection(
-          title: '4. Uso adequado',
-          body:
-              'Você se compromete a usar o app de forma lícita, sem prejudicar terceiros ou o serviço. '
-              'É proibido o uso para atividades ilegais, envio de conteúdo ofensivo, violação de '
-              'direitos de terceiros ou tentativas de acesso não autorizado.',
-        ),
-        _LegalSection(
-          title: '5. Propriedade intelectual',
-          body:
-              'Todo o conteúdo e a tecnologia do Gestão YAHWEH são de propriedade do desenvolvedor '
-              'ou licenciados para uso no produto. Você tem direito de usar o serviço conforme '
-              'previsto nestes termos, sem copiar ou distribuir o software de forma indevida.',
-        ),
-        _LegalSection(
-          title: '6. Pagamentos',
-          body:
-              'Os planos pagos podem ser processados via Mercado Pago (PIX ou cartão, conforme '
-              'disponibilizado). As condições de reembolso seguem a política do Mercado Pago e '
-              'podem ser solicitadas diretamente à plataforma, quando aplicável.',
-        ),
-        _LegalSection(
-          title: '7. Limitação de responsabilidade',
-          body:
-              'O app é fornecido “como está”, no limite da lei aplicável. Não nos responsabilizamos '
-              'por decisões pastorais, financeiras ou administrativas tomadas com base nos dados '
-              'ou relatórios gerados — recomenda-se validação por responsáveis competentes quando necessário.',
-        ),
-        _LegalSection(
-          title: '8. Alterações',
-          body:
-              'Podemos alterar estes termos. Alterações significativas serão comunicadas por meios '
-              'razoáveis (aplicativo, painel ou e-mail). O uso continuado após as alterações pode '
-              'indicar aceitação, sem prejuízo dos seus direitos legais.',
-        ),
-        _LegalSection(
-          title: '9. Contato',
-          body:
-              'Dúvidas sobre estes Termos de Uso: $kLegalSupportEmail ou WhatsApp $kLegalSupportWhatsAppDisplay.',
-        ),
-      ],
+      pickContent: (b) => b.terms,
     );
   }
 }
@@ -114,84 +42,43 @@ class PoliticaPrivacidadePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _LegalDocumentScaffold(
+    return _RemoteLegalDocumentView(
       embeddedInDialog: embeddedInDialog,
       heroIcon: Icons.verified_user_rounded,
-      heroSubtitle: 'Gestão YAHWEH — Última atualização: $kLegalDocumentsLastUpdated',
-      title: 'Política de Privacidade',
-      intro:
-          'O Gestão YAHWEH respeita a sua privacidade. Este documento descreve como tratamos '
-          'dados pessoais no contexto do aplicativo e do painel web, em linha com a LGPD '
-          '(Lei nº 13.709/2018) e demais normas aplicáveis.',
-      sections: [
-        _LegalSection(
-          title: '1. Informações que coletamos',
-          body:
-              'Podem ser tratados, conforme os módulos utilizados: nome, e-mail, telefone, CPF '
-              '(quando informado), dados de cadastro pastoral e administrativo, departamentos, '
-              'escalas, finanças da igreja, ocorrências, preferências e configurações da conta. '
-              'O login pode ocorrer por CPF/e-mail, Google ou Apple, conforme disponível na versão. '
-              'Também podem ser tratados dados técnicos necessários ao funcionamento (tokens de '
-              'notificação, logs de segurança, identificadores de sessão).',
-        ),
-        _LegalSection(
-          title: '2. Uso dos dados',
-          body:
-              'Utilizamos os dados para prestar o serviço, personalizar a experiência no painel, '
-              'enviar comunicações relacionadas à conta e aos planos quando necessário, e '
-              'reforçar a segurança. O produto é voltado à gestão da igreja, sem exibir anúncios '
-              'de terceiros no aplicativo.',
-        ),
-        _LegalSection(
-          title: '3. Armazenamento e segurança',
-          body:
-              'Os dados são armazenados em infraestrutura segura (Firebase / Google Cloud). '
-              'Aplicamos medidas técnicas e administrativas para proteger suas informações contra '
-              'acesso não autorizado, em conformidade com o risco e com a LGPD.',
-        ),
-        _LegalSection(
-          title: '4. Compartilhamento',
-          body:
-              'Não vendemos seus dados. Podemos compartilhar informações apenas quando exigido '
-              'por lei ou para processar pagamentos via Mercado Pago (ou outro meio contratado), '
-              'conforme políticas desses provedores. Dados entre usuários da mesma igreja seguem '
-              'as permissões definidas pela liderança.',
-        ),
-        _LegalSection(
-          title: '5. Seus direitos',
-          body:
-              'Nos termos da LGPD, você pode solicitar acesso, correção ou exclusão dos seus dados, '
-              'entre outros direitos previstos em lei. Para isso, entre em contato pelo e-mail ou '
-              'WhatsApp indicados abaixo ou pelos canais de suporte no aplicativo.',
-        ),
-        _LegalSection(
-          title: '6. Atualizações',
-          body:
-              'Esta política pode ser atualizada. Alterações significativas serão comunicadas no app '
-              'ou por e-mail, quando razoável. O uso continuado após alterações pode indicar ciência, '
-              'sem prejuízo dos direitos do titular.',
-        ),
-        _LegalSection(
-          title: '7. Biometria e reconhecimento facial (Face ID)',
-          body:
-              'O app não coleta, não armazena e não envia ao servidor imagens do rosto, mapas '
-              'faciais ou templates biométricos.\n\n'
-              'O uso de Face ID ou impressão digital é opcional e serve apenas para desbloquear '
-              'uma sessão já autenticada neste aparelho, por meio da API de autenticação local do '
-              'sistema operacional. O processamento biométrico ocorre no dispositivo; não recebemos '
-              'esses dados biométricos.\n\n'
-              'Não compartilhamos dados faciais com terceiros porque não temos acesso a eles. '
-              'Podemos guardar apenas uma preferência (por exemplo, se o desbloqueio por biometria '
-              'está ativado), sem dados biométricos.\n\n'
-              'Não há retenção de dados faciais pelo Gestão YAHWEH, pois esses dados não são '
-              'transmitidos aos nossos sistemas.',
-        ),
-        _LegalSection(
-          title: '8. Contato',
-          body:
-              'Dúvidas sobre privacidade: $kLegalSupportEmail ou WhatsApp $kLegalSupportWhatsAppDisplay.',
-        ),
-      ],
+      pickContent: (b) => b.privacy,
+    );
+  }
+}
+
+class _RemoteLegalDocumentView extends StatelessWidget {
+  final bool embeddedInDialog;
+  final IconData heroIcon;
+  final LegalDocumentContent Function(LegalDocumentsBundle bundle) pickContent;
+
+  const _RemoteLegalDocumentView({
+    required this.embeddedInDialog,
+    required this.heroIcon,
+    required this.pickContent,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<LegalDocumentsBundle>(
+      stream: LegalDocumentsService.watch(),
+      initialData: LegalDocumentsService.peekCached(),
+      builder: (context, snap) {
+        final bundle = snap.data ?? LegalDocumentsDefaults.bundle;
+        final doc = pickContent(bundle);
+        return _LegalDocumentScaffold(
+          embeddedInDialog: embeddedInDialog,
+          heroIcon: heroIcon,
+          heroSubtitle:
+              'Gestão YAHWEH — Última atualização: ${bundle.lastUpdatedLabel}',
+          title: doc.title,
+          intro: doc.intro,
+          sections: doc.sections,
+        );
+      },
     );
   }
 }
@@ -254,22 +141,12 @@ class _LegalAppBarBrand extends StatelessWidget {
   }
 }
 
-class _LegalSection {
-  final String title;
-  final String body;
-
-  const _LegalSection({
-    required this.title,
-    required this.body,
-  });
-}
-
 class _LegalDocumentScaffold extends StatelessWidget {
   final IconData heroIcon;
   final String heroSubtitle;
   final String title;
   final String intro;
-  final List<_LegalSection> sections;
+  final List<LegalSectionEntry> sections;
   final bool embeddedInDialog;
 
   const _LegalDocumentScaffold({
@@ -494,7 +371,7 @@ class _PremiumHero extends StatelessWidget {
 }
 
 class _PremiumSectionCard extends StatelessWidget {
-  final _LegalSection section;
+  final LegalSectionEntry section;
 
   const _PremiumSectionCard({
     required this.section,

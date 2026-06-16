@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaPhotoUrls;
@@ -43,7 +44,7 @@ abstract final class ChurchGalleryPhotoWarmup {
   static String _lastKey = '';
   static const int _listMaxBytes = 112 * 1024;
   static const int _feedMaxBytes = 512 * 1024;
-  static const int _parallelMembers = 36;
+  static int get _parallelMembers => kIsWeb ? 4 : 36;
 
   static List<ChurchGalleryMemberPhotoRef> _refsFromPanel(
     PanelDashboardSnapshot panel,
@@ -376,15 +377,17 @@ abstract final class ChurchGalleryPhotoWarmup {
       preferListThumbnail: true,
     );
 
-    url ??= await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
-      tenantId: tenantId,
-      memberId: ref.memberDocId,
-      cpfDigits: ref.cpfDigits,
-      authUid: ref.authUid,
-      nomeCompleto: (nome == null || nome.isEmpty) ? null : nome,
-      memberFirestoreHint: md,
-      preferListThumbnail: true,
-    );
+    if (url == null && !kIsWeb) {
+      url = await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
+        tenantId: tenantId,
+        memberId: ref.memberDocId,
+        cpfDigits: ref.cpfDigits,
+        authUid: ref.authUid,
+        nomeCompleto: (nome == null || nome.isEmpty) ? null : nome,
+        memberFirestoreHint: md,
+        preferListThumbnail: true,
+      );
+    }
 
     final clean = url != null ? sanitizeImageUrl(url) : '';
     if (clean.isEmpty || !isValidImageUrl(clean)) return;

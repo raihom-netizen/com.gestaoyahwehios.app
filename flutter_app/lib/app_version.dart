@@ -1,5 +1,13 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1985: Termos/Privacidade editáveis no painel master — config/legal_documents sync Web/iOS/Android.
+/// 11.2.305+1984: Política de Privacidade e Termos — LGPD/ANPD, módulos reais (sem ocorrências); Jun/2026.
+/// 11.2.305+1983: Paths centralizados igrejas/{churchId} — shell desbloqueia módulos no 1.º frame; gateway único por módulo; listCacheFirst com timeout.
+/// 11.2.305+1982: Cartão membro — carga 120 membros, RAM instantânea, erros visíveis, path igrejas/{churchId}/membros.
+/// 11.2.305+1981: Certificados — editor abre após escolher tipo (contexto do modal não invalidava Navigator.push na web).
+/// 11.2.305+1980: Cartão membro — carga via ChurchMembersLoadService (RAM/Hive igual Membros); lista vazia visível no TabBarView.
+/// 11.2.305+1979: Painel web blindado — bootstrap one-shot igrejas/{id}, zero StreamBuilder shell, sem tempestade Storage 404.
+/// 11.2.305+1978: Painel igreja blindado — cache-first churchId canónico, watchSafe web, sem falso «não encontrada»; deploy completo.
 /// 11.2.305+1977: Agenda/Cargos/Dept/Oração/Categorias eventos — carga plain-first, UI premium, deploy completo.
 /// 11.2.305+1971: Engine central (avisos/financeiro/membros), cache bust foto perfil+logo, deploy completo.
 /// 11.2.305+1970: Licença MP — sem prefetch automático; pagamento só gestor/secretário/tesoureiro; gate backend createMp*.
@@ -396,7 +404,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '1977';
+const String appBuildNumber = '1985';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

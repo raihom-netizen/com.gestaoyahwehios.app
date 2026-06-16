@@ -135,31 +135,39 @@ abstract final class ChurchContextService {
 
 
   static Future<bool> _igrejaDocExists(String churchId) async {
-
     final id = churchId.trim();
-
     if (id.isEmpty) return false;
 
     try {
-
-      final snap = await firebaseDefaultFirestore
-
-          .collection('igrejas')
-
-          .doc(id)
-
-          .get(const GetOptions(source: Source.serverAndCache))
-
-          .timeout(kResolveTimeout);
-
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => firebaseDefaultFirestore
+            .collection('igrejas')
+            .doc(id)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(kResolveTimeout),
+        maxAttempts: kIsWeb ? 4 : 2,
+      );
       return snap.exists;
-
     } catch (_) {
-
+      final ctx = currentChurchId?.trim();
+      if (ctx == id &&
+          currentChurchData != null &&
+          currentChurchData!.isNotEmpty) {
+        return true;
+      }
+      try {
+        final cached = await ChurchPanelLocalCache.readMap(
+          churchId: id,
+          module: ChurchPanelLocalCache.moduleCadastro,
+          maxAge: const Duration(days: 30),
+        );
+        if (cached != null && cached.isNotEmpty) return true;
+      } catch (_) {}
       return false;
-
     }
-
   }
 
 

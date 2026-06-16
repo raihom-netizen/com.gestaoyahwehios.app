@@ -15,8 +15,10 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
@@ -29,6 +31,7 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
@@ -36,7 +39,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
-import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -70,7 +73,6 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
@@ -333,6 +335,26 @@ abstract final class _MemberCardListRamCache {
   }
 }
 
+List<_MemberItem> _memberItemsFromFirestoreDocs(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+) {
+  final out = <_MemberItem>[];
+  for (final d in docs) {
+    final blind = BlindMemberDoc.fromFirestore(id: d.id, data: d.data());
+    if (blind.displayName.trim().isEmpty) continue;
+    out.add(
+      _MemberItem(
+        id: blind.id,
+        name: blind.displayName,
+        photoUrl: blind.photoUrl ?? blind.photoThumbUrl,
+        data: blind.toMemberDataMap(),
+      ),
+    );
+  }
+  out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return out;
+}
+
 /// Cache RAM — carteirinha já montada (reabrir tela cheia instantâneo).
 abstract final class _MemberCardDataRamCache {
   _MemberCardDataRamCache._();
@@ -376,7 +398,8 @@ class _MemberCardPageState extends State<MemberCardPage>
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
   List<_MemberItem> _seedMemberItems = [];
-  int _membersListLimit = YahwehPerformanceV4.blindListPageSize;
+  static const int _membersInitialLoadLimit = 120;
+  int _membersListLimit = _membersInitialLoadLimit;
   bool _membersListLoadingMore = false;
   bool _membersListHasMore = true;
 
@@ -463,7 +486,7 @@ class _MemberCardPageState extends State<MemberCardPage>
     _resolveOperationalTenantOnce();
     final resolved = (_cachedIgrejaDocId ?? '').trim();
     if (resolved.isNotEmpty) return resolved;
-    return widget.tenantId.trim();
+    return ChurchRepository.churchId(widget.tenantId);
   }
 
   String _memberCardCacheKey(String churchId) {
@@ -476,10 +499,10 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   String _resolvedChurchIdHint() {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    if (bound.isNotEmpty) return bound;
+    if (bound.isNotEmpty) return ChurchRepository.churchId(bound);
     final cached = (_cachedIgrejaDocId ?? '').trim();
-    if (cached.isNotEmpty) return cached;
-    return ChurchPanelTenant.resolve(widget.tenantId).trim();
+    if (cached.isNotEmpty) return ChurchRepository.churchId(cached);
+    return ChurchRepository.churchId(ChurchPanelTenant.resolve(widget.tenantId));
   }
 
   Map<String, dynamic>? _memberSeedForId(String memberId) {
@@ -499,7 +522,31 @@ class _MemberCardPageState extends State<MemberCardPage>
     for (final m in _seedMemberItems) {
       if (m.id == id && m.data.isNotEmpty) return m.data;
     }
+    final churchId = _resolvedChurchIdHint();
+    if (churchId.isNotEmpty) {
+      final peek = ChurchMembersLoadService.peekDocData(churchId, id);
+      if (peek != null && peek.isNotEmpty) return peek;
+    }
     return null;
+  }
+
+  List<_MemberItem> _entriesToMemberItems(List<MemberCardListEntry> entries) {
+    return entries
+        .map(
+          (e) => _MemberItem(
+            id: e.id,
+            name: e.name,
+            photoUrl: e.photoUrl,
+            data: e.data,
+          ),
+        )
+        .toList();
+  }
+
+  void _cacheMemberListRam(String churchId, List<_MemberItem> list) {
+    if (churchId.isNotEmpty && list.isNotEmpty) {
+      _MemberCardListRamCache.put(churchId, list);
+    }
   }
 
   _CardData? _cardDataFromMemberSeed(
@@ -595,10 +642,12 @@ class _MemberCardPageState extends State<MemberCardPage>
   void _resolveOperationalTenantOnce() {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     if (bound.isNotEmpty) {
-      _cachedIgrejaDocId = bound;
+      _cachedIgrejaDocId = ChurchRepository.churchId(bound);
       return;
     }
-    _cachedIgrejaDocId = ChurchPanelTenant.resolve(widget.tenantId);
+    _cachedIgrejaDocId = ChurchRepository.churchId(
+      ChurchPanelTenant.resolve(widget.tenantId),
+    );
   }
 
   Future<void> _bootstrapOperationalTenant() async {
@@ -668,8 +717,7 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   Future<List<({String id, String name})>> _loadDepartmentsForCarteira() async {
     try {
-      var tid = (_cachedIgrejaDocId ?? _resolvedChurchIdHint()).trim();
-      if (tid.isEmpty) tid = await _effectiveIgrejaDocId();
+      final tid = _resolvedChurchIdHint();
       if (tid.isEmpty) return const [];
 
       final ram = ChurchDepartmentsLoadService.peekRam(tid);
@@ -704,28 +752,43 @@ class _MemberCardPageState extends State<MemberCardPage>
     unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
   }
 
-  Future<List<_MemberItem>> _loadMemberItemsForPicker({int? limit}) async {
-    try {
-      var tid = (_cachedIgrejaDocId ?? _resolvedChurchIdHint()).trim();
-      if (tid.isEmpty) tid = await _effectiveIgrejaDocId();
-      final lim = limit ?? YahwehPerformanceV4.memberCardListPageSize;
-      if (tid.isEmpty) {
-        debugPrint('MemberCardPage._loadMemberItemsForPicker: churchId vazio');
-        return const [];
-      }
-      final entries = await MemberCardDirectoryService.loadMembers(
-        tenantId: tid,
+  Future<List<_MemberItem>> _loadMemberItemsForPicker({
+    int? limit,
+    bool forceRefresh = false,
+  }) async {
+    final churchId = _resolvedChurchIdHint();
+    final lim = limit ?? _membersListLimit;
+    if (churchId.isEmpty) {
+      throw StateError(
+        'Igreja não identificada. Volte ao painel e abra o cartão novamente.',
+      );
+    }
+
+    if (!forceRefresh) {
+      final instant = MemberCardDirectoryService.peekMembersSync(
+        churchId,
         limit: lim,
       );
-      final list = entries
-          .map((e) => _MemberItem(
-                id: e.id,
-                name: e.name,
-                photoUrl: e.photoUrl,
-                data: e.data,
-              ))
-          .toList();
-      if (tid.isNotEmpty) _MemberCardListRamCache.put(tid, list);
+      if (instant != null && instant.isNotEmpty) {
+        final list = _entriesToMemberItems(instant);
+        _cacheMemberListRam(churchId, list);
+        return list;
+      }
+    }
+
+    try {
+      final entries = await MemberCardDirectoryService.loadMembers(
+        tenantId: churchId,
+        limit: lim,
+        forceRefresh: forceRefresh,
+      ).timeout(
+        ChurchPanelReadTimeouts.queryCap,
+        onTimeout: () => throw TimeoutException(
+          'Tempo esgotado ao carregar membros para carteirinha.',
+        ),
+      );
+      final list = _entriesToMemberItems(entries);
+      _cacheMemberListRam(churchId, list);
       return list;
     } catch (e, st) {
       debugPrint('MemberCardPage._loadMemberItemsForPicker: $e\n$st');
@@ -733,8 +796,11 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
   }
 
-  Future<List<_MemberItem>> _loadMembersList() async {
-    final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
+  Future<List<_MemberItem>> _loadMembersList({bool forceRefresh = false}) async {
+    final list = await _loadMemberItemsForPicker(
+      limit: _membersListLimit,
+      forceRefresh: forceRefresh,
+    );
     if (mounted) {
       _seedMemberItems = list;
       _membersListHasMore = list.length >= _membersListLimit;
@@ -742,15 +808,15 @@ class _MemberCardPageState extends State<MemberCardPage>
     return list;
   }
 
-  Future<void> _reloadMembersList() async {
+  Future<void> _reloadMembersList({bool forceRefresh = true}) async {
     final prev = _seedMemberItems;
     setState(() {
       _membersListHasMore = true;
       _membersListFuture =
-          prev.isNotEmpty ? Future.value(prev) : _loadMembersList();
+          prev.isNotEmpty ? Future.value(prev) : _loadMembersList(forceRefresh: forceRefresh);
     });
     try {
-      final list = await _loadMembersList();
+      final list = await _loadMembersList(forceRefresh: forceRefresh);
       if (mounted) {
         setState(() {
           _seedMemberItems = list;
@@ -781,8 +847,13 @@ class _MemberCardPageState extends State<MemberCardPage>
         _membersListHasMore = list.length >= _membersListLimit;
         _membersListLoadingMore = false;
       });
-    } catch (_) {
-      if (mounted) setState(() => _membersListLoadingMore = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _membersListLoadingMore = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao carregar mais membros: $e')),
+        );
+      }
     }
   }
 
@@ -987,16 +1058,56 @@ class _MemberCardPageState extends State<MemberCardPage>
           : _bootstrapAndLoadCard();
     } else {
       final hint = _resolvedChurchIdHint();
-      final ram = hint.isNotEmpty ? _MemberCardListRamCache.peek(hint) : null;
-      if (ram != null && ram.isNotEmpty) {
-        _seedMemberItems = List.from(ram);
+      List<_MemberItem>? seeded;
+      if (hint.isNotEmpty) {
+        final peek = MemberCardDirectoryService.peekMembersSync(
+          hint,
+          limit: _membersListLimit,
+        );
+        if (peek != null && peek.isNotEmpty) {
+          seeded = _entriesToMemberItems(peek);
+        }
+        if (seeded == null || seeded.isEmpty) {
+          final sharedRam = ChurchMembersLoadService.peekRamAny(hint);
+          if (sharedRam != null && sharedRam.isNotEmpty) {
+            seeded = _memberItemsFromFirestoreDocs(sharedRam);
+          }
+        }
+      }
+      seeded ??= hint.isNotEmpty ? _MemberCardListRamCache.peek(hint) : null;
+      if (seeded != null && seeded.isNotEmpty) {
+        _seedMemberItems = List.from(seeded);
         _membersListFuture = Future.value(_seedMemberItems);
-        _membersListHasMore = ram.length >= _membersListLimit;
+        _membersListHasMore = seeded.length >= _membersListLimit;
+        unawaited(
+          _loadMembersList(forceRefresh: false).then((fresh) {
+            if (!mounted || fresh.isEmpty) return;
+            setState(() {
+              _seedMemberItems = fresh;
+              _membersListFuture = Future.value(fresh);
+              _membersListHasMore = fresh.length >= _membersListLimit;
+            });
+          }).catchError((Object e, StackTrace st) {
+            debugPrint('MemberCardPage init refresh: $e\n$st');
+            if (!mounted || _seedMemberItems.isNotEmpty) return;
+            setState(() {
+              _membersListFuture = Future<List<_MemberItem>>.error(e, st);
+            });
+          }),
+        );
       } else {
         _membersListFuture = _loadMembersList();
       }
       _emissaoTabController = TabController(length: 2, vsync: this);
-      unawaited(_warmMembersDirectoryIndex());
+      if (hint.isNotEmpty) {
+        unawaited(_warmMembersDirectoryIndex());
+        unawaited(
+          ChurchMembersLoadService.load(
+            seedTenantId: hint,
+            limit: _membersListLimit,
+          ),
+        );
+      }
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
@@ -1104,71 +1215,6 @@ class _MemberCardPageState extends State<MemberCardPage>
   bool get _hasExplicitMemberTarget =>
       widget.memberId != null && widget.memberId!.trim().isNotEmpty;
 
-  Future<Map<String, dynamic>> _loadTenantBundleForCard(String igrejaDocId) async {
-    Map<String, dynamic> tenant = {};
-    try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(igrejaDocId)
-          .timeout(Duration(seconds: kIsWeb ? 12 : 8));
-      if (hit != null && hit.data.isNotEmpty) {
-        tenant = Map<String, dynamic>.from(hit.data)..['id'] = hit.docId;
-      }
-    } catch (_) {}
-
-    if (tenant.isEmpty) {
-      try {
-        final snap = await FirestoreReadResilience.getDocument(
-          ChurchUiCollections.churchDoc(igrejaDocId),
-          cacheKey: 'card_igreja_$igrejaDocId',
-          maxAttempts: kIsWeb ? 3 : 2,
-          attemptTimeout: Duration(seconds: kIsWeb ? 10 : 8),
-        );
-        if (snap.exists) {
-          tenant = Map<String, dynamic>.from(snap.data() ?? {})
-            ..['id'] = igrejaDocId;
-        }
-      } catch (_) {}
-    }
-
-    final logoFromDoc = churchTenantLogoUrl(tenant);
-    if (logoFromDoc.isNotEmpty) {
-      tenant['_carteiraLogoStoragePath'] = logoFromDoc;
-    }
-
-    try {
-      final logoPath = ChurchBrandService.logoPathFromData(
-            tenant,
-            churchId: igrejaDocId,
-          ) ??
-          ChurchBrandService.canonicalLogoPath(igrejaDocId);
-      tenant['_carteiraLogoStoragePath'] = logoPath;
-      final logoResolvedFuture =
-          AppStorageImageService.instance.resolveChurchTenantLogoUrl(
-        tenantId: igrejaDocId,
-        tenantData: tenant,
-        preferStoragePath: logoPath,
-        preferImageUrl: ChurchImageFields.logoHttpsUrlFromDoc(tenant),
-      ).timeout(const Duration(seconds: 10));
-      final logoBytesFuture = ChurchBrandService.getLogoBytes(
-        churchId: igrejaDocId,
-        tenantData: tenant,
-      ).timeout(const Duration(seconds: 12));
-      final logoResolved = await logoResolvedFuture;
-      final logoBytes = await logoBytesFuture;
-      final logoClean = sanitizeImageUrl(logoResolved ?? '');
-      if (logoClean.isNotEmpty) {
-        tenant['_carteiraLogoUrl'] = logoClean;
-      }
-      if (logoBytes != null && logoBytes.isNotEmpty) {
-        tenant['_carteiraLogoBytes'] = logoBytes;
-      }
-    } catch (_) {}
-
-    return tenant;
-  }
-
   _CardData? _instantCardFromSeed(String churchId) {
     if (!_canBuildCardFromSeed()) return null;
     final tenant = <String, dynamic>{
@@ -1207,71 +1253,6 @@ class _MemberCardPageState extends State<MemberCardPage>
       return 'Não foi possível carregar a carteirinha. Tente novamente.';
     }
     return msg;
-  }
-
-  List<String> _memberResolveHints() {
-    final out = <String>[];
-    final seen = <String>{};
-    void add(String? raw) {
-      final h = (raw ?? '').trim();
-      if (h.isEmpty || seen.contains(h)) return;
-      seen.add(h);
-      out.add(h);
-    }
-
-    add(widget.memberId);
-    final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
-    if (cpf.length >= 11) add(cpf);
-    final seed = widget.memberSeedData;
-    if (seed != null) {
-      add((seed['authUid'] ?? seed['firebaseUid'] ?? seed['uid'] ?? '')
-          .toString());
-      add((seed['EMAIL'] ?? seed['email'] ?? '').toString());
-      final seedCpf =
-          (seed['CPF'] ?? seed['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-      if (seedCpf.length >= 11) add(seedCpf);
-    }
-    return out;
-  }
-
-  Future<DocumentSnapshot<Map<String, dynamic>>?> _resolveMemberDocForCard(
-    String igrejaDocId,
-  ) async {
-    final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
-    final cpfArg = cpf.length >= 11 ? cpf : null;
-    final user = FirebaseAuth.instance.currentUser;
-    final col = ChurchUiCollections.membros(igrejaDocId);
-
-    Future<DocumentSnapshot<Map<String, dynamic>>?> resolveDirect() async {
-      if (_isRestrictedMember && user?.uid != null) {
-        try {
-          final q = await col
-              .where('authUid', isEqualTo: user!.uid)
-              .limit(1)
-              .get(const GetOptions(source: Source.serverAndCache))
-              .timeout(const Duration(seconds: 10));
-          if (q.docs.isNotEmpty) return q.docs.first;
-        } catch (_) {}
-      }
-
-      for (final hint in _memberResolveHints()) {
-        try {
-          final snap = await MemberDocumentResolve.findByHint(
-            col,
-            hint,
-            cpfDigits: cpfArg,
-          ).timeout(const Duration(seconds: 12));
-          if (snap != null && snap.exists) return snap;
-        } catch (_) {}
-      }
-      return null;
-    }
-
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      return FirestoreWebGuard.runWithWebRecovery(resolveDirect, maxAttempts: 3);
-    }
-    return resolveDirect();
   }
 
   Future<_CardData?> _load() async {
@@ -7851,54 +7832,74 @@ class _MemberCardPageState extends State<MemberCardPage>
     required List<_MemberItem> filtered,
   }) {
     if (filtered.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 22),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              border: Border.all(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight > 0
+                    ? constraints.maxHeight
+                    : 220,
+              ),
+              child: Center(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 22,
+                    ),
+                    decoration: BoxDecoration(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.05),
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      border: Border.all(
+                        color:
+                            ThemeCleanPremium.primary.withValues(alpha: 0.14),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          all.isEmpty
+                              ? Icons.people_outline_rounded
+                              : Icons.search_off_rounded,
+                          size: 40,
+                          color:
+                              ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          all.isEmpty
+                              ? 'Nenhum membro cadastrado.'
+                              : 'Nenhum membro corresponde à busca e aos filtros.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.45,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        if (all.isEmpty) ...[
+                          const SizedBox(height: 12),
+                          TextButton.icon(
+                            onPressed: () => unawaited(_reloadMembersList()),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text('Recarregar lista'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  all.isEmpty
-                      ? Icons.people_outline_rounded
-                      : Icons.search_off_rounded,
-                  size: 40,
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  all.isEmpty
-                      ? 'Nenhum membro cadastrado.'
-                      : 'Nenhum membro corresponde à busca e aos filtros.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.45,
-                    color: ThemeCleanPremium.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (all.isEmpty) ...[
-                  const SizedBox(height: 12),
-                  TextButton.icon(
-                    onPressed: () => unawaited(_reloadMembersList()),
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('Recarregar lista'),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
+          );
+        },
       );
     }
 
@@ -8062,29 +8063,10 @@ class _MemberCardPageState extends State<MemberCardPage>
               future: _membersListFuture,
               builder: (context, snap) {
                 if (snap.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Erro ao carregar membros: ${snap.error}',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.red.shade700,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton.icon(
-                            onPressed: () => unawaited(_reloadMembersList()),
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            label: const Text('Tentar novamente'),
-                          ),
-                        ],
-                      ),
-                    ),
+                  return ChurchPanelErrorBody(
+                    title: 'Não foi possível carregar os membros',
+                    error: snap.error,
+                    onRetry: () => unawaited(_reloadMembersList()),
                   );
                 }
                 if ((snap.connectionState == ConnectionState.waiting ||
@@ -8114,6 +8096,7 @@ class _MemberCardPageState extends State<MemberCardPage>
                 if (_canManage && _emissaoTabController != null) {
                   return TabBarView(
                     controller: _emissaoTabController,
+                    physics: const NeverScrollableScrollPhysics(),
                     children: [
                       _buildMembersListPane(all: all, filtered: filtered),
                       SingleChildScrollView(
@@ -8477,8 +8460,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceMd),
                             FilledButton.icon(
-                              onPressed: () =>
-                                  setState(() => _loadFuture = _load()),
+                              onPressed: () => setState(
+                                () => _loadFuture = _bootstrapAndLoadCard(),
+                              ),
                               icon: const Icon(Icons.refresh_rounded),
                               label: const Text('Tentar novamente'),
                               style: FilledButton.styleFrom(

@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
     show YahwehUploadModule;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'church_chat_album_utils.dart';
@@ -155,7 +156,7 @@ class ChurchChatService {
     required String threadId,
     int pageSize = defaultMessagePageSize,
   }) async {
-    final op = await ChurchOperationalPaths.resolve(tenantId);
+    final op = ChurchRepository.churchId(tenantId);
     return ChatMessagingEngine.fetchRecentMessagesPage(
       churchId: op,
       chatId: threadId,
@@ -1371,7 +1372,7 @@ class ChurchChatService {
     if (uid == null) return;
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final op = ChurchRepository.churchId(tid.trim());
     await         ChurchOperationalPaths.churchDoc(op)
         .collection('users_profile_chat')
         .doc(uid)
@@ -1390,7 +1391,7 @@ class ChurchChatService {
   static Future<void> touchPresence(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final op = ChurchRepository.churchId(tenantId.trim());
     await         ChurchOperationalPaths.churchDoc(op)
         .collection('chat_presence')
         .doc(uid)
@@ -2907,7 +2908,7 @@ class ChurchChatService {
     if (!tid.startsWith('dept_')) return false;
     try {
       await ensureFirebaseReadyForChatSend();
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final op = ChurchRepository.churchId(tenantId.trim());
       final resolved = op.trim().isEmpty ? tenantId.trim() : op.trim();
 
       final messages = messagesCol(resolved, tid);

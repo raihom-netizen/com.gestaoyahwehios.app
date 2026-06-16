@@ -152,7 +152,15 @@ class FirestoreStreamUtils {
           return await ref.get().timeout(const Duration(seconds: 14));
         }
       });
-    } catch (_) {
+    } catch (e) {
+      // Falha de rede/regras ≠ documento inexistente — não emitir snapshot vazio.
+      if (isTransientNetworkError(e) ||
+          isPermissionDenied(e) ||
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e)) {
+        yield* Stream<DocumentSnapshot<Map<String, dynamic>>>.error(e);
+        return;
+      }
       yield _emptyDocumentSnapshot;
     }
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;

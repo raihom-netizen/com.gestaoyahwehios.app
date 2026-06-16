@@ -56,6 +56,11 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupDoneThisSession) return;
 
     _warmupDoneThisSession = true;
+    // Web: só leituras leves — heavy dispara INTERNAL ASSERTION + milhares de 404 Storage.
+    if (kIsWeb) {
+      unawaited(_runWarmup(tidIn, light: true));
+      return;
+    }
     // 1.º frame: só leituras leves (painel rápido).
     unawaited(_runWarmup(tidIn, light: true));
     if (!_heavyWarmupScheduled) {
@@ -98,7 +103,7 @@ class ChurchTenantOfflineWarmupService {
         ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
       );
 
-      final membrosLimit = light ? 24 : 80;
+      final membrosLimit = kIsWeb ? (light ? 8 : 12) : (light ? 24 : 80);
       final avisosLimit = light ? 20 : 50;
       final eventosLimit = light ? 20 : 60;
 
@@ -167,7 +172,14 @@ class ChurchTenantOfflineWarmupService {
         ]);
       }
 
-      await Future.wait(tasks);
+      if (kIsWeb) {
+        for (final t in tasks) {
+          await t;
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        }
+      } else {
+        await Future.wait(tasks);
+      }
       if (!light) {
         ChurchPanelModulePrefetchService.scheduleFullPrefetch(tenantId);
       }

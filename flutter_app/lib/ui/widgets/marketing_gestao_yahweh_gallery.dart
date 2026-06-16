@@ -5,6 +5,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/marketing_gallery_cms.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -290,7 +291,7 @@ class _MarketingGestaoYahwehGallerySectionState
       for (final p in prefixes) {
         if (refs.length >= widget.maxStorageFiles) break;
         final sub = await _listFilesRecursive(
-          FirebaseStorage.instance.ref(p),
+          firebaseDefaultStorage.ref(p),
           maxFiles: widget.maxStorageFiles - refs.length,
         ).timeout(
           const Duration(seconds: 22),
@@ -1058,7 +1059,7 @@ class _MediaCard extends StatelessWidget {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
-      final url = await FirebaseStorage.instance.ref(path).getDownloadURL();
+      final url = await firebaseDefaultStorage.ref(path).getDownloadURL();
       var u = Uri.tryParse(url);
       if (u == null) return;
       u = _uriForInlinePdfIfNeeded(path, u);
@@ -1120,7 +1121,7 @@ class _MarketingImageLightboxDialogState
 
   Future<Uint8List?> _load() async {
     try {
-      final ref = FirebaseStorage.instance.ref(widget.storagePath);
+      final ref = firebaseDefaultStorage.ref(widget.storagePath);
       final b = await ref.getData(_maxBytes);
       if (b != null && b.isNotEmpty) return b;
     } catch (e) {

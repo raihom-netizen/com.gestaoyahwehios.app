@@ -2040,6 +2040,12 @@ service cloud.firestore {
       allow write: if isMaster();
     }
 
+    // Termos de Uso e Política de Privacidade — leitura pública (login/site); escrita: master
+    match /config/legal_documents {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
     // HistÃ³rico de avisos globais (somente operador de plataforma).
     match /global_announcement_audit/{id} {
       allow read, create, delete: if isMaster();

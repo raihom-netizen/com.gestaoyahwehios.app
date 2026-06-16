@@ -33,6 +33,7 @@ enum AdminMenuItem {
   sistemaAcessos,
   sistemaArmazenamento,
   sistemaAvisoGlobal,
+  sistemaLegalDocumentos,
   sistemaVersaoMinima,
   sistemaMigrarMembros,
   sistemaFeatureFlags,
@@ -194,6 +195,9 @@ class AdminMenuLateral extends StatelessWidget {
       if (itemVisible?.call(AdminMenuItem.sistemaAvisoGlobal) ?? true)
         _tile(AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded,
             'Avisos / Promoções', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaLegalDocumentos) ?? true)
+        _tile(AdminMenuItem.sistemaLegalDocumentos, Icons.policy_rounded,
+            'Termos e Privacidade', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.sistemaVersaoMinima) ?? true)
         _tile(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded,
             'Nova versão', isCollapsed),
@@ -273,6 +277,7 @@ class AdminMenuLateral extends StatelessWidget {
         return const Color(0xFF8B5CF6);
       case AdminMenuItem.sistemaAlertas:
       case AdminMenuItem.sistemaAvisoGlobal:
+      case AdminMenuItem.sistemaLegalDocumentos:
       case AdminMenuItem.sistemaVersaoMinima:
         return const Color(0xFFF43F5E);
       case AdminMenuItem.sistemaAuditoria:

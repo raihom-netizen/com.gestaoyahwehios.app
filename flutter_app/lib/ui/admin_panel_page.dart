@@ -47,6 +47,7 @@ import 'master_usuarios_controle_360_page.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/master_global_search_dialog.dart';
 import 'admin_aviso_global_page.dart';
+import 'admin_legal_documents_page.dart';
 import 'pages/storage_usage_page.dart';
 import 'widgets/version_footer.dart';
 import 'widgets/global_announcement_overlay.dart';
@@ -116,6 +117,8 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Diagnóstico Multi-Tenant';
     case AdminMenuItem.sistemaAvisoGlobal:
       return 'Avisos e promoções';
+    case AdminMenuItem.sistemaLegalDocumentos:
+      return 'Termos e Privacidade';
     case AdminMenuItem.sistemaVersaoMinima:
       return 'Aviso de nova versão';
     case AdminMenuItem.sistemaMigrarMembros:
@@ -311,6 +314,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       AdminMenuItem.sistemaAcessos: 'acessos',
       AdminMenuItem.sistemaArmazenamento: 'armazenamento',
       AdminMenuItem.sistemaAvisoGlobal: 'aviso_global',
+      AdminMenuItem.sistemaLegalDocumentos: 'customizacao',
       AdminMenuItem.sistemaVersaoMinima: 'versao',
       AdminMenuItem.sistemaMigrarMembros: 'migracao',
       AdminMenuItem.sistemaFeatureFlags: 'customizacao',
@@ -622,6 +626,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       case AdminMenuItem.sistemaAvisoGlobal:
         content = const AdminAvisoGlobalPage();
         break;
+      case AdminMenuItem.sistemaLegalDocumentos:
+        content = const AdminLegalDocumentsPage();
+        break;
       case AdminMenuItem.sistemaVersaoMinima:
         content = const AdminForcarAtualizacaoPage();
         break;
@@ -809,6 +816,13 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                           Icons.campaign_rounded,
                           'Avisos, manutenção e promoções',
                           AdminMenuItem.sistemaAvisoGlobal),
+                    if (_canAccessMasterItem(
+                        AdminMenuItem.sistemaLegalDocumentos))
+                      _drawerTile(
+                          context,
+                          Icons.policy_rounded,
+                          'Termos e Privacidade',
+                          AdminMenuItem.sistemaLegalDocumentos),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaVersaoMinima))
                       _drawerTile(
                           context,

@@ -570,6 +570,7 @@ class _QuickModulesGrid extends StatelessWidget {
     (AdminMenuItem.sistemaAuditoria, Icons.history_rounded, 'Auditoria'),
     (AdminMenuItem.sistemaFeatureFlags, Icons.toggle_on_rounded, 'Flags'),
     (AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded, 'Comunicação'),
+    (AdminMenuItem.sistemaLegalDocumentos, Icons.policy_rounded, 'Termos / Privacidade'),
     (AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded, 'Storage'),
     (AdminMenuItem.sistemaMultiAdmin, Icons.admin_panel_settings_rounded, 'Admins'),
   ];

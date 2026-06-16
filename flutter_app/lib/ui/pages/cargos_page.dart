@@ -2142,6 +2142,9 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   bool _loading = true;
   String? _loadError;
 
+  String get _loadChurchId =>
+      ChurchPanelTenant.resolve(widget.tenantId.trim());
+
   @override
   void initState() {
     super.initState();
@@ -2159,7 +2162,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     });
     try {
       final result = await ChurchCargoMembersLoadService.loadLinked(
-        seedTenantId: widget.tenantId,
+        seedTenantId: _loadChurchId,
         cargoKey: widget.cargoKey,
         cargoName: widget.cargoName,
         forceRefresh: forceRefresh,
@@ -2191,7 +2194,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
   Future<List<_MemberWithRef>> _fetchAllMembersForPicker() async {
     final result = await ChurchCargoMembersLoadService.loadAllForPicker(
-      seedTenantId: widget.tenantId,
+      seedTenantId: _loadChurchId,
     );
     return result.members.map(_rowToMember).toList();
   }

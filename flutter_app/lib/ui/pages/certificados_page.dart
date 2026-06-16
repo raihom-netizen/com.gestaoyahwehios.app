@@ -2837,6 +2837,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final signatoryOptions = _buildSignatoryOptions(allMembers);
 
     Widget buildSelectorShell({
+      required BuildContext pageContext,
       required BuildContext ctx,
       required ScrollController scrollCtrl,
       required VoidCallback close,
@@ -3038,15 +3039,28 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           borderRadius: BorderRadius.circular(
                               ThemeCleanPremium.radiusMd),
                           onTap: () async {
+                            final host = pageContext;
                             close();
-                            await _openEditor(
-                              context,
-                              t,
-                              memberDoc,
-                              signatoryOptions,
-                              allMemberDocs: allMembers,
-                              initialVisualTemplateId: visualId,
-                            );
+                            try {
+                              await _openEditor(
+                                host,
+                                t,
+                                memberDoc,
+                                signatoryOptions,
+                                allMemberDocs: allMembers,
+                                initialVisualTemplateId: visualId,
+                              );
+                            } catch (e) {
+                              if (host.mounted) {
+                                ScaffoldMessenger.of(host).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Não foi possível abrir o editor: $e',
+                                    ),
+                                  ),
+                                );
+                              }
+                            }
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -3118,6 +3132,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                 maxHeight: MediaQuery.sizeOf(ctx).height * 0.88,
               ),
               child: buildSelectorShell(
+                pageContext: context,
                 ctx: ctx,
                 scrollCtrl: scrollCtrl,
                 close: () => Navigator.pop(ctx),
@@ -3147,6 +3162,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             maxChildSize: 0.96,
             minChildSize: 0.55,
             builder: (ctx2, scrollCtrl) => buildSelectorShell(
+              pageContext: context,
               ctx: ctx2,
               scrollCtrl: scrollCtrl,
               close: () => Navigator.pop(ctx),
@@ -3160,7 +3176,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   // ─── Editor do Certificado ────────────────────────────────────────────────
   Future<void> _openEditor(
-      BuildContext context,
+      BuildContext pageContext,
       _CertTemplate template,
       QueryDocumentSnapshot<Map<String, dynamic>> memberDoc,
       List<_SignatoryOption> signatoryOptions,
@@ -3168,7 +3184,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       String initialVisualTemplateId = 'classico_dourado'}) async {
     await _loadCertConfig();
     if (!mounted) return;
-    if (!context.mounted) return;
+    if (!pageContext.mounted) return;
     final data = memberDoc.data();
     final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
     final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
@@ -3228,12 +3244,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final textoAdicionalCtrl = TextEditingController();
 
     Navigator.push(
-      context,
+      pageContext,
       MaterialPageRoute(
         builder: (_) => _CertEditorPage(
           tenantId: widget.tenantId,
           onReemitir: (cid) =>
-              _reemitirCertificadoPorProtocolo(context, cid),
+              _reemitirCertificadoPorProtocolo(pageContext, cid),
           memberFirestoreDocId: memberDoc.id,
           template: template,
           corOverride: _corForTemplate(template),

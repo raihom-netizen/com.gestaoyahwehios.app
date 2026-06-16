@@ -11,10 +11,9 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_web_lazy_logo_image.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/marketing_clientes_load_service.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Markdown mínimo (sem dependência): `**negrito**`, `*itálico*` ou `_itálico_`.
 List<InlineSpan> lightMarkdownInlineSpans(String input, TextStyle base) {
@@ -94,24 +93,8 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
   State<MarketingClientesShowcaseSection> createState() =>
       _MarketingClientesShowcaseSectionState();
 
-  static DocumentReference<Map<String, dynamic>> get _docRef =>
-      FirebaseFirestore.instance
-          .collection(MarketingStorageLayout.firestoreCollection)
-          .doc(MarketingStorageLayout.firestoreMarketingClientesDocId);
-
-  static List<Map<String, dynamic>> _parseItems(Map<String, dynamic>? data) {
-    final raw = data?['items'];
-    if (raw is! List) return [];
-    return raw
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .where((m) => m['ativo'] != false)
-        .toList()
-      ..sort((a, b) {
-        final oa = (a['ordem'] is num) ? (a['ordem'] as num).toInt() : 0;
-        final ob = (b['ordem'] is num) ? (b['ordem'] as num).toInt() : 0;
-        return oa.compareTo(ob);
-      });
-  }
+  static List<Map<String, dynamic>> _parseItems(Map<String, dynamic>? data) =>
+      MarketingClientesLoadService.parseItems(data);
 
   static String _digits(String s) => s.replaceAll(RegExp(r'\D'), '');
 
@@ -382,15 +365,55 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
 class _MarketingClientesShowcaseSectionState
     extends State<MarketingClientesShowcaseSection> {
   bool _showAllClientes = false;
+  List<Map<String, dynamic>> _fallbackItems = const [];
+  bool _fallbackLoading = false;
+  bool _fallbackTried = false;
+  String? _fallbackWarning;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_ensureFallbackItems());
+  }
+
+  Future<void> _ensureFallbackItems() async {
+    if (_fallbackTried || _fallbackLoading) return;
+    setState(() => _fallbackLoading = true);
+    try {
+      final r = await MarketingClientesLoadService.loadResolved();
+      if (!mounted) return;
+      setState(() {
+        _fallbackItems = r.items;
+        _fallbackWarning = r.warning;
+        _fallbackTried = true;
+        _fallbackLoading = false;
+      });
+    } catch (e) {
+      debugPrint('MarketingClientesShowcaseSection fallback: $e');
+      if (mounted) {
+        setState(() {
+          _fallbackTried = true;
+          _fallbackLoading = false;
+        });
+      }
+    }
+  }
+
+  List<Map<String, dynamic>> _mergeItems(
+    List<Map<String, dynamic>> firestoreItems,
+  ) {
+    if (firestoreItems.isNotEmpty) return firestoreItems;
+    return _fallbackItems;
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.documentWatchBootstrap(
-        MarketingClientesShowcaseSection._docRef,
-      ),
+      stream: MarketingClientesLoadService.watchDoc(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            !_fallbackTried) {
           return const Center(
             child: Padding(
               padding: EdgeInsets.all(ThemeCleanPremium.spaceXl),
@@ -399,8 +422,25 @@ class _MarketingClientesShowcaseSectionState
           );
         }
         final data = snap.data?.data();
-        final items = MarketingClientesShowcaseSection._parseItems(data);
-        if (items.isEmpty) return const SizedBox.shrink();
+        final firestoreItems = MarketingClientesShowcaseSection._parseItems(data);
+        if (firestoreItems.isEmpty && !_fallbackTried && !_fallbackLoading) {
+          unawaited(_ensureFallbackItems());
+        }
+        final items = _mergeItems(firestoreItems);
+        if (items.isEmpty) {
+          if (_fallbackLoading) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(ThemeCleanPremium.spaceXl),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            );
+          }
+          return _EmptyClientesPlaceholder(
+            showPremiumLead: widget.showPremiumGaleriaLead,
+            message: _fallbackWarning,
+          );
+        }
 
         final title = (data?['sectionTitle'] as String?)?.trim();
         final sectionSubtitle = (data?['sectionSubtitle'] as String?)?.trim();
@@ -481,6 +521,45 @@ class _MarketingClientesShowcaseSectionState
           ],
         );
       },
+    );
+  }
+}
+
+/// Placeholder quando não há clientes (Firestore + Storage vazios).
+class _EmptyClientesPlaceholder extends StatelessWidget {
+  const _EmptyClientesPlaceholder({
+    required this.showPremiumLead,
+    this.message,
+  });
+
+  final bool showPremiumLead;
+  final String? message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (showPremiumLead) ...[
+          const _PremiumGaleriaIgrejasLead(),
+          const SizedBox(height: ThemeCleanPremium.spaceLg),
+        ],
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Text(
+            message ??
+                'Nenhuma igreja em destaque no momento. '
+                'As logos aparecem aqui quando cadastradas em Divulgação → Clientes '
+                'ou em ${MarketingStorageLayout.clientesRootPrefix}/ no Storage.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -739,7 +818,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
       if (tid.isEmpty) return null;
       try {
         final op = ChurchPanelTenantGateway.churchId(tid.trim());
-        final doc = await             ChurchUiCollections.churchDoc(op)
+        final doc = await ChurchRepository.churchDoc(op)
             .get()
             .timeout(
               const Duration(seconds: 10),

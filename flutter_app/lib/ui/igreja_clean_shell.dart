@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -90,13 +90,17 @@ import 'package:gestao_yahweh/ui/widgets/instagram_mural.dart'
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/services/church_shell_tenant_load_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
 const double _breakpointDesktop = 900;
 
 const double _breakpointPhone = 600;
 
-/// Ícone, label e cor do módulo (menu lateral + drawer + rodapé).
+/// Ãcone, label e cor do mÃ³dulo (menu lateral + drawer + rodapÃ©).
 class _NavItem {
   final IconData icon;
   final String label;
@@ -105,8 +109,8 @@ class _NavItem {
   const _NavItem(this.icon, this.label, this.accent);
 }
 
-/// Shell Clean Premium — Sidebar vertical azul escuro (Desktop) / Drawer (Mobile).
-/// Header com saudação e card Plano/Vencimento.
+/// Shell Clean Premium â€” Sidebar vertical azul escuro (Desktop) / Drawer (Mobile).
+/// Header com saudaÃ§Ã£o e card Plano/Vencimento.
 class IgrejaCleanShell extends StatefulWidget {
   final String tenantId;
   final String cpf;
@@ -114,25 +118,25 @@ class IgrejaCleanShell extends StatefulWidget {
   final bool trialExpired;
   final Map<String, dynamic>? subscription;
 
-  /// Legado: campo no cadastro do membro; o painel Financeiro não usa mais para liberar acesso.
+  /// Legado: campo no cadastro do membro; o painel Financeiro nÃ£o usa mais para liberar acesso.
   final bool? podeVerFinanceiro;
 
-  /// Legado; património no painel só para o núcleo financeiro/pastoral.
+  /// Legado; patrimÃ³nio no painel sÃ³ para o nÃºcleo financeiro/pastoral.
   final bool? podeVerPatrimonio;
 
-  /// Legado; fornecedores no painel só para o mesmo núcleo.
+  /// Legado; fornecedores no painel sÃ³ para o mesmo nÃºcleo.
   final bool? podeVerFornecedores;
 
-  /// Gestor libera PDFs de membros/aniversariantes etc. (senão só Relatório de Eventos).
+  /// Gestor libera PDFs de membros/aniversariantes etc. (senÃ£o sÃ³ RelatÃ³rio de Eventos).
   final bool? podeEmitirRelatoriosCompletos;
 
-  /// Permissões específicas por módulo (RBAC granular), ex.: ['financeiro','membros'].
+  /// PermissÃµes especÃ­ficas por mÃ³dulo (RBAC granular), ex.: ['financeiro','membros'].
   final List<String>? permissions;
 
   /// Abre Membros com a ficha deste id (ex.: leitura do QR da carteirinha por gestor).
   final String? initialOpenMemberDocId;
 
-  /// Abre direto um módulo do menu (ex.: [kChurchShellIndexMySchedules] após push de escala).
+  /// Abre direto um mÃ³dulo do menu (ex.: [kChurchShellIndexMySchedules] apÃ³s push de escala).
   final int? initialShellIndex;
 
   const IgrejaCleanShell({
@@ -160,24 +164,31 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
 
-  /// Desktop web: menu lateral estreito só com ícones (+ tooltip).
+  /// Desktop web: menu lateral estreito sÃ³ com Ã­cones (+ tooltip).
   bool _sidebarCollapsed = false;
 
-  /// Foto do usuário vinda do Firestore (quando Auth photoURL está vazio).
+  /// Foto do usuÃ¡rio vinda do Firestore (quando Auth photoURL estÃ¡ vazio).
   String? _userPhotoUrlFromFirestore;
 
-  /// Cache das páginas do menu para manter estado ao trocar de aba ou ao voltar ao app (evita recarregar e tela preta).
+  /// Cache das pÃ¡ginas do menu para manter estado ao trocar de aba ou ao voltar ao app (evita recarregar e tela preta).
   final List<Widget?> _pageCache = List.filled(25, null);
   bool _showPaymentConfirmedBanner = false;
   int _lastPaymentTick = 0;
   int _paymentBannerAnimSeed = 0;
   int _lastSubscriptionSyncMs = 0;
 
-  /// Recria a subscrição ao doc da igreja após falha de rede.
+  /// Recria a subscriÃ§Ã£o ao doc da igreja apÃ³s falha de rede.
   int _tenantStreamRetry = 0;
 
-  /// Último snapshot válido — evita spinner ao voltar de outra aba (Controle Total).
+  /// Ãšltimo snapshot vÃ¡lido â€” evita spinner ao voltar de outra aba (Controle Total).
   DocumentSnapshot<Map<String, dynamic>>? _lastGoodTenantDoc;
+
+  /// Evita loop ao hidratar cache local apÃ³s falha transitÃ³ria do stream.
+  bool _tenantFallbackHydrateScheduled = false;
+
+  /// Bootstrap one-shot â€” sem StreamBuilder Firestore (evita INTERNAL ASSERTION web).
+  bool _shellTenantBootstrapRunning = false;
+  Object? _shellTenantLastError;
 
   /// Papel efectivo no menu (upgrade se claims atrasados mas e-mail = gestor).
   String? _roleOverride;
@@ -191,7 +202,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _canPurchaseLicense =>
       AppPermissions.canPurchaseChurchLicense(_panelRole);
 
-  /// Android/Web: botão «Alterar plano». iOS Reader: oculto (Apple 3.1.1).
+  /// Android/Web: botÃ£o Â«Alterar planoÂ». iOS Reader: oculto (Apple 3.1.1).
   bool get _showUpgradePlanUi =>
       _canPurchaseLicense && !IosPaymentsGate.hideInAppPlanPurchaseUi;
 
@@ -210,16 +221,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (mounted) setState(() => _roleOverride = resolved);
   }
 
-  /// Doc canónico (`departamentos`, chat, slug) — resolvido uma vez no arranque/resume.
+  /// Doc canÃ³nico (`departamentos`, chat, slug) â€” resolvido uma vez no arranque/resume.
   String? _operationalTenantId;
 
-  /// Evita montar módulos com tenant errado antes do resolve (web IndexedStack).
+  /// Evita montar mÃ³dulos com tenant errado antes do resolve (web IndexedStack).
   bool _tenantResolveComplete = false;
 
   ValueKey _shellPageKey(int index) =>
       ValueKey('page_${index}_$_moduleTenantId');
 
-  /// Sempre doc canónico — nunca slug legado nos módulos do shell.
+  /// Sempre doc canÃ³nico â€” nunca slug legado nos mÃ³dulos do shell.
   String get _moduleTenantId => ChurchPanelTenant.resolve(
         (_operationalTenantId ?? '').isNotEmpty
             ? _operationalTenantId
@@ -229,7 +240,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).
   String _lastSubscriptionGuardSignature = '';
 
-  /// Busca global (Ctrl/Cmd+K): só quando o painel principal está liberado.
+  /// Busca global (Ctrl/Cmd+K): sÃ³ quando o painel principal estÃ¡ liberado.
   bool _globalSearchAllowed = false;
   bool _globalSearchDialogVisible = false;
   String? _shellBootstrapMemberSearch;
@@ -242,11 +253,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   String? _shellBootstrapOpenAvisoDocId;
   String? _shellBootstrapOpenPatrimonioDocId;
 
-  /// Pré-carrega dados ao passar o rato no menu (web/desktop).
+  /// PrÃ©-carrega dados ao passar o rato no menu (web/desktop).
   final Set<int> _shellPrefetchDone = {};
 
-  /// Ícones **Material `*_rounded`**. Na web (release), o subset da fonte pode
-  /// omitir glifos — [kChurchShellNavEntries] + [_ChurchShellNavMaterialIconsKeepalive]
+  /// Ãcones **Material `*_rounded`**. Na web (release), o subset da fonte pode
+  /// omitir glifos â€” [kChurchShellNavEntries] + [_ChurchShellNavMaterialIconsKeepalive]
   /// e `--no-tree-shake-icons` nos scripts.
   late final List<_NavItem> _items = [
     for (final e in kChurchShellNavEntries) _NavItem(e.icon, e.label, e.accent),
@@ -264,8 +275,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Somente gestor, secretário ou tesoureiro pode renovar a licença. '
-            'Peça a um deles para gerar o pagamento.',
+            'Somente gestor, secretÃ¡rio ou tesoureiro pode renovar a licenÃ§a. '
+            'PeÃ§a a um deles para gerar o pagamento.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -277,7 +288,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     unawaited(ExpressRenewBootstrap.instance.warmUp());
-    // Android: fluxo web Mercado Pago (PIX / cartão 6x) no navegador.
+    // Android: fluxo web Mercado Pago (PIX / cartÃ£o 6x) no navegador.
     if (IosPaymentsGate.isAndroidNative) {
       final ok = await IosPaymentsGate.openUpgradePlansExternally(
         source: 'android_shell',
@@ -286,7 +297,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Não foi possível abrir o navegador. Tente novamente ou acesse o painel web pelo computador.',
+              'NÃ£o foi possÃ­vel abrir o navegador. Tente novamente ou acesse o painel web pelo computador.',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -304,8 +315,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
-    // Painel, Membros, Eventos, Agenda, Avisos, Chat — drawer no menu superior.
+    // RodapÃ© + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
+    // Painel, Membros, Eventos, Agenda, Avisos, Chat â€” drawer no menu superior.
     final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
@@ -397,7 +408,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                   ? Icons.menu_rounded
                                   : _items[shortcuts[s].shellIndex!].icon,
                               fullTooltip: shortcuts[s].opensDrawer
-                                  ? 'Mais opções (menu lateral)'
+                                  ? 'Mais opÃ§Ãµes (menu lateral)'
                                   : _items[shortcuts[s].shellIndex!].label,
                               selected: shortcuts[s].opensDrawer
                                   ? false
@@ -416,7 +427,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 final idx = shortcuts[s].shellIndex!;
                                 if (!_canAccessItem(idx)) {
                                   _showPanelSnack(
-                                    'Sem acesso a este módulo.',
+                                    'Sem acesso a este mÃ³dulo.',
                                     isError: true,
                                   );
                                   return;
@@ -453,6 +464,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final hint = widget.tenantId.trim();
     if (hint.isNotEmpty) {
       _operationalTenantId = ChurchPanelTenant.resolve(hint);
+      _applyBoundChurchContextToLastGood(_operationalTenantId!);
+      // Desbloqueia módulos no 1.º frame — bind async continua em background.
+      _tenantResolveComplete = _operationalTenantId!.isNotEmpty;
     }
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
@@ -463,7 +477,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _lastPaymentTick = PaymentUiFeedbackService.paymentConfirmedTick.value;
     PaymentUiFeedbackService.paymentConfirmedTick
         .addListener(_onPaymentConfirmedTick);
-    // Migração automática members → membros (servidor Admin SDK + fallback cliente)
+    // MigraÃ§Ã£o automÃ¡tica members â†’ membros (servidor Admin SDK + fallback cliente)
     ChurchPanelNavigationBridge.instance.registerShellNavigator((idx) {
       if (!mounted) return;
       if (!_canAccessItem(idx)) return;
@@ -481,32 +495,28 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      await _resolveOperationalTenant(forceRefresh: false);
-      await _preloadTenantDocSnapshot();
-      if (!mounted) return;
-      setState(() => _tenantResolveComplete = true);
+      try {
+        await _resolveOperationalTenant(forceRefresh: false);
+        await _bootstrapShellTenantDoc(forceRefresh: false);
+      } finally {
+        if (mounted) setState(() => _tenantResolveComplete = true);
+      }
       ChurchTenantConsolidationService.ensureConsolidated(
         _moduleTenantId,
         source: 'igreja_clean_shell',
       );
       reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
-      unawaited(ChurchTenantOfflineWarmupService.instance
-          .scheduleWarmupAfterLogin(_moduleTenantId));
-      TenantIntelligentPreload.scheduleAfterDashboard(_moduleTenantId);
+      _schedulePostTenantWarmups();
       YahwehPerformanceMonitor.markScreenStart('church_shell');
       YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
-      unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
-        context,
-        _moduleTenantId,
-      ));
       Future<void>.delayed(const Duration(seconds: 12), () {
         if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
       });
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = ChurchShellIndices.membros);
       } else {
-        // Sempre painel inicial ao entrar — sem restaurar aba/chat/módulo anterior.
+        // Sempre painel inicial ao entrar â€” sem restaurar aba/chat/mÃ³dulo anterior.
         if (widget.initialShellIndex != null &&
             mounted &&
             _canAccessItem(widget.initialShellIndex!)) {
@@ -601,30 +611,100 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Cache-first antes do StreamBuilder — evita erro «conexão» na web ao abrir o painel.
-  Future<void> _preloadTenantDocSnapshot() async {
+  bool _applyBoundChurchContextToLastGood(String tid) {
+    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
+    final data = ChurchContextService.currentChurchData;
+    if (tid.isEmpty || ctxId != tid || data == null || data.isEmpty) {
+      return false;
+    }
+    _lastGoodTenantDoc = _CachedChurchDocumentSnapshot(id: tid, data: data);
+    _syncPanelRoleFromChurch(data);
+    return true;
+  }
+
+  void _storeTenantDocSnapshot(
+    String tid,
+    Map<String, dynamic> data, {
+    DocumentSnapshot<Map<String, dynamic>>? snap,
+  }) {
+    if (tid.isEmpty || data.isEmpty) return;
+    _lastGoodTenantDoc =
+        snap ?? _CachedChurchDocumentSnapshot(id: tid, data: data);
+    _syncPanelRoleFromChurch(data);
+    ChurchContextService.bindChurchData(churchId: tid, data: data);
+  }
+
+  /// Cache-first â€” **sem** StreamBuilder (`.get()` Ãºnico via [ChurchShellTenantLoadService]).
+  Future<void> _bootstrapShellTenantDoc({bool forceRefresh = false}) async {
+    if (_shellTenantBootstrapRunning) return;
+    _shellTenantBootstrapRunning = true;
     final tid = _moduleTenantId.trim();
-    if (tid.isEmpty) return;
+    if (tid.isEmpty) {
+      _shellTenantBootstrapRunning = false;
+      return;
+    }
+    if (!forceRefresh && _applyBoundChurchContextToLastGood(tid)) {
+      _shellTenantBootstrapRunning = false;
+      if (mounted) setState(() {});
+      return;
+    }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final ref = ChurchUiCollections.churchDoc(tid);
-      final snap = await FirestoreWebGuard.runWithWebRecovery(() async {
-        try {
-          return await ref
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          return await ref.get().timeout(const Duration(seconds: 14));
-        }
-      }, maxAttempts: 4);
+      final result = await ChurchShellTenantLoadService.load(
+        seedTenantId: widget.tenantId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
-      if (snap.exists) {
-        setState(() {
-          _lastGoodTenantDoc = snap;
-        });
-        _syncPanelRoleFromChurch(snap.data());
+      if (ChurchShellTenantLoadService.isUsable(result)) {
+        _shellTenantLastError = result.softError;
+        _storeTenantDocSnapshot(
+          result.churchId,
+          ChurchCadastroLoadService.sliceCadastroFormFields(result.data).isNotEmpty
+              ? ChurchCadastroLoadService.sliceCadastroFormFields(result.data)
+              : result.data,
+        );
+        await ChurchShellTenantLoadService.persistAfterLoad(result);
+      } else {
+        _shellTenantLastError = result.softError ??
+            'NÃ£o foi possÃ­vel carregar igrejas/$tid.';
+        await _hydrateTenantDocFromFallbacks(tid);
+      }
+    } catch (e) {
+      _shellTenantLastError = e;
+      await _hydrateTenantDocFromFallbacks(tid);
+    } finally {
+      _shellTenantBootstrapRunning = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  @Deprecated('Use _bootstrapShellTenantDoc')
+  Future<void> _preloadTenantDocSnapshot() =>
+      _bootstrapShellTenantDoc(forceRefresh: false);
+
+  Future<void> _hydrateTenantDocFromFallbacks(String tid) async {
+    final id = tid.trim();
+    if (id.isEmpty) return;
+    if (_applyBoundChurchContextToLastGood(id)) return;
+
+    try {
+      final cached = await ChurchPanelLocalCache.readMap(
+        churchId: id,
+        module: ChurchPanelLocalCache.moduleCadastro,
+        maxAge: const Duration(days: 30),
+      );
+      if (cached != null && cached.isNotEmpty) {
+        _storeTenantDocSnapshot(id, cached);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(id);
+      if (direct != null && direct.data.isNotEmpty) {
+        _storeTenantDocSnapshot(direct.docId, direct.data);
       }
     } catch (_) {}
   }
@@ -642,8 +722,194 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   void _retryTenantDocLoad() {
+    _tenantFallbackHydrateScheduled = false;
     setState(() => _tenantStreamRetry++);
-    unawaited(_preloadTenantDocSnapshot());
+    unawaited(() async {
+      await _resolveOperationalTenant(forceRefresh: false);
+      await _bootstrapShellTenantDoc(forceRefresh: true);
+      if (mounted) setState(() {});
+    }());
+  }
+
+  void _schedulePostTenantWarmups() {
+    final tid = _moduleTenantId.trim();
+    if (tid.isEmpty) return;
+    final warmupDelay = kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 4);
+    final dashboardDelay = kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 2);
+    Future<void>.delayed(warmupDelay, () {
+      if (!mounted) return;
+      unawaited(ChurchTenantOfflineWarmupService.instance
+          .scheduleWarmupAfterLogin(tid));
+    });
+    Future<void>.delayed(dashboardDelay, () {
+      if (!mounted) return;
+      TenantIntelligentPreload.scheduleAfterDashboard(tid);
+      unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
+        context,
+        tid,
+      ));
+    });
+  }
+
+  Widget _buildShellGateBody() {
+    final tid = _moduleTenantId.trim();
+    var tenantDoc = _lastGoodTenantDoc;
+    if ((tenantDoc == null || !tenantDoc.exists) && tid.isNotEmpty) {
+      _applyBoundChurchContextToLastGood(tid);
+      tenantDoc = _lastGoodTenantDoc;
+    }
+    final hasCachedTenant = tenantDoc != null && tenantDoc.exists;
+
+    if (_shellTenantBootstrapRunning && !hasCachedTenant) {
+      return _buildTenantBootstrapScaffold(
+        child: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    if (!hasCachedTenant) {
+      if (!_tenantFallbackHydrateScheduled) {
+        _tenantFallbackHydrateScheduled = true;
+        unawaited(_bootstrapShellTenantDoc().then((_) {
+          if (mounted) setState(() {});
+        }));
+        return _buildTenantBootstrapScaffold(
+          child: ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: true,
+            syncMessage: 'Sincronizando cadastro da igreja (igrejas/$tid)â€¦',
+          ),
+        );
+      }
+      return _buildTenantBootstrapScaffold(
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'NÃ£o foi possÃ­vel carregar os dados da igreja',
+          error: _shellTenantLastError ??
+              'Verifique sua conexÃ£o ou tente novamente. '
+              'Path: igrejas/$tid',
+          onRetry: _retryTenantDocLoad,
+        ),
+      );
+    }
+
+    final registrationComplete = tenantDoc != null &&
+        (tenantDoc.data()?['registrationComplete'] ?? true) == true;
+    if (!registrationComplete) {
+      return _buildCompleteCadastroObrigatorio();
+    }
+    final churchLive = tenantDoc?.data();
+    final guard = SubscriptionGuard.evaluate(
+        church: churchLive, subscription: widget.subscription);
+    final bool legacyBlocked = churchLive != null
+        ? LicenseAccessPolicy.licenseAccessBlocked(
+            subscription: widget.subscription, church: churchLive)
+        : widget.trialExpired;
+    final bool licenseBlocked = guard.isFree
+        ? guard.adminBlocked
+        : (guard.blocked || legacyBlocked);
+    _globalSearchAllowed = registrationComplete && !licenseBlocked;
+    if (churchLive != null) {
+      final sig =
+          '${guard.blocked}|${guard.inGrace}|${guard.graceDaysLeft}|${guard.adminBlocked}|${guard.isFree}|${guard.statusAssinatura}';
+      if (sig != _lastSubscriptionGuardSignature) {
+        _lastSubscriptionGuardSignature = sig;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _syncSubscriptionSnapshot(guard);
+        });
+      }
+    }
+
+    if (licenseBlocked) {
+      final churchName =
+          (churchLive?['nome'] ?? churchLive?['name'] ?? 'Sua igreja')
+              .toString();
+      final logoUrl = imageUrlFromMap(churchLive);
+      return _buildLicenseRenewalOnly(
+        context,
+        churchName: churchName,
+        logoUrl: logoUrl.isEmpty ? null : logoUrl,
+      );
+    }
+    final shellModuleFullBleed = _isMobile && _selectedIndex != 0;
+
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      drawer: _isMobile ? _buildDrawer() : null,
+      drawerEdgeDragWidth: _isMobile ? 56 : null,
+      bottomNavigationBar: _buildChurchBottomNavigationBar(),
+      body: Column(
+        children: [
+          Expanded(
+            child: SafeArea(
+              top: shellModuleFullBleed,
+              left: true,
+              right: true,
+              bottom: false,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_isDesktop) _buildSidebar(),
+                  Expanded(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: ThemeCleanPremium.churchPanelBodyGradient,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (!shellModuleFullBleed)
+                            _buildHeader(licenseBlocked: licenseBlocked),
+                          const ConnectivityOfflineStrip(),
+                          const ChurchPanelAppUpdateBanner(),
+                          _buildPaymentConfirmedBanner(),
+                          _buildGracePeriodBanner(guard),
+                          if (_selectedIndex != 0)
+                            ModuleHeaderPremium(
+                              title: _items[_selectedIndex].label,
+                              icon: _items[_selectedIndex].icon,
+                              subtitle:
+                                  _isMobile ? _shellUserGreetingName() : null,
+                              onPainelBack: _isMobile && _selectedIndex != 0
+                                  ? () => setState(() => _selectedIndex = 0)
+                                  : null,
+                            ),
+                          Expanded(
+                            child: Semantics(
+                              container: true,
+                              label:
+                                  'ConteÃºdo do mÃ³dulo ${_items[_selectedIndex].label}',
+                              child: Padding(
+                                padding: EdgeInsets.zero,
+                                child: SaaSContentViewport(
+                                  maxWidthOverride: _selectedIndex ==
+                                              ChurchShellIndices.patrimonio ||
+                                          _selectedIndex ==
+                                              ChurchShellIndices.chatIgreja
+                                      ? 10000
+                                      : null,
+                                  child: _buildContent(),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (kIsWeb) const _ChurchShellNavMaterialIconsKeepalive(),
+          if (!_isMobile) const ChurchShellBottomVerseStrip(),
+        ],
+      ),
+    );
   }
 
   @override
@@ -654,12 +920,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _syncPanelRoleFromChurch(_lastGoodTenantDoc?.data());
     }
     if (oldWidget.tenantId != widget.tenantId) {
-      _operationalTenantId = null;
-      _tenantResolveComplete = false;
+      final canonical = ChurchPanelTenant.resolve(widget.tenantId);
+      _operationalTenantId = canonical.isNotEmpty ? canonical : null;
+      _tenantResolveComplete = canonical.isNotEmpty;
       unawaited(() async {
-        await _resolveOperationalTenant(forceRefresh: true);
-        await _preloadTenantDocSnapshot();
-        if (mounted) setState(() => _tenantResolveComplete = true);
+        try {
+          await _resolveOperationalTenant(forceRefresh: true);
+          await _bootstrapShellTenantDoc(forceRefresh: true);
+        } finally {
+          if (mounted) setState(() => _tenantResolveComplete = true);
+        }
       }());
       unawaited(_bootstrapChatPresenceHeartbeat());
     }
@@ -713,7 +983,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (event is! KeyDownEvent) return false;
     if (_focusInsideEditableText()) return false;
 
-    // Tecla / — abre busca (comum na web e apps estilo "command palette").
+    // Tecla / â€” abre busca (comum na web e apps estilo "command palette").
     if (event.logicalKey == LogicalKeyboardKey.slash) {
       _openChurchGlobalSearch();
       return true;
@@ -790,7 +1060,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     required String query,
   }) {
     if (!_canAccessItem(shellIndex)) {
-      _showPanelSnack('Sem acesso a este módulo.', isError: true);
+      _showPanelSnack('Sem acesso a este mÃ³dulo.', isError: true);
       return;
     }
     setState(() {
@@ -827,7 +1097,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     });
   }
 
-  /// Copia `members` → `membros` no Firestore (Cloud Function com Admin SDK). Gestor/master.
+  /// Copia `members` â†’ `membros` no Firestore (Cloud Function com Admin SDK). Gestor/master.
   Future<void> _runMembersToMembrosMigration() async {
     final r = _panelRole.toUpperCase().trim();
     final canTrigger = r == 'GESTOR' ||
@@ -849,7 +1119,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (copied > 0 && mounted) {
         _showPanelSnack(
           data['message']?.toString() ??
-              'Migração: $copied registro(s) de members → membros.',
+              'MigraÃ§Ã£o: $copied registro(s) de members â†’ membros.',
         );
       }
     } catch (_) {
@@ -906,13 +1176,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Lista só módulos que o utilizador pode abrir — membro básico não vê entradas bloqueadas
-  /// (evita cinza + “Liberado pelo gestor”; o que aparece é utilizável).
+  /// Lista sÃ³ mÃ³dulos que o utilizador pode abrir â€” membro bÃ¡sico nÃ£o vÃª entradas bloqueadas
+  /// (evita cinza + â€œLiberado pelo gestorâ€; o que aparece Ã© utilizÃ¡vel).
   bool _shouldListNavIndex(int i) => _canAccessItem(i);
 
   void _navigateToShellModuleFromDashboard(int index) {
     if (!_canAccessItem(index)) {
-      _showPanelSnack('Acesso negado para este módulo.', isError: true);
+      _showPanelSnack('Acesso negado para este mÃ³dulo.', isError: true);
       return;
     }
     setState(() => _selectedIndex = index);
@@ -1043,7 +1313,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
   }
 
-  /// Ícone 3D colorido (desktop + drawer).
+  /// Ãcone 3D colorido (desktop + drawer).
   Widget _navMenuIconChip(int i, bool selected, {bool compact = false}) {
     final box = compact ? 38.0 : 42.0;
     return ChurchShellNavIcon3D(
@@ -1104,7 +1374,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         child: InkWell(
           onTap: () {
             if (!_canAccessItem(i)) {
-              _showPanelSnack('Acesso negado para este módulo.', isError: true);
+              _showPanelSnack('Acesso negado para este mÃ³dulo.', isError: true);
               return;
             }
             setState(() => _selectedIndex = i);
@@ -1195,11 +1465,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   static const List<({String title, List<int> indices})> _menuSections = [
     (title: 'Geral', indices: [0, 1, 2, 22]),
     (title: 'Pessoas', indices: [3, 4, 5, 6]),
-    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 23]),
+    (title: 'ComunicaÃ§Ã£o', indices: [7, 8, 9, 10, 18, 23]),
     (title: 'Agenda', indices: [11, 12]),
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Sistema', indices: [16, 17]),
-    (title: 'Financeiro e patrimônio', indices: [19, 20, 21]),
+    (title: 'Financeiro e patrimÃ´nio', indices: [19, 20, 21]),
   ];
 
   List<({String title, List<int> indices})> _menuSectionsForRole(String role) {
@@ -1211,23 +1481,23 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
       (title: 'Geral', indices: [0, 22]),
       (title: 'Pessoas', indices: [3]),
-      (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
+      (title: 'ComunicaÃ§Ã£o', indices: [7, 8, 9, 10, 23]),
       (title: 'Agenda', indices: [11, 12]),
       (title: 'Documentos', indices: [13]),
     ];
   }
 
-  /// Entrada visível para a busca global (Ctrl/Cmd+K, tecla /).
+  /// Entrada visÃ­vel para a busca global (Ctrl/Cmd+K, tecla /).
   ///
-  /// Larguras lógicas típicas: ~320 legado; 360–430 celulares; ≥600 tablet.
-  /// Abaixo de [_kSearchIconOnlyMaxWidth] só ícone — libera espaço para saudação e ações.
+  /// Larguras lÃ³gicas tÃ­picas: ~320 legado; 360â€“430 celulares; â‰¥600 tablet.
+  /// Abaixo de [_kSearchIconOnlyMaxWidth] sÃ³ Ã­cone â€” libera espaÃ§o para saudaÃ§Ã£o e aÃ§Ãµes.
   static const double _kSearchIconOnlyMaxWidth = 352;
   static const double _kSearchCompactLabelMaxWidth = 400;
 
-  /// Nome para saudação no cabeçalho azul e, no telemóvel, subtítulo no cartão do módulo.
+  /// Nome para saudaÃ§Ã£o no cabeÃ§alho azul e, no telemÃ³vel, subtÃ­tulo no cartÃ£o do mÃ³dulo.
   String _shellUserGreetingName() {
     final user = firebaseDefaultAuth.currentUser;
-    final fallback = user?.email ?? 'Usuário';
+    final fallback = user?.email ?? 'UsuÃ¡rio';
     final dn = (user?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
     return fallback;
@@ -1244,8 +1514,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final buscarFontSize = compactLabel ? 12.5 : 14.0;
 
     const tooltipMessage =
-        'Busca global: membros, eventos, mural e patrimônio.\n'
-        'Atalhos de teclado: / (barra) · Ctrl+K · Cmd+K no Mac.';
+        'Busca global: membros, eventos, mural e patrimÃ´nio.\n'
+        'Atalhos de teclado: / (barra) Â· Ctrl+K Â· Cmd+K no Mac.';
 
     Widget chip = Padding(
       padding: EdgeInsets.only(
@@ -1273,7 +1543,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 if (showBuscarLabel) ...[
                   const SizedBox(width: 8),
                   Text(
-                    'Buscar…',
+                    'Buscarâ€¦',
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.92),
                       fontSize: buscarFontSize,
@@ -1320,7 +1590,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       button: true,
       label: 'Buscar no painel da igreja',
       hint:
-          'Abre a busca. No teclado físico: tecla barra, Ctrl+K ou Cmd+K.',
+          'Abre a busca. No teclado fÃ­sico: tecla barra, Ctrl+K ou Cmd+K.',
       child: chip,
     );
 
@@ -1532,7 +1802,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         ? 'Atualizar plano'
                         : 'Planos e assinatura',
                     onPressed: () => unawaited(_openUpgradePlans()),
-                    // Material estável na web (subset de ícones arredondados pode falhar).
+                    // Material estÃ¡vel na web (subset de Ã­cones arredondados pode falhar).
                     icon: const Icon(Icons.emoji_events_rounded,
                         color: Colors.white, size: 22),
                     style:
@@ -1564,7 +1834,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   setState(() => _selectedIndex = ChurchShellIndices.configuracoes);
                 },
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                tooltip: 'Configurações',
+                tooltip: 'ConfiguraÃ§Ãµes',
               ),
             ],
           ),
@@ -1606,7 +1876,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Pagamento confirmado. Licença ativa e sistema liberado.',
+                          'Pagamento confirmado. LicenÃ§a ativa e sistema liberado.',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.green.shade900,
@@ -1706,7 +1976,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           .set(SubscriptionGuard.normalizedChurchFields(guard),
               SetOptions(merge: true));
     } catch (_) {
-      // Sem falha visível no cliente: a proteção continua local.
+      // Sem falha visÃ­vel no cliente: a proteÃ§Ã£o continua local.
     }
   }
 
@@ -1716,8 +1986,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
     final days = guard.graceDaysLeft;
     final txt = days <= 0
-        ? 'Atenção: sua assinatura venceu. O sistema será bloqueado hoje.'
-        : 'Atenção: sua assinatura venceu. O sistema será bloqueado em $days dia(s).';
+        ? 'AtenÃ§Ã£o: sua assinatura venceu. O sistema serÃ¡ bloqueado hoje.'
+        : 'AtenÃ§Ã£o: sua assinatura venceu. O sistema serÃ¡ bloqueado em $days dia(s).';
     return Container(
       margin: const EdgeInsets.fromLTRB(
         ThemeCleanPremium.spaceMd,
@@ -1753,7 +2023,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Menu lateral esquerdo vertical azul escuro (desktop) — expansível / colapsável.
+  /// Menu lateral esquerdo vertical azul escuro (desktop) â€” expansÃ­vel / colapsÃ¡vel.
   Widget _buildSidebar() {
     final compact = _sidebarCollapsed;
     final sidebarW = compact ? 76.0 : 224.0;
@@ -1815,7 +2085,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    'Gestão YAHWEH',
+                    'GestÃ£o YAHWEH',
                     style: GoogleFonts.inter(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
@@ -1952,7 +2222,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Drawer mobile — mesmo menu lateral azul escuro (Android/iOS, todas as versões)
+  /// Drawer mobile â€” mesmo menu lateral azul escuro (Android/iOS, todas as versÃµes)
   Widget _buildDrawer() {
     return Drawer(
       width: _isMobile
@@ -1999,7 +2269,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     ),
                     const SizedBox(width: 12),
                     Text(
-                      'Gestão YAHWEH',
+                      'GestÃ£o YAHWEH',
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
@@ -2056,7 +2326,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                   onTap: () {
                                     if (!_canAccessItem(i)) {
                                       _showPanelSnack(
-                                        'Acesso negado para este módulo.',
+                                        'Acesso negado para este mÃ³dulo.',
                                         isError: true,
                                       );
                                       return;
@@ -2147,7 +2417,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Constrói a página do menu por índice (uma vez; depois reutilizada pelo cache).
+  /// ConstrÃ³i a pÃ¡gina do menu por Ã­ndice (uma vez; depois reutilizada pelo cache).
   Widget _buildPageForIndex(int index) {
     switch (index) {
       case 0:
@@ -2445,13 +2715,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         if (_selectedIndex != 0) setState(() => _selectedIndex = 0);
-        _showPanelSnack('Acesso negado para este módulo.', isError: true);
+        _showPanelSnack('Acesso negado para este mÃ³dulo.', isError: true);
       });
       return RepaintBoundary(child: _buildPageForIndex(0));
     }
 
-    /// Desktop nativo: mantém páginas visitadas no [IndexedStack].
-    /// Web: só a aba activa — evita dezenas de listeners Firestore (INTERNAL ASSERTION).
+    /// Desktop nativo: mantÃ©m pÃ¡ginas visitadas no [IndexedStack].
+    /// Web: sÃ³ a aba activa â€” evita dezenas de listeners Firestore (INTERNAL ASSERTION).
     if (_isDesktop && !kIsWeb) {
       if (_pageCache[_selectedIndex] == null) {
         _pageCache[_selectedIndex] = _buildPageForIndex(_selectedIndex);
@@ -2473,7 +2743,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    /// Mobile: só a aba ativa do rodapé — evita 6 módulos pesados em paralelo.
+    /// Mobile: sÃ³ a aba ativa do rodapÃ© â€” evita 6 mÃ³dulos pesados em paralelo.
     final footerTab =
         ChurchShellLazyModulePolicy.isMobileFooterTab(_selectedIndex);
     if (footerTab) {
@@ -2494,7 +2764,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Licença vencida (trial + carência ou assinatura): só renovação / pagamento, conforme regra do master.
+  /// LicenÃ§a vencida (trial + carÃªncia ou assinatura): sÃ³ renovaÃ§Ã£o / pagamento, conforme regra do master.
   Widget _buildLicenseRenewalOnly(
     BuildContext context, {
     required String churchName,
@@ -2514,7 +2784,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  /// Tela que exige completar o cadastro da igreja antes de qualquer lançamento.
+  /// Tela que exige completar o cadastro da igreja antes de qualquer lanÃ§amento.
   Widget _buildCompleteCadastroObrigatorio() {
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
@@ -2553,7 +2823,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Para usar o painel e fazer lançamentos, complete o cadastro da igreja: nome, CPF/CNPJ (se tiver), logo, endereço e link do site. Sua ficha pessoal (foto, CPF, etc.) fica em Membros.',
+                          'Para usar o painel e fazer lanÃ§amentos, complete o cadastro da igreja: nome, CPF/CNPJ (se tiver), logo, endereÃ§o e link do site. Sua ficha pessoal (foto, CPF, etc.) fica em Membros.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               fontSize: 14,
@@ -2592,7 +2862,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   @override
   Widget build(BuildContext context) {
-    // Blindagem: Voltar / tecla Android sempre para na tela inicial; só sai pelo Logout.
+    // Blindagem: Voltar / tecla Android sempre para na tela inicial; sÃ³ sai pelo Logout.
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -2607,7 +2877,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           setState(() => _selectedIndex = 0);
         } else {
           _showPanelSnack(
-            'Use o botão "Sair" no menu para encerrar a sessão.',
+            'Use o botÃ£o "Sair" no menu para encerrar a sessÃ£o.',
             isError: true,
           );
         }
@@ -2618,186 +2888,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             )
-          : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        key: ValueKey('tenant_stream_${_moduleTenantId}_$_tenantStreamRetry'),
-        stream: ChurchUiCollections.churchDoc(_moduleTenantId).watchBootstrap(),
-        builder: (context, tenantSnap) {
-          if (tenantSnap.hasData && tenantSnap.data != null) {
-            _lastGoodTenantDoc = tenantSnap.data;
-            _syncPanelRoleFromChurch(tenantSnap.data?.data());
-          }
-          final tenantDoc =
-              tenantSnap.hasData ? tenantSnap.data : _lastGoodTenantDoc;
-          final hasCachedTenant = tenantDoc != null && tenantDoc.exists;
-
-          if (tenantSnap.hasError && !hasCachedTenant) {
-            return _buildTenantBootstrapScaffold(
-              child: ChurchPanelResilientLoadBanner(
-                hasLocalData: false,
-                isSyncing: false,
-                errorTitle: 'Não foi possível carregar os dados da igreja',
-                error: tenantSnap.error,
-                onRetry: _retryTenantDocLoad,
-              ),
-            );
-          }
-          // Evita spinner ao voltar de outra aba quando já houve snapshot.
-          if (!hasCachedTenant &&
-              tenantSnap.connectionState == ConnectionState.waiting) {
-            return _buildTenantBootstrapScaffold(
-              child: const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            );
-          }
-          if (!hasCachedTenant &&
-              tenantSnap.connectionState == ConnectionState.done) {
-            return _buildTenantBootstrapScaffold(
-              child: ChurchPanelResilientLoadBanner(
-                hasLocalData: false,
-                isSyncing: false,
-                errorTitle: 'Igreja não encontrada no painel',
-                error:
-                    'Não foi possível carregar igrejas/$_moduleTenantId. '
-                    'Verifique o ID da igreja no seu usuário ou entre novamente.',
-                onRetry: _retryTenantDocLoad,
-              ),
-            );
-          }
-          final registrationComplete = tenantDoc != null &&
-              (tenantDoc.data()?['registrationComplete'] ?? true) == true;
-          if (!registrationComplete) {
-            return _buildCompleteCadastroObrigatorio();
-          }
-          final churchLive = tenantDoc?.data();
-          final guard = SubscriptionGuard.evaluate(
-              church: churchLive, subscription: widget.subscription);
-          final bool legacyBlocked = churchLive != null
-              ? LicenseAccessPolicy.licenseAccessBlocked(
-                  subscription: widget.subscription, church: churchLive)
-              : widget.trialExpired;
-          final bool licenseBlocked = guard.isFree
-              ? guard.adminBlocked
-              : (guard.blocked || legacyBlocked);
-          _globalSearchAllowed = registrationComplete && !licenseBlocked;
-          if (churchLive != null) {
-            final sig =
-                '${guard.blocked}|${guard.inGrace}|${guard.graceDaysLeft}|${guard.adminBlocked}|${guard.isFree}|${guard.statusAssinatura}';
-            if (sig != _lastSubscriptionGuardSignature) {
-              _lastSubscriptionGuardSignature = sig;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                _syncSubscriptionSnapshot(guard);
-              });
-            }
-          }
-
-          if (licenseBlocked) {
-            final churchName =
-                (churchLive?['nome'] ?? churchLive?['name'] ?? 'Sua igreja')
-                    .toString();
-            final logoUrl = imageUrlFromMap(churchLive);
-            return _buildLicenseRenewalOnly(
-              context,
-              churchName: churchName,
-              logoUrl: logoUrl.isEmpty ? null : logoUrl,
-            );
-          }
-          /// Telefone + módulo activo: sem barra azul «Bom dia» — o módulo usa a área útil em ecrã
-          /// quase inteiro (título/back em [ModuleHeaderPremium] ou UI interna do módulo).
-          final shellModuleFullBleed = _isMobile && _selectedIndex != 0;
-
-          return Scaffold(
-            key: _scaffoldKey,
-            backgroundColor: ThemeCleanPremium.surfaceVariant,
-            drawer: _isMobile ? _buildDrawer() : null,
-            drawerEdgeDragWidth: _isMobile ? 56 : null,
-            bottomNavigationBar: _buildChurchBottomNavigationBar(),
-            body: Column(
-              children: [
-                Expanded(
-                  child: SafeArea(
-                    top: shellModuleFullBleed,
-                    left: true,
-                    right: true,
-                    bottom: false,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (_isDesktop) _buildSidebar(),
-                        Expanded(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient:
-                                  ThemeCleanPremium.churchPanelBodyGradient,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (!shellModuleFullBleed)
-                                  _buildHeader(licenseBlocked: licenseBlocked),
-                                const ConnectivityOfflineStrip(),
-                                const ChurchPanelAppUpdateBanner(),
-                                _buildPaymentConfirmedBanner(),
-                                _buildGracePeriodBanner(guard),
-                                /// Módulos com UI full-bleed no telefone: [ModuleHeaderPremium] traz voltar ao Painel.
-                                if (_selectedIndex != 0)
-                                  ModuleHeaderPremium(
-                                    title: _items[_selectedIndex].label,
-                                    icon: _items[_selectedIndex].icon,
-                                    subtitle: _isMobile
-                                        ? _shellUserGreetingName()
-                                        : null,
-                                    onPainelBack:
-                                        _isMobile && _selectedIndex != 0
-                                            ? () =>
-                                                setState(() => _selectedIndex = 0)
-                                            : null,
-                                  ),
-                                Expanded(
-                                  child: Semantics(
-                                    container: true,
-                                    label:
-                                        'Conteúdo do módulo ${_items[_selectedIndex].label}',
-                                    child: Padding(
-                                      padding: EdgeInsets.zero,
-                                      child: SaaSContentViewport(
-                                        maxWidthOverride: _selectedIndex ==
-                                                    ChurchShellIndices
-                                                        .patrimonio ||
-                                                _selectedIndex ==
-                                                    ChurchShellIndices.chatIgreja
-                                            ? 10000
-                                            : null,
-                                        child: _buildContent(),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                /// Web: [Icon] com `_items[i].icon` não expõe cada glifo ao tree-shake
-                /// do MaterialIcons — quadrados vazios no menu/cabeçalho. Referências
-                /// diretas + `--no-tree-shake-icons` nos scripts de build cobrem o caso.
-                if (kIsWeb) const _ChurchShellNavMaterialIconsKeepalive(),
-                if (!_isMobile) const ChurchShellBottomVerseStrip(),
-              ],
-            ),
-          );
-        },
-      ),
+          : _buildShellGateBody(),
     );
   }
 }
 
-/// Mantém glifos do menu no subset da fonte Material na **web** (build release).
-/// Lista gerada a partir de [kChurchShellNavEntries] — impossível esquecer um item (ex.: mail/mic).
+/// MantÃ©m glifos do menu no subset da fonte Material na **web** (build release).
+/// Lista gerada a partir de [kChurchShellNavEntries] â€” impossÃ­vel esquecer um item (ex.: mail/mic).
 class _ChurchShellNavMaterialIconsKeepalive extends StatelessWidget {
   const _ChurchShellNavMaterialIconsKeepalive();
 
@@ -2815,7 +2912,7 @@ class _ChurchShellNavMaterialIconsKeepalive extends StatelessWidget {
   }
 }
 
-/// Linha “Local: …” no topo (dados do cadastro da igreja em Firestore).
+/// Linha â€œLocal: â€¦â€ no topo (dados do cadastro da igreja em Firestore).
 class _HeaderLocalizacao extends StatelessWidget {
   final String tenantId;
 
@@ -2840,46 +2937,44 @@ class _HeaderLocalizacao extends StatelessWidget {
       parts.add(cidade);
     }
     if (parts.isEmpty) return null;
-    return parts.join(' · ');
+    return parts.join(' Â· ');
   }
 
   @override
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:             ChurchUiCollections.churchDoc(tenantId)
-            .watchSafe(),
-      builder: (context, snap) {
-        final line = _lineFromChurch(snap.data?.data());
-        if (line == null || line.isEmpty) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(top: 5),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.location_on_outlined,
-                size: 15,
-                color: Colors.white.withValues(alpha: 0.92),
-              ),
-              const SizedBox(width: 5),
-              Expanded(
-                child: Text(
-                  'Local: $line',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.25,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.94),
-                  ),
-                ),
-              ),
-            ],
+    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
+    final ctxData = ChurchContextService.currentChurchData;
+    final line = ctxId == tenantId.trim()
+        ? _lineFromChurch(ctxData)
+        : _lineFromChurch(null);
+    if (line == null || line.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.location_on_outlined,
+            size: 15,
+            color: Colors.white.withValues(alpha: 0.92),
           ),
-        );
-      },
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              'Local: $line',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.25,
+                fontWeight: FontWeight.w600,
+                color: Colors.white.withValues(alpha: 0.94),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2892,48 +2987,47 @@ class _HeaderVencimento extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:             ChurchUiCollections.churchDoc(tenantId)
-            .watchSafe(),
-      builder: (context, snap) {
-        final textColor = light ? Colors.white70 : const Color(0xFF64748B);
-        if (!snap.hasData) {
-          return Text('Vencimento: —',
-              style: TextStyle(fontSize: 11, color: textColor));
-        }
-        final data = snap.data!.data();
-        if (LicenseAccessPolicy.churchIsFree(data)) {
-          return Text(
-            'Licença: FREE',
-            style: TextStyle(
-              fontSize: 11,
-              color: light ? const Color(0xFF6EE7B7) : const Color(0xFF0D9488),
-              fontWeight: FontWeight.w700,
-            ),
-          );
-        }
-        final billing = data?['billing'] as Map<String, dynamic>?;
-        final next = billing?['nextChargeAt'];
-        if (next == null)
-          return Text('Vencimento: —',
-              style: TextStyle(fontSize: 11, color: textColor));
-        final dt = next is Timestamp ? next.toDate() : null;
-        if (dt == null)
-          return Text('Vencimento: —',
-              style: TextStyle(fontSize: 11, color: textColor));
-        final s =
-            '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-        return Text('Vencimento: $s',
-            style: TextStyle(
-                fontSize: 11,
-                color: light ? Colors.white : Colors.blue.shade800,
-                fontWeight: FontWeight.w600));
-      },
-    );
+    final textColor = light ? Colors.white70 : const Color(0xFF64748B);
+    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
+    final data = ctxId == tenantId.trim()
+        ? ChurchContextService.currentChurchData
+        : null;
+    if (data == null || data.isEmpty) {
+      return Text('Vencimento: —',
+          style: TextStyle(fontSize: 11, color: textColor));
+    }
+    if (LicenseAccessPolicy.churchIsFree(data)) {
+      return Text(
+        'Licença: FREE',
+        style: TextStyle(
+          fontSize: 11,
+          color: light ? const Color(0xFF6EE7B7) : const Color(0xFF0D9488),
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    final billing = data['billing'] as Map<String, dynamic>?;
+    final next = billing?['nextChargeAt'];
+    if (next == null) {
+      return Text('Vencimento: —',
+          style: TextStyle(fontSize: 11, color: textColor));
+    }
+    final dt = next is Timestamp ? next.toDate() : null;
+    if (dt == null) {
+      return Text('Vencimento: —',
+          style: TextStyle(fontSize: 11, color: textColor));
+    }
+    final s =
+        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+    return Text('Vencimento: $s',
+        style: TextStyle(
+            fontSize: 11,
+            color: light ? Colors.white : Colors.blue.shade800,
+            fontWeight: FontWeight.w600));
   }
 }
 
-/// Atalho da barra inferior do painel da igreja (índice no shell).
+/// Atalho da barra inferior do painel da igreja (Ã­ndice no shell).
 class _ChurchShellFooterShortcut {
   final int? shellIndex;
   final String shortLabel;
@@ -2947,7 +3041,7 @@ class _ChurchShellFooterShortcut {
   }) : opensDrawer = false;
 }
 
-/// Chip colorido Super Premium — círculo com gradiente ao selecionar.
+/// Chip colorido Super Premium â€” cÃ­rculo com gradiente ao selecionar.
 class _PremiumShellFooterShortcut extends StatelessWidget {
   final int? shellIndex;
   final String shortLabel;
@@ -3023,4 +3117,47 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
       ),
     );
   }
+}
+
+// ignore: subtype_of_sealed_class â€” snapshot sintÃ©tico a partir do cache/sessÃ£o.
+class _CachedChurchDocumentSnapshot
+    implements DocumentSnapshot<Map<String, dynamic>> {
+  _CachedChurchDocumentSnapshot({
+    required this.id,
+    required Map<String, dynamic> data,
+  }) : _data = Map<String, dynamic>.from(data);
+
+  @override
+  final String id;
+
+  final Map<String, dynamic> _data;
+
+  @override
+  bool get exists => _data.isNotEmpty;
+
+  @override
+  Map<String, dynamic>? data() => Map<String, dynamic>.from(_data);
+
+  @override
+  dynamic get(Object field) => _data[field];
+
+  @override
+  dynamic operator [](Object field) => _data[field];
+
+  @override
+  SnapshotMetadata get metadata => const _CachedChurchSnapshotMetadata();
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference =>
+      throw UnsupportedError('cached church snapshot has no reference');
+}
+
+class _CachedChurchSnapshotMetadata implements SnapshotMetadata {
+  const _CachedChurchSnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => true;
 }

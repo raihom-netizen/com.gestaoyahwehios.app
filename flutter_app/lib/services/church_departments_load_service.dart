@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -228,11 +229,13 @@ abstract final class ChurchDepartmentsLoadService {
     }
 
     try {
-      final repo = await ChurchRepository.departamentos.listCacheFirst(
-        churchIdHint: churchId,
-        limit: kLimit,
-        firestoreCacheKey: cacheKey(churchId),
-      );
+      final repo = await ChurchRepository.departamentos
+          .listCacheFirst(
+            churchIdHint: churchId,
+            limit: kLimit,
+            firestoreCacheKey: cacheKey(churchId),
+          )
+          .timeout(ChurchPanelReadTimeouts.queryCap);
       if (repo.items.isNotEmpty || repo.error == null) {
         final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
           repo.items,

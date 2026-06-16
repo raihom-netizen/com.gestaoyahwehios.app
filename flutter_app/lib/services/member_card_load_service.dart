@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -167,7 +166,7 @@ abstract final class MemberCardLoadService {
       try {
         Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
             FirestoreReadResilience.getDocument(
-              ChurchUiCollections.churchDoc(igrejaDocId),
+              ChurchRepository.churchDoc(igrejaDocId),
               cacheKey: 'card_igreja_$igrejaDocId',
               maxAttempts: kIsWeb ? 4 : 2,
               attemptTimeout: _attempt,
@@ -212,7 +211,10 @@ abstract final class MemberCardLoadService {
       );
     }
 
-    final col = ChurchUiCollections.membros(igrejaDocId);
+    final col = ChurchRepository.collection(
+      ChurchDataPaths.membros,
+      churchIdHint: igrejaDocId,
+    );
     final cpfDigits = (req.cpf ?? '').replaceAll(RegExp(r'\D'), '');
     final cpfArg = cpfDigits.length >= 11 ? cpfDigits : null;
     final user = FirebaseAuth.instance.currentUser;

@@ -1565,6 +1565,11 @@ service cloud.firestore {
       allow write: if isMaster();
     }
 
+    match /config/legal_documents {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
     // HistÃƒÂ³rico de avisos globais (somente operador de plataforma).
     match /global_announcement_audit/{id} {
       allow read, create, delete: if isMaster();
