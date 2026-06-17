@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -16,6 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         MemberProfilePhotoBytesCache,
         dedupeImageRefsByStorageIdentity,
         firebaseStorageBytesFromDownloadUrl,
+        firebaseStorageMediaUrlLooksLike,
         imageUrlFromMap,
         isValidImageUrl,
         preloadNetworkImages,
@@ -360,10 +362,26 @@ abstract final class ChurchGalleryPhotoWarmup {
         : null;
 
     String? url;
+    String? storagePath;
     if (md != null) {
-      final fromDoc = sanitizeImageUrl(imageUrlFromMap(md));
-      if (isValidImageUrl(fromDoc)) {
-        url = fromDoc;
+      final fromResolver = MemberProfilePhotoResolver.displayRef(
+        md,
+        preferThumb: true,
+      );
+      if (fromResolver != null && fromResolver.trim().isNotEmpty) {
+        final s = sanitizeImageUrl(fromResolver);
+        if (isValidImageUrl(s)) {
+          url = s;
+        } else if (firebaseStorageMediaUrlLooksLike(fromResolver) ||
+            fromResolver.contains('membros/')) {
+          storagePath = fromResolver.trim();
+        }
+      }
+      if (url == null && storagePath == null) {
+        final fromDoc = sanitizeImageUrl(imageUrlFromMap(md));
+        if (isValidImageUrl(fromDoc)) {
+          url = fromDoc;
+        }
       }
     }
 
@@ -377,7 +395,7 @@ abstract final class ChurchGalleryPhotoWarmup {
       preferListThumbnail: true,
     );
 
-    if (url == null && !kIsWeb) {
+    if (url == null && storagePath == null && !kIsWeb) {
       url = await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
         tenantId: tenantId,
         memberId: ref.memberDocId,
@@ -389,15 +407,15 @@ abstract final class ChurchGalleryPhotoWarmup {
       );
     }
 
-    final clean = url != null ? sanitizeImageUrl(url) : '';
-    if (clean.isEmpty || !isValidImageUrl(clean)) return;
-
-    if (MemberProfilePhotoBytesCache.get(clean) != null) return;
+    final warmRef = storagePath ??
+        (url != null ? sanitizeImageUrl(url) : '');
+    if (warmRef.isEmpty) return;
+    if (MemberProfilePhotoBytesCache.get(warmRef) != null) return;
 
     Uint8List? bytes;
     try {
       bytes = await firebaseStorageBytesFromDownloadUrl(
-        clean,
+        warmRef,
         maxBytes: _listMaxBytes,
         skipFreshDisplayUrl: true,
       );
@@ -405,7 +423,7 @@ abstract final class ChurchGalleryPhotoWarmup {
       bytes = null;
     }
     if (bytes != null && bytes.length > 24) {
-      MemberProfilePhotoBytesCache.put(clean, bytes);
+      MemberProfilePhotoBytesCache.put(warmRef, bytes);
     }
   }
 }

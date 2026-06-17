@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -32,11 +34,16 @@ abstract final class EcoFirePublishBootstrap {
 
     for (var attempt = 0; attempt < 4; attempt++) {
       try {
-        if (!FirebaseBootstrapService.isReady()) {
-          await FirebaseBootstrapService.ensureInitializedOnce();
+        if (attempt > 0) {
+          FirebaseBootstrapService.resetPublishWarmState();
+          await Future<void>.delayed(
+            Duration(milliseconds: 280 * (attempt + 1)),
+          );
         }
+        await FirebaseBootstrap.ensureInitialized();
+        FirebaseBootstrapService.refreshCachedApp();
         await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-          refreshAuthToken: attempt == 0,
+          refreshAuthToken: true,
         );
 
         var user = FirebaseBootstrapService.auth.currentUser;
@@ -61,8 +68,8 @@ abstract final class EcoFirePublishBootstrap {
         return;
       } catch (e) {
         last = e;
-        if (attempt < 3) {
-          await Future<void>.delayed(Duration(milliseconds: 280 * (attempt + 1)));
+        if (attempt < 3 && isFirebaseNoAppError(e)) {
+          continue;
         }
       }
     }

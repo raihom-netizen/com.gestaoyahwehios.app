@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
+        MemberProfilePhotoBytesCache,
         SafeCircleAvatarImage,
         imageUrlFromMap,
         memCacheExtentForLogicalSize,
@@ -149,6 +150,23 @@ class FotoMembroWidget extends StatelessWidget {
           : authUid?.trim();
       final authOpt =
           (authRaw == null || authRaw.isEmpty) ? null : authRaw;
+
+      final mergedRef = (merged ?? '').trim();
+      if (mergedRef.isNotEmpty) {
+        final cached = MemberProfilePhotoBytesCache.get(mergedRef);
+        if (cached != null && cached.isNotEmpty) {
+          return ClipOval(
+            child: Image.memory(
+              cached,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              filterQuality: FilterQuality.low,
+            ),
+          );
+        }
+      }
 
       return SafeMemberProfilePhoto(
         key: ValueKey<String>('foto_membro_${tid}_${mid}_$rev'),

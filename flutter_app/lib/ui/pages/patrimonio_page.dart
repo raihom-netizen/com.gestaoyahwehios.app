@@ -73,7 +73,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -8307,7 +8308,16 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _preparingPhotoCount = 0;
     });
     try {
-      final list = await ImagePicker().pickMultiImage(limit: vagas);
+      final List<XFile> list;
+      if (vagas == 1) {
+        final single =
+            await MediaHandlerService.instance.pickAndProcessFromGallery();
+        list = single != null ? [single] : [];
+      } else {
+        final picked =
+            await MediaHandlerService.instance.pickAndProcessMultipleImages();
+        list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
+      }
       if (list.isEmpty || !mounted) return;
       final novosBytes = <Uint8List>[];
       final novosNomes = <String>[];
@@ -8348,6 +8358,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       if (list.length > novosBytes.length) {
         _showLimiteFotosSnack();
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Não foi possível abrir a galeria: '
+              '${formatFirebaseErrorForUser(e)}',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -8366,7 +8387,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      final file = await ImagePicker().pickImage(source: ImageSource.camera);
+      final file =
+          await MediaHandlerService.instance.pickAndProcessFromCamera();
       if (file == null || !mounted) return;
       final bytes = await SafeImageBytes.patrimonioFromPicker(file)
           .timeout(const Duration(seconds: 25));
@@ -8383,7 +8405,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro na foto: $e')),
+          SnackBar(
+            content: Text(
+              'Não foi possível abrir a câmera: '
+              '${formatFirebaseErrorForUser(e)}',
+            ),
+          ),
         );
       }
     } finally {

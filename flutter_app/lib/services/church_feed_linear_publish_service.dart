@@ -3,8 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
@@ -12,7 +11,6 @@ import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -126,15 +124,12 @@ abstract final class ChurchFeedLinearPublishService {
     final docId = docRef.id;
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
 
-    await ensureFirebaseCore(requireAuth: true);
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'feed_linear_$postType',
+      strict: true,
+    );
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
-    _report(onUploadProgress, 0.16);
-    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
-        Duration(seconds: kIsWeb ? 12 : 22),
-      );
     }
     _report(onUploadProgress, 0.18);
 
@@ -158,21 +153,21 @@ abstract final class ChurchFeedLinearPublishService {
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
       _report(onUploadProgress, 0.20);
-      final slots = await ChurchFeedMediaStorageFields.uploadPhotoSlots(
+      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
         tenantId: churchId,
         postType: postType,
         postId: docId,
         startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        onBatchProgress: (batchP) {
+        bytesList: kIsWeb ? newImagesBytes : null,
+        localPaths: kIsWeb ? null : newImagePaths,
+        onProgress: (batchP) {
           _report(onUploadProgress, 0.20 + batchP * 0.52);
         },
       );
       for (final slot in slots) {
         uploadedPaths.add(slot.fullPath);
         alignedThumbPaths.add(slot.thumbPath);
-        final direct = sanitizeImageUrl(slot.downloadUrl ?? '');
+        final direct = sanitizeImageUrl(slot.fullUrl);
         if (isValidImageUrl(direct)) {
           existingUrls = dedupeImageRefsByStorageIdentity([
             ...existingUrls,
@@ -189,7 +184,7 @@ abstract final class ChurchFeedLinearPublishService {
             ]);
           }
         }
-        final thumbDirect = sanitizeImageUrl(slot.thumbDownloadUrl ?? '');
+        final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
         if (isValidImageUrl(thumbDirect)) {
           alignedThumbUrls.add(thumbDirect);
         }

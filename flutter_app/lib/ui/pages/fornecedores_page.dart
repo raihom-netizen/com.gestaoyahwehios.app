@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -77,6 +79,12 @@ abstract final class _FornecedoresRamCache {
     final tid = ChurchRepository.churchId(tenantId);
     if (tid.isEmpty) return;
     _ram[tid] = (snap: snap, at: DateTime.now());
+  }
+
+  static void invalidate(String tenantId) {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
+    _ram.remove(tid);
   }
 }
 
@@ -4009,7 +4017,10 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
   bool _loadingCnpj = false;
   bool _saving = false;
 
-  bool get _isEdit => widget.docId != null;
+  bool get _isEdit {
+    final id = widget.docId?.trim() ?? '';
+    return id.isNotEmpty;
+  }
 
   @override
   void initState() {
@@ -4162,6 +4173,9 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     setState(() => _saving = true);
     try {
       final churchId = ChurchRepository.churchId(widget.tenantId);
+      if (churchId.isEmpty) {
+        throw Exception('Igreja não identificada (igrejas/{churchId}/fornecedores).');
+      }
       final payload = <String, dynamic>{
         'nome': _nomeCtrl.text.trim(),
         'tipoPessoa': _tipo,
@@ -4189,18 +4203,46 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForCriticalWrite();
       }
-      await FirestoreWebGuard.runWithWebRecovery(
-        () async {
-          if (_isEdit) {
-            await widget.col.doc(widget.docId).update(payload);
-          } else {
-            payload['createdAt'] = FieldValue.serverTimestamp();
-            await widget.col.add(payload);
-          }
-        },
-        maxAttempts: 4,
-      );
+
+      final module = OfflineModules.forCollection('fornecedores');
+      final col = ChurchUiCollections.fornecedores(churchId);
+
+      if (_isEdit) {
+        final docId = widget.docId!.trim();
+        final ref = col.doc(docId);
+        final exists = await FirestoreWebGuard.runWithWebRecovery(
+          () => ref.get(const GetOptions(source: Source.serverAndCache)),
+          maxAttempts: 3,
+        );
+        if (!exists.exists) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+        }
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => TenantOfflineWrite.setDocument(
+            ref: ref,
+            data: payload,
+            merge: true,
+            module: module,
+            tenantId: churchId,
+          ),
+          maxAttempts: 4,
+        );
+      } else {
+        payload['createdAt'] = FieldValue.serverTimestamp();
+        final ref = col.doc();
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => TenantOfflineWrite.setDocument(
+            ref: ref,
+            data: payload,
+            module: module,
+            tenantId: churchId,
+          ),
+          maxAttempts: 4,
+        );
+      }
+
       unawaited(ChurchFornecedoresLoadService.invalidate(widget.tenantId));
+      _FornecedoresRamCache.invalidate(churchId);
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -203,6 +204,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   final ChatAudioService _chatAudio = ChatAudioService();
   bool _voiceRecording = false;
+  /// Evita `IconButton.onPressed` após soltar o long-press (reiniciava gravação).
+  bool _micLongPressActive = false;
   Timer? _voiceTicker;
   Duration _voiceElapsed = Duration.zero;
 
@@ -1712,12 +1715,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<bool> _ensureChatFirebaseReadyForMedia() async {
     try {
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'chat_media_send',
+        strict: true,
+      );
       await ensureFirebaseReadyForChatSend();
       return true;
     } on Object catch (e) {
       if (!isFirebaseNoAppError(e)) return false;
       try {
         await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        await EcoFirePublishBootstrap.ensureHard(
+          logLabel: 'chat_media_send_retry',
+          strict: true,
+        );
         await ensureFirebaseReadyForChatSend();
         return true;
       } on Object {
@@ -1734,13 +1745,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    final picker = ImagePicker();
-    final x = await picker.pickImage(
-      source: source,
-      imageQuality: mediaChatImageQuality,
-      maxWidth: mediaChatImageMaxWidth.toDouble(),
-      maxHeight: mediaChatImageMaxHeight.toDouble(),
-    );
+    final x = source == ImageSource.camera
+        ? await MediaHandlerService.instance.pickAndProcessFromCamera()
+        : await MediaHandlerService.instance.pickAndProcessFromGallery();
     if (x == null) return;
     if (mounted) {
       ImmediateMediaAttachFeedback.showArquivoAnexado(
@@ -1756,29 +1763,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickImagesFromGallery() async {
     _warmChatFirebaseForPicker();
-    final picker = ImagePicker();
-    final list = await picker.pickMultiImage(
-      imageQuality: mediaChatImageQuality,
-      maxWidth: mediaChatImageMaxWidth.toDouble(),
-      maxHeight: mediaChatImageMaxHeight.toDouble(),
-      limit: kChatMaxImagesPerPick,
-    );
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      _showChatAttachmentError(
+        'Firebase ainda não está pronto. Aguarde e tente de novo.',
+      );
+      return;
+    }
+    final list =
+        await MediaHandlerService.instance.pickAndProcessMultipleImages();
     if (list.isEmpty) return;
+    if (list.length > kChatMaxImagesPerPick) {
+      if (mounted) {
+        _showChatAttachmentError(
+          'Só as primeiras $kChatMaxImagesPerPick fotos serão enviadas.',
+        );
+      }
+    }
+    final capped = list.take(kChatMaxImagesPerPick).toList();
+    if (capped.isEmpty) return;
     if (!mounted) return;
-    final albumId = _newAlbumGroupIdIfBatch(list.length);
-    if (list.length > 1) {
+    final albumId = _newAlbumGroupIdIfBatch(capped.length);
+    if (capped.length > 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('A enviar ${list.length} foto(s)…'),
+          content: Text('A enviar ${capped.length} foto(s)…'),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
         ),
       );
     }
-    for (var i = 0; i < list.length; i++) {
+    for (var i = 0; i < capped.length; i++) {
       if (!mounted) return;
       unawaited(_sendPickedImageFile(
-        list[i],
+        capped[i],
         previewBeforeSend: false,
         albumGroupId: albumId,
         albumIndex: i,
@@ -2406,6 +2423,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickDocument() async {
     _warmChatFirebaseForPicker();
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      _showChatAttachmentError(
+        'Firebase ainda não está pronto. Aguarde e tente de novo.',
+      );
+      return;
+    }
     final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2447,6 +2470,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickAudioFile() async {
     _warmChatFirebaseForPicker();
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      _showChatAttachmentError(
+        'Firebase ainda não está pronto. Aguarde e tente de novo.',
+      );
+      return;
+    }
     final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2990,7 +3019,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       unawaited(_uploadAndSend(bytes, name, mime, 'audio'));
       return;
     }
-    if (voicePath == null || voicePath.isEmpty) return;
+    if (voicePath == null || voicePath.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Gravação vazia ou interrompida. Segure o microfone ou toque Enviar.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
 
     final mat = await ChurchChatLocalFileService.materializeLocalPath(voicePath);
     if (mat == null || mat.isEmpty) {
@@ -4132,6 +4172,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                               ),
                             ),
                           ),
+                          FilledButton.icon(
+                            onPressed: () =>
+                                unawaited(_finishVoiceRecording(send: true)),
+                            icon: const Icon(Icons.send_rounded, size: 18),
+                            label: const Text('Enviar'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: ChurchChatWhatsAppTheme.header,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -4195,15 +4250,42 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   GestureDetector(
                     onLongPressStart: kIsWeb
                         ? null
-                        : (_) => unawaited(_startVoiceRecording()),
+                        : (_) {
+                            _micLongPressActive = true;
+                            unawaited(_startVoiceRecording());
+                          },
                     onLongPressEnd: kIsWeb
                         ? null
-                        : (_) => unawaited(_finishVoiceRecording(send: true)),
+                        : (_) {
+                            unawaited(_finishVoiceRecording(send: true));
+                            Future<void>.delayed(
+                              const Duration(milliseconds: 250),
+                              () {
+                                if (mounted) {
+                                  setState(() => _micLongPressActive = false);
+                                } else {
+                                  _micLongPressActive = false;
+                                }
+                              },
+                            );
+                          },
                     onLongPressCancel: kIsWeb
                         ? null
-                        : () => unawaited(_finishVoiceRecording(send: false)),
+                        : () {
+                            unawaited(_finishVoiceRecording(send: false));
+                            _micLongPressActive = false;
+                          },
                     child: IconButton(
-                      onPressed: _toggleVoiceRecordSend,
+                      onPressed: () {
+                        if (_micLongPressActive) return;
+                        if (kIsWeb) {
+                          unawaited(_toggleVoiceRecordSend());
+                          return;
+                        }
+                        if (_voiceRecording) {
+                          unawaited(_finishVoiceRecording(send: true));
+                        }
+                      },
                       icon: Icon(
                         _voiceRecording
                             ? Icons.stop_circle_rounded

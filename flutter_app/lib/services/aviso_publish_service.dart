@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Publicação de aviso — pipeline **linear** único: bootstrap → Storage → Firestore → site.
@@ -42,35 +41,29 @@ abstract final class AvisoPublishService {
     );
   }
 
-  /// Bootstrap completo antes de publicar — evita `core/no-app` após background.
+  /// Bootstrap EcoFire — Firebase + Storage + Auth (sem warm duplicado).
   static Future<void> prepareFullPipeline({
     String logLabel = 'aviso_prepare',
     bool withPhotos = true,
     void Function(double progress)? onProgress,
   }) async {
-    Object? last;
     onProgress?.call(0.06);
+    Object? last;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
-          FastMediaPublishBootstrap.resetSessionWarm();
-          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+          FirebaseBootstrapService.resetPublishWarmState();
+          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+            refreshAuthToken: true,
+          );
         }
         await EcoFirePublishBootstrap.ensureHard(
-          logLabel: logLabel,
+          logLabel: withPhotos ? '${logLabel}_photos' : logLabel,
           strict: true,
         );
-        onProgress?.call(0.09);
+        onProgress?.call(0.12);
         if (kIsWeb) {
           await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-        }
-        if (withPhotos) {
-          if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-            await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
-                  Duration(seconds: kIsWeb ? 18 : 45),
-                );
-          }
         }
         onProgress?.call(0.14);
         return;

@@ -1,3 +1,4 @@
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -117,6 +118,14 @@ class ChatAudioService {
 
     final path = outPath ?? expected;
     if (path == null || path.isEmpty) return null;
+    if (!kIsWeb) {
+      try {
+        final f = File(path);
+        if (!await f.exists() || await f.length() < 32) return null;
+      } catch (_) {
+        return null;
+      }
+    }
     return path;
   }
 

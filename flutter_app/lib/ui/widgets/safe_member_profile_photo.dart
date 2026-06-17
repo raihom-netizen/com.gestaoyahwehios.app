@@ -3,15 +3,14 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
-import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
-import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
+        MemberProfilePhotoBytesCache,
         ResilientNetworkImage,
         firebaseStorageMediaUrlLooksLike,
         isValidImageUrl,
@@ -139,6 +138,47 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     return firebaseStorageMediaUrlLooksLike(t) || t.contains('membros/');
   }
 
+  bool _isRenderableMediaRef(String raw) {
+    final s = sanitizeImageUrl(raw);
+    if (s.isEmpty) return false;
+    if (isValidImageUrl(s)) return true;
+    return _looksLikeMemberStoragePath(s) || firebaseStorageMediaUrlLooksLike(s);
+  }
+
+  String? _peekInstantUrl() {
+    final tid = widget.tenantId?.trim() ?? '';
+    final mid = widget.memberId?.trim() ?? '';
+    if (tid.isEmpty || mid.isEmpty) return null;
+    final peek = FirebaseStorageService.peekMemberProfilePhotoDownloadUrl(
+      tenantId: tid,
+      memberId: mid,
+      cpfDigits: widget.cpfDigits,
+      authUid: widget.authUid,
+      nomeCompleto: widget.nomeCompleto,
+      memberFirestoreHint: widget.memberFirestoreHint,
+      preferListThumbnail: widget.preferListThumbnail,
+    );
+    if (peek != null && peek.trim().isNotEmpty && _isRenderableMediaRef(peek)) {
+      return peek.trim();
+    }
+    return null;
+  }
+
+  String? _effectiveDisplayUrl() {
+    final resolved = (_displayUrl ?? '').trim();
+    if (resolved.isNotEmpty && _isRenderableMediaRef(resolved)) return resolved;
+
+    final peek = _peekInstantUrl();
+    if (peek != null) return peek;
+
+    final raw = (widget.imageUrl ?? '').trim();
+    if (raw.isNotEmpty && _isRenderableMediaRef(raw)) return raw;
+
+    final norm = sanitizeImageUrl(widget.imageUrl);
+    if (isValidImageUrl(norm)) return norm;
+    return null;
+  }
+
   Future<void> _resolveDisplayUrl() async {
     final hint = widget.memberFirestoreHint;
     final primary = sanitizeImageUrl(widget.imageUrl);
@@ -184,63 +224,25 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     }
 
     if (_looksLikeMemberStoragePath(raw)) {
+      final peek = _peekInstantUrl();
+      final instant = (peek != null && isValidImageUrl(sanitizeImageUrl(peek)))
+          ? peek
+          : raw;
       if (mounted) {
         setState(() {
-          _displayUrl = null;
-          _resolving = true;
-        });
-      }
-      final fromPath = await _storagePathToDisplayUrl(raw);
-      if (!mounted) return;
-      if (fromPath != null) {
-        setState(() {
-          _displayUrl = fromPath;
+          _displayUrl = instant;
           _resolving = false;
         });
-        return;
       }
-      if (widget.preferListThumbnail) {
-        final full = (fullRef ?? '').trim();
-        if (full.isNotEmpty && full != raw && _looksLikeMemberStoragePath(full)) {
-          final fromFull = await _storagePathToDisplayUrl(full);
-          if (!mounted) return;
-          if (fromFull != null) {
-            setState(() {
-              _displayUrl = fromFull;
-              _resolving = false;
-            });
-            return;
-          }
+      // Renova URL em background (cache RAM/disco) — não bloqueia o 1.º frame.
+      unawaited(() async {
+        final fromPath = await _storagePathToDisplayUrl(raw);
+        if (!mounted || fromPath == null) return;
+        if (sanitizeImageUrl(fromPath) != sanitizeImageUrl(instant)) {
+          setState(() => _displayUrl = fromPath);
         }
-      }
-      final httpsFallback = sanitizeImageUrl(
-        MemberImageFields.photoDownloadUrl(hint) ??
-            widget.imageUrl ??
-            fullRef ??
-            '',
-      );
-      if (isValidImageUrl(httpsFallback)) {
-        if (mounted) {
-          setState(() {
-            _displayUrl = httpsFallback;
-            _resolving = false;
-          });
-        }
-        if (StorageMediaService.isFirebaseStorageMediaUrl(httpsFallback)) {
-          unawaited(() async {
-            try {
-              final fresh = sanitizeImageUrl(
-                await StorageMediaService.freshPlayableMediaUrl(httpsFallback),
-              );
-              if (!mounted || !isValidImageUrl(fresh)) return;
-              if (sanitizeImageUrl(fresh) != httpsFallback) {
-                setState(() => _displayUrl = fresh);
-              }
-            } catch (_) {}
-          }());
-        }
-        return;
-      }
+      }());
+      return;
     }
 
     final norm = isValidImageUrl(sanitizeImageUrl(raw))
@@ -356,8 +358,6 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     final tid = widget.tenantId?.trim() ?? '';
     final mid = widget.memberId?.trim() ?? '';
     final canStorage = widget.enableStorageFallback && tid.isNotEmpty && mid.isNotEmpty;
-    final norm = sanitizeImageUrl(widget.imageUrl);
-    final valid = isValidImageUrl(norm);
     final fallbackMc = _defaultCacheDim(context);
     final mcW = widget.memCacheWidth ?? widget.memCacheHeight ?? fallbackMc;
     final mcH = widget.memCacheHeight ?? widget.memCacheWidth ?? fallbackMc;
@@ -378,41 +378,14 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       );
     }
 
-    if (!valid) {
-      if (canStorage) {
-        return core(_MemberPhotoStorageFallback(
-          tenantId: tid,
-          memberId: mid,
-          cpfDigits: widget.cpfDigits,
-          authUid: widget.authUid,
-          nomeCompleto: widget.nomeCompleto,
-          memberFirestoreHint: widget.memberFirestoreHint,
-          sourceImageUrl: widget.imageUrl,
-          imageCacheRevision: widget.imageCacheRevision,
-          preferListThumbnail: widget.preferListThumbnail,
-          width: widget.width,
-          height: widget.height,
-          memCacheW: mcW,
-          memCacheH: mcH,
-          fit: widget.fit,
-          placeholder: widget.placeholder,
-          errorChild: err,
-        ));
-      }
-      return core(err);
-    }
-
     final rev = widget.imageCacheRevision ?? 0;
 
     if (_resolving && _displayUrl == null) {
       return core(widget.placeholder ?? err);
     }
 
-    final url = _displayUrl ?? norm;
-    final bustedUrl = rev > 0 && isValidImageUrl(url)
-        ? YahwehMediaCacheBust.apply(url, rev)
-        : url;
-    if (!isValidImageUrl(bustedUrl)) {
+    final effective = _effectiveDisplayUrl();
+    if (effective == null || !_isRenderableMediaRef(effective)) {
       if (canStorage) {
         return core(_MemberPhotoStorageFallback(
           tenantId: tid,
@@ -435,6 +408,24 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       }
       return core(err);
     }
+
+    final cachedBytes = MemberProfilePhotoBytesCache.get(effective);
+    if (cachedBytes != null && cachedBytes.isNotEmpty) {
+      return core(
+        Image.memory(
+          cachedBytes,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.low,
+        ),
+      );
+    }
+
+    final bustedUrl = rev > 0 && isValidImageUrl(effective)
+        ? YahwehMediaCacheBust.apply(effective, rev)
+        : effective;
 
     return core(
       ResilientNetworkImage(
@@ -579,6 +570,24 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
     if (raw.isNotEmpty) {
       final s = sanitizeImageUrl(raw);
       if (isValidImageUrl(s)) return s;
+      if (firebaseStorageMediaUrlLooksLike(raw) || raw.contains('membros/')) {
+        return raw;
+      }
+    }
+    final hint = widget.memberFirestoreHint;
+    if (hint != null && hint.isNotEmpty) {
+      final fromDoc = MemberProfilePhotoResolver.displayRef(
+        hint,
+        preferThumb: widget.preferListThumbnail,
+      );
+      if (fromDoc != null && fromDoc.trim().isNotEmpty) {
+        final s = sanitizeImageUrl(fromDoc);
+        if (isValidImageUrl(s)) return s;
+        if (firebaseStorageMediaUrlLooksLike(fromDoc) ||
+            fromDoc.contains('membros/')) {
+          return fromDoc.trim();
+        }
+      }
     }
     return FirebaseStorageService.peekMemberProfilePhotoDownloadUrl(
       tenantId: widget.tenantId,
@@ -660,15 +669,26 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
     }
 
     try {
-      return await inner().timeout(const Duration(seconds: 22),
-          onTimeout: () => null);
+      return await inner().timeout(const Duration(seconds: 8),
+          onTimeout: () => _instantUrl);
     } catch (_) {
-      return null;
+      return _instantUrl;
     }
   }
 
   Widget _photoFromUrl(String clean) {
     final rev = widget.imageCacheRevision ?? 0;
+    final cached = MemberProfilePhotoBytesCache.get(clean);
+    if (cached != null && cached.isNotEmpty) {
+      return Image.memory(
+        cached,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.low,
+      );
+    }
     return ResilientNetworkImage(
       key: ValueKey<String>('mfs_${clean}_$rev'),
       imageUrl: clean,
@@ -686,9 +706,26 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
 
   @override
   Widget build(BuildContext context) {
-    final instant = _instantUrl != null ? sanitizeImageUrl(_instantUrl!) : '';
-    if (instant.isNotEmpty && isValidImageUrl(instant)) {
-      return _photoFromUrl(instant);
+    final rawInstant = (_instantUrl ?? '').trim();
+    if (rawInstant.isNotEmpty) {
+      final cached = MemberProfilePhotoBytesCache.get(rawInstant);
+      if (cached != null && cached.isNotEmpty) {
+        return Image.memory(
+          cached,
+          width: widget.width,
+          height: widget.height,
+          fit: widget.fit,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.low,
+        );
+      }
+      final instant = sanitizeImageUrl(rawInstant);
+      if (instant.isNotEmpty &&
+          (isValidImageUrl(instant) ||
+              firebaseStorageMediaUrlLooksLike(rawInstant) ||
+              rawInstant.contains('membros/'))) {
+        return _photoFromUrl(rawInstant);
+      }
     }
 
     return FutureBuilder<String?>(

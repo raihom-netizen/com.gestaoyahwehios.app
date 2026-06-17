@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
@@ -162,7 +163,29 @@ abstract final class MembroStrictUpdateService {
     return Future.value();
   }
 
-  /// Exclusão total — Storage, todos os docs `membros`, índices e login (Auth via [purgeAuthLogin]).
+  static Future<Map<String, dynamic>> _purgeMemberViaCallable({
+    required String churchId,
+    required String seedTenantId,
+    required String memberDocId,
+    String? authUid,
+  }) async {
+    final payload = <String, dynamic>{
+      'tenantId': churchId.isNotEmpty ? churchId : seedTenantId.trim(),
+      'memberId': memberDocId.trim(),
+    };
+    if (authUid != null && authUid.isNotEmpty) {
+      payload['authUid'] = authUid;
+    }
+    final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('purgeMemberFirebaseLogin')
+        .call(payload);
+    return Map<String, dynamic>.from(res.data as Map? ?? {});
+  }
+
+  static bool _isLegacyMembersRef(DocumentReference<Map<String, dynamic>> ref) =>
+      ref.path.contains('/members/');
+
+  /// Exclusão total — Storage, todos os docs `membros`, índices e login (Admin SDK via callable).
   static Future<void> purgeMemberCompletely({
     required String seedTenantId,
     required String memberDocId,
@@ -194,12 +217,31 @@ abstract final class MembroStrictUpdateService {
 
     await _prepareWrite();
 
-    if (purgeAuthLogin != null) {
-      await purgeAuthLogin(
-        churchId: churchId,
-        memberDocId: mid,
-        authUid: authUid,
-      );
+    var serverMembroDocsDeleted = 0;
+    try {
+      if (purgeAuthLogin != null) {
+        await purgeAuthLogin(
+          churchId: churchId,
+          memberDocId: mid,
+          authUid: authUid,
+        );
+      } else {
+        final serverResult = await _purgeMemberViaCallable(
+          churchId: churchId,
+          seedTenantId: seedTenantId,
+          memberDocId: mid,
+          authUid: authUid,
+        );
+        serverMembroDocsDeleted =
+            (serverResult['membroDocsDeleted'] as num?)?.toInt() ?? 0;
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'permission-denied' || e.code == 'unauthenticated') {
+        rethrow;
+      }
+      debugPrint('purgeMemberFirebaseLogin ${e.code}: ${e.message}');
+    } catch (e, st) {
+      debugPrint('purgeMemberFirebaseLogin $e $st');
     }
 
     await FirebaseStorageCleanupService.deleteMemberRelatedFiles(
@@ -208,39 +250,47 @@ abstract final class MembroStrictUpdateService {
       data: memberData,
     );
 
+    var deletedAny = serverMembroDocsDeleted > 0;
     final membroRefs = await resolveAllMemberDocRefs(
       churchId: churchId,
       memberDocId: mid,
       memberData: memberData,
     );
 
-    var deletedAny = false;
-    for (final ref in membroRefs) {
-      try {
-        final exists = (await ref.get(const GetOptions(source: Source.server)))
-            .exists;
-        if (!exists) continue;
-        await _deleteDocVerified(ref);
-        deletedAny = true;
-      } catch (e) {
-        if (kDebugMode) debugPrint('purgeMember delete ${ref.path}: $e');
-        rethrow;
-      }
-    }
-
     if (!deletedAny) {
-      final primary = _membroDocRef(igrejaId: churchId, memberDocId: mid);
-      final exists =
-          (await primary.get(const GetOptions(source: Source.server))).exists;
-      if (exists) {
-        await _deleteDocVerified(primary);
-        deletedAny = true;
+      for (final ref in membroRefs) {
+        try {
+          final exists = (await ref.get(const GetOptions(source: Source.server)))
+              .exists;
+          if (!exists) continue;
+          await _deleteDocVerified(ref);
+          if (!_isLegacyMembersRef(ref)) deletedAny = true;
+        } catch (e) {
+          if (_isLegacyMembersRef(ref)) {
+            if (kDebugMode) {
+              debugPrint('purgeMember legacy members skip ${ref.path}: $e');
+            }
+            continue;
+          }
+          if (kDebugMode) debugPrint('purgeMember delete ${ref.path}: $e');
+          rethrow;
+        }
+      }
+
+      if (!deletedAny) {
+        final primary = _membroDocRef(igrejaId: churchId, memberDocId: mid);
+        final exists =
+            (await primary.get(const GetOptions(source: Source.server))).exists;
+        if (exists) {
+          await _deleteDocVerified(primary);
+          deletedAny = true;
+        }
       }
     }
 
     if (!deletedAny) {
       throw StateError(
-        'Membro não encontrado em igrejas/$churchId/membros (já excluído?).',
+        'Membro não encontrado em igrejas/$churchId/membros (já excluído ou id incorreto).',
       );
     }
 
@@ -288,6 +338,7 @@ abstract final class MembroStrictUpdateService {
     }
 
     for (final ref in membroRefs) {
+      if (_isLegacyMembersRef(ref)) continue;
       final still = await ref.get(const GetOptions(source: Source.server));
       if (still.exists) {
         throw StateError(

@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
@@ -3560,6 +3561,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'aviso_save_tap',
+        strict: true,
+      );
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
@@ -3641,6 +3646,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'evento_save_tap',
+        strict: true,
+      );
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -3962,16 +3971,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     unawaited(_preloadChurchAddress());
     if (widget.type == 'aviso') {
       unawaited(
-        AvisoPublishService.prepareFullPipeline(
+        EcoFirePublishBootstrap.ensureHard(
           logLabel: 'aviso_editor_open',
-          withPhotos: false,
+          strict: false,
         ).catchError((_) {}),
       );
     } else if (widget.type == 'evento') {
       unawaited(
-        EventoPublishService.prepareFullPipeline(
+        EcoFirePublishBootstrap.ensureHard(
           logLabel: 'evento_editor_open',
-          withMedia: true,
+          strict: false,
         ).catchError((_) {}),
       );
     }

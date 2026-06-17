@@ -35,6 +35,9 @@ abstract final class OfflineModules {
       case 'finance':
       case 'financeiro':
         return financeiro;
+      case 'fornecedores':
+      case 'fornecedor':
+        return financeiro;
       case 'escalas':
       case 'escala':
         return escalas;

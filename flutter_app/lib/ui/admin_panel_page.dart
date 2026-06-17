@@ -682,6 +682,20 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
       return;
     }
+    final isNarrow = MediaQuery.sizeOf(context).width <
+        ThemeCleanPremium.breakpointTablet;
+    if (item == AdminMenuItem.sistemaLegalDocumentos && isNarrow) {
+      unawaited(_writeAuditLog(
+        action: 'master_navigate',
+        resource: 'menu/${item.name}',
+        details: 'Editor Termos/Privacidade (tela cheia mobile)',
+      ));
+      if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+        Navigator.of(context).pop();
+      }
+      unawaited(AdminLegalDocumentsPage.openFullScreen(context));
+      return;
+    }
     unawaited(_writeAuditLog(
       action: 'master_navigate',
       resource: 'menu/${item.name}',

@@ -1,21 +1,19 @@
 import 'dart:io';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
-import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/video_duration.dart';
-
 import 'feed_editor_media_service.dart';
 import 'firebase_storage_cleanup_service.dart';
-import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
 
 /// Mobile (IO): MP4 pequeno envia direto (sem re-encoding); caso contrário **720p HD** (equilíbrio nitidez/tempo).
@@ -82,7 +80,10 @@ class VideoHandlerService implements IVideoHandlerService {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
 
-    await ImmediateStorageUploadGuard.ensureReady(debugLabel: 'evento_video');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'evento_video_prepare',
+      strict: true,
+    );
 
     try {
       final lower = path.toLowerCase();
@@ -120,7 +121,6 @@ class VideoHandlerService implements IVideoHandlerService {
         compressed = mediaInfo.file!;
       }
 
-      await firebaseDefaultAuth.currentUser?.getIdToken();
       final slot = videoSlotIndex.clamp(0, 1);
       await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
         tenantId: tenantId,
@@ -145,10 +145,9 @@ class VideoHandlerService implements IVideoHandlerService {
       );
 
       onUploadProgress?.call(0.0);
-      final videoUrl = await MediaUploadService.uploadFileWithRetry(
+      final videoUrl = await EcoFireEventVideoUpload.putVideoFile(
         storagePath: videoPath,
         file: compressed,
-        contentType: 'video/mp4',
         onProgress: onUploadProgress,
       );
 
@@ -156,10 +155,11 @@ class VideoHandlerService implements IVideoHandlerService {
       if (!_isIosNative) {
         final thumbFile = await MediaService.getVideoThumbnail(compressed);
         if (thumbFile != null && thumbFile.existsSync()) {
-          thumbUrl = await MediaUploadService.uploadFileWithRetry(
+          final thumbBytes = await thumbFile.readAsBytes();
+          thumbUrl = await EcoFireStorageUpload.putData(
             storagePath: thumbPath,
-            file: thumbFile,
-            contentType: 'image/jpeg',
+            bytes: thumbBytes,
+            mimeType: 'image/jpeg',
           );
         }
       }

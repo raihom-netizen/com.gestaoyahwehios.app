@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1991: Deploy completo — fotos membros rápidas, Termos/Privacidade tela cheia, patrimônio/chat/exclusão membro.
 /// 11.2.305+1990: Deploy completo — Firestore web CT, cartão membro path igrejas/{id}/membros.
 /// 11.2.305+1986: Avisos/eventos web — progresso real no upload; bootstrap único; fim do travamento 5%.
 /// 11.2.305+1985: Termos/Privacidade editáveis no painel master — config/legal_documents sync Web/iOS/Android.
@@ -406,7 +407,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '1990';
+const String appBuildNumber = '1991';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

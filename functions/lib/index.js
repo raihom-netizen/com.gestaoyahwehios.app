@@ -53,6 +53,7 @@ const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
 const churchTenantProvisioning_1 = require("./churchTenantProvisioning");
 const memberAccessPolicy_1 = require("./memberAccessPolicy");
 const churchFirestorePaths_1 = require("./churchFirestorePaths");
+const membersDirectoryCache_1 = require("./membersDirectoryCache");
 admin.initializeApp();
 const db = admin.firestore();
 /** Banco Firestore separado para frotas (frotasveiculo). */
@@ -3644,6 +3645,89 @@ async function findMemberDocument(tenantId, memberId) {
         return null;
     return findMemberDocumentInTenant(tid, memberId);
 }
+/** Todos os docs `membros/{id}` + legado `members/{id}` da mesma pessoa (CPF, authUid, id). */
+async function resolveAllMemberDocRefsInTenant(tenantId, memberId, memberData) {
+    const tid = String(tenantId || "").trim();
+    const ids = new Set();
+    const mid = String(memberId || "").trim();
+    if (mid)
+        ids.add(mid);
+    const cpf = normalizeCpf(String(memberData.CPF || memberData.cpf || ""));
+    if (cpf.length === 11)
+        ids.add(cpf);
+    const authUid = String(memberData.authUid || "").trim();
+    if (authUid)
+        ids.add(authUid);
+    if (mid.length >= 20 && mid.length <= 36 && /^[a-zA-Z0-9]+$/.test(mid)) {
+        ids.add(mid);
+    }
+    const membrosCol = db.collection("igrejas").doc(tid).collection("membros");
+    if (authUid) {
+        try {
+            const q = await membrosCol.where("authUid", "==", authUid).limit(12).get();
+            q.docs.forEach((doc) => ids.add(doc.id));
+        }
+        catch (_) { }
+    }
+    if (cpf.length === 11) {
+        for (const field of ["CPF", "cpf"]) {
+            try {
+                const q = await membrosCol.where(field, "==", cpf).limit(8).get();
+                q.docs.forEach((doc) => ids.add(doc.id));
+            }
+            catch (_) { }
+        }
+    }
+    const refs = [];
+    for (const id of ids) {
+        if (!id)
+            continue;
+        refs.push(membrosCol.doc(id));
+        refs.push(db.collection("igrejas").doc(tid).collection("members").doc(id));
+    }
+    return refs;
+}
+async function purgeMemberStorageArtifactsAdmin(tenantId, memberIds) {
+    const bucket = admin.storage().bucket();
+    const deleteIfExists = async (path) => {
+        if (!path)
+            return;
+        try {
+            await bucket.file(path).delete({ ignoreNotFound: true });
+        }
+        catch (e) {
+            console.warn("purgeMemberStorage file", path, e);
+        }
+    };
+    const deletePrefix = async (prefix) => {
+        const p = String(prefix || "").replace(/\/+$/, "");
+        if (!p)
+            return;
+        try {
+            await bucket.deleteFiles({ prefix: `${p}/` });
+        }
+        catch (e) {
+            console.warn("purgeMemberStorage prefix", p, e);
+        }
+    };
+    for (const id of memberIds) {
+        if (!id)
+            continue;
+        const base = `igrejas/${tenantId}/membros/${id}`;
+        await deletePrefix(base);
+        for (const ext of ["jpg", "jpeg", "png", "webp"]) {
+            await deleteIfExists(`${base}.${ext}`);
+            await deleteIfExists(`igrejas/${tenantId}/membros/fotos/${id}.${ext}`);
+            await deleteIfExists(`igrejas/${tenantId}/membros/thumbs/${id}.${ext}`);
+            await deleteIfExists(`igrejas/${tenantId}/members/${id}.${ext}`);
+        }
+        for (const suf of ["_thumb", "_card", "_full", "_gestor"]) {
+            await deleteIfExists(`${base}${suf}.jpg`);
+        }
+        await deleteIfExists(`${base}_assinatura.png`);
+        await deleteIfExists(`${base}_digital.png`);
+    }
+}
 /**
  * Cria Firebase Auth (UID gerado pelo Firebase), grava users + usersIndex e move o doc de
  * `membros/{cpf|auto}` para `membros/{uid}` para id === UID. Senha padrão 123456.
@@ -4244,8 +4328,8 @@ exports.setMemberPassword = functions
     return { ok: true, message: "Senha alterada." };
 });
 /**
- * Remove login Firebase Auth + users/usersIndex na igreja (Admin SDK).
- * O cliente apaga em seguida `membros/{id}`, Storage, etc.
+ * Remove login Firebase Auth, ficha `membros/{id}`, Storage e índices (Admin SDK).
+ * O cliente confirma e invalida cache local.
  */
 exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(async (data, context) => {
     if (!context.auth) {
@@ -4265,7 +4349,7 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
     }
     const found = await findMemberDocument(tenantId, memberId);
     if (!found) {
-        return { ok: true, skipped: true, reason: "membro_nao_encontrado" };
+        return { ok: true, skipped: true, reason: "membro_nao_encontrado", membroDocsDeleted: 0 };
     }
     const d = found.data || {};
     let authUid = authUidOverride || String(d.authUid || "").trim();
@@ -4285,6 +4369,50 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
         throw new functions.https.HttpsError("failed-precondition", "Não é possível apagar a própria conta por este fluxo.");
     }
     const cpf = String(d.CPF || d.cpf || "").replace(/\D/g, "");
+    const memberRefs = await resolveAllMemberDocRefsInTenant(tenantId, memberId, d);
+    const memberIds = new Set([memberId]);
+    for (const ref of memberRefs) {
+        memberIds.add(ref.id);
+    }
+    if (cpf.length === 11)
+        memberIds.add(cpf);
+    if (authUid)
+        memberIds.add(authUid);
+    await purgeMemberStorageArtifactsAdmin(tenantId, memberIds);
+    let membroDocsDeleted = 0;
+    const deletedMembroPaths = [];
+    for (const ref of memberRefs) {
+        try {
+            const snap = await ref.get();
+            if (!snap.exists)
+                continue;
+            await ref.delete();
+            if (ref.path.includes("/membros/")) {
+                membroDocsDeleted += 1;
+                deletedMembroPaths.push(ref.path);
+            }
+        }
+        catch (e) {
+            if (ref.path.includes("/membros/")) {
+                console.warn("purgeMemberFirebaseLogin delete", ref.path, e);
+                throw new functions.https.HttpsError("internal", `Não foi possível excluir ${ref.path}`);
+            }
+            console.warn("purgeMemberFirebaseLogin legacy delete", ref.path, e);
+        }
+    }
+    if (membroDocsDeleted === 0) {
+        try {
+            if (found.ref.path.includes("/membros/") && (await found.ref.get()).exists) {
+                await found.ref.delete();
+                membroDocsDeleted = 1;
+                deletedMembroPaths.push(found.ref.path);
+            }
+        }
+        catch (e) {
+            console.warn("purgeMemberFirebaseLogin primary delete", found.ref.path, e);
+            throw new functions.https.HttpsError("internal", "Não foi possível excluir o cadastro do membro.");
+        }
+    }
     let authDeleted = false;
     if (authUid) {
         try {
@@ -4322,6 +4450,17 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
         catch (e) {
             console.warn("purgeMemberFirebaseLogin igrejas/users", e);
         }
+        try {
+            await db
+                .collection("igrejas")
+                .doc(tenantId)
+                .collection("chat_peer_profiles")
+                .doc(authUid)
+                .delete();
+        }
+        catch (e) {
+            console.warn("purgeMemberFirebaseLogin chat_peer_profiles", e);
+        }
     }
     if (cpf.length === 11) {
         try {
@@ -4333,11 +4472,27 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
         }
         catch (_) { }
     }
+    if (membroDocsDeleted > 0) {
+        try {
+            const membrosCol = db.collection("igrejas").doc(tenantId).collection("membros");
+            const snap = await membrosCol.limit(800).get();
+            let total = snap.size;
+            try {
+                const agg = await membrosCol.count().get();
+                total = agg.data().count;
+            }
+            catch (_) { }
+            await (0, membersDirectoryCache_1.recomputeMembersDirectoryFromDocs)(tenantId, snap.docs, total);
+        }
+        catch (e) {
+            console.warn("purgeMemberFirebaseLogin directory cache", e);
+        }
+    }
     try {
         await db.collection("auditoria").add({
-            acao: "member_purge_login",
+            acao: "member_purge_complete",
             resource: "purgeMemberFirebaseLogin",
-            details: `memberId=${memberId} authUid=${authUid || "-"} authDeleted=${authDeleted}`,
+            details: `memberId=${memberId} authUid=${authUid || "-"} authDeleted=${authDeleted} membroDocsDeleted=${membroDocsDeleted} paths=${deletedMembroPaths.join(",")}`,
             usuario: email || callerUid,
             uid: callerUid,
             igrejaId: tenantId,
@@ -4345,7 +4500,13 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
         });
     }
     catch (_) { }
-    return { ok: true, authDeleted, authUid: authUid || null };
+    return {
+        ok: true,
+        authDeleted,
+        authUid: authUid || null,
+        membroDocsDeleted,
+        deletedMembroPaths,
+    };
 });
 /**
  * Master: remapeia ficha `membros` + Storage + claims para um UID já existente no Auth
@@ -6423,8 +6584,8 @@ Object.defineProperty(exports, "scheduledRefreshMasterDashboard", { enumerable: 
 var masterChurchesListCache_1 = require("./masterChurchesListCache");
 Object.defineProperty(exports, "getMasterChurchesList", { enumerable: true, get: function () { return masterChurchesListCache_1.getMasterChurchesList; } });
 Object.defineProperty(exports, "scheduledRefreshMasterChurchesList", { enumerable: true, get: function () { return masterChurchesListCache_1.scheduledRefreshMasterChurchesList; } });
-var membersDirectoryCache_1 = require("./membersDirectoryCache");
-Object.defineProperty(exports, "getChurchMembersDirectory", { enumerable: true, get: function () { return membersDirectoryCache_1.getChurchMembersDirectory; } });
+var membersDirectoryCache_2 = require("./membersDirectoryCache");
+Object.defineProperty(exports, "getChurchMembersDirectory", { enumerable: true, get: function () { return membersDirectoryCache_2.getChurchMembersDirectory; } });
 var panelStatisticsCache_1 = require("./panelStatisticsCache");
 Object.defineProperty(exports, "writePanelStatisticsCache", { enumerable: true, get: function () { return panelStatisticsCache_1.writePanelStatisticsCache; } });
 var panelPublicSiteCache_1 = require("./panelPublicSiteCache");

@@ -4,7 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
+import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -136,25 +138,90 @@ abstract final class MemberCardDirectoryService {
     return out;
   }
 
+  static bool _directoryLooksComplete(MembersDirectorySnapshot snap) {
+    if (!snap.hasEntries) return false;
+    if (snap.totalCount <= 0) return snap.entries.length >= 20;
+    return snap.entries.length >= snap.totalCount;
+  }
+
+  static Future<MembersDirectorySnapshot> _loadMembersDirectory(
+    String churchId, {
+    bool forceRefresh = false,
+  }) async {
+    if (churchId.isEmpty) return const MembersDirectorySnapshot();
+    if (!forceRefresh) {
+      final mem = MembersDirectorySnapshotService.peekMemory(churchId);
+      if (mem != null && _directoryLooksComplete(mem)) return mem;
+    }
+    var snap = await MembersDirectorySnapshotService.readOnce(churchId);
+    if (!forceRefresh && _directoryLooksComplete(snap)) return snap;
+    snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(
+      churchId,
+    );
+    return snap;
+  }
+
+  /// Firestore paginado — contorna teto de 50 do scan único (lista completa até [maxTotal]).
+  static Future<List<MemberCardListEntry>> _loadFromFirestorePaginated(
+    String churchId,
+    int maxTotal,
+  ) async {
+    if (churchId.isEmpty || maxTotal <= 0) return const [];
+    final ref = ChurchUiCollections.membros(churchId);
+    const pageSize = FirebasePerformanceLimits.membrosPage;
+    final collected = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    QueryDocumentSnapshot<Map<String, dynamic>>? cursor;
+
+    Future<QuerySnapshot<Map<String, dynamic>>> runPage(int batch) async {
+      Query<Map<String, dynamic>> q = ref.limit(batch);
+      if (cursor != null) {
+        q = q.startAfterDocument(cursor!);
+      }
+      return q.get(const GetOptions(source: Source.serverAndCache));
+    }
+
+    while (collected.length < maxTotal) {
+      final batch = (maxTotal - collected.length).clamp(1, pageSize);
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              () => runPage(batch),
+              maxAttempts: 4,
+            ).timeout(ChurchPanelReadTimeouts.queryCap)
+          : await runPage(batch).timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isEmpty) break;
+      collected.addAll(snap.docs);
+      cursor = snap.docs.last;
+      if (snap.docs.length < batch) break;
+    }
+
+    return _docsToEntries(collected, maxTotal);
+  }
+
   /// Lista instantânea (RAM partilhada com Membros) — zero rede.
   static List<MemberCardListEntry>? peekMembersSync(
     String tenantId, {
-    int limit = YahwehPerformanceV4.memberCardListPageSize,
+    int limit = YahwehPerformanceV4.adminExportBatchLimit,
   }) {
     final churchId = resolveChurchId(tenantId);
     if (churchId.isEmpty) return null;
     final effectiveLimit = limit <= 0
-        ? YahwehPerformanceV4.memberCardListPageSize
+        ? YahwehPerformanceV4.adminExportBatchLimit
         : limit.clamp(1, YahwehPerformanceV4.adminExportBatchLimit);
+
+    final dirMem = MembersDirectorySnapshotService.peekMemory(churchId);
+    if (dirMem != null && dirMem.hasEntries) {
+      return _directoryEntriesToList(dirMem.entries, effectiveLimit);
+    }
+
     final ram = ChurchMembersLoadService.peekRamAny(churchId);
     if (ram == null || ram.isEmpty) return null;
     return _docsToEntries(ram, effectiveLimit);
   }
 
-  /// Lista paginada — delega a [ChurchMembersLoadService] (mesmo fluxo Membros).
+  /// Lista completa para emissão em lote — `_panel_cache/members_directory` (igual Membros).
   static Future<List<MemberCardListEntry>> loadMembers({
     required String tenantId,
-    int limit = YahwehPerformanceV4.memberCardListPageSize,
+    int limit = YahwehPerformanceV4.adminExportBatchLimit,
     bool forceRefresh = false,
   }) async {
     final churchId = resolveChurchId(tenantId);
@@ -165,57 +232,30 @@ abstract final class MemberCardDirectoryService {
     }
 
     final effectiveLimit = limit <= 0
-        ? YahwehPerformanceV4.memberCardListPageSize
+        ? YahwehPerformanceV4.adminExportBatchLimit
         : limit.clamp(1, YahwehPerformanceV4.adminExportBatchLimit);
-
-    if (!forceRefresh) {
-      final instant = peekMembersSync(churchId, limit: effectiveLimit);
-      if (instant != null && instant.isNotEmpty) {
-        unawaited(
-          ChurchMembersLoadService.load(
-            seedTenantId: churchId,
-            limit: effectiveLimit,
-          ),
-        );
-        return instant;
-      }
-    }
 
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
-    final cacheKey =
-        ChurchMembersLoadService.cacheKey(churchId, effectiveLimit);
-
-    Future<List<MemberCardListEntry>> loadViaRepository() async {
-      final repo = await ChurchRepository.listCacheFirst(
-        module: ChurchRepository.membros,
-        churchIdHint: churchId,
-        limit: effectiveLimit,
-        firestoreCacheKey: cacheKey,
+    final directory = await _loadMembersDirectory(
+      churchId,
+      forceRefresh: forceRefresh,
+    );
+    if (directory.hasEntries) {
+      final fromDir = _directoryEntriesToList(
+        directory.entries,
+        effectiveLimit,
       );
-      if (repo.error != null && repo.error!.trim().isNotEmpty && repo.items.isEmpty) {
-        throw Exception(repo.error);
-      }
-      if (repo.items.isNotEmpty) {
-        return _docsToEntries(repo.items, effectiveLimit);
-      }
-      return const [];
+      if (fromDir.isNotEmpty) return fromDir;
     }
 
-    List<MemberCardListEntry> fromRepo = const [];
-    try {
-      fromRepo = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              loadViaRepository,
-              maxAttempts: 4,
-            )
-          : await loadViaRepository();
-    } catch (e) {
-      debugPrint('MemberCardDirectoryService listCacheFirst: $e');
-    }
-    if (fromRepo.isNotEmpty) return fromRepo;
+    final paginated = await _loadFromFirestorePaginated(
+      churchId,
+      effectiveLimit,
+    );
+    if (paginated.isNotEmpty) return paginated;
 
     final result = await ChurchMembersLoadService.load(
       seedTenantId: churchId,

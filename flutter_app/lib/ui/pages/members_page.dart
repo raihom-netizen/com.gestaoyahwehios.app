@@ -5110,9 +5110,6 @@ class _MembersPageState extends State<MembersPage> {
     );
     if (confirm != true || !mounted) return;
     final mid = member.id.trim();
-    final authUid = (member.data['authUid'] ?? member.data['auth_uid'] ?? '')
-        .toString()
-        .trim();
     setState(() => _optimisticRemovedMemberIds.add(mid));
 
     if (!context.mounted) return;
@@ -5127,56 +5124,24 @@ class _MembersPageState extends State<MembersPage> {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 
-      var loginPurgeWarning = '';
-      final churchId = ChurchRepository.churchId(_effectiveTenantId);
-
       await MembroStrictUpdateService.purgeMemberCompletely(
         seedTenantId: _effectiveTenantId,
         memberDocId: mid,
         memberData: member.data,
-        purgeAuthLogin: ({
-          required String churchId,
-          required String memberDocId,
-          required String? authUid,
-        }) async {
-          try {
-            final payload = <String, dynamic>{
-              'tenantId': churchId.isNotEmpty ? churchId : _effectiveTenantId,
-              'memberId': memberDocId,
-            };
-            if (authUid != null && authUid.isNotEmpty) {
-              payload['authUid'] = authUid;
-            }
-            await FirebaseFunctions.instanceFor(region: 'us-central1')
-                .httpsCallable('purgeMemberFirebaseLogin')
-                .call(payload);
-          } on FirebaseFunctionsException catch (e) {
-            if (e.code == 'permission-denied' ||
-                e.code == 'unauthenticated') {
-              rethrow;
-            }
-            loginPurgeWarning =
-                ' Login Firebase pode não ter sido removido — verifique depois.';
-            debugPrint('purgeMemberFirebaseLogin ${e.code}: ${e.message}');
-          } catch (e, st) {
-            debugPrint('purgeMemberFirebaseLogin $e $st');
-            loginPurgeWarning =
-                ' Login Firebase pode não ter sido removido — verifique depois.';
-          }
-        },
       );
 
       if (!mounted) return;
 
-      unawaited(
-        DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
-      );
+      await DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          '"$name" excluído do banco de dados.$loginPurgeWarning',
+          '"$name" excluído do banco de dados e do Storage.',
         ),
       );
-      _refreshMembers(forceServer: true);
+      _refreshMembers(
+        forceServer: true,
+        clearOptimisticRemovedMemberId: mid,
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _optimisticRemovedMemberIds.remove(mid));

@@ -1,7 +1,9 @@
 import 'dart:async' show Timer, unawaited;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -15,8 +17,11 @@ import 'package:gestao_yahweh/services/member_card_directory_service.dart'
         MemberCardListEntry,
         MemberCardSignatory;
 import 'package:gestao_yahweh/services/member_card_load_service.dart';
+import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
 import 'package:gestao_yahweh/services/member_card_sign_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
+import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
@@ -102,6 +107,7 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   List<_MemberRow> _members = [];
   bool _loadingMembers = true;
+  bool _exportingPdf = false;
   Object? _membersError;
 
   _MemberRow? _previewMember;
@@ -176,19 +182,23 @@ class _MemberCardPageState extends State<MemberCardPage>
     await _reloadMembers();
   }
 
-  Future<void> _reloadMembers() async {
+  Future<void> _reloadMembers({bool forceRefresh = false}) async {
     if (!mounted) return;
-    setState(() {
-      _loadingMembers = true;
-      _membersError = null;
-    });
+    final hadCache = _members.isNotEmpty;
+    if (!hadCache) {
+      setState(() {
+        _loadingMembers = true;
+        _membersError = null;
+      });
+    }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
+      const limit = YahwehPerformanceV4.adminExportBatchLimit;
       final instant = MemberCardDirectoryService.peekMembersSync(
         _churchIdResolved,
-        limit: 200,
+        limit: limit,
       );
       if (instant != null && instant.isNotEmpty && mounted) {
         setState(() {
@@ -198,8 +208,8 @@ class _MemberCardPageState extends State<MemberCardPage>
       }
       final entries = await MemberCardDirectoryService.loadMembers(
         tenantId: widget.tenantId,
-        limit: 200,
-        forceRefresh: instant == null || instant.isEmpty,
+        limit: limit,
+        forceRefresh: forceRefresh || instant == null || instant.isEmpty,
       );
       if (!mounted) return;
       setState(() {
@@ -250,6 +260,168 @@ class _MemberCardPageState extends State<MemberCardPage>
       }
       return true;
     }).toList();
+  }
+
+  bool get _allFilteredSelected {
+    final list = _filtered;
+    if (list.isEmpty) return false;
+    for (final m in list) {
+      if (!_selectedIds.contains(m.id)) return false;
+    }
+    return true;
+  }
+
+  bool? get _selectAllTriState {
+    final list = _filtered;
+    if (list.isEmpty) return false;
+    var n = 0;
+    for (final m in list) {
+      if (_selectedIds.contains(m.id)) n++;
+    }
+    if (n == 0) return false;
+    if (n == list.length) return true;
+    return null;
+  }
+
+  void _toggleSelectAllFiltered(bool? select) {
+    final list = _filtered;
+    setState(() {
+      if (select == true) {
+        for (final m in list) {
+          _selectedIds.add(m.id);
+        }
+      } else {
+        for (final m in list) {
+          _selectedIds.remove(m.id);
+        }
+      }
+    });
+  }
+
+  String _safePdfStub(String name, String id) {
+    final stub = name
+        .replaceAll(RegExp(r'[^\w\s-]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), '_');
+    if (stub.isNotEmpty) return stub;
+    return id.replaceAll(RegExp(r'[^\w-]'), '_');
+  }
+
+  Future<void> _exportSelectedPdf(BuildContext context) async {
+    final ids = _selectedIds.isEmpty
+        ? (_previewMember != null ? [_previewMember!.id] : <String>[])
+        : _selectedIds.toList();
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Selecione um ou mais membros para exportar PDF.',
+        ),
+      );
+      return;
+    }
+    if (_exportingPdf) return;
+    setState(() => _exportingPdf = true);
+
+    final total = ids.length;
+    final progress = ValueNotifier<int>(0);
+    if (!context.mounted) {
+      setState(() => _exportingPdf = false);
+      progress.dispose();
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Gerando PDF…'),
+          content: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (_, d, __) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                LinearProgressIndicator(
+                  value: total > 0 ? d / total : null,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '$d de $total carteirinha(s)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    MemberCardPdfExportResult result;
+    try {
+      result = await MemberCardPdfExportService.generatePdfs(
+        tenantId: _churchIdResolved,
+        memberIds: ids,
+        onProgress: (d, _, __) => progress.value = d,
+      );
+    } catch (_) {
+      result = const MemberCardPdfExportResult(
+        pdfsByMemberId: {},
+        ok: 0,
+        fail: 0,
+      );
+    }
+
+    progress.dispose();
+    if (context.mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+    setState(() => _exportingPdf = false);
+
+    if (!context.mounted) return;
+    if (result.ok == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Não foi possível gerar PDF. Verifique conexão e permissões.',
+        ),
+      );
+      return;
+    }
+
+    final nameById = {for (final m in _members) m.id: m.name};
+    if (result.ok == 1) {
+      final only = result.pdfsByMemberId.entries.first;
+      final label = nameById[only.key] ?? only.key;
+      await showPdfActions(
+        context,
+        bytes: only.value,
+        filename: 'carteirinha_${_safePdfStub(label, only.key)}.pdf',
+      );
+    } else {
+      final zipEntries = <String, Uint8List>{};
+      for (final e in result.pdfsByMemberId.entries) {
+        final label = nameById[e.key] ?? e.key;
+        zipEntries['carteirinha_${_safePdfStub(label, e.key)}.pdf'] = e.value;
+      }
+      final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
+      await YahwehShareService.shareBytes(
+        bytes: zipBytes,
+        fileName: 'carteirinhas_${result.ok}_membros.zip',
+        mimeType: 'application/zip',
+        subject: 'Carteirinhas PDF',
+      );
+    }
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar(
+        result.fail == 0
+            ? '${result.ok} PDF(s) prontos.'
+            : '${result.ok} PDF(s) OK · ${result.fail} falha(s).',
+      ),
+    );
   }
 
   Future<void> _loadSingleCard({
@@ -574,7 +746,7 @@ class _MemberCardPageState extends State<MemberCardPage>
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Busque membros, visualize o cartão virtual e assine em lote.',
+                  'Busque membros, selecione em lote, exporte PDF e assine.',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.92),
                     fontSize: 13,
@@ -625,10 +797,49 @@ class _MemberCardPageState extends State<MemberCardPage>
             ],
           ),
           const SizedBox(height: 8),
+          if (_canManage)
+            Row(
+              children: [
+                SizedBox(
+                  height: 40,
+                  width: 40,
+                  child: Checkbox(
+                    tristate: true,
+                    value: _selectAllTriState,
+                    activeColor: _gradA,
+                    onChanged: _filtered.isEmpty
+                        ? null
+                        : (v) => _toggleSelectAllFiltered(v),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    _allFilteredSelected
+                        ? 'Desmarcar todos (${_filtered.length})'
+                        : 'Selecionar todos (${_filtered.length})',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                ),
+                if (_selectedIds.isNotEmpty) ...[
+                  TextButton.icon(
+                    onPressed: _exportingPdf
+                        ? null
+                        : () => unawaited(_exportSelectedPdf(context)),
+                    icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                    label: Text('PDF (${_selectedIds.length})'),
+                  ),
+                ],
+              ],
+            ),
           Row(
             children: [
               Text(
-                '${_filtered.length} de ${_members.length} membros',
+                '${_filtered.length} de ${_members.length} membros'
+                    '${_selectedIds.isEmpty ? '' : ' · ${_selectedIds.length} sel.'}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -638,8 +849,9 @@ class _MemberCardPageState extends State<MemberCardPage>
               const Spacer(),
               IconButton(
                 tooltip: 'Recarregar',
-                onPressed:
-                    _loadingMembers ? null : () => unawaited(_reloadMembers()),
+                onPressed: _loadingMembers
+                    ? null
+                    : () => unawaited(_reloadMembers(forceRefresh: true)),
                 icon: const Icon(Icons.refresh_rounded),
               ),
             ],
@@ -698,6 +910,7 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 16),
+      cacheExtent: 480,
       itemCount: list.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
@@ -834,6 +1047,25 @@ class _MemberCardPageState extends State<MemberCardPage>
             ),
           ),
           const SizedBox(height: 16),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: _gradB,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            onPressed: _exportingPdf
+                ? null
+                : () => unawaited(_exportSelectedPdf(context)),
+            icon: const Icon(Icons.picture_as_pdf_rounded),
+            label: Text(
+              n == 0
+                  ? 'Exportar PDF (preview ou selecionados)'
+                  : 'Exportar PDF ($n)',
+            ),
+          ),
+          const SizedBox(height: 10),
           FilledButton.icon(
             style: FilledButton.styleFrom(
               backgroundColor: _gradA,

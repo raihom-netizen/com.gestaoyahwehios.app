@@ -491,8 +491,12 @@ abstract final class FirebaseBootstrapService {
   static Future<void> ensureReadyForStorageUpload({
     bool requireAuth = true,
   }) async {
-    await FirebaseBootstrap.ensureInitialized();
-    refreshCachedApp();
+    if (!_hasApp()) {
+      await ensureStorageAlwaysLinked(refreshAuthToken: requireAuth);
+    } else {
+      await FirebaseBootstrap.ensureInitialized();
+      refreshCachedApp();
+    }
     if (!_hasApp()) {
       throw FirebaseBootstrapException.from(
         StateError('Firebase não inicializou (core/no-app).'),
