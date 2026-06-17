@@ -67,15 +67,31 @@ class FirestoreWebGuard {
     await Future<void>.delayed(const Duration(milliseconds: 140));
   }
 
-  /// Recuperação **suave** (Controle Total): token + rede — **sem** `terminate`/`clearPersistence`.
+  /// Recuperação Web — após assert interno, hard reset como Controle Total (terminate + long-polling).
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
     if (WebPanelStability.isSessionExpired) return;
+    if (allowHardReconnect) {
+      try {
+        await firebaseDefaultFirestore.disableNetwork();
+      } catch (_) {}
+      try {
+        await firebaseDefaultFirestore.terminate();
+      } catch (_) {}
+      try {
+        await firebaseDefaultFirestore.clearPersistence();
+      } catch (_) {}
+      applyWebFirestoreSettings();
+      try {
+        await firebaseDefaultFirestore.enableNetwork();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+    }
     await stabilizeAfterWebSignIn();
     if (allowHardReconnect) {
       try {
-        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
         applyWebFirestoreSettings();
       } catch (_) {}
     }
@@ -145,7 +161,7 @@ class FirestoreWebGuard {
               (isClientTerminated(lastError!) ||
                   isInternalAssertionError(lastError!));
           if (kIsWeb && attempt == 1 && !WebPanelStability.isSessionExpired) {
-            await ensureMasterPanelReady();
+            await ensurePanelReadReady();
           }
           if (!WebPanelStability.isSessionExpired) {
             await recoverFirestoreWebSession(allowHardReconnect: hard);

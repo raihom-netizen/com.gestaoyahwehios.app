@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
@@ -113,9 +111,10 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   final ScreenshotController _shotCtrl = ScreenshotController();
 
-  String get _churchIdResolved => _churchId.isNotEmpty
-      ? _churchId
-      : ChurchRepository.churchId(ChurchPanelTenant.resolve(widget.tenantId));
+  String get _churchIdResolved {
+    if (_churchId.isNotEmpty) return _churchId;
+    return MemberCardDirectoryService.resolveChurchId(widget.tenantId);
+  }
 
   bool get _canManage {
     if (AppPermissions.isRestrictedMember(widget.role)) return false;
@@ -154,6 +153,17 @@ class _MemberCardPageState extends State<MemberCardPage>
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant MemberCardPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
+      _churchId = MemberCardDirectoryService.resolveChurchId(widget.tenantId);
+      if (!widget.cnhFullscreenOnly && !_isRestricted) {
+        unawaited(_reloadMembers());
+      }
+    }
+  }
+
   Future<void> _bootstrap() async {
     if (widget.cnhFullscreenOnly || _isRestricted) {
       await _loadSingleCard(
@@ -187,7 +197,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         });
       }
       final entries = await MemberCardDirectoryService.loadMembers(
-        tenantId: _churchIdResolved,
+        tenantId: widget.tenantId,
         limit: 200,
         forceRefresh: instant == null || instant.isEmpty,
       );
@@ -219,7 +229,9 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   List<_MemberRow> get _filtered {
-    final q = _search.trim().toLowerCase();
+    final q = (_search.isNotEmpty ? _search : _searchCtrl.text)
+        .trim()
+        .toLowerCase();
     return _members.where((m) {
       if (q.isNotEmpty) {
         final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '')
@@ -667,13 +679,20 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
     final list = _filtered;
     if (list.isEmpty) {
+      final path = _churchIdResolved.isEmpty
+          ? 'igrejas/{churchId}/membros'
+          : 'igrejas/$_churchIdResolved/membros';
+      final q = (_search.isNotEmpty ? _search : _searchCtrl.text).trim();
       return Center(
-        child: Text(
-          _members.isEmpty
-              ? 'Nenhum membro cadastrado.'
-              : 'Nenhum membro corresponde à busca.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Text(
+            _members.isEmpty
+                ? 'Nenhum membro em $path.\nPuxe para recarregar ou abra Membros primeiro.'
+                : 'Nenhum membro corresponde à busca${q.isEmpty ? '' : ' «$q»'}.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+          ),
         ),
       );
     }

@@ -19,7 +19,7 @@ abstract final class MemberCardSignService {
     final ids = memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
     if (ids.isEmpty) return (ok: 0, fail: 0, lastError: null);
 
-    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final churchId = MemberCardDirectoryService.resolveChurchId(tenantId.trim());
     if (churchId.isEmpty) {
       return (ok: 0, fail: ids.length, lastError: 'Igreja não identificada.');
     }

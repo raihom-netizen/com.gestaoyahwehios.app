@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -10,6 +11,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 
 /// Signatário de carteirinha / certificado (pastor, gestor, etc.).
@@ -106,6 +108,13 @@ abstract final class MemberCardDirectoryService {
     return out;
   }
 
+  /// `igrejas/{churchId}` — mesmo resolve que [members_page] / shell.
+  static String resolveChurchId(String tenantHint) {
+    final resolved = ChurchPanelTenant.resolve(tenantHint.trim());
+    final churchId = ChurchRepository.churchId(resolved);
+    return churchId.isNotEmpty ? churchId : resolved;
+  }
+
   static List<MemberCardListEntry> _directoryEntriesToList(
     List<MemberDirectoryEntry> entries,
     int effectiveLimit,
@@ -132,7 +141,7 @@ abstract final class MemberCardDirectoryService {
     String tenantId, {
     int limit = YahwehPerformanceV4.memberCardListPageSize,
   }) {
-    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final churchId = resolveChurchId(tenantId);
     if (churchId.isEmpty) return null;
     final effectiveLimit = limit <= 0
         ? YahwehPerformanceV4.memberCardListPageSize
@@ -148,15 +157,19 @@ abstract final class MemberCardDirectoryService {
     int limit = YahwehPerformanceV4.memberCardListPageSize,
     bool forceRefresh = false,
   }) async {
-    final churchId = ChurchRepository.churchId(tenantId.trim());
-    if (churchId.isEmpty) return const [];
+    final churchId = resolveChurchId(tenantId);
+    if (churchId.isEmpty) {
+      throw Exception(
+        'Igreja não identificada. Path esperado: igrejas/{churchId}/membros',
+      );
+    }
 
     final effectiveLimit = limit <= 0
         ? YahwehPerformanceV4.memberCardListPageSize
         : limit.clamp(1, YahwehPerformanceV4.adminExportBatchLimit);
 
     if (!forceRefresh) {
-      final instant = peekMembersSync(tenantId, limit: effectiveLimit);
+      final instant = peekMembersSync(churchId, limit: effectiveLimit);
       if (instant != null && instant.isNotEmpty) {
         unawaited(
           ChurchMembersLoadService.load(
@@ -167,6 +180,42 @@ abstract final class MemberCardDirectoryService {
         return instant;
       }
     }
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    final cacheKey =
+        ChurchMembersLoadService.cacheKey(churchId, effectiveLimit);
+
+    Future<List<MemberCardListEntry>> loadViaRepository() async {
+      final repo = await ChurchRepository.listCacheFirst(
+        module: ChurchRepository.membros,
+        churchIdHint: churchId,
+        limit: effectiveLimit,
+        firestoreCacheKey: cacheKey,
+      );
+      if (repo.error != null && repo.error!.trim().isNotEmpty && repo.items.isEmpty) {
+        throw Exception(repo.error);
+      }
+      if (repo.items.isNotEmpty) {
+        return _docsToEntries(repo.items, effectiveLimit);
+      }
+      return const [];
+    }
+
+    List<MemberCardListEntry> fromRepo = const [];
+    try {
+      fromRepo = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              loadViaRepository,
+              maxAttempts: 4,
+            )
+          : await loadViaRepository();
+    } catch (e) {
+      debugPrint('MemberCardDirectoryService listCacheFirst: $e');
+    }
+    if (fromRepo.isNotEmpty) return fromRepo;
 
     final result = await ChurchMembersLoadService.load(
       seedTenantId: churchId,
@@ -188,7 +237,7 @@ abstract final class MemberCardDirectoryService {
 
     final err = result.softError?.trim();
     if (err != null && err.isNotEmpty) {
-      throw Exception(err);
+      throw Exception('$err\nPath: igrejas/$churchId/membros');
     }
 
     return const [];
