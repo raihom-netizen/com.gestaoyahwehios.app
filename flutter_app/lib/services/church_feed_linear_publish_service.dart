@@ -24,6 +24,10 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchFeedLinearPublishService {
   ChurchFeedLinearPublishService._();
 
+  static void _report(void Function(double progress)? cb, double value) {
+    cb?.call(value.clamp(0.0, 1.0));
+  }
+
   static Future<String> publishAviso({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -126,10 +130,13 @@ abstract final class ChurchFeedLinearPublishService {
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
+    _report(onUploadProgress, 0.16);
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await FastMediaPublishBootstrap.warmForFeedPublish()
-          .timeout(const Duration(seconds: 28));
+      await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
+        Duration(seconds: kIsWeb ? 12 : 22),
+      );
     }
+    _report(onUploadProgress, 0.18);
 
     if (isEvento) {
       ChurchPublishFlowLog.eventoStart();
@@ -150,6 +157,7 @@ abstract final class ChurchFeedLinearPublishService {
 
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
+      _report(onUploadProgress, 0.20);
       final slots = await ChurchFeedMediaStorageFields.uploadPhotoSlots(
         tenantId: churchId,
         postType: postType,
@@ -157,6 +165,9 @@ abstract final class ChurchFeedLinearPublishService {
         startSlotIndex: startSlotIndex,
         newImagesBytes: newImagesBytes,
         newImagePaths: newImagePaths,
+        onBatchProgress: (batchP) {
+          _report(onUploadProgress, 0.20 + batchP * 0.52);
+        },
       );
       for (final slot in slots) {
         uploadedPaths.add(slot.fullPath);
@@ -184,6 +195,7 @@ abstract final class ChurchFeedLinearPublishService {
         }
       }
       ChurchPublishFlowLog.uploadOk('$postType $docId (${slots.length} fotos)');
+      _report(onUploadProgress, 0.74);
       if (alignedThumbUrls.isEmpty) {
         for (final tp in alignedThumbPaths) {
           final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);
@@ -249,6 +261,7 @@ abstract final class ChurchFeedLinearPublishService {
     payload['status'] = 'publicado';
     payload['publicSite'] = publicSite;
 
+    _report(onUploadProgress, 0.78);
     await PublicationEngine.saveStrictPublished(
       docRef: docRef,
       tenantId: churchId,
@@ -262,6 +275,7 @@ abstract final class ChurchFeedLinearPublishService {
     } else {
       await AvisosPublishVerificationService.verifyDocumentExists(docRef);
     }
+    _report(onUploadProgress, 0.88);
 
     if (isEvento && syncAgenda) {
       final start = eventStartAt ?? _startAtFromPayload(payload);
@@ -290,6 +304,7 @@ abstract final class ChurchFeedLinearPublishService {
       }
     }
 
+    _report(onUploadProgress, 0.92);
     await PublicationEngine.runDistributionAwait(
       tenantId: churchId,
       kind: kind,
@@ -311,6 +326,8 @@ abstract final class ChurchFeedLinearPublishService {
       calendarStatus: (isEvento && syncAgenda) || syncCalendar ? 'ok' : 'skipped',
       notificationStatus: 'cf_on_create',
     );
+
+    _report(onUploadProgress, 1.0);
 
     if (isEvento) {
       ChurchPublishFlowLog.eventoFirestoreOk();

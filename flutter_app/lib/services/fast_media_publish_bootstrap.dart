@@ -27,9 +27,9 @@ abstract final class FastMediaPublishBootstrap {
 
   static Future<void> _runWarm() async {
     await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true)
-        .timeout(const Duration(seconds: 60));
+        .timeout(const Duration(seconds: 20));
     await FeedPostMediaUpload.warmAuthToken()
-        .timeout(const Duration(seconds: 30));
+        .timeout(const Duration(seconds: 12));
   }
 
   static void resetSessionWarm() {

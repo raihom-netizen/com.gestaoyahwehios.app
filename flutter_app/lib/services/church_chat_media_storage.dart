@@ -14,6 +14,47 @@ abstract final class ChurchChatMediaStorage {
 
   static const int _maxAttempts = 3;
 
+  /// Caminho rápido (WhatsApp): só `putData` + progresso — **sem** `getDownloadURL` nem bootstrap pesado.
+  static Future<void> putBytesFast({
+    required String storagePath,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(double progress)? onProgress,
+  }) async {
+    await ensureFirebaseCore(requireAuth: true);
+    Object? last;
+    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
+      try {
+        if (attempt > 1) {
+          await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
+        }
+        final ref = firebaseStorageRef(storagePath);
+        final ct = StorageUploadMetadata.contentTypeForPut(
+          contentType: contentType,
+          storagePath: storagePath,
+        );
+        final task = ref.putData(
+          bytes,
+          SettableMetadata(
+            contentType: ct,
+            cacheControl: StorageUploadMetadata.cacheControl,
+          ),
+        );
+        await awaitStorageUploadTask(
+          task,
+          payloadBytes: bytes.length,
+          onProgress: onProgress,
+        );
+        onProgress?.call(1.0);
+        return;
+      } catch (e) {
+        last = e;
+        if (!isRetryableUploadError(e) || attempt >= _maxAttempts) break;
+      }
+    }
+    throw last ?? StateError('Falha ao enviar ficheiro no chat.');
+  }
+
   static Future<void> putBytes({
     required String storagePath,
     required Uint8List bytes,

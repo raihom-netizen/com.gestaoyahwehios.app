@@ -46,8 +46,10 @@ abstract final class AvisoPublishService {
   static Future<void> prepareFullPipeline({
     String logLabel = 'aviso_prepare',
     bool withPhotos = true,
+    void Function(double progress)? onProgress,
   }) async {
     Object? last;
+    onProgress?.call(0.06);
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
@@ -59,14 +61,18 @@ abstract final class AvisoPublishService {
           logLabel: logLabel,
           strict: true,
         );
+        onProgress?.call(0.09);
         if (kIsWeb) {
           await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
         }
         if (withPhotos) {
-          await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
-                const Duration(seconds: 45),
-              );
+          if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+            await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
+                  Duration(seconds: kIsWeb ? 18 : 45),
+                );
+          }
         }
+        onProgress?.call(0.14);
         return;
       } catch (e, st) {
         last = e;
@@ -114,6 +120,9 @@ abstract final class AvisoPublishService {
     await prepareFullPipeline(
       logLabel: hasNewPhotos ? 'aviso_publish_photos' : 'aviso_publish',
       withPhotos: hasNewPhotos,
+      onProgress: onUploadProgress == null
+          ? null
+          : (p) => onUploadProgress!(p.clamp(0.06, 0.14)),
     );
 
     try {

@@ -46,8 +46,10 @@ abstract final class EventoPublishService {
   static Future<void> prepareFullPipeline({
     String logLabel = 'evento_prepare',
     bool withMedia = true,
+    void Function(double progress)? onProgress,
   }) async {
     Object? last;
+    onProgress?.call(0.06);
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
@@ -59,14 +61,18 @@ abstract final class EventoPublishService {
           logLabel: logLabel,
           strict: true,
         );
+        onProgress?.call(0.09);
         if (kIsWeb) {
           await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
         }
         if (withMedia) {
-          await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
-                const Duration(seconds: 45),
-              );
+          if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+            await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
+                  Duration(seconds: kIsWeb ? 18 : 45),
+                );
+          }
         }
+        onProgress?.call(0.14);
         return;
       } catch (e, st) {
         last = e;
@@ -122,6 +128,9 @@ abstract final class EventoPublishService {
           ? 'evento_publish_media'
           : 'evento_publish',
       withMedia: hasNewPhotos || localVideo.isNotEmpty || hasVideo,
+      onProgress: onUploadProgress == null
+          ? null
+          : (p) => onUploadProgress!(p.clamp(0.06, 0.14)),
     );
 
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
@@ -134,7 +143,9 @@ abstract final class EventoPublishService {
         tenantId: churchId,
         eventPostDocId: docRef.id,
         videoSlotIndex: 0,
-        onUploadProgress: onUploadProgress,
+        onUploadProgress: onUploadProgress == null
+            ? null
+            : (p) => onUploadProgress!(0.14 + p.clamp(0.0, 1.0) * 0.24),
       );
       if (uploaded == null) {
         throw StateError('Não foi possível enviar o vídeo do evento.');

@@ -3759,12 +3759,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         saveLabel: 'A gravar evento…',
         distributeLabel: 'A notificar e publicar no site…',
         action: (reportProgress) async {
-          await EventoPublishService.prepareFullPipeline(
-            logLabel: hasNewPhotos || localVideoPath != null
-                ? 'evento_ui_publish_media'
-                : 'evento_ui_publish',
-            withMedia: hasNewPhotos || localVideoPath != null || hasVideo,
-          );
           await EventoStrictPublishService.publish(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -4854,10 +4848,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         saveLabel: 'A gravar aviso…',
         distributeLabel: 'A notificar e publicar no site…',
         action: (reportProgress) async {
-          await AvisoPublishService.prepareFullPipeline(
-            logLabel: hasNewPhotos ? 'aviso_ui_publish_photos' : 'aviso_ui_publish',
-            withPhotos: hasNewPhotos,
-          );
           await YahwehCentralEngineService.executeInstantSaveAviso(
             docRef: docRef,
             tenantId: publishTenantId,

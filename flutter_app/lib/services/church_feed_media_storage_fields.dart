@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
@@ -24,17 +25,21 @@ abstract final class ChurchFeedMediaStorageFields {
     required int startSlotIndex,
     List<Uint8List>? newImagesBytes,
     List<String>? newImagePaths,
+    void Function(double batchProgress01)? onBatchProgress,
   }) async {
     if (kIsWeb) {
       final images = newImagesBytes ?? const <Uint8List>[];
       if (images.isEmpty) return const [];
-      await FastMediaPublishBootstrap.warmForFeedPublish()
-          .timeout(const Duration(seconds: 20));
+      if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+        await FastMediaPublishBootstrap.warmForFeedPublish()
+            .timeout(const Duration(seconds: 12));
+      }
       final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, images.length);
       return FeedPostMediaUpload.uploadParallel<FeedPhotoSlotResult>(
         count: images.length,
         maxConcurrent: maxConc,
         progressLabel: 'A enviar imagens…',
+        onBatchProgress: onBatchProgress,
         uploadOne: (i, report) => ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
           tenantId: tenantId,
           postType: postType,
@@ -52,13 +57,16 @@ abstract final class ChurchFeedMediaStorageFields {
             .toList() ??
         const <String>[];
     if (paths.isEmpty) return const [];
-    await FastMediaPublishBootstrap.warmForFeedPublish()
-        .timeout(const Duration(seconds: 28));
+    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      await FastMediaPublishBootstrap.warmForFeedPublish()
+          .timeout(const Duration(seconds: 18));
+    }
     final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, paths.length);
     return FeedPostMediaUpload.uploadParallel<FeedPhotoSlotResult>(
       count: paths.length,
       maxConcurrent: maxConc,
       progressLabel: 'A enviar imagens…',
+      onBatchProgress: onBatchProgress,
       uploadOne: (i, report) async {
         final localPath = paths[i];
         final f = File(localPath);

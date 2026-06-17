@@ -5,7 +5,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
@@ -165,10 +164,10 @@ abstract final class ChurchChatMediaSendService {
       fileSize = prepared.fullBytes.length;
       onProgress?.call(0.2);
 
-      await EcoFireStorageUpload.putData(
+      await ChurchChatMediaStorage.putBytesFast(
         storagePath: storagePath,
         bytes: prepared.fullBytes,
-        mimeType: prepared.fullMime,
+        contentType: prepared.fullMime,
         onProgress: (t) => _mapProgress(onProgress, 0.2, 0.82, t),
       );
 
@@ -179,12 +178,12 @@ abstract final class ChurchChatMediaSendService {
           timestampMs: ts,
         );
         try {
-          await EcoFireStorageUpload.putData(
+          await ChurchChatMediaStorage.putBytesFast(
             storagePath: thumbStoragePath,
             bytes: prepared.thumbBytes!,
-            mimeType: 'image/webp',
+            contentType: 'image/webp',
             onProgress: (t) => _mapProgress(onProgress, 0.82, 0.88, t),
-          ).timeout(const Duration(seconds: 20));
+          ).timeout(const Duration(seconds: 15));
         } catch (_) {
           thumbStoragePath = null;
         }
@@ -217,12 +216,12 @@ abstract final class ChurchChatMediaSendService {
           timestampMs: ts,
         );
         try {
-          await EcoFireStorageUpload.putData(
+          await ChurchChatMediaStorage.putBytesFast(
             storagePath: thumbStoragePath,
             bytes: prepared.thumbnailBytes!,
-            mimeType: 'image/webp',
+            contentType: 'image/webp',
             onProgress: (t) => _mapProgress(onProgress, 0.82, 0.88, t),
-          ).timeout(const Duration(seconds: 20));
+          ).timeout(const Duration(seconds: 15));
         } catch (_) {
           thumbStoragePath = null;
         }
@@ -232,10 +231,11 @@ abstract final class ChurchChatMediaSendService {
           ? uploadBytes
           : Uint8List.fromList(uploadBytes);
       fileSize = u8.length;
-      await EcoFireStorageUpload.putData(
+      await ChurchChatMediaStorage.putBytesFast(
         storagePath: storagePath,
         bytes: u8,
-        mimeType: pending.mime.isNotEmpty ? pending.mime : 'application/octet-stream',
+        contentType:
+            pending.mime.isNotEmpty ? pending.mime : 'application/octet-stream',
         onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
       );
     } else if (uploadPath.isNotEmpty) {

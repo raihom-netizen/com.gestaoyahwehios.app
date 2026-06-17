@@ -419,20 +419,23 @@ class ChurchChatService {
       messageType: messageType,
     );
     final tRef = threadRef(tenantId, threadId);
-    await runFirestorePublishWithRecovery(
-      () => FirestoreWebGuard.runChatWriteWithRecovery(() async {
-        if (kIsWeb) {
-          // Web: gravações sequenciais — menos INTERNAL ASSERTION vs batch + listeners.
-          await msgRef.set(messageData);
-          await tRef.set(threadPatch, SetOptions(merge: true));
-        } else {
-          final batch = _db.batch();
-          batch.set(msgRef, messageData);
-          batch.set(tRef, threadPatch, SetOptions(merge: true));
-          await batch.commit();
-        }
-      }),
-    );
+    Future<void> commit() => FirestoreWebGuard.runChatWriteWithRecovery(() async {
+          if (kIsWeb) {
+            // Web: gravações sequenciais — menos INTERNAL ASSERTION vs batch + listeners.
+            await msgRef.set(messageData);
+            await tRef.set(threadPatch, SetOptions(merge: true));
+          } else {
+            final batch = _db.batch();
+            batch.set(msgRef, messageData);
+            batch.set(tRef, threadPatch, SetOptions(merge: true));
+            await batch.commit();
+          }
+        });
+    if (kIsWeb) {
+      await commit();
+    } else {
+      await runFirestorePublishWithRecovery(commit);
+    }
     unawaited(mergeDmThreadIndexIfNeeded(tenantId, threadId));
     unawaited(
       ChurchChatLocalConversations.recordFromOutbound(
@@ -2345,9 +2348,7 @@ class ChurchChatService {
       await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
     }
     final resolvedTenant =
-        await ChatPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: tenantId,
-    );
+        ChurchPublishContext.churchIdForPublish(tenantId.trim());
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: resolvedTenant,
       threadId: threadId,

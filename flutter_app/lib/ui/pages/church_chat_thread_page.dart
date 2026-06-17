@@ -85,6 +85,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
+import 'package:gestao_yahweh/core/chat_engine/chat_local_cache_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class _ReplyDraft {
@@ -293,6 +294,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _ctrl.addListener(_onComposeTyping);
     _msgSearchCtrl.addListener(_onMessageSearchChanged);
     _bindChatFirestoreStreams(_tid);
+    unawaited(_hydrateMessagesFromLocalCache());
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
     unawaited(_bootstrapThreadUploads());
@@ -305,8 +307,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ),
       );
     });
-    _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 3), () {
+    _messagesPrimeFallbackTimer = Timer(const Duration(milliseconds: 1200), () {
       if (!mounted) return;
+      if (!_messagesStreamReady) {
+        setState(() => _messagesStreamReady = true);
+      }
       if (_latestRecentDocs.isEmpty) {
         unawaited(_primeRecentMessagesFromCacheOrServer());
       }
@@ -457,6 +462,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
+  /// Cache local — conversa abre com histórico antes do 1.º snapshot Firestore (web/mobile).
+  Future<void> _hydrateMessagesFromLocalCache() async {
+    try {
+      final cached = await ChatLocalCacheEngine.loadMessagesPage(
+        churchId: _tid,
+        chatId: widget.threadId,
+      );
+      if (!mounted || cached.isEmpty) return;
+      if (_latestRecentDocs.isNotEmpty) return;
+      setState(() {
+        _latestRecentDocs = cached;
+        _messagesStreamReady = true;
+      });
+    } catch (_) {}
+  }
+
   /// Controle Total: `.get()` com cache/retry — não culpa a rede do utilizador.
   Future<void> _primeRecentMessagesFromCacheOrServer({bool silent = false}) async {
     if (_messagesPrimeInFlight) return;
@@ -473,7 +494,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (!mounted) return;
           if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
           _prunePendingOutboundMatchedByStream(docs);
-          setState(() => _latestRecentDocs = docs);
+          setState(() {
+            _latestRecentDocs = docs;
+            _messagesStreamReady = true;
+          });
           return;
         } catch (_) {
           if (round < rounds - 1) {
@@ -498,6 +522,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     } finally {
       _messagesPrimeInFlight = false;
     }
+  }
+
+  String _deliveryStatusForBubble(Map<String, dynamic> m) {
+    if (ChurchChatMessageFields.uploadCompleted(m)) {
+      return ChatThreadOperations.deliverySent;
+    }
+    final st = ChurchChatMessageFields.status(m);
+    if (st == ChatThreadOperations.deliverySent ||
+        st == 'delivered' ||
+        st == ChatThreadOperations.deliveryRead) {
+      return st;
+    }
+    if (ChurchChatMessageFields.storagePath(m).isNotEmpty &&
+        !ChurchChatMessageFields.isUploadInProgress(m)) {
+      return ChatThreadOperations.deliverySent;
+    }
+    if (ChurchChatMessageFields.storagePath(m).isNotEmpty &&
+        ChurchChatMessageFields.storageVerified(m)) {
+      return ChatThreadOperations.deliverySent;
+    }
+    return st;
   }
 
   void _onScrollPagination() {
@@ -3830,12 +3875,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         Timestamp? ct;
                         if (createdRaw is Timestamp) ct = createdRaw;
                         final ps = _threadPeerSeenAt;
-                        final dsRaw = ChurchChatMessageFields.uploadCompleted(m)
-                            ? ChatThreadOperations.deliverySent
-                            : (ChurchChatMessageFields.storagePath(m).isNotEmpty &&
-                                    ChurchChatMessageFields.storageVerified(m))
-                                ? ChatThreadOperations.deliverySent
-                                : ChurchChatMessageFields.status(m);
+                        final dsRaw = _deliveryStatusForBubble(m);
                         final peerRead = dsRaw ==
                                 ChatThreadOperations.deliveryRead ||
                             (ps != null &&

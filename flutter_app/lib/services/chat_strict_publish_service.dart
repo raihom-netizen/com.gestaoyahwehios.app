@@ -22,9 +22,11 @@ abstract final class ChatStrictPublishService {
     bool skipStorageVerify = false,
     bool skipServerRecheck = false,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_media_finalize');
     if (!skipStorageVerify) {
+      await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_media_finalize');
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    } else {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded().catchError((_) {});
     }
 
     final resolvedTenant = ChurchPublishContext.churchIdForPublish(
@@ -108,6 +110,8 @@ abstract final class ChatStrictPublishService {
             : ChurchChatMessageFields.fileName(data),
         thumbStoragePath: thumb.isEmpty ? null : thumb,
         fileSize: ChurchChatMessageFields.fileSize(data),
+        skipStorageVerify: true,
+        skipServerRecheck: true,
       );
       return true;
     } catch (_) {
