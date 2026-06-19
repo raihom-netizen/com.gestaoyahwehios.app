@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Devolve o maior CFBundleVersion já enviado à App Store Connect (TestFlight/App Store).
-# Saída: número inteiro em stdout; exit 0. Em falha: imprime 0 e exit 1.
+# Saída: número inteiro em stdout; exit 0. Em falha total: imprime floor do repo ou 0 e exit 1.
 set -euo pipefail
 
 APP_ID="${APP_STORE_APPLE_ID:-}"
@@ -50,29 +50,56 @@ _asc_query() {
   echo "$raw"
 }
 
-LATEST=""
-if LATEST="$(_asc_query get-latest-testflight-build-number)"; then
-  echo "ASC (TestFlight): último build number = $LATEST" >&2
-elif LATEST="$(_asc_query get-latest-app-store-build-number)"; then
-  echo "ASC (App Store): último build number = $LATEST" >&2
-else
-  echo "AVISO: não foi possível ler último build number na ASC (rede/API)." >&2
-  echo 0
-  exit 1
-fi
+_read_floor_from_repo() {
+  local ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+  bash "$ROOT/scripts/codemagic_ios_read_asc_floor.sh" 2>/dev/null || echo 0
+}
 
-FLOOR=0
-if [[ -f "${CM_BUILD_DIR:-}/flutter_app/ios/asc_build_number_floor.txt" ]]; then
-  FLOOR="$(tr -d '\r\n[:space:]' < "${CM_BUILD_DIR}/flutter_app/ios/asc_build_number_floor.txt" 2>/dev/null || echo 0)"
-elif [[ -f "${FCI_BUILD_DIR:-}/flutter_app/ios/asc_build_number_floor.txt" ]]; then
-  FLOOR="$(tr -d '\r\n[:space:]' < "${FCI_BUILD_DIR}/flutter_app/ios/asc_build_number_floor.txt" 2>/dev/null || echo 0)"
-fi
+LATEST=0
+for attempt in 1 2 3; do
+  TF=0
+  AS=0
+  if TF="$(_asc_query get-latest-testflight-build-number)"; then
+    :
+  else
+    TF=0
+  fi
+  if AS="$(_asc_query get-latest-app-store-build-number)"; then
+    :
+  else
+    AS=0
+  fi
+  if [[ "$TF" -gt "$LATEST" ]]; then LATEST="$TF"; fi
+  if [[ "$AS" -gt "$LATEST" ]]; then LATEST="$AS"; fi
+  if [[ "$LATEST" -gt 0 ]]; then
+    break
+  fi
+  if [[ "$attempt" -lt 3 ]]; then
+    echo "ASC: tentativa $attempt sem resposta — retry em 3s..." >&2
+    sleep 3
+  fi
+done
+
+FLOOR="$(_read_floor_from_repo)"
 case "$FLOOR" in
   ''|*[!0-9]*) FLOOR=0 ;;
 esac
+
 if [[ "$FLOOR" -gt "$LATEST" ]]; then
   echo "ASC: usando floor do repo ($FLOOR) > API ($LATEST)" >&2
   LATEST="$FLOOR"
 fi
 
+if [[ "$LATEST" -le 0 ]]; then
+  if [[ "$FLOOR" -gt 0 ]]; then
+    echo "ASC: API indisponível — fallback floor repo=$FLOOR" >&2
+    echo "$FLOOR"
+    exit 0
+  fi
+  echo "AVISO: não foi possível ler último build number na ASC (rede/API)." >&2
+  echo 0
+  exit 1
+fi
+
+echo "ASC: último build conhecido = $LATEST (floor_repo=$FLOOR)" >&2
 echo "$LATEST"

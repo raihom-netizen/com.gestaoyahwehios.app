@@ -139,8 +139,14 @@ if [[ -n "$IPA_BUILD" && -n "${APP_STORE_APPLE_ID:-}" ]]; then
       echo ""
       echo "       NÃO use «Retry» só no passo Publishing — o binário é o mesmo."
       echo "       Na Codemagic: Start new build (workflow completo) para novo CFBundleVersion."
-      echo "       Após upload OK, atualize flutter_app/ios/asc_build_number_floor.txt"
+      echo "       Após upload OK, commit flutter_app/ios/asc_build_number_floor.txt = $IPA_BUILD"
       echo ""
+      exit 1
+    fi
+    if [[ "$LATEST_ASC" -gt 0 && "$IPA_BUILD" -eq "$LATEST_ASC" ]]; then
+      echo ""
+      echo "ERRO 90189 (evitado): CFBundleVersion=$IPA_BUILD já existe na App Store Connect."
+      echo "       Start new build — nunca Retry só em Publishing."
       exit 1
     fi
     EXPECTED=""

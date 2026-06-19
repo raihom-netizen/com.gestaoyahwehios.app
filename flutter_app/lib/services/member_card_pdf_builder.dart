@@ -4,13 +4,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
+import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/member_card_load_service.dart';
+import 'package:gestao_yahweh/services/member_card_pdf_raster_service.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_a4_cut_guides.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pdf_fonts.dart';
 import 'package:gestao_yahweh/ui/pdf/carteirinha_pvc_marks.dart';
-import 'package:gestao_yahweh/ui/pdf/member_card_cnh_pdf_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
@@ -24,14 +25,14 @@ import 'package:pdf/widgets.dart' as pw;
 
 /// Layout de impressão da carteirinha em lote.
 enum MemberCardPdfLayout {
-  /// Várias frentes/versos por folha A4 com linhas de recorte.
+  /// Várias frentes por folha A4 com linhas de recorte (mesmo visual do cartão digital).
   a4GridCut,
 
-  /// Tamanho real CNH digital — uma carteira por página com marcas de corte.
+  /// Tamanho real CR80 — uma carteira por página com marcas de corte.
   realSize,
 }
 
-/// Dados resolvidos de um membro para montar frente + verso no PDF.
+/// Dados resolvidos de um membro para montar frente no PDF.
 class MemberCardPdfSlice {
   const MemberCardPdfSlice({
     required this.memberId,
@@ -55,13 +56,16 @@ abstract final class MemberCardPdfBuilder {
   static const int _gridRows = 3;
   static const int _cardsPerA4 = _gridCols * _gridRows;
 
+  static double get cardWidthPt => MemberCardCnhLayout.cardWidthPt;
+  static double get cardHeightPt => MemberCardCnhLayout.cardHeightPt;
+
   static Future<Uint8List?> _photoBytesForMember(Map<String, dynamic> member) {
     final url = imageUrlFromMap(member);
     if (url.isEmpty) return Future<Uint8List?>.value(null);
     return ImageHelper.getBytesFromUrlOrNull(
       url,
-      timeout: const Duration(seconds: 8),
-    ).timeout(const Duration(seconds: 9), onTimeout: () => null);
+      timeout: const Duration(seconds: 6),
+    ).timeout(const Duration(seconds: 7), onTimeout: () => null);
   }
 
   static Future<Uint8List?> _signatureBytesForMember(
@@ -73,8 +77,8 @@ abstract final class MemberCardPdfBuilder {
     try {
       final raw = await ImageHelper.getBytesFromUrlOrNull(
         url,
-        timeout: const Duration(seconds: 8),
-      ).timeout(const Duration(seconds: 9), onTimeout: () => null);
+        timeout: const Duration(seconds: 6),
+      ).timeout(const Duration(seconds: 7), onTimeout: () => null);
       if (raw == null || raw.length < 33) return null;
       return kIsWeb
           ? carteirinhaPdfSignaturePipelineSync(raw)
@@ -87,11 +91,6 @@ abstract final class MemberCardPdfBuilder {
   static Uint8List? _resizeForEmbed(Uint8List? raw, {int maxSide = 220}) {
     if (raw == null || raw.length < 33) return null;
     return carteirinhaPdfResizeBytesForEmbed({'b': raw, 'm': maxSide, 'q': 72});
-  }
-
-  static pw.ImageProvider? _img(Uint8List? b) {
-    if (b == null || b.length < 33) return null;
-    return pw.MemoryImage(b);
   }
 
   static bool _memberSigned(Map<String, dynamic> member) {
@@ -145,7 +144,7 @@ abstract final class MemberCardPdfBuilder {
                 churchIdHint: churchId,
                 memberId: id,
               ),
-            ).timeout(const Duration(seconds: 12));
+            ).timeout(const Duration(seconds: 10));
             return MapEntry(id, payload);
           } catch (_) {
             return MapEntry<String, MemberCardLoadPayload?>(id, null);
@@ -176,7 +175,7 @@ abstract final class MemberCardPdfBuilder {
           if (member == null) return;
           try {
             final photoRaw = await _photoBytesForMember(member);
-            photoById[id] = _resizeForEmbed(photoRaw, maxSide: 240);
+            photoById[id] = _resizeForEmbed(photoRaw, maxSide: 256);
           } catch (_) {
             photoById[id] = null;
           }
@@ -224,15 +223,20 @@ abstract final class MemberCardPdfBuilder {
     return out;
   }
 
-  static pw.Widget _cnhCard(
-    MemberCardPdfSlice s, {
-    pw.ImageProvider? logo,
-  }) {
-    return MemberCardCnhPdfWidget(
-      data: s.view,
-      photoImage: _img(s.photoBytes),
-      logoImage: logo,
-      signatureImage: _img(s.signatureBytes),
+  static pw.Widget _cardFromRaster(Uint8List pngBytes) {
+    return pw.SizedBox(
+      width: cardWidthPt,
+      height: cardHeightPt,
+      child: pw.ClipRRect(
+        horizontalRadius: 10,
+        verticalRadius: 10,
+        child: pw.Image(
+          pw.MemoryImage(pngBytes),
+          width: cardWidthPt,
+          height: cardHeightPt,
+          fit: pw.BoxFit.fill,
+        ),
+      ),
     );
   }
 
@@ -241,8 +245,8 @@ abstract final class MemberCardPdfBuilder {
     required int cols,
     required int rows,
   }) {
-    final cw = MemberCardCnhPdfWidget.cardWidthPt;
-    final ch = MemberCardCnhPdfWidget.cardHeightPt;
+    final cw = cardWidthPt;
+    final ch = cardHeightPt;
     final pageW = PdfPageFormat.a4.width - 28;
     final pageH = PdfPageFormat.a4.height - 28;
     final gapX = math.max(4.0, (pageW - cols * cw) / (cols + 1));
@@ -294,36 +298,36 @@ abstract final class MemberCardPdfBuilder {
           pageFormat: PdfPageFormat.a4,
           margin: const pw.EdgeInsets.all(14),
           build: (ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-          children: [
-            if (i == 0)
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 8),
-                child: pw.Text(
-                  sectionTitle,
-                  style: pw.TextStyle(
-                    fontSize: 11,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.grey800,
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              if (i == 0)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(bottom: 8),
+                  child: pw.Text(
+                    sectionTitle,
+                    style: pw.TextStyle(
+                      fontSize: 11,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.grey800,
+                    ),
                   ),
                 ),
+              pw.Expanded(
+                child: CarteirinhaA4CutGuides.overlayOnGrid(
+                  cols: _gridCols,
+                  rows: _gridRows,
+                  child: _grid(cards: chunk, cols: _gridCols, rows: _gridRows),
+                ),
               ),
-            pw.Expanded(
-              child: CarteirinhaA4CutGuides.overlayOnGrid(
-                cols: _gridCols,
-                rows: _gridRows,
-                child: _grid(cards: chunk, cols: _gridCols, rows: _gridRows),
+              pw.SizedBox(height: 4),
+              pw.Text(
+                'Folha ${(i ~/ _cardsPerA4) + 1} · recorte nas linhas pontilhadas',
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600),
               ),
-            ),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              'Folha ${(i ~/ _cardsPerA4) + 1} · recorte nas linhas pontilhadas',
-              textAlign: pw.TextAlign.center,
-              style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       );
     }
   }
@@ -334,81 +338,95 @@ abstract final class MemberCardPdfBuilder {
     required List<MemberCardPdfSlice> slices,
     required MemberCardPdfLayout layout,
     required ReportPdfBranding branding,
+    void Function(int done, int total)? onRasterProgress,
   }) async {
     if (slices.isEmpty) {
       throw StateError('Nenhum membro para gerar PDF.');
     }
 
+    final logoBytes = _resizeForEmbed(branding.logoBytes, maxSide: 200);
+
+    final rasters = await MemberCardPdfRasterService.captureBatch(
+      slices: slices,
+      logoBytes: logoBytes,
+      parallel: slices.length == 1 ? 1 : 3,
+      onProgress: onRasterProgress,
+    );
+
+    final cards = <pw.Widget>[];
+    for (var i = 0; i < slices.length; i++) {
+      final png = rasters[i];
+      if (png != null && png.length > 64) {
+        cards.add(_cardFromRaster(png));
+      } else {
+        debugPrint(
+          'MemberCardPdfBuilder: raster falhou ${slices[i].memberId}',
+        );
+      }
+    }
+    if (cards.isEmpty) {
+      throw StateError(
+        'Não foi possível rasterizar os cartões. Tente de novo com conexão estável.',
+      );
+    }
+
     final theme = await CarteirinhaPdfFonts.loadThemeData();
     final doc = theme != null ? pw.Document(theme: theme) : pw.Document();
-    final logoBytes = _resizeForEmbed(branding.logoBytes, maxSide: 120);
-    final logo = _img(logoBytes);
-    final accent = branding.accent;
     final churchName = branding.churchName.isNotEmpty
         ? branding.churchName
         : (tenant['nome'] ?? tenant['name'] ?? 'Igreja').toString();
 
-    final emitted = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(36),
-        build: (ctx) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            if (logo != null)
-              pw.SizedBox(
-                width: 56,
-                height: 56,
-                child: pw.Image(logo, fit: pw.BoxFit.contain),
+    if (cards.length > 1) {
+      final emitted = DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
+      doc.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(36),
+          build: (ctx) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Carteirinhas de Membro',
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  fontWeight: pw.FontWeight.bold,
+                  color: branding.accent,
+                ),
               ),
-            pw.SizedBox(height: 12),
-            pw.Text(
-              'Carteirinhas de Membro',
-              style: pw.TextStyle(
-                fontSize: 22,
-                fontWeight: pw.FontWeight.bold,
-                color: accent,
+              pw.SizedBox(height: 6),
+              pw.Text(
+                churchName,
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
               ),
-            ),
-            pw.SizedBox(height: 6),
-            pw.Text(
-              churchName,
-              style: pw.TextStyle(
-                fontSize: 14,
-                fontWeight: pw.FontWeight.bold,
+              pw.SizedBox(height: 10),
+              pw.Text(
+                '${cards.length} membro(s) · visual idêntico ao cartão digital',
+                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
               ),
-            ),
-            pw.SizedBox(height: 10),
-            pw.Text(
-              '${slices.length} membro(s) · '
-              '${layout == MemberCardPdfLayout.a4GridCut ? 'A4 CNH digital (2×3)' : 'Tamanho real CNH digital'}',
-              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-            ),
-            pw.Text(
-              'Emitido em $emitted',
-              style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-            ),
-            pw.Spacer(),
-            pw.Text(
-              'Gestão YAHWEH — carteira membro padrão CNH digital com QR de validação.',
-              style: pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
-            ),
-          ],
+              pw.Text(
+                'Emitido em $emitted',
+                style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
+              ),
+              pw.Spacer(),
+              pw.Text(
+                'Gestão YAHWEH — recorte nas linhas pontilhadas (folhas seguintes).',
+                style: pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
-
-    final cards = slices
-        .map((s) => _cnhCard(s, logo: logo))
-        .toList();
+      );
+    }
 
     switch (layout) {
       case MemberCardPdfLayout.a4GridCut:
         _addGridPages(
           doc: doc,
           cards: cards,
-          sectionTitle: 'CNH DIGITAL — imprima e recorte',
+          sectionTitle: 'Cartão membro digital — imprimir e recortar',
         );
         break;
       case MemberCardPdfLayout.realSize:

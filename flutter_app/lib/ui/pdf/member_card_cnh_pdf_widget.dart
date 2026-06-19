@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -16,9 +17,9 @@ class MemberCardCnhPdfWidget extends pw.StatelessWidget {
   final pw.ImageProvider? logoImage;
   final pw.ImageProvider? signatureImage;
 
-  /// Portrait CNH (~54 × 86 mm).
-  static const double cardWidthPt = 153;
-  static const double cardHeightPt = 244;
+  /// Portrait CR80 (~54 × 86 mm) — ver [MemberCardCnhLayout].
+  static double get cardWidthPt => MemberCardCnhLayout.cardWidthPt;
+  static double get cardHeightPt => MemberCardCnhLayout.cardHeightPt;
 
   static final PdfColor _headerNavy = PdfColor.fromHex('#0D2C54');
   static final PdfColor _borderGreen = PdfColor.fromHex('#2E7D32');

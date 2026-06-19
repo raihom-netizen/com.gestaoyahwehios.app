@@ -32,7 +32,14 @@ class ChatAudioService {
     await stopRecording(send: false);
 
     final recorder = AudioRecorder();
-    if (!await recorder.hasPermission()) {
+    var permitted = await recorder.hasPermission();
+    if (!permitted) {
+      // Segunda tentativa — alguns devices Android pedem diálogo só após start.
+      try {
+        permitted = await recorder.hasPermission();
+      } catch (_) {}
+    }
+    if (!permitted) {
       await recorder.dispose();
       return null;
     }

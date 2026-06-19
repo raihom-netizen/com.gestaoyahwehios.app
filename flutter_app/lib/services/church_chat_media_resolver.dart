@@ -11,7 +11,7 @@ import 'package:gestao_yahweh/services/system_log_service.dart';
 abstract final class ChurchChatMediaResolver {
   ChurchChatMediaResolver._();
 
-  static const Duration mediaTimeout = Duration(seconds: 18);
+  static const Duration mediaTimeout = Duration(seconds: 12);
   static const int kMaxInlineDownloadBytes = 6 * 1024 * 1024;
 
   static final Map<String, _CachedUrl> _urlCache = {};
@@ -112,7 +112,7 @@ abstract final class ChurchChatMediaResolver {
       final data = await firebaseDefaultStorage
           .ref(path)
           .getData(maxBytes)
-          .timeout(const Duration(seconds: 35));
+          .timeout(const Duration(seconds: 14));
       if (data == null || data.isEmpty) return null;
       return Uint8List.fromList(data);
     } catch (_) {

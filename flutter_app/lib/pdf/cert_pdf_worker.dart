@@ -179,6 +179,7 @@ final Map<String, Uint8List?> _institutionalPastorSigRawCache =
 final Map<String, Uint8List?> _institutionalPastorSigOptCache =
     <String, Uint8List?>{};
 final Map<String, String> _signatureEnhanceModeByTenantCache = <String, String>{};
+bool _certPdfWebStorageAuthPrimed = false;
 Uint8List? _fontMontserratCache;
 Uint8List? _fontGreatVibesCache;
 Uint8List? _fontUnifrakturCache;
@@ -229,25 +230,24 @@ Future<Uint8List?> _fetchCertificateTemplateBackgroundBytes({
   if (_certificateBackgroundBytesCache.containsKey(cacheKey)) {
     return _certificateBackgroundBytesCache[cacheKey];
   }
-  if (kIsWeb) {
-    await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {}
-  }
-  for (final path
-      in ChurchStorageLayout.certificateTemplateBackgroundPaths(tid, stem)) {
-    try {
-      final b = await FirebaseStorage.instance
+  await _primeCertPdfWebStorageAuth();
+  final paths =
+      ChurchStorageLayout.certificateTemplateBackgroundPaths(tid, stem);
+  final chunks = await Future.wait(
+    paths.map(
+      (path) => FirebaseStorage.instance
           .ref(path)
-          .getData(12 * 1024 * 1024)
-          .timeout(const Duration(seconds: 28), onTimeout: () => null);
-      if (b != null && b.length > 64) {
-        final out = Uint8List.fromList(b);
-        _certificateBackgroundBytesCache[cacheKey] = out;
-        return out;
-      }
-    } catch (_) {}
+          .getData(4 * 1024 * 1024)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null)
+          .catchError((_) => null),
+    ),
+  );
+  for (final b in chunks) {
+    if (b != null && b.length > 64) {
+      final out = Uint8List.fromList(b);
+      _certificateBackgroundBytesCache[cacheKey] = out;
+      return out;
+    }
   }
   return null;
 }
@@ -271,24 +271,23 @@ Future<Uint8List?> _fetchInstitutionalPastorSignatureBytes(
   if (_institutionalPastorSigRawCache.containsKey(tid)) {
     return _institutionalPastorSigRawCache[tid];
   }
-  if (kIsWeb) {
-    await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {}
-  }
-  for (final path in ChurchStorageLayout.pastorSignatureConfigPaths(tid)) {
-    try {
-      final b = await FirebaseStorage.instance
+  await _primeCertPdfWebStorageAuth();
+  final paths = ChurchStorageLayout.pastorSignatureConfigPaths(tid);
+  final chunks = await Future.wait(
+    paths.map(
+      (path) => FirebaseStorage.instance
           .ref(path)
-          .getData(5 * 1024 * 1024)
-          .timeout(const Duration(seconds: 22), onTimeout: () => null);
-      if (b != null && b.length > 32) {
-        final out = Uint8List.fromList(b);
-        _institutionalPastorSigRawCache[tid] = out;
-        return out;
-      }
-    } catch (_) {}
+          .getData(2 * 1024 * 1024)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null)
+          .catchError((_) => null),
+    ),
+  );
+  for (final b in chunks) {
+    if (b != null && b.length > 32) {
+      final out = Uint8List.fromList(b);
+      _institutionalPastorSigRawCache[tid] = out;
+      return out;
+    }
   }
   _institutionalPastorSigRawCache[tid] = null;
   return null;
@@ -344,8 +343,97 @@ Future<void> _ensureAllCertPdfFonts() async {
 /// Pré-carrega fontes dos certificados (chamar ao abrir a tela — “Gerar PDF” fica mais rápido).
 Future<void> warmCertificatePdfFontAssets() => _ensureAllCertPdfFonts();
 
+Future<void> _primeCertPdfWebStorageAuth() async {
+  if (!kIsWeb || _certPdfWebStorageAuthPrimed) return;
+  _certPdfWebStorageAuthPrimed = true;
+  await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+  try {
+    await FirebaseAuth.instance.currentUser?.getIdToken();
+  } catch (_) {}
+}
+
+/// Pré-aquece logo, fundo, assinaturas e fontes — chamar ao abrir emissão ou ao marcar signatários.
+Future<void> warmCertificatePdfAssets({
+  required String tenantId,
+  required String visualTemplateId,
+  required List<String> logoFetchCandidates,
+  String logoUrlFallback = '',
+  String nomeIgreja = '',
+  List<CertPdfPipelineSignatory> signatories = const [],
+  bool includeInstitutionalPastorSignature = true,
+  bool useDigitalSignature = true,
+}) async {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return;
+  unawaited(_ensureAllCertPdfFonts());
+  unawaited(_resolveTenantSignatureEnhanceMode(tid));
+  final tpl = certificateVisualTemplateById(visualTemplateId.trim()) ??
+      kCertificateVisualTemplates.first;
+  final jobs = <Future<void>>[
+    _fetchCertificateTemplateBackgroundBytes(
+      tenantId: tid,
+      storageStem: tpl.storageStem,
+    ).then((_) {}),
+    _warmLogoBytesForCertificate(
+      tenantId: tid,
+      logoFetchCandidates: logoFetchCandidates,
+      logoUrlFallback: logoUrlFallback,
+      nomeIgreja: nomeIgreja,
+    ),
+  ];
+  if (useDigitalSignature) {
+    if (includeInstitutionalPastorSignature) {
+      jobs.add(_fetchInstitutionalPastorSignatureBytes(tid).then((_) {}));
+    }
+    for (final s in signatories) {
+      jobs.add(
+        _fetchSignatorySignatureBytes(
+          tenantId: tid,
+          memberId: s.memberId,
+          assinaturaUrlHint: s.assinaturaUrlHint,
+        ).then((_) {}),
+      );
+    }
+  }
+  try {
+    await Future.wait(jobs).timeout(
+      const Duration(seconds: 22),
+      onTimeout: () => <void>[],
+    );
+  } catch (_) {}
+}
+
+Future<void> _warmLogoBytesForCertificate({
+  required String tenantId,
+  required List<String> logoFetchCandidates,
+  String logoUrlFallback = '',
+  String nomeIgreja = '',
+}) async {
+  final logoUrls = logoFetchCandidates.isNotEmpty
+      ? logoFetchCandidates
+      : (isValidImageUrl(logoUrlFallback) ? [logoUrlFallback] : <String>[]);
+  if (logoUrls.isNotEmpty) {
+    await Future.wait(logoUrls.map(_fetchLogoBytesHighRes));
+    return;
+  }
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return;
+  Map<String, dynamic>? tenantHint;
+  if (nomeIgreja.trim().isNotEmpty) {
+    tenantHint = {'name': nomeIgreja.trim()};
+  }
+  final defaultUrl = await FirebaseStorageService.getChurchLogoDownloadUrl(
+    tid,
+    tenantData: tenantHint,
+  );
+  if (defaultUrl != null && defaultUrl.isNotEmpty) {
+    await _fetchLogoBytesHighRes(defaultUrl);
+  }
+  await _tryChurchLogoBytesDirectFromStorage(tid, churchNameHint: nomeIgreja);
+}
+
 Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
-  const logoTimeout = Duration(seconds: 10);
+  const logoTimeout = Duration(seconds: 5);
   final u = sanitizeImageUrl(rawUrl);
   final cacheKey = u.isNotEmpty ? u : rawUrl.trim();
   if (cacheKey.isNotEmpty && _logoBytesCache.containsKey(cacheKey)) {
@@ -490,7 +578,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
             .collection('membros')
             .doc(memberId)
             .get()
-            .timeout(const Duration(seconds: 14));
+            .timeout(const Duration(seconds: 6));
       } on TimeoutException {
         membroSnap = null;
       } catch (_) {
@@ -524,7 +612,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
           final refGs = FirebaseStorage.instance.refFromURL(raw);
           final b = await refGs
               .getData(2 * 1024 * 1024)
-              .timeout(const Duration(seconds: 14), onTimeout: () => null);
+              .timeout(const Duration(seconds: 6), onTimeout: () => null);
           if (b != null && b.length > 32) return Uint8List.fromList(b);
         } catch (_) {}
         return null;
@@ -541,7 +629,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
         final b = await FirebaseStorage.instance
             .ref(path)
             .getData(2 * 1024 * 1024)
-            .timeout(const Duration(seconds: 14), onTimeout: () => null);
+            .timeout(const Duration(seconds: 6), onTimeout: () => null);
         if (b != null && b.length > 32) return Uint8List.fromList(b);
       } catch (_) {}
       return null;
@@ -555,7 +643,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
       }
       try {
         final resolved = await freshFirebaseStorageDisplayUrl(raw)
-            .timeout(const Duration(seconds: 22), onTimeout: () => '');
+            .timeout(const Duration(seconds: 8), onTimeout: () => '');
         url = sanitizeImageUrl(resolved);
       } catch (_) {}
     }
@@ -575,7 +663,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
       bytes = await firebaseStorageBytesFromDownloadUrl(
         url,
         maxBytes: 2 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+      ).timeout(const Duration(seconds: 6), onTimeout: () => null);
     } catch (_) {}
     if (bytes == null || bytes.length < 32) {
       if (isFirebaseStorageHttpUrl(url)) {
@@ -589,7 +677,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
                 bytes = await firebaseStorageBytesFromDownloadUrl(
                   u2,
                   maxBytes: 2 * 1024 * 1024,
-                ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+                ).timeout(const Duration(seconds: 6), onTimeout: () => null);
               } catch (_) {}
             }
           }
@@ -603,7 +691,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
               Uri.parse(url),
               headers: const {'Accept': 'image/*,*/*;q=0.8'},
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 6));
         if (resp.statusCode == 200 && resp.bodyBytes.length > 32) {
           bytes = Uint8List.fromList(resp.bodyBytes);
         }
@@ -656,7 +744,8 @@ Future<String> _resolveTenantSignatureEnhanceMode(String tenantId) async {
     final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('config')
         .doc('carteira')
-        .get();
+        .get()
+        .timeout(const Duration(seconds: 5));
     final mode = normalizeSignatureEnhanceMode(
       (snap.data()?['signatureEnhanceMode'] ?? '').toString(),
     );
@@ -704,14 +793,10 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   }
 
   report('Processando certificado 1 de 1 — carregando fontes e mídia…', 0.06);
-  if (kIsWeb) {
-    await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {}
-  }
+  await _primeCertPdfWebStorageAuth();
 
   final fontsFuture = _ensureAllCertPdfFonts();
+  final enhanceModeFuture = _resolveTenantSignatureEnhanceMode(p.tenantId);
 
   final tpl = certificateVisualTemplateById(p.visualTemplateId.trim()) ??
       kCertificateVisualTemplates.first;
@@ -747,7 +832,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
               final r = await AppStorageImageService.instance
                   .resolveImageUrl(imageUrl: u)
                   .timeout(
-                    const Duration(seconds: 12),
+                    const Duration(seconds: 5),
                     onTimeout: () => null,
                   );
               final out = r != null ? sanitizeImageUrl(r) : '';
@@ -757,8 +842,14 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         }
         return raw.trim();
       }));
-      // Só até acertar: o primeiro URL costuma ser o logo oficial — evita N downloads em paralelo.
-      for (final candidate in refreshedUrls) {
+      final firstBatch = refreshedUrls.take(5).toList();
+      final batchBytes =
+          await Future.wait(firstBatch.map(_fetchLogoBytesHighRes));
+      for (final bytes in batchBytes) {
+        final u = useIfRealLogo(bytes);
+        if (u != null) return u;
+      }
+      for (final candidate in refreshedUrls.skip(5)) {
         final bytes = await _fetchLogoBytesHighRes(candidate);
         final u = useIfRealLogo(bytes);
         if (u != null) return u;
@@ -807,7 +898,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
               memberId: s.memberId,
               assinaturaUrlHint: s.assinaturaUrlHint,
             ).timeout(
-              const Duration(seconds: 45),
+              const Duration(seconds: 12),
               onTimeout: () => null,
             ),
           )
@@ -859,8 +950,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     });
   }();
   final sigOptFutures = <Future<Uint8List?>>[];
-  final signatureEnhanceMode =
-      await _resolveTenantSignatureEnhanceMode(p.tenantId);
+  final signatureEnhanceMode = await enhanceModeFuture;
   for (var i = 0; i < sigRaw.length; i++) {
     final b = sigRaw[i];
     if (b == null) {

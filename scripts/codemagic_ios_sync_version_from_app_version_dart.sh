@@ -91,6 +91,23 @@ if is_ci; then
     BN=$(( FLOOR + 1 + OFFSET ))
   fi
 
+  # Reconsulta ASC — evita 90189 se a API atrasou na 1.ª leitura.
+  FINAL_ASC=0
+  if FINAL_ASC="$(bash "$ROOT/scripts/codemagic_ios_asc_latest_build_number.sh" 2>/dev/null)"; then
+    case "$FINAL_ASC" in
+      ''|*[!0-9]*) FINAL_ASC=0 ;;
+    esac
+    if [ "$FINAL_ASC" -gt 0 ] && [ "$BN" -le "$FINAL_ASC" ]; then
+      BN=$(( FINAL_ASC + 1 + OFFSET ))
+      echo "CI: ajuste pós-ASC — CFBundleVersion=$BN (ASC=$FINAL_ASC)"
+    fi
+  fi
+
+  if [ "$BN" -le "$LATEST" ] || [ "$BN" -le "$FLOOR" ]; then
+    BN=$(( $(date +%s) + OFFSET + 1 ))
+    echo "CI: fallback timestamp — CFBundleVersion=$BN"
+  fi
+
   echo "CI: CFBundleVersion=$BN (base=$BASE ASC=$LATEST floor_repo=$FLOOR offset=$OFFSET ts=$TS)"
   echo "     CM_BUILD_ID=${CM_BUILD_ID:-?} CM_BUILD_NUMBER=${CM_BUILD_NUMBER:-?}"
   echo "     NÃO usar Retry só no passo Publishing — gera o mesmo .ipa e erro 90189."

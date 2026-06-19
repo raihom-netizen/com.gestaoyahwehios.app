@@ -25,7 +25,8 @@ import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
         resolveCertificatePdfShared,
         runCertificateGalaLuxoBatchPdfPipeline,
         runCertificatePdfPipeline,
-        warmCertificatePdfFontAssets;
+        warmCertificatePdfFontAssets,
+        warmCertificatePdfAssets;
 import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
     show segundoNomeCasamentoFallbackDoCorpo;
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
@@ -443,7 +444,46 @@ class _CertificadosPageState extends State<CertificadosPage> {
     _loadCertConfig();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       warmCertificatePdfFontAssets();
+      _scheduleWarmCertificatePdfAssets();
     });
+  }
+
+  void _scheduleWarmCertificatePdfAssets({
+    List<_SignatoryOption> signatories = const [],
+  }) {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) return;
+    final visualId =
+        (_certConfig?['defaultVisualTemplateId'] ?? 'classico_dourado')
+            .toString()
+            .trim();
+    final useDigital =
+        (_certConfig?['defaultSignatureMode'] ?? '').toString().trim() !=
+            'manual';
+    final includeInstRaw = _certConfig?['includeInstitutionalPastorSignature'];
+    final includeInst = includeInstRaw is bool ? includeInstRaw : true;
+    unawaited(
+      warmCertificatePdfAssets(
+        tenantId: tid,
+        visualTemplateId:
+            visualId.isEmpty ? 'classico_dourado' : visualId,
+        logoFetchCandidates: _logoCertCandidateUrls,
+        logoUrlFallback: _logoCert,
+        nomeIgreja: _nomeIgreja,
+        signatories: [
+          for (final o in signatories.take(6))
+            CertPdfPipelineSignatory(
+              memberId: o.memberId,
+              nome: o.nome,
+              cargo: o.cargo,
+              assinaturaUrlHint:
+                  o.assinaturaUrl.isNotEmpty ? o.assinaturaUrl : null,
+            ),
+        ],
+        useDigitalSignature: useDigital,
+        includeInstitutionalPastorSignature: includeInst,
+      ),
+    );
   }
 
   @override
@@ -465,6 +505,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   ? 'manual'
                   : 'digital';
         });
+        _scheduleWarmCertificatePdfAssets(
+          signatories: _buildSignatoryOptions(_seedMemberDocs),
+        );
       }
     } catch (_) {}
   }
@@ -2334,6 +2377,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     if (!mounted) return;
     if (!context.mounted) return;
     final signatoryOptions = signatoryOptionsAll;
+    _scheduleWarmCertificatePdfAssets(signatories: signatoryOptions);
     final useDigital =
         (_certConfig?['defaultSignatureMode'] ?? '').toString().trim() !=
             'manual';
@@ -2521,24 +2565,23 @@ class _CertificadosPageState extends State<CertificadosPage> {
           qrValidationUrl: slices.first.qrValidationUrl,
           signatoriesForPdf: signatoriesForPdf,
         );
-        final batchResults = await Future.wait<dynamic>([
+        final pdfBytes = await runCertificateGalaLuxoBatchPdfPipeline(
+          shared: sharedPdfParams,
+          members: slices,
+          onProgress: (m, p) {
+            phase.value = m;
+            prog01.value = p.clamp(0.0, 1.0);
+            cur.value = (p * total).ceil().clamp(1, total);
+            titleNv.value = 'PDF único — ${cur.value}/$total';
+          },
+        );
+        unawaited(
           CertificateEmitidoService.registerEmissaoBatch(
             tenantId: widget.tenantId,
             snapshots: snapshots,
             certificadoIds: protocolIds,
-          ),
-          runCertificateGalaLuxoBatchPdfPipeline(
-            shared: sharedPdfParams,
-            members: slices,
-            onProgress: (m, p) {
-              phase.value = m;
-              prog01.value = p.clamp(0.0, 1.0);
-              cur.value = (p * total).ceil().clamp(1, total);
-              titleNv.value = 'PDF único — ${cur.value}/$total';
-            },
-          ),
-        ]);
-        final pdfBytes = batchResults[1] as Uint8List;
+          ).catchError((_) => <String>[]),
+        );
         prog01.value = 0.98;
         final pdfFname =
             'certificados_lote_${selectedDocs.length}_${DateTime.now().millisecondsSinceEpoch}.pdf';
@@ -2670,53 +2713,52 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final firstTplZip = tpl(firstRow.docId);
       phase.value =
           'A registar protocolos e preparar imagens ($total certificados)…';
-      final zipPrepResults = await Future.wait<dynamic>([
+      final sharedZipResolved = await resolveCertificatePdfShared(
+        CertPdfPipelineParams(
+          tenantId: widget.tenantId,
+          logoFetchCandidates: _logoCertCandidateUrls,
+          logoUrlFallback: _logoCert,
+          titulo: _tituloForTemplate(firstTplZip),
+          subtitulo: _subtituloForTemplate(firstTplZip),
+          texto: firstRow.textoFinal,
+          textoAdicional: '',
+          visualTemplateId: visualLoteZip,
+          includeInstitutionalPastorSignature:
+              includeInstitutionalPastorSignature,
+          institutionalPastorNome: fallbackNome,
+          institutionalPastorCargo: fallbackCargo,
+          nomeMembro: firstRow.nome,
+          cpfFormatado: _formatCpf(firstRow.cpf),
+          nomeIgreja: _nomeIgreja,
+          local: localTxtZip,
+          issuedDate: dataHojeZip,
+          layoutId: layoutLoteZip,
+          fontStyleId: _fontStyleForTemplate(firstTplZip),
+          colorPrimaryArgb: _corForTemplate(firstTplZip).toARGB32(),
+          colorTextArgb: _corTextoForTemplate(firstTplZip).toARGB32(),
+          pastorManual: fallbackNome,
+          cargoManual: fallbackCargo,
+          useDigitalSignature: useDigital,
+          digitalSignatureDadosLine:
+              formatCertificadoDigitalDadosLinha(DateTime.now()),
+          qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
+              protocolIdsZip.first),
+          signatoriesForPdf: signatoriesForZip,
+        ),
+        onProgress: (m, p) {
+          phase.value = m;
+          prog01.value = 0.05 + p * 0.40;
+        },
+        currentIndex: 1,
+        totalCount: total,
+      );
+      unawaited(
         CertificateEmitidoService.registerEmissaoBatch(
           tenantId: widget.tenantId,
           snapshots: zipSnapshots,
           certificadoIds: protocolIdsZip,
-        ),
-        resolveCertificatePdfShared(
-          CertPdfPipelineParams(
-            tenantId: widget.tenantId,
-            logoFetchCandidates: _logoCertCandidateUrls,
-            logoUrlFallback: _logoCert,
-            titulo: _tituloForTemplate(firstTplZip),
-            subtitulo: _subtituloForTemplate(firstTplZip),
-            texto: firstRow.textoFinal,
-            textoAdicional: '',
-            visualTemplateId: visualLoteZip,
-            includeInstitutionalPastorSignature:
-                includeInstitutionalPastorSignature,
-            institutionalPastorNome: fallbackNome,
-            institutionalPastorCargo: fallbackCargo,
-            nomeMembro: firstRow.nome,
-            cpfFormatado: _formatCpf(firstRow.cpf),
-            nomeIgreja: _nomeIgreja,
-            local: localTxtZip,
-            issuedDate: dataHojeZip,
-            layoutId: layoutLoteZip,
-            fontStyleId: _fontStyleForTemplate(firstTplZip),
-            colorPrimaryArgb: _corForTemplate(firstTplZip).toARGB32(),
-            colorTextArgb: _corTextoForTemplate(firstTplZip).toARGB32(),
-            pastorManual: fallbackNome,
-            cargoManual: fallbackCargo,
-            useDigitalSignature: useDigital,
-            digitalSignatureDadosLine:
-                formatCertificadoDigitalDadosLinha(DateTime.now()),
-            qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
-                protocolIdsZip.first),
-            signatoriesForPdf: signatoriesForZip,
-          ),
-          onProgress: (m, p) {
-            phase.value = m;
-            prog01.value = 0.05 + p * 0.40;
-          },
-          currentIndex: 1,
-          totalCount: total,
-        ),
-      ]);
-      final sharedZipResolved = zipPrepResults[1] as CertPdfResolvedShared;
+        ).catchError((_) => <String>[]),
+      );
 
       for (var i = 0; i < zipRows.length; i++) {
         final row = zipRows[i];
@@ -5060,6 +5102,35 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         'classico_dourado';
     _refreshPreviewLogoFuture();
     _refreshTemplateBgFuture();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduleEditorWarmCertificatePdfAssets();
+    });
+  }
+
+  void _scheduleEditorWarmCertificatePdfAssets() {
+    final useDigital = _signatureMode == 'digital';
+    unawaited(
+      warmCertificatePdfAssets(
+        tenantId: widget.tenantId,
+        visualTemplateId: _visualTemplateId,
+        logoFetchCandidates: widget.logoFetchCandidates,
+        logoUrlFallback: widget.logoUrl,
+        nomeIgreja: widget.nomeIgreja,
+        signatories: [
+          for (final s in _effectiveSignatories)
+            CertPdfPipelineSignatory(
+              memberId: s.memberId,
+              nome: s.nome,
+              cargo: s.cargo,
+              assinaturaUrlHint:
+                  s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+            ),
+        ],
+        useDigitalSignature: useDigital,
+        includeInstitutionalPastorSignature:
+            _includeInstitutionalPastorSignature,
+      ),
+    );
   }
 
   @override
@@ -5585,6 +5656,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                                 _selectedSignatoryIds.remove(o.memberId);
                               }
                             });
+                            _scheduleEditorWarmCertificatePdfAssets();
                           },
                           title: Text(o.nome,
                               style: const TextStyle(
@@ -6379,57 +6451,56 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       };
     final qrUrl =
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
-    final results = await Future.wait<dynamic>([
+    final bytes = await runCertificatePdfPipeline(
+      CertPdfPipelineParams(
+        tenantId: widget.tenantId,
+        logoFetchCandidates: widget.logoFetchCandidates,
+        logoUrlFallback: widget.logoUrl,
+        titulo: widget.tituloCtrl.text,
+        subtitulo: widget.subtituloCtrl.text.trim(),
+        texto: textoBase,
+        textoAdicional: widget.textoAdicionalCtrl.text.trim(),
+        visualTemplateId: _visualTemplateId,
+        includeInstitutionalPastorSignature:
+            _includeInstitutionalPastorSignature,
+        institutionalPastorNome: institutionalNome,
+        institutionalPastorCargo: institutionalCargo,
+        nomeMembro: noivo,
+        nomeMembroLinha2: _isCasamento ? noiva : '',
+        cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
+        nomeIgreja: widget.nomeIgreja,
+        local: widget.localCtrl.text,
+        issuedDate: issuedDate,
+        layoutId: _certPdfLayoutId,
+        fontStyleId: _fontStyleId,
+        colorPrimaryArgb: _cor.toARGB32(),
+        colorTextArgb: _corTexto.toARGB32(),
+        pastorManual: widget.pastorCtrl.text,
+        cargoManual: widget.cargoCtrl.text,
+        useDigitalSignature: useDigitalSignature,
+        digitalSignatureDadosLine: digitalDadosLinha,
+        qrValidationUrl: qrUrl,
+        signatoriesForPdf: [
+          for (final s in selectedForPdf)
+            CertPdfPipelineSignatory(
+              memberId: s.memberId,
+              nome: s.nome,
+              cargo: s.cargo,
+              cpfDigits: s.cpfRaw,
+              assinaturaUrlHint:
+                  s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+            ),
+        ],
+      ),
+      onProgress: onProgress,
+    );
+    unawaited(
       CertificateEmitidoService.registerEmissao(
         tenantId: widget.tenantId,
         snapshot: snapshot,
         certificadoId: protocolId,
-      ),
-      runCertificatePdfPipeline(
-        CertPdfPipelineParams(
-          tenantId: widget.tenantId,
-          logoFetchCandidates: widget.logoFetchCandidates,
-          logoUrlFallback: widget.logoUrl,
-          titulo: widget.tituloCtrl.text,
-          subtitulo: widget.subtituloCtrl.text.trim(),
-          texto: textoBase,
-          textoAdicional: widget.textoAdicionalCtrl.text.trim(),
-          visualTemplateId: _visualTemplateId,
-          includeInstitutionalPastorSignature:
-              _includeInstitutionalPastorSignature,
-          institutionalPastorNome: institutionalNome,
-          institutionalPastorCargo: institutionalCargo,
-          nomeMembro: noivo,
-          nomeMembroLinha2: _isCasamento ? noiva : '',
-          cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
-          nomeIgreja: widget.nomeIgreja,
-          local: widget.localCtrl.text,
-          issuedDate: issuedDate,
-          layoutId: _certPdfLayoutId,
-          fontStyleId: _fontStyleId,
-          colorPrimaryArgb: _cor.toARGB32(),
-          colorTextArgb: _corTexto.toARGB32(),
-          pastorManual: widget.pastorCtrl.text,
-          cargoManual: widget.cargoCtrl.text,
-          useDigitalSignature: useDigitalSignature,
-          digitalSignatureDadosLine: digitalDadosLinha,
-          qrValidationUrl: qrUrl,
-          signatoriesForPdf: [
-            for (final s in selectedForPdf)
-              CertPdfPipelineSignatory(
-                memberId: s.memberId,
-                nome: s.nome,
-                cargo: s.cargo,
-                cpfDigits: s.cpfRaw,
-                assinaturaUrlHint:
-                    s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
-              ),
-          ],
-        ),
-        onProgress: onProgress,
-      ),
-    ]);
-    final bytes = results[1] as Uint8List;
+      ).catchError((_) => protocolId),
+    );
     return (bytes: bytes.toList(), protocolId: protocolId);
   }
 }

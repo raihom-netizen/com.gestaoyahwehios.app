@@ -164,6 +164,10 @@ service firebase.storage {
       ]);
     }
 
+    function storagePatrimonioPermissionList(perms) {
+      return perms is list && perms.hasAny(['patrimonio']);
+    }
+
     function storageTenantUserFinanceAccess(igrejaId) {
       return fsTenantUser(igrejaId).exists && (
         (fsTenantUser(igrejaId).data.permissions is list
@@ -171,6 +175,21 @@ service firebase.storage {
         || (fsTenantUser(igrejaId).data.roles is list
           && storageFinancePermissionList(fsTenantUser(igrejaId).data.roles))
       );
+    }
+
+    function storageTenantUserPatrimonioAccess(igrejaId) {
+      return fsTenantUser(igrejaId).exists && (
+        (fsTenantUser(igrejaId).data.permissions is list
+          && storagePatrimonioPermissionList(fsTenantUser(igrejaId).data.permissions))
+        || (fsTenantUser(igrejaId).data.roles is list
+          && storagePatrimonioPermissionList(fsTenantUser(igrejaId).data.roles))
+      );
+    }
+
+    /// Patrimônio — alinhado a Firestore `canAccessPatrimonioTenant` (staff + permissão granular).
+    function canWritePatrimonioStorage(igrejaId) {
+      return isChurchStaffWriter(igrejaId)
+        || (isChurchMember(igrejaId) && storageTenantUserPatrimonioAccess(igrejaId));
     }
 
     /// Staff: gestor, admin, pastor, secretário, tesoureiro, líder (+ e-mail gestor + permissões).
@@ -185,6 +204,7 @@ service firebase.storage {
         || storageGestorEmailMatches(igrejaId)
         || (isChurchMember(igrejaId) && storageTenantUserMuralEdit(igrejaId))
         || (isChurchMember(igrejaId) && storageTenantUserFinanceAccess(igrejaId))
+        || (isChurchMember(igrejaId) && storageTenantUserPatrimonioAccess(igrejaId))
       );
     }
 
@@ -449,7 +469,7 @@ service firebase.storage {
 
     match /igrejas/{igrejaId}/patrimonio/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow write: if canWritePatrimonioStorage(igrejaId)
         && request.resource.size < 20 * 1024 * 1024
         && photoImageOrBlob();
     }

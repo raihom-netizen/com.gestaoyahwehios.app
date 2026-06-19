@@ -201,6 +201,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   final ChatAudioService _chatAudio = ChatAudioService();
   bool _voiceRecording = false;
+  Future<void>? _voiceStartFuture;
   /// Evita `IconButton.onPressed` após soltar o long-press (reiniciava gravação).
   bool _micLongPressActive = false;
   bool _voiceSlideCancel = false;
@@ -2899,7 +2900,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecording() async {
+    if (_voiceRecording || _voiceStartFuture != null) return;
     _warmChatFirebaseForPicker();
+    final startCompleter = _startVoiceRecordingImpl();
+    _voiceStartFuture = startCompleter;
+    await startCompleter;
+    _voiceStartFuture = null;
+  }
+
+  Future<void> _startVoiceRecordingImpl() async {
     try {
       final startedPath = await _chatAudio.startRecording();
       if (startedPath == null && !kIsWeb) {
@@ -2956,6 +2965,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _finishVoiceRecording({required bool send}) async {
     _voiceTicker?.cancel();
     _voiceTicker = null;
+
+    if (_voiceStartFuture != null) {
+      try {
+        await _voiceStartFuture!.timeout(const Duration(seconds: 8));
+      } catch (_) {}
+    }
+
     final recordedMs = _voiceElapsed.inMilliseconds;
     unawaited(
       ChatThreadOperations.clearTypingForMe(
@@ -4190,7 +4206,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             _micLongPressActive = true;
                             _voiceSlideCancel = false;
                             _voiceSlideOffset = 0;
-                            unawaited(_startVoiceRecording());
+                            _voiceStartFuture = _startVoiceRecording();
+                            unawaited(_voiceStartFuture);
                           },
                     onLongPressMoveUpdate: kIsWeb
                         ? null
@@ -4299,11 +4316,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             },
                     ),
                   ),
-                  IconButton(
-                    onPressed: _voiceRecording ? null : _sendText,
-                    icon: const Icon(
-                      Icons.send_rounded,
-                      color: ChurchChatWhatsAppTheme.header,
+                  Material(
+                    color: const Color(0xFF128C7E),
+                    shape: const CircleBorder(),
+                    elevation: 0,
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: _voiceRecording ? null : _sendText,
+                      child: SizedBox(
+                        width: ThemeCleanPremium.minTouchTarget,
+                        height: ThemeCleanPremium.minTouchTarget,
+                        child: Icon(
+                          Icons.send_rounded,
+                          color: _voiceRecording
+                              ? Colors.white38
+                              : Colors.white,
+                          size: 22,
+                        ),
+                      ),
                     ),
                   ),
                 ],

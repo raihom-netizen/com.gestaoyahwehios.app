@@ -17,6 +17,11 @@ if ($prepend.Count -gt 0) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$jdk21Script = Join-Path $repoRoot 'scripts\ensure_jdk21_toolchain.ps1'
+if (Test-Path $jdk21Script) {
+    . $jdk21Script
+    try { Ensure-Jdk21Toolchain -Quiet | Out-Null } catch { }
+}
 $gcloudInstall = Join-Path $repoRoot 'scripts\install_google_cloud_sdk.ps1'
 if (Test-Path $gcloudInstall) {
     . $gcloudInstall

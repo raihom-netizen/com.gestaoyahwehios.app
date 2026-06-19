@@ -1,7 +1,7 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-import 'package:gestao_yahweh/ui/pdf/member_card_cnh_pdf_widget.dart';
+import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/ui/pdf/verso_carteirinha_widget.dart';
 
 /// Folha para gráfica: cartão centralizado com sangria e marcas de corte.
@@ -21,8 +21,8 @@ class CarteirinhaPvcMarks {
 
   /// Folha tamanho real — padrão CNH digital (portrait ~54×86 mm).
   static PdfPageFormat cnhPageFormat() {
-    final cw = MemberCardCnhPdfWidget.cardWidthPt;
-    final ch = MemberCardCnhPdfWidget.cardHeightPt;
+    final cw = MemberCardCnhLayout.cardWidthPt;
+    final ch = MemberCardCnhLayout.cardHeightPt;
     return PdfPageFormat(cw + bleedPt * 2, ch + bleedPt * 2);
   }
 
@@ -35,8 +35,8 @@ class CarteirinhaPvcMarks {
 
   static pw.Widget wrapCnhWithCropMarks(pw.Widget card) {
     final pf = cnhPageFormat();
-    final cw = MemberCardCnhPdfWidget.cardWidthPt;
-    final ch = MemberCardCnhPdfWidget.cardHeightPt;
+    final cw = MemberCardCnhLayout.cardWidthPt;
+    final ch = MemberCardCnhLayout.cardHeightPt;
     return _wrapWithCropMarks(card, pf: pf, cw: cw, ch: ch);
   }
 

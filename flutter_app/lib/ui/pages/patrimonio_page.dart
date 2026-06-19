@@ -25,7 +25,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser;
+    show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -74,7 +74,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
-import 'package:image_picker/image_picker.dart' show XFile;
+import 'package:image_picker/image_picker.dart' show ImageSource, XFile;
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -804,7 +804,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         : hint;
   }
 
-  bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
+  bool get _canWrite => AppPermissions.canWritePatrimonio(
+        widget.role,
+        memberCanViewPatrimonio: widget.podeVerPatrimonio,
+        permissions: widget.permissions,
+      );
 
   CollectionReference<Map<String, dynamic>> get _col =>
                 ChurchUiCollections.patrimonio(_effectiveTenantId);
@@ -8435,6 +8439,156 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     }
   }
 
+  List<int> _occupiedPhotoSlots() {
+    final out = <int>[];
+    for (var i = 0; i < _maxFotosPorItem; i++) {
+      if (_slotUrls[i].isNotEmpty || _slotPending[i] != null) out.add(i);
+    }
+    return out;
+  }
+
+  Future<Uint8List?> _bytesFromPickerXFile(XFile file) async {
+    return SafeImageBytes.patrimonioFromPicker(file)
+        .timeout(const Duration(seconds: 25));
+  }
+
+  Future<void> _assignBytesToSlot(int slot, Uint8List bytes, String name) async {
+    if (slot < 0 || slot >= _maxFotosPorItem || bytes.isEmpty) return;
+    setState(() {
+      _slotPending[slot] = bytes;
+      _slotPendingNames[slot] = name.isNotEmpty ? name : 'foto_${slot + 1}.jpg';
+    });
+    ImmediateMediaAttachFeedback.showArquivoAnexado(context, _slotPendingNames[slot]);
+  }
+
+  Future<void> _replacePhotoAtSlot(int slot) async {
+    if (_mediaPicking || _saving) return;
+    if (slot < 0 || slot >= _maxFotosPorItem) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 12 + bottom),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Trocar foto ${slot + 1}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Galeria'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_camera_outlined),
+                title: const Text('Câmera'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (source == null || !mounted) return;
+    setState(() => _mediaPicking = true);
+    try {
+      XFile? picked;
+      if (source == ImageSource.camera) {
+        picked = await MediaHandlerService.instance.pickAndProcessFromCamera();
+      } else {
+        picked = await MediaHandlerService.instance.pickAndProcessFromGallery();
+      }
+      if (picked == null || !mounted) return;
+      final bytes = await _bytesFromPickerXFile(picked);
+      if (bytes == null || bytes.isEmpty || !mounted) return;
+      await _assignBytesToSlot(
+        slot,
+        bytes,
+        picked.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
+    }
+  }
+
+  Future<void> _replaceAllPhotos() async {
+    if (_mediaPicking || _saving) return;
+    final occupied = _occupiedPhotoSlots();
+    if (occupied.isEmpty) {
+      await _pickImages();
+      return;
+    }
+    setState(() {
+      _mediaPicking = true;
+      _preparingPhotoCount = 0;
+    });
+    try {
+      final limit = occupied.length;
+      final List<XFile> list;
+      if (limit == 1) {
+        final single =
+            await MediaHandlerService.instance.pickAndProcessFromGallery();
+        list = single != null ? [single] : [];
+      } else {
+        final picked =
+            await MediaHandlerService.instance.pickAndProcessMultipleImages();
+        list = picked.length > limit ? picked.sublist(0, limit) : picked;
+      }
+      if (list.isEmpty || !mounted) return;
+      for (var j = 0; j < list.length && j < occupied.length; j++) {
+        if (mounted) setState(() => _preparingPhotoCount = j + 1);
+        final bytes = await _bytesFromPickerXFile(list[j]);
+        if (bytes == null || bytes.isEmpty) continue;
+        final slot = occupied[j];
+        _slotPending[slot] = bytes;
+        _slotPendingNames[slot] = list[j].name.isNotEmpty
+            ? list[j].name
+            : 'foto_${slot + 1}.jpg';
+      }
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          '${list.length} foto(s) prontas — toque Salvar para enviar ao Storage.',
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mediaPicking = false;
+          _preparingPhotoCount = 0;
+        });
+      }
+    }
+  }
+
   Future<void> _save() async {
     if (_mediaPicking) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8622,7 +8776,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          formatFirebaseErrorForUser(e),
+          onRetry: _save,
+        ),
       );
     } finally {
       if (mounted) {
@@ -8672,6 +8829,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       required String title,
       required String subtitle,
       required VoidCallback onRemove,
+      VoidCallback? onReplace,
     }) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
@@ -8704,6 +8862,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 ],
               ),
             ),
+            if (onReplace != null)
+              IconButton(
+                tooltip: 'Trocar foto',
+                onPressed: (_mediaPicking || _saving) ? null : onReplace,
+                icon: Icon(
+                  Icons.swap_horiz_rounded,
+                  color: ThemeCleanPremium.primary,
+                ),
+              ),
             IconButton(
               tooltip: 'Remover',
               onPressed: onRemove,
@@ -8742,6 +8909,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             subtitle:
                 '${_formatBytesPat(pending.length)} · será enviado ao salvar',
             onRemove: () => _clearPhotoSlot(slot),
+            onReplace: () => unawaited(_replacePhotoAtSlot(slot)),
           ),
         );
         continue;
@@ -8796,6 +8964,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           title: 'Foto ${slot + 1}',
           subtitle: 'image/jpeg · inventário',
           onRemove: () => _clearPhotoSlot(slot),
+          onReplace: () => unawaited(_replacePhotoAtSlot(slot)),
         ),
       );
     }
@@ -8823,8 +8992,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               child: LayoutBuilder(
                 builder: (context, c) {
                   final narrow = c.maxWidth < 420;
-                  final btn = Row(
-                    mainAxisSize: MainAxisSize.min,
+                  final hasPhotos = _occupiedPhotoSlots().isNotEmpty;
+                  final btn = Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       FilledButton.icon(
                         onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
@@ -8842,7 +9013,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
                             ? null
@@ -8862,6 +9032,25 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                           ),
                         ),
                       ),
+                      if (hasPhotos)
+                        OutlinedButton.icon(
+                          onPressed: (_mediaPicking || _saving)
+                              ? null
+                              : () => unawaited(_replaceAllPhotos()),
+                          icon: const Icon(Icons.swap_horiz_rounded, size: 20),
+                          label: const Text('Trocar todas'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.deepOrange.shade800,
+                            side: BorderSide(
+                              color: Colors.deepOrange.shade300,
+                              width: 1.5,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                          ),
+                        ),
                     ],
                   );
                   return Column(

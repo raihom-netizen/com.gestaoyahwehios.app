@@ -556,12 +556,15 @@ class InstagramMuralState extends State<InstagramMural> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
+            content: Text(
+              'A ligação ao Firebase será verificada ao publicar. '
+              'Pode continuar a editar.',
+            ),
+            backgroundColor: Colors.orange.shade800,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
-      return;
     }
     final igrejaId = ChurchRepository.churchId(widget.tenantId);
     final postsCollection = type == 'evento'
@@ -3562,10 +3565,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'aviso_save_tap',
-      );
-      await ensureFirebaseReadyForMediaUpload();
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
@@ -3613,7 +3612,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
         'tipo': 'image',
       };
-      if (mounted) setState(() => _saving = false);
       await _publishAvisoLinear(
         docRef: ctx.docRef,
         publishTenantId: ctx.igrejaId,
@@ -3648,10 +3646,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await EcoFirePublishBootstrap.ensureHard(
-        logLabel: 'evento_save_tap',
-        strict: true,
-      );
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -3815,6 +3809,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       EventosPublishVerificationService.rememberLastError(e);
       await CrashlyticsService.record(e, st, reason: 'eventos_publish');
       if (mounted) {
+        if (isFirebaseNoAppError(e)) {
+          try {
+            FirebaseBootstrapService.resetPublishWarmState();
+            await FirebaseBootstrapService.ensureAlwaysOn(
+              refreshAuthToken: true,
+            );
+          } catch (_) {}
+        }
         ThemeCleanPremium.showErrorSnackBarWithRetry(
           context,
           formatUploadErrorForUser(e),
@@ -4854,25 +4856,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
     if (!mounted) return;
 
-    EcofirePublishProgressUi.schedule<void>(
-      context: context,
-      uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
-      saveLabel: 'A gravar aviso…',
-      distributeLabel: 'A notificar e publicar no site…',
-      successMessage:
-          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
-      closeEditor: () {
-        if (!mounted) return;
-        Navigator.pop(context, {
-          'ok': true,
-          'bg': true,
-          'docId': docRef.id,
-          'tenantId': publishTenantId,
-        });
-      },
-      formatError: formatUploadErrorForUser,
-      action: (reportProgress) async {
-        try {
+    try {
+      await EcofirePublishProgressUi.runWithProgress<void>(
+        context,
+        uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
+        saveLabel: 'A gravar aviso…',
+        distributeLabel: 'A notificar e publicar no site…',
+        action: (reportProgress) async {
           await YahwehCentralEngineService.executeInstantSaveAviso(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -4891,7 +4881,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             tenantId: publishTenantId,
             postId: docRef.id,
           );
-          AvisosPublishVerificationService.clearLastError();
           unawaited(
             AvisosPublishVerificationService.logPublishPhase(
               phase: 'after',
@@ -4901,13 +4890,35 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               docId: docRef.id,
             ),
           );
-        } catch (e, st) {
-          AvisosPublishVerificationService.rememberLastError(e);
-          await CrashlyticsService.record(e, st, reason: 'avisos_publish');
-          rethrow;
+        },
+      );
+      AvisosPublishVerificationService.clearLastError();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
+        ),
+      );
+      Navigator.pop(context, true);
+    } catch (e, st) {
+      AvisosPublishVerificationService.rememberLastError(e);
+      await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      if (mounted) {
+        if (isFirebaseNoAppError(e)) {
+          try {
+            FirebaseBootstrapService.resetPublishWarmState();
+            await FirebaseBootstrapService.ensureAlwaysOn(
+              refreshAuthToken: true,
+            );
+          } catch (_) {}
         }
-      },
-    );
+        ThemeCleanPremium.showErrorSnackBarWithRetry(
+          context,
+          formatUploadErrorForUser(e),
+          onRetry: _save,
+        );
+      }
+    }
   }
 
   Future<void> _save() async {

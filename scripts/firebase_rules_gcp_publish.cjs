@@ -21,7 +21,10 @@ const only = onlyArg ? onlyArg.split('=')[1] : 'all';
 const maxArg = args.find((a) => a.startsWith('--max-attempts='));
 const maxAttempts = maxArg ? parseInt(maxArg.split('=')[1], 10) : (force ? 40 : 12);
 const preferAdc = args.includes('--prefer-adc') || String(process.env.YAHWEH_GCP_PREFER_ADC || '') === '1';
-const skipRulesetLookup = args.includes('--skip-ruleset-lookup') || force;
+const forceRepublish =
+  args.includes('--force-republish') || String(process.env.YAHWEH_FORCE_REPUBLISH || '') === '1';
+/** --force / force-republish: ignora lookup só se --skip-ruleset-lookup; senão reutiliza ruleset existente (evita POST 503). */
+const skipRulesetLookup = args.includes('--skip-ruleset-lookup') || (force && !forceRepublish);
 const projectId =
   args.find((a) => !a.startsWith('--')) ||
   process.env.GCLOUD_PROJECT ||
@@ -214,8 +217,11 @@ async function publishRulesTarget(base, token, targetKey) {
   });
   const localNorm = content.replace(/\r\n/g, '\n').trim();
   const remoteNorm = remote ? remote.replace(/\r\n/g, '\n').trim() : '';
-  if (localNorm === remoteNorm) {
+  if (!forceRepublish && localNorm === remoteNorm) {
     return { target: targetKey, release: releaseName, action: 'already_synced', ruleset: null };
+  }
+  if (forceRepublish && localNorm === remoteNorm) {
+    process.stderr.write(`[${targetKey}] force-republish: conteudo igual — novo ruleset + patch release\n`);
   }
 
   let rulesetName = null;

@@ -32,13 +32,19 @@ abstract final class EcoFirePublishBootstrap {
   }) async {
     Object? last;
 
-    for (var attempt = 0; attempt < 4; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       try {
         if (attempt > 0) {
           FirebaseBootstrapService.resetPublishWarmState();
-          await Future<void>.delayed(
-            Duration(milliseconds: 280 * (attempt + 1)),
-          );
+          if (last != null && isFirebaseNoAppError(last)) {
+            await FirebaseBootstrapService.ensureAlwaysOn(
+              refreshAuthToken: true,
+            );
+          } else {
+            await Future<void>.delayed(
+              Duration(milliseconds: 280 * (attempt + 1)),
+            );
+          }
         }
         await FirebaseBootstrap.ensureInitialized();
         FirebaseBootstrapService.refreshCachedApp();
@@ -68,7 +74,7 @@ abstract final class EcoFirePublishBootstrap {
         return;
       } catch (e) {
         last = e;
-        if (attempt < 3 && isFirebaseNoAppError(e)) {
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
           continue;
         }
       }

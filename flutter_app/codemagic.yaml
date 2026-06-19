@@ -316,9 +316,39 @@ workflows:
             --app "$FIREBASE_IOS_APP_ID" \
             --groups "$FIREBASE_APP_DISTRIBUTION_GROUPS" \
             --release-notes "$NOTES"
+      - name: Renomear IPA para App Store Connect (nome ASCII)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          bash "$SCRIPTS/codemagic_ios_normalize_ipa_for_asc.sh"
+      - name: Validar IPA (evitar Binário inválido + 90189)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          bash "$SCRIPTS/codemagic_ios_validate_ipa_before_upload.sh"
+      - name: Gate final anti-90189 (obrigatório — NÃO Retry só Publishing)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          bash "$SCRIPTS/codemagic_ios_pre_publish_90189_gate.sh"
+      - name: Gravar asc_build_number_floor (próximo build)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          echo root > /tmp/cm_yw_layout
+          bash "$SCRIPTS/codemagic_ios_stamp_asc_floor.sh"
     artifacts:
       - build/ios/ipa/GestaoYahweh.ipa
       - GestaoYahweh.ipa
+      - ios/asc_build_number_floor.txt
       - /tmp/xcodebuild_logs/*.log
     publishing:
       email:

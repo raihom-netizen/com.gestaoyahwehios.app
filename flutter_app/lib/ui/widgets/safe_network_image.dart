@@ -2182,6 +2182,13 @@ class _FirebaseStorageMemoryImageState
                 maxBytes: maxDl,
                 skipFreshDisplayUrl: widget.skipFreshDisplayUrl)
             .timeout(storageTimeout, onTimeout: () => null);
+      } else if (firebaseStorageMediaUrlLooksLike(widget.imageUrl.trim()) ||
+          widget.imageUrl.trim().toLowerCase().startsWith('gs://')) {
+        data = await firebaseStorageBytesFromDownloadUrl(
+          widget.imageUrl.trim(),
+          maxBytes: maxDl,
+          skipFreshDisplayUrl: widget.skipFreshDisplayUrl,
+        ).timeout(storageTimeout, onTimeout: () => null);
       } else {
         final r = await _mediaDownloadLimiter.run(() {
           return http.get(

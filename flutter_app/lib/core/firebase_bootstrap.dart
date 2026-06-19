@@ -33,33 +33,61 @@ Future<void> ensureFirebaseInitialized() =>
 
 /// Núcleo Firebase — Ecofire: init único antes de Storage/Firestore.
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
-  if (requireAuth) {
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: 'ensureFirebaseCore',
-      strict: true,
-    );
-    return;
+  Object? last;
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      if (attempt > 0) {
+        FirebaseBootstrapService.resetPublishWarmState();
+        await Future<void>.delayed(
+          Duration(milliseconds: 200 + 180 * attempt),
+        );
+        if (last != null && isFirebaseNoAppError(last!)) {
+          await FirebaseBootstrapService.ensureAlwaysOn(
+            refreshAuthToken: requireAuth,
+          );
+        }
+      }
+      if (requireAuth) {
+        await EcoFirePublishBootstrap.ensureHard(
+          logLabel: 'ensureFirebaseCore',
+          strict: true,
+        );
+        return;
+      }
+      if (!FirebaseBootstrapService.isReady()) {
+        await FirebaseBootstrapService.ensureInitializedOnce();
+      } else {
+        await fb_core.FirebaseBootstrap.ensureInitialized();
+      }
+      FirebaseBootstrapService.refreshCachedApp();
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: requireAuth,
+      );
+      if (!requireAuth) return;
+      final user = FirebaseBootstrapService.auth.currentUser;
+      if (user == null || user.isAnonymous) {
+        if (kIsWeb) WebPanelStability.markSessionExpired();
+        throw StateError(
+          'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+        );
+      }
+      try {
+        await FirebaseAuthTokenGuard.refreshIfStale();
+      } catch (_) {}
+      return;
+    } catch (e) {
+      last = e;
+      if (attempt < 4 && isFirebaseNoAppError(e)) {
+        continue;
+      }
+      rethrow;
+    }
   }
-  if (!FirebaseBootstrapService.isReady()) {
-    await FirebaseBootstrapService.ensureInitializedOnce();
-  } else {
-    await fb_core.FirebaseBootstrap.ensureInitialized();
+  if (last != null) {
+    if (last is Exception) throw last;
+    throw StateError(last.toString());
   }
-  FirebaseBootstrapService.refreshCachedApp();
-  await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-    refreshAuthToken: requireAuth,
-  ).catchError((_) {});
-  if (!requireAuth) return;
-  final user = FirebaseBootstrapService.auth.currentUser;
-  if (user == null || user.isAnonymous) {
-    if (kIsWeb) WebPanelStability.markSessionExpired();
-    throw StateError(
-      'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-    );
-  }
-  try {
-    await FirebaseAuthTokenGuard.refreshIfStale();
-  } catch (_) {}
+  throw StateError('Firebase indisponível.');
 }
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>

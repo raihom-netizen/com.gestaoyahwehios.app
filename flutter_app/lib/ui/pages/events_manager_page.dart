@@ -555,7 +555,22 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ),
       );
     }
-    await ensureFirebaseReadyForPublishUpload();
+    try {
+      await ensureFirebaseReadyForPublishUpload();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'A ligação ao Firebase será verificada ao publicar. '
+              'Pode continuar a editar o evento.',
+            ),
+            backgroundColor: Colors.orange.shade800,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
     final igrejaId = ChurchRepository.churchId(_tid);
     final noticias = ChurchUiCollections.eventos(igrejaId);
     if (!mounted) return;
@@ -4842,6 +4857,7 @@ class _EventoPostState extends State<_EventoPost>
     );
     final elat = _eventPostParseDouble(data['locationLat']);
     final elng = _eventPostParseDouble(data['locationLng']);
+    final hostedVideo = eventNoticiaHostedVideoPlayUrl(data);
     final msg = buildNoticiaInviteShareMessage(
       churchName: churchName,
       noticiaKind: 'evento',
@@ -4864,7 +4880,7 @@ class _EventoPostState extends State<_EventoPost>
       shareMessage: msg,
       shareSubject: churchName,
       previewImageUrl: null,
-      videoPlayUrl: null,
+      videoPlayUrl: hostedVideo,
       noticiaDataForLazyMedia: data,
       sharePositionOrigin: shareOrigin,
     );
@@ -8392,10 +8408,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'evento_save_tap',
-      );
-      await ensureFirebaseReadyForMediaUpload();
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -8533,6 +8545,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         EventosPublishVerificationService.rememberLastError(e);
         await CrashlyticsService.record(e, st, reason: 'eventos_publish');
         if (mounted) {
+          if (isFirebaseNoAppError(e)) {
+            try {
+              FirebaseBootstrapService.resetPublishWarmState();
+              await FirebaseBootstrapService.ensureAlwaysOn(
+                refreshAuthToken: true,
+              );
+            } catch (_) {}
+          }
           ThemeCleanPremium.showErrorSnackBarWithRetry(
             context,
             formatUploadErrorForUser(e),

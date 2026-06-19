@@ -27,22 +27,26 @@ class ChurchChatVoiceMicButton extends StatelessWidget {
   final VoidCallback? onLongPressCancel;
   final VoidCallback onTapWhileRecording;
 
+  static const double _size = 48;
+
   @override
   Widget build(BuildContext context) {
     final color = recording
         ? ThemeCleanPremium.error
-        : ThemeCleanPremium.onSurfaceVariant;
+        : const Color(0xFF54656F);
 
     return Transform.translate(
       offset:
           recording ? Offset(slideOffsetDx.clamp(-96.0, 0.0), 0) : Offset.zero,
-      child: GestureDetector(
-        onLongPressStart: onLongPressStart,
-        onLongPressMoveUpdate: onLongPressMoveUpdate,
-        onLongPressEnd: onLongPressEnd,
-        onLongPressCancel: onLongPressCancel,
-        child: IconButton(
-          onPressed: () {
+      child: Material(
+        color: Colors.transparent,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onLongPressStart: kIsWeb ? null : onLongPressStart,
+          onLongPressMoveUpdate: kIsWeb ? null : onLongPressMoveUpdate,
+          onLongPressEnd: kIsWeb ? null : onLongPressEnd,
+          onLongPressCancel: kIsWeb ? null : onLongPressCancel,
+          onTap: () {
             if (kIsWeb) {
               onWebTap();
               return;
@@ -51,14 +55,25 @@ class ChurchChatVoiceMicButton extends StatelessWidget {
               onTapWhileRecording();
             }
           },
-          icon: Icon(Icons.mic_rounded, color: color),
-          tooltip: recording
-              ? (kIsWeb
-                  ? 'Toque para enviar'
-                  : 'Solte para enviar · deslize ← p/ cancelar')
-              : (kIsWeb
-                  ? 'Toque para gravar voz'
-                  : 'Segure para gravar · deslize ← p/ cancelar'),
+          child: SizedBox(
+            width: _size,
+            height: _size,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: recording
+                    ? ThemeCleanPremium.error.withValues(alpha: 0.12)
+                    : Colors.transparent,
+              ),
+              alignment: Alignment.center,
+              child: Icon(
+                recording ? Icons.mic_rounded : Icons.mic_none_rounded,
+                color: color,
+                size: 26,
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -86,12 +101,19 @@ class ChurchChatVoiceRecordingBar extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: slideCancelArmed
-            ? ThemeCleanPremium.error.withValues(alpha: 0.14)
-            : ThemeCleanPremium.error.withValues(alpha: 0.08),
+        gradient: LinearGradient(
+          colors: [
+            slideCancelArmed
+                ? ThemeCleanPremium.error.withValues(alpha: 0.18)
+                : const Color(0xFF128C7E).withValues(alpha: 0.10),
+            Colors.white,
+          ],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
         border: Border(
           bottom: BorderSide(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+            color: const Color(0xFF128C7E).withValues(alpha: 0.15),
           ),
         ),
       ),

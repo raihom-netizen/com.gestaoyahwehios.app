@@ -510,6 +510,11 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_validate_ipa_before_upload.sh"
+      - name: Gate final anti-90189 (obrigatório — NÃO Retry só Publishing)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_pre_publish_90189_gate.sh"
       - name: Gravar asc_build_number_floor (anti-90189 próximo build)
         script: |
           set -e

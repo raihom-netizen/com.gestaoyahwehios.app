@@ -2,6 +2,7 @@ import 'dart:async' show Timer, unawaited;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -353,9 +354,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                   ),
                   const SizedBox(height: 16),
                   _pdfLayoutTile(
-                    title: 'A4 para recorte (2×3 CNH digital)',
+                    title: 'A4 para recorte (2×3)',
                     subtitle:
-                        'Várias carteiras CNH digital por folha, com linhas pontilhadas para tesoura.',
+                        'Mesmo visual do cartão na tela — várias por folha com linhas de recorte.',
                     icon: Icons.grid_view_rounded,
                     value: MemberCardPdfLayout.a4GridCut,
                     group: selected,
@@ -363,9 +364,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                   ),
                   const SizedBox(height: 8),
                   _pdfLayoutTile(
-                    title: 'Tamanho real CNH digital',
+                    title: 'Tamanho real (CR80)',
                     subtitle:
-                        'Uma carteira por página com marcas de corte — ideal para impressão/PVC.',
+                        'Um cartão por página — idêntico ao preview, com marcas de corte.',
                     icon: Icons.credit_card_rounded,
                     value: MemberCardPdfLayout.realSize,
                     group: selected,
@@ -494,8 +495,8 @@ class _MemberCardPageState extends State<MemberCardPage>
                 const SizedBox(height: 6),
                 Text(
                   layout == MemberCardPdfLayout.a4GridCut
-                      ? 'Montando folhas A4 CNH digital…'
-                      : 'Montando carteiras CNH digital tamanho real…',
+                      ? 'Renderizando cartões idênticos ao digital (folha A4)…'
+                      : 'Renderizando cartão idêntico ao digital (tamanho real)…',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
@@ -1251,7 +1252,7 @@ class _MemberCardPageState extends State<MemberCardPage>
             controller: _shotCtrl,
             child: MemberCardCnhDigital(
               data: view,
-              maxWidth: 380,
+              maxWidth: MemberCardCnhLayout.captureLogicalWidth,
               logoSlot: StableChurchLogo(
                 tenantId: payload.igrejaDocId,
                 imageUrl: logoUrl,

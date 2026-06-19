@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -109,11 +111,39 @@ abstract final class PatrimonioPublishService {
         refreshAuthToken: true,
       );
     }
-    await AppFinalizeBootstrap.ensureSessionForPublish(
-      logLabel: 'patrimonio_publish',
-    );
-    await ensureFirebaseReadyForMediaUpload();
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'patrimonio_publish');
+    Object? bootstrapLast;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (attempt > 0) {
+          FirebaseBootstrapService.resetPublishWarmState();
+          if (bootstrapLast != null && isFirebaseNoAppError(bootstrapLast!)) {
+            await FirebaseBootstrapService.ensureAlwaysOn(
+              refreshAuthToken: true,
+            );
+          }
+        }
+        await AppFinalizeBootstrap.ensureSessionForPublish(
+          logLabel: 'patrimonio_publish',
+        );
+        await ensureFirebaseReadyForMediaUpload();
+        await EcoFirePublishBootstrap.ensureHard(logLabel: 'patrimonio_publish');
+        bootstrapLast = null;
+        break;
+      } catch (e) {
+        bootstrapLast = e;
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 280 * (attempt + 1)),
+          );
+          continue;
+        }
+        rethrow;
+      }
+    }
+    if (bootstrapLast != null) {
+      if (bootstrapLast is Exception) throw bootstrapLast;
+      throw StateError(bootstrapLast.toString());
+    }
 
     unawaited(
       PatrimonioPublishVerificationService.logPublishPhase(

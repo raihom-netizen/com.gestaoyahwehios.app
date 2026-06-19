@@ -299,10 +299,20 @@ class AppPermissions {
     return ChurchRolePermissions.isFinancePanelTeam(role);
   }
 
-  /// Patrimônio — corpo administrativo (sem líder de departamento).
+  /// Patrimônio — corpo administrativo ou permissão granular `patrimonio`.
   static bool canViewPatrimonio(String role, {bool? memberCanViewPatrimonio, List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'patrimonio')) return true;
+    if (memberCanViewPatrimonio == true) return true;
     return ChurchRolePermissions.isCorporateModuleTeam(role);
   }
+
+  /// Editar/excluir/inventário — quem vê o módulo pode gravar (Firestore + Storage).
+  static bool canWritePatrimonio(String role, {bool? memberCanViewPatrimonio, List<String>? permissions}) =>
+      canViewPatrimonio(
+        role,
+        memberCanViewPatrimonio: memberCanViewPatrimonio,
+        permissions: permissions,
+      );
 
   /// Fornecedores — corpo administrativo; quem tem Financeiro também acede.
   static bool canViewFornecedores(

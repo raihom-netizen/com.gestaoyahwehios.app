@@ -1,14 +1,29 @@
+import 'dart:async' show unawaited;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show FirebaseStorageMemoryImage, firebaseStorageMediaUrlLooksLike;
+    show firebaseStorageMediaUrlLooksLike, isValidImageUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart' show showPdfActions;
 
-/// Miniatura / imagem do chat — lê directo do [storagePath] (sem getMetadata bloqueante).
-class ChurchChatStorageMediaImage extends StatelessWidget {
+/// Cache RAM curto para miniaturas do chat (evita re-download ao scroll).
+final Map<String, Uint8List> _chatThumbRamCache = <String, Uint8List>{};
+const int _kChatThumbRamMaxEntries = 120;
+
+void _chatThumbRamPut(String key, Uint8List bytes) {
+  if (key.isEmpty || bytes.length < 32) return;
+  if (_chatThumbRamCache.length >= _kChatThumbRamMaxEntries) {
+    _chatThumbRamCache.remove(_chatThumbRamCache.keys.first);
+  }
+  _chatThumbRamCache[key] = bytes;
+}
+
+/// Miniatura / imagem do chat — `storagePath` directo (getData), URL legado como fallback.
+class ChurchChatStorageMediaImage extends StatefulWidget {
   const ChurchChatStorageMediaImage({
     super.key,
     required this.data,
@@ -34,88 +49,199 @@ class ChurchChatStorageMediaImage extends StatelessWidget {
   final BorderRadius? borderRadius;
   final VoidCallback? onTap;
 
+  @override
+  State<ChurchChatStorageMediaImage> createState() =>
+      _ChurchChatStorageMediaImageState();
+}
+
+class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImage> {
+  Uint8List? _bytes;
+  bool _loading = true;
+  bool _failed = false;
+
   String _pickDisplayPath() {
-    final thumb = ChurchChatMessageFields.thumbStoragePath(data);
+    final thumb = ChurchChatMessageFields.thumbStoragePath(widget.data);
     if (thumb.isNotEmpty) return thumb;
-    return ChurchChatMessageFields.storagePath(data);
+    return ChurchChatMessageFields.storagePath(widget.data);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(covariant ChurchChatStorageMediaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldPath = _pathKey(oldWidget.data);
+    final newPath = _pathKey(widget.data);
+    if (oldPath != newPath) {
+      unawaited(_load());
+    }
+  }
+
+  String _pathKey(Map<String, dynamic> d) {
+    final thumb = ChurchChatMessageFields.thumbStoragePath(d);
+    if (thumb.isNotEmpty) return thumb;
+    return ChurchChatMessageFields.storagePath(d);
+  }
+
+  Future<void> _load() async {
+    final path = _pickDisplayPath();
+    final legacyUrl = ChurchChatMessageFields.mediaUrl(widget.data);
+    final cacheKey = path.isNotEmpty ? path : legacyUrl.trim();
+
+    if (cacheKey.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _failed = true;
+        });
+      }
+      return;
+    }
+
+    final ramHit = _chatThumbRamCache[cacheKey];
+    if (ramHit != null && ramHit.length > 32) {
+      if (mounted) {
+        setState(() {
+          _bytes = ramHit;
+          _loading = false;
+          _failed = false;
+        });
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+        _bytes = null;
+      });
+    }
+
+    Uint8List? data;
+    if (path.isNotEmpty) {
+      data = await ChurchChatMediaResolver.downloadBytes(
+        storagePath: path,
+        maxBytes: 4 * 1024 * 1024,
+      );
+    }
+
+    if ((data == null || data.length < 32) && legacyUrl.isNotEmpty) {
+      final url = sanitizeImageUrl(legacyUrl);
+      if (isValidImageUrl(url) || firebaseStorageMediaUrlLooksLike(legacyUrl)) {
+        data = await ChurchChatMediaResolver.downloadBytes(
+          storagePath: legacyUrl,
+          maxBytes: 4 * 1024 * 1024,
+        );
+      }
+    }
+
+    if (!mounted) return;
+    if (data != null && data.length > 32) {
+      _chatThumbRamPut(cacheKey, data);
+      setState(() {
+        _bytes = data;
+        _loading = false;
+        _failed = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _bytes = null;
+      _loading = false;
+      _failed = true;
+    });
   }
 
   Widget _placeholder() {
     return Container(
-      width: width,
-      height: height ?? 120,
-      color: const Color(0xFFE2E8F0),
+      width: widget.width,
+      height: widget.height ?? 120,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFE8F5E9),
+            const Color(0xFF128C7E).withValues(alpha: 0.12),
+          ],
+        ),
+      ),
       alignment: Alignment.center,
       child: SizedBox(
         width: 28,
         height: 28,
         child: CircularProgressIndicator(
           strokeWidth: 2.5,
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+          color: const Color(0xFF128C7E).withValues(alpha: 0.85),
         ),
       ),
     );
   }
 
   Widget _errorBody() {
-    return Container(
-      width: width,
-      height: height ?? 120,
+    return Material(
       color: const Color(0xFFF1F5F9),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.all(12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.broken_image_outlined, color: Colors.grey.shade600, size: 32),
-          const SizedBox(height: 6),
-          Text(
-            'Falha ao carregar',
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade700,
-              fontWeight: FontWeight.w600,
-            ),
+      child: InkWell(
+        onTap: () => unawaited(_load()),
+        child: Container(
+          width: widget.width,
+          height: widget.height ?? 120,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.refresh_rounded, color: Colors.grey.shade600, size: 28),
+              const SizedBox(height: 6),
+              Text(
+                'Toque para recarregar',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final path = _pickDisplayPath();
-    final legacyUrl = ChurchChatMessageFields.mediaUrl(data);
-    final displayKey =
-        path.isNotEmpty ? path : (legacyUrl.isNotEmpty ? legacyUrl : '');
-
-    if (displayKey.isEmpty) {
-      return ClipRRect(
-        borderRadius: borderRadius ?? BorderRadius.zero,
-        child: _errorBody(),
+    Widget child;
+    if (_bytes != null) {
+      child = Image.memory(
+        _bytes!,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        gaplessPlayback: true,
+        cacheWidth: widget.memCacheWidth,
+        cacheHeight: widget.memCacheHeight,
       );
+    } else if (_failed) {
+      child = _errorBody();
+    } else if (_loading) {
+      child = _placeholder();
+    } else {
+      child = _errorBody();
     }
 
-    Widget child = FirebaseStorageMemoryImage(
-      key: ValueKey<String>('chat_img_$displayKey'),
-      imageUrl: displayKey,
-      width: width,
-      height: height,
-      fit: fit,
-      memCacheWidth: memCacheWidth,
-      memCacheHeight: memCacheHeight,
-      skipFreshDisplayUrl: true,
-      placeholder: _placeholder(),
-      errorWidget: _errorBody(),
-    );
-
     child = ClipRRect(
-      borderRadius: borderRadius ?? BorderRadius.zero,
+      borderRadius: widget.borderRadius ?? BorderRadius.zero,
       child: child,
     );
 
-    if (onTap != null) {
-      return GestureDetector(onTap: onTap, child: child);
+    if (widget.onTap != null) {
+      return GestureDetector(onTap: widget.onTap, child: child);
     }
     return child;
   }
