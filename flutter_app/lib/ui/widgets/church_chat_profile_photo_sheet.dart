@@ -1,11 +1,14 @@
 import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
@@ -22,7 +25,7 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
   required String memberDocId,
   Map<String, dynamic>? initialData,
 }) async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final uid = firebaseDefaultAuth.currentUser?.uid;
   if (uid == null || uid.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Faça login para alterar a foto.')),
@@ -63,7 +66,7 @@ Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
   required String tenantId,
   String? cpfDigits,
 }) async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final uid = firebaseDefaultAuth.currentUser?.uid;
   if (uid == null || uid.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Faça login para alterar a foto.')),
@@ -189,26 +192,36 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     if (bytes == null || bytes.isEmpty || _uploading) return;
     setState(() {
       _uploading = true;
-      _phaseLabel = 'A preparar…';
+      _phaseLabel = 'Salvando…';
     });
     try {
-      final result = await YahwehCentralEngineService.executeSingleProfileSave(
-        collectionId: 'membros',
-        docId: widget.memberId,
-        igrejaId: widget.churchId,
-        payloadFields: const {},
-        photoBytes: bytes,
-        memberDataHint: widget.initialData,
-        onPhase: (label) {
-          if (mounted) setState(() => _phaseLabel = label);
+      final result = await FirebaseBootstrapService.runGuarded(
+        () async {
+          await AppFinalizeBootstrap.ensureSessionForPublish(
+            logLabel: 'membro_foto_editor',
+          );
+          await ensureFirebaseReadyForMediaUpload();
+          return YahwehCentralEngineService.executeSingleProfileSave(
+            collectionId: 'membros',
+            docId: widget.memberId,
+            igrejaId: widget.churchId,
+            payloadFields: const {},
+            photoBytes: bytes,
+            memberDataHint: widget.initialData,
+            onPhase: (label) {
+              if (mounted) setState(() => _phaseLabel = label);
+            },
+          );
         },
+        debugLabel: 'membro_foto_editor',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar('Foto de perfil actualizada!'),
       );
       Navigator.pop(context, result);
-    } catch (e) {
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor'));
       if (!mounted) return;
       setState(() {
         _uploading = false;
@@ -457,7 +470,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                   : const Icon(Icons.cloud_upload_rounded),
               label: Text(
                 _uploading
-                    ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'A enviar…')
+                    ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando…')
                     : 'Guardar foto',
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),

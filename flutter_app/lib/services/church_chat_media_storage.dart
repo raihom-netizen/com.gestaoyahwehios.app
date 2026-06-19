@@ -1,58 +1,59 @@
+import 'dart:async' show unawaited;
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
-/// Upload Storage do chat — `putData`/`putFile` com timeout e deteção de paragem.
+/// Upload Storage do chat — delega a [YahwehMediaUploadPipeline] / [MediaUploadService]
+/// após bootstrap (`ensureStorageAlwaysLinked` / `EcoFirePublishBootstrap`).
 abstract final class ChurchChatMediaStorage {
   ChurchChatMediaStorage._();
 
   static const int _maxAttempts = 3;
 
-  /// Caminho rápido (WhatsApp): só `putData` + progresso — **sem** `getDownloadURL` nem bootstrap pesado.
+  static Future<void> _ensureChatStorageReady({bool fast = false}) async {
+    await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'chat_storage');
+    await ensureFirebaseReadyForMediaUpload();
+    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      try {
+        FirebaseBootstrapService.probeStorageLinked();
+        return;
+      } catch (_) {
+        FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+      }
+    }
+    if (fast) {
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+      );
+      return;
+    }
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage');
+  }
+
+  /// Caminho rápido (WhatsApp): bootstrap + pipeline unificado (sem URL).
   static Future<void> putBytesFast({
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await ensureFirebaseCore(requireAuth: true);
-    Object? last;
-    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
-      try {
-        if (attempt > 1) {
-          await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
-        }
-        final ref = firebaseStorageRef(storagePath);
-        final ct = StorageUploadMetadata.contentTypeForPut(
-          contentType: contentType,
-          storagePath: storagePath,
-        );
-        final task = ref.putData(
-          bytes,
-          SettableMetadata(
-            contentType: ct,
-            cacheControl: StorageUploadMetadata.cacheControl,
-          ),
-        );
-        await awaitStorageUploadTask(
-          task,
-          payloadBytes: bytes.length,
-          onProgress: onProgress,
-        );
-        onProgress?.call(1.0);
-        return;
-      } catch (e) {
-        last = e;
-        if (!isRetryableUploadError(e) || attempt >= _maxAttempts) break;
-      }
-    }
-    throw last ?? StateError('Falha ao enviar ficheiro no chat.');
+    await FirebaseBootstrapService.runGuarded(
+      () => _putBytesInternal(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        onProgress: onProgress,
+      ),
+      debugLabel: 'chat_putBytesFast',
+    );
   }
 
   static Future<void> putBytes({
@@ -61,38 +62,43 @@ abstract final class ChurchChatMediaStorage {
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage_putBytes');
-    Object? last;
-    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
-      try {
-        if (attempt > 1) {
-          await Future<void>.delayed(Duration(milliseconds: 320 * attempt));
-        }
-        final ref = firebaseStorageRef(storagePath);
-        final ct = StorageUploadMetadata.contentTypeForPut(
-          contentType: contentType,
+    await FirebaseBootstrapService.runGuarded(
+      () async {
+        await _ensureChatStorageReady();
+        await _putBytesInternal(
           storagePath: storagePath,
-        );
-        final task = ref.putData(
-          bytes,
-          SettableMetadata(
-            contentType: ct,
-            cacheControl: StorageUploadMetadata.cacheControl,
-          ),
-        );
-        await awaitStorageUploadTask(
-          task,
-          payloadBytes: bytes.length,
+          bytes: bytes,
+          contentType: contentType,
           onProgress: onProgress,
         );
-        onProgress?.call(1.0);
-        return;
-      } catch (e) {
-        last = e;
-        if (!isRetryableUploadError(e) || attempt >= _maxAttempts) break;
+      },
+      debugLabel: 'chat_putBytes',
+    );
+  }
+
+  static Future<void> _putBytesInternal({
+    required String storagePath,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(double progress)? onProgress,
+  }) async {
+    await _ensureChatStorageReady(fast: true);
+    try {
+      await YahwehMediaUploadPipeline.uploadPreparedBytes(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        maxAttempts: _maxAttempts,
+        onProgress: onProgress,
+      );
+    } catch (e, st) {
+      if (CrashlyticsService.shouldReport(e)) {
+        unawaited(
+          CrashlyticsService.record(e, st, reason: 'chat_putBytes'),
+        );
       }
+      rethrow;
     }
-    throw last ?? StateError('Falha ao enviar ficheiro no chat.');
   }
 
   static Future<void> putFile({
@@ -104,42 +110,32 @@ abstract final class ChurchChatMediaStorage {
     if (kIsWeb) {
       throw UnsupportedError('putFile do chat não suportado na web.');
     }
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage_putFile');
-    final file = File(localPath);
-    if (!await file.exists()) {
-      throw StateError('Ficheiro não encontrado no aparelho.');
-    }
-    final byteLen = await file.length();
-    Object? last;
-    for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
-      try {
-        if (attempt > 1) {
-          await Future<void>.delayed(Duration(milliseconds: 320 * attempt));
+    await FirebaseBootstrapService.runGuarded(
+      () async {
+        await _ensureChatStorageReady();
+        final file = File(localPath);
+        if (!await file.exists()) {
+          throw StateError('Ficheiro não encontrado no aparelho.');
         }
-        final ref = firebaseStorageRef(storagePath);
-        final ct = StorageUploadMetadata.contentTypeForPut(
-          contentType: contentType,
-          storagePath: storagePath,
-        );
-        final task = ref.putFile(
-          file,
-          SettableMetadata(
-            contentType: ct,
-            cacheControl: StorageUploadMetadata.cacheControl,
-          ),
-        );
-        await awaitStorageUploadTask(
-          task,
-          payloadBytes: byteLen,
-          onProgress: onProgress,
-        );
-        onProgress?.call(1.0);
-        return;
-      } catch (e) {
-        last = e;
-        if (!isRetryableUploadError(e) || attempt >= _maxAttempts) break;
-      }
-    }
-    throw last ?? StateError('Falha ao enviar ficheiro no chat.');
+        try {
+          await MediaUploadService.uploadFileWithRetry(
+            storagePath: storagePath,
+            file: file,
+            contentType: contentType,
+            maxAttempts: _maxAttempts,
+            onProgress: onProgress,
+            skipRecompress: true,
+          );
+        } catch (e, st) {
+          if (CrashlyticsService.shouldReport(e)) {
+            unawaited(
+              CrashlyticsService.record(e, st, reason: 'chat_putFile'),
+            );
+          }
+          rethrow;
+        }
+      },
+      debugLabel: 'chat_putFile',
+    );
   }
 }

@@ -2104,17 +2104,21 @@ class ChurchChatService {
     required String fileName,
     required String contentType,
   }) async {
+    await ensureFirebaseReadyForChatSend();
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final path =
         'igrejas/$tenantId/chat_stickers/${uid}_${ts}_$safeName';
-    final ref = firebaseStorageRef(path);
-    await ref.putData(
-      Uint8List.fromList(bytes),
-      SettableMetadata(contentType: contentType),
+    final ubytes =
+        bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+    final url = await UnifiedUploadService.uploadImage(
+      storagePath: path,
+      bytes: ubytes,
+      contentType: contentType,
+      module: YahwehUploadModule.chat,
+      skipClientPrepare: true,
     );
-    final url = await ref.getDownloadURL();
     return (url: url, path: path);
   }
 

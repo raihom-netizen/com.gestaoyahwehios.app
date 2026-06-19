@@ -319,6 +319,23 @@ abstract final class ChurchContextService {
 
 
 
+  /// Bind síncrono no 1.º frame (shell) — módulos leem [currentChurchId] antes do async.
+  static void bindPanelIdImmediate({
+    required String seed,
+    String? canonicalId,
+    String? userUid,
+  }) {
+    final s = seed.trim();
+    if (s.isEmpty) return;
+    var id = (canonicalId ?? '').trim();
+    if (id.isEmpty) id = _canonicalizePanelId(s);
+    if (id.isEmpty) return;
+    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+    _applyBind(id, s, uid);
+    ChurchOperationalPaths.rememberResolved(s, id, userUid: uid);
+    unawaited(_ensureChurchProfileLoaded(id));
+  }
+
   /// Resolve e fixa [currentChurchId] — só aceita doc existente em `igrejas/{churchId}`.
 
   static Future<String> resolveAndBind({

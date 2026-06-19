@@ -10,16 +10,22 @@ class ChurchChatAttachmentUtils {
   /// Vídeo no chat desactivado — vídeos ficam só em eventos (menos carga no servidor).
   static const bool chatVideoUploadEnabled = false;
 
-  /// Sem ponto — [FilePicker] `allowedExtensions` (documentos / ficheiros).
+  /// Sem ponto — [FilePicker] `allowedExtensions` (só PDF, Word, Excel).
   static const List<String> documentPickerExtensions = [
     'pdf',
     'doc',
     'docx',
     'xls',
     'xlsx',
-    'txt',
-    'csv',
   ];
+
+  static const Set<String> allowedDocumentExtensions = {
+    '.pdf',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+  };
 
   static String extensionOf(String name) {
     final e = p.extension(name).toLowerCase();
@@ -43,6 +49,17 @@ class ChurchChatAttachmentUtils {
 
   static bool isBlockedFileName(String fileName) =>
       blockReasonForFileName(fileName) != null;
+
+  /// Documentos do chat: apenas PDF, Word e Excel.
+  static String? blockReasonForDocumentFileName(String fileName) {
+    final generic = blockReasonForFileName(fileName);
+    if (generic != null) return generic;
+    final ext = extensionOf(fileName);
+    if (!allowedDocumentExtensions.contains(ext)) {
+      return 'Só PDF, Word ou Excel são permitidos no chat.';
+    }
+    return null;
+  }
 
   /// `null` se o tipo puder ser enviado; mensagem para o utilizador se bloqueado.
   static String? blockReasonForChatKind(String kind) {

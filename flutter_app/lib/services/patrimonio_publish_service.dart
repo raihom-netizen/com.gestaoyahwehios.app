@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -9,6 +10,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
@@ -31,8 +33,11 @@ abstract final class PatrimonioPublishService {
     required String itemId,
     required Map<String, dynamic> corePayload,
     required bool isNewDoc,
-    required List<Uint8List> newImages,
-    required int startSlot,
+    Map<int, Uint8List> uploadsBySlot = const {},
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+    List<Uint8List> newImages = const [],
+    int startSlot = 0,
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
     String? userUid,
@@ -54,6 +59,9 @@ abstract final class PatrimonioPublishService {
         docRef: docRef,
         corePayload: corePayload,
         isNewDoc: isNewDoc,
+        uploadsBySlot: uploadsBySlot,
+        indexedSlotUrls: indexedSlotUrls,
+        indexedSlotPaths: indexedSlotPaths,
         newImages: newImages,
         startSlot: startSlot,
         existingPaths: existingPaths,
@@ -68,6 +76,9 @@ abstract final class PatrimonioPublishService {
         docRef: docRef,
         corePayload: corePayload,
         isNewDoc: isNewDoc,
+        uploadsBySlot: uploadsBySlot,
+        indexedSlotUrls: indexedSlotUrls,
+        indexedSlotPaths: indexedSlotPaths,
         newImages: newImages,
         startSlot: startSlot,
         existingPaths: existingPaths,
@@ -84,15 +95,24 @@ abstract final class PatrimonioPublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> corePayload,
     required bool isNewDoc,
-    required List<Uint8List> newImages,
-    required int startSlot,
+    Map<int, Uint8List> uploadsBySlot = const {},
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+    List<Uint8List> newImages = const [],
+    int startSlot = 0,
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
     void Function(double progress)? onUploadProgress,
   }) async {
-    await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-      refreshAuthToken: true,
+    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+      );
+    }
+    await AppFinalizeBootstrap.ensureSessionForPublish(
+      logLabel: 'patrimonio_publish',
     );
+    await ensureFirebaseReadyForMediaUpload();
     await EcoFirePublishBootstrap.ensureHard(logLabel: 'patrimonio_publish');
 
     unawaited(
@@ -108,57 +128,135 @@ abstract final class PatrimonioPublishService {
 
     var slotUrls = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
     var slotPaths = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
-    for (var i = 0; i < existingUrls.length && i < PatrimonioPhotoFields.maxPhotos; i++) {
-      slotUrls[i] = sanitizeImageUrl(existingUrls[i]);
-    }
-    for (var i = 0; i < existingPaths.length && i < PatrimonioPhotoFields.maxPhotos; i++) {
-      slotPaths[i] = existingPaths[i].trim();
-    }
 
-    final maxNew =
-        (kMaxPatrimonioPhotosPerItem - startSlot).clamp(0, kMaxPatrimonioPhotosPerItem);
-    final batch = newImages.take(maxNew).toList(growable: false);
-
-    if (batch.isNotEmpty) {
-      // Slots que serão sobrescritos — limpa Storage legado antes do upload.
-      for (var j = 0; j < batch.length; j++) {
-        await FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
-          tenantId: igrejaId,
-          itemDocId: itemId,
-          slot: startSlot + j,
-        );
+    if (indexedSlotUrls.length >= PatrimonioPhotoFields.maxPhotos) {
+      for (var i = 0; i < PatrimonioPhotoFields.maxPhotos; i++) {
+        slotUrls[i] = sanitizeImageUrl(indexedSlotUrls[i]);
+        slotPaths[i] = i < indexedSlotPaths.length
+            ? indexedSlotPaths[i].trim()
+            : '';
       }
+    } else {
+      for (var i = 0;
+          i < existingUrls.length && i < PatrimonioPhotoFields.maxPhotos;
+          i++) {
+        slotUrls[i] = sanitizeImageUrl(existingUrls[i]);
+      }
+      for (var i = 0;
+          i < existingPaths.length && i < PatrimonioPhotoFields.maxPhotos;
+          i++) {
+        slotPaths[i] = existingPaths[i].trim();
+      }
+    }
+
+    final uploadedPaths = <String>[];
+
+    if (uploadsBySlot.isNotEmpty) {
+      final slots = uploadsBySlot.keys.toList()..sort();
+      final total = slots.length;
+
+      await Future.wait(
+        slots.map(
+          (slot) => FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+            tenantId: igrejaId,
+            itemDocId: itemId,
+            slot: slot,
+          ),
+        ),
+      );
+
       onUploadProgress?.call(0.06);
 
-      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
-        churchId: igrejaId,
-        itemDocId: itemId,
-        images: batch,
-        startSlot: startSlot,
-        skipPrepare: true,
-        maxParallel: 2,
-        onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
-      );
+      List<PatrimonioGalleryUploadResult> uploaded;
+      try {
+        uploaded = await FirebaseBootstrapService.runGuarded(
+          () => Future.wait(
+            slots.map((slot) async {
+              final bytes = uploadsBySlot[slot];
+              if (bytes == null || bytes.isEmpty) {
+                throw StateError('Foto do slot $slot está vazia.');
+              }
+              if (slot < 0 || slot >= PatrimonioPhotoFields.maxPhotos) {
+                throw StateError('Slot de foto inválido ($slot).');
+              }
+              return PatrimonioMediaUpload.uploadGalleryPhoto(
+                churchId: igrejaId,
+                itemDocId: itemId,
+                slotIndex: slot,
+                rawBytes: bytes,
+              );
+            }),
+          ),
+          debugLabel: 'patrimonio_publish_slots',
+        );
+      } catch (e, st) {
+        if (CrashlyticsService.shouldReport(e)) {
+          unawaited(
+            CrashlyticsService.record(e, st, reason: 'patrimonio_publish_slots'),
+          );
+        }
+        rethrow;
+      }
 
-      if (uploaded.length != batch.length) {
-        throw StateError(
-          'Envio incompleto: ${uploaded.length}/${batch.length} fotos no Storage.',
+      for (var i = 0; i < uploaded.length; i++) {
+        final r = uploaded[i];
+        slotUrls[r.slotIndex] = sanitizeImageUrl(r.downloadUrl);
+        slotPaths[r.slotIndex] = r.storagePath;
+        uploadedPaths.add(r.storagePath);
+        onUploadProgress?.call(0.06 + ((i + 1) / total) * 0.78);
+      }
+
+      if (uploadedPaths.isNotEmpty) {
+        await PatrimonioPublishVerificationService.verifyStorageMetadata(
+          photoPaths: uploadedPaths,
+          timeout: const Duration(seconds: 12),
+          maxAttempts: 4,
         );
       }
+    } else {
+      final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot)
+          .clamp(0, kMaxPatrimonioPhotosPerItem);
+      final batch = newImages.take(maxNew).toList(growable: false);
 
-      for (final r in uploaded) {
-        final idx = r.slotIndex;
-        if (idx >= 0 && idx < PatrimonioPhotoFields.maxPhotos) {
-          slotUrls[idx] = sanitizeImageUrl(r.downloadUrl);
-          slotPaths[idx] = r.storagePath;
+      if (batch.isNotEmpty) {
+        for (var j = 0; j < batch.length; j++) {
+          await FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+            tenantId: igrejaId,
+            itemDocId: itemId,
+            slot: startSlot + j,
+          );
         }
-      }
+        onUploadProgress?.call(0.06);
 
-      await PatrimonioPublishVerificationService.verifyStorageMetadata(
-        photoPaths: uploaded.map((e) => e.storagePath),
-        timeout: const Duration(seconds: 12),
-        maxAttempts: 4,
-      );
+        final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
+          churchId: igrejaId,
+          itemDocId: itemId,
+          images: batch,
+          startSlot: startSlot,
+          maxParallel: 4,
+          onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
+        );
+
+        if (uploaded.length != batch.length) {
+          throw StateError(
+            'Envio incompleto: ${uploaded.length}/${batch.length} fotos no Storage.',
+          );
+        }
+
+        for (final r in uploaded) {
+          final idx = r.slotIndex;
+          if (idx >= 0 && idx < PatrimonioPhotoFields.maxPhotos) {
+            slotUrls[idx] = sanitizeImageUrl(r.downloadUrl);
+            slotPaths[idx] = r.storagePath;
+          }
+        }
+
+        await PatrimonioPublishVerificationService.verifyStorageMetadata(
+          photoPaths: uploaded.map((e) => e.storagePath),
+          timeout: const Duration(seconds: 12),
+          maxAttempts: 4,
+        );
+      }
     }
 
     // Remove slots vazios no Storage acima da contagem final.
@@ -238,6 +336,8 @@ abstract final class PatrimonioPublishService {
     required String itemId,
     required Map<String, dynamic> corePayload,
     required bool isNewDoc,
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
     String? userUid,
@@ -250,13 +350,21 @@ abstract final class PatrimonioPublishService {
       igrejaId: igrejaId,
       itemId: itemId,
     );
-    final urls = existingUrls
-        .map((e) => sanitizeImageUrl(e))
-        .where((e) => e.isNotEmpty)
-        .toList();
     final payload = Map<String, dynamic>.from(corePayload);
-    if (urls.isNotEmpty || existingPaths.isNotEmpty) {
-      PatrimonioPhotoFields.applyToPayload(payload, urls, existingPaths);
+    if (indexedSlotUrls.length >= PatrimonioPhotoFields.maxPhotos) {
+      PatrimonioPhotoFields.applyIndexedSlots(
+        payload,
+        indexedSlotUrls,
+        indexedSlotPaths,
+      );
+    } else {
+      final urls = existingUrls
+          .map((e) => sanitizeImageUrl(e))
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (urls.isNotEmpty || existingPaths.isNotEmpty) {
+        PatrimonioPhotoFields.applyToPayload(payload, urls, existingPaths);
+      }
     }
     payload['churchId'] = igrejaId;
     payload['tenantId'] = igrejaId;

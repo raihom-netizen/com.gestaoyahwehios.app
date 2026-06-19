@@ -56,6 +56,9 @@ abstract final class ChurchRepository {
 
   static String churchId([String? hint]) => resolveChurchId(hint);
 
+  /// ID operacional único — Firestore `igrejas/{id}` + Storage `igrejas/{id}/`.
+  static String operationalChurchId([String? hint]) => resolveChurchId(hint);
+
   static String resolveChurchId([String? hint]) =>
       ChurchContext.resolveChurchId(hint);
 

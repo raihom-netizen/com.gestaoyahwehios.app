@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
@@ -35,7 +36,7 @@ abstract final class ChurchPanelModulePrefetchService {
 
   /// Dispara prefetch completo (não bloqueia UI).
   static void scheduleFullPrefetch(String seedTenantId, {bool force = false}) {
-    final churchId = ChurchPanelTenant.resolve(seedTenantId.trim());
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) return;
     if (!force &&
         _sessionChurchId == churchId &&
@@ -48,7 +49,7 @@ abstract final class ChurchPanelModulePrefetchService {
 
   /// Um módulo ao abrir no menu — idempotente por sessão.
   static void scheduleModule(String seedTenantId, String moduleKey) {
-    final churchId = ChurchPanelTenant.resolve(seedTenantId.trim());
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty || moduleKey.trim().isEmpty) return;
     unawaited(_warmModule(churchId, moduleKey.trim()));
   }

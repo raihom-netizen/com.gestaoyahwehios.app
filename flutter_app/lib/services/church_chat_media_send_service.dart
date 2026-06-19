@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Chat mídia estilo WhatsApp — Ecofire: Firebase OK → Storage → Firestore **uma vez** (`sent`).
@@ -164,10 +166,13 @@ abstract final class ChurchChatMediaSendService {
       fileSize = prepared.fullBytes.length;
       onProgress?.call(0.2);
 
-      await ChurchChatMediaStorage.putBytesFast(
+      await UnifiedUploadService.uploadImage(
         storagePath: storagePath,
         bytes: prepared.fullBytes,
         contentType: prepared.fullMime,
+        module: YahwehUploadModule.chat,
+        skipClientPrepare: true,
+        chatJpegFast: true,
         onProgress: (t) => _mapProgress(onProgress, 0.2, 0.82, t),
       );
 
@@ -178,53 +183,45 @@ abstract final class ChurchChatMediaSendService {
           timestampMs: ts,
         );
         try {
-          await ChurchChatMediaStorage.putBytesFast(
+          await UnifiedUploadService.uploadImage(
             storagePath: thumbStoragePath,
             bytes: prepared.thumbBytes!,
             contentType: 'image/webp',
+            module: YahwehUploadModule.chat,
+            skipClientPrepare: true,
+            chatJpegFast: true,
             onProgress: (t) => _mapProgress(onProgress, 0.82, 0.88, t),
           ).timeout(const Duration(seconds: 15));
         } catch (_) {
           thumbStoragePath = null;
         }
       }
-    } else if (pending.kind == 'video' &&
-        uploadPath.isNotEmpty &&
-        !kIsWeb) {
-      final prepared = await ChurchChatMediaPrepare.prepareVideo(
-        uploadPath,
-        onCompressProgress: (t) => _mapProgress(onProgress, 0.12, 0.35, t),
-      ).timeout(kPrepareTimeout);
-      final videoPath = prepared?.outputPath ?? uploadPath;
-      pending.localPath = videoPath;
-      try {
-        fileSize = await File(videoPath).length();
-      } catch (_) {}
-
-      await ChurchChatMediaStorage.putFile(
-        storagePath: storagePath,
-        localPath: videoPath,
-        contentType: pending.mime.isNotEmpty ? pending.mime : 'video/mp4',
-        onProgress: (t) => _mapProgress(onProgress, 0.35, 0.82, t),
-      );
-
-      if (prepared?.thumbnailBytes != null &&
-          prepared!.thumbnailBytes!.isNotEmpty) {
-        thumbStoragePath = ChurchChatService.buildChatVideoThumbStoragePath(
-          tenantId: resolvedTenant,
-          threadId: threadId,
-          timestampMs: ts,
+    } else if (pending.kind == 'audio') {
+      final mime = pending.mime.isNotEmpty ? pending.mime : 'audio/mp4';
+      if (uploadBytes != null && uploadBytes.isNotEmpty) {
+        final u8 = uploadBytes is Uint8List
+            ? uploadBytes
+            : Uint8List.fromList(uploadBytes);
+        fileSize = u8.length;
+        await UnifiedUploadService.uploadChatMediaBytes(
+          storagePath: storagePath,
+          bytes: u8,
+          contentType: mime,
+          onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
+        );
+      } else if (uploadPath.isNotEmpty) {
+        await UnifiedUploadService.uploadFile(
+          storagePath: storagePath,
+          localPath: uploadPath,
+          contentType: mime,
+          module: YahwehUploadModule.chat,
+          onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
         );
         try {
-          await ChurchChatMediaStorage.putBytesFast(
-            storagePath: thumbStoragePath,
-            bytes: prepared.thumbnailBytes!,
-            contentType: 'image/webp',
-            onProgress: (t) => _mapProgress(onProgress, 0.82, 0.88, t),
-          ).timeout(const Duration(seconds: 15));
-        } catch (_) {
-          thumbStoragePath = null;
-        }
+          fileSize = await File(uploadPath).length();
+        } catch (_) {}
+      } else {
+        throw StateError('Sem áudio para enviar.');
       }
     } else if (uploadBytes != null && uploadBytes.isNotEmpty) {
       final u8 = uploadBytes is Uint8List

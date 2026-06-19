@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:intl/intl.dart';
@@ -928,10 +929,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                           templateStorageId,
                                                         );
                                                     final downloadUrl =
-                                                        await UnifiedUploadService
-                                                            .uploadJpegBytes(
-                                                      storagePath: storagePath,
-                                                      bytes: compressed,
+                                                        await EventoMediaUpload
+                                                            .uploadTemplateCover(
+                                                      churchId: tenantId,
+                                                      templateId:
+                                                          templateStorageId,
+                                                      compressedBytes:
+                                                          compressed,
                                                     );
                                                     FirebaseStorageCleanupService
                                                         .scheduleCleanupAfterEventTemplateCoverUpload(
@@ -1010,9 +1014,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                 templateStorageId,
                               );
                               final downloadUrl =
-                                  await UnifiedUploadService.uploadJpegBytes(
-                                storagePath: storagePath,
-                                bytes: compressed,
+                                  await EventoMediaUpload.uploadTemplateCover(
+                                churchId: tenantId,
+                                templateId: templateStorageId,
+                                compressedBytes: compressed,
                               );
                               FirebaseStorageCleanupService
                                   .scheduleCleanupAfterEventTemplateCoverUpload(
@@ -6782,6 +6787,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final slot = _existingUrls.length + _inFlightPhotoUploads;
     _inFlightPhotoUploads++;
     try {
+      await runFirebaseBackgroundTask(() async {
       if (widget.doc == null && !_eventDraftEnsured) {
         await ImmediateFeedPhotoAttach.ensureDraftPost(
           docRef: _eventDocRef,
@@ -6823,7 +6829,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         }
       }
-    } catch (e) {
+      }, debugLabel: 'event_photo_attach_bg');
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'event_photo_attach'));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -7715,23 +7723,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<MediaUploadResult> _upload(
       Uint8List bytes, String postDocId, int slotIndex) async {
-    await FeedPostMediaUpload.warmAuthToken();
-    final storagePath = FeedTenantStorageMap.feedEventoPhotoPath(
-      _editorTenantId,
-      postDocId,
-      slotIndex,
+    await EventoMediaUpload.ensureUploadReady();
+    final slot = await EventoMediaUpload.uploadPhotoSlot(
+      churchId: _editorTenantId,
+      postId: postDocId,
+      slotIndex: slotIndex,
+      rawBytes: bytes,
+      alreadyCompressed: bytesLookLikeWebp(bytes),
     );
-    final webp = bytesLookLikeWebp(bytes);
-    final prepared = webp
-        ? await FeedPostMediaUpload.prepareFeedWebpBytes(bytes)
-        : bytes;
-    return MediaUploadService.uploadBytesDetailed(
-      storagePath: storagePath,
-      bytes: prepared,
-      contentType: webp ? 'image/webp' : 'image/jpeg',
-      skipClientPrepare: webp,
-      useOfflineQueue: false,
-      maxAttempts: 4,
+    return MediaUploadResult(
+      downloadUrl: slot.fullUrl,
+      storagePath: slot.fullPath,
+      contentType: 'image/jpeg',
     );
   }
 
@@ -8389,10 +8392,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
-      await EcoFirePublishBootstrap.ensureHard(
+      await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'evento_save_tap',
-        strict: true,
       );
+      await ensureFirebaseReadyForMediaUpload();
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -8472,7 +8475,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       try {
         await EcofirePublishProgressUi.runWithProgress<void>(
           context,
-          uploadLabel: 'A enviar fotos e vídeo…',
+          uploadLabel: 'Criando evento e enviando capa…',
           saveLabel: 'A gravar evento…',
           distributeLabel: 'A notificar e publicar no site…',
           action: (reportProgress) async {

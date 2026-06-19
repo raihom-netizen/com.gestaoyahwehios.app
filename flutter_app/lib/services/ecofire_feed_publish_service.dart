@@ -4,31 +4,16 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/services/aviso_media_upload.dart';
+import 'package:gestao_yahweh/services/evento_media_upload.dart';
+import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show
+        show
         dedupeImageRefsByStorageIdentity,
         isValidImageUrl,
         sanitizeImageUrl;
-
-/// Resultado de um slot — URL + path directo em `igrejas/{id}/eventos|avisos/{postId}/`.
-class EcoFireFeedPhotoSlot {
-  const EcoFireFeedPhotoSlot({
-    required this.fullUrl,
-    required this.thumbUrl,
-    required this.fullPath,
-    required this.thumbPath,
-  });
-
-  final String fullUrl;
-  final String thumbUrl;
-  final String fullPath;
-  final String thumbPath;
-}
 
 /// Publicação de fotos aviso/evento — upload **directo** no Storage (pasta do post).
 ///
@@ -63,13 +48,31 @@ abstract final class EcoFireFeedPublishService {
     required int slotIndex,
     Uint8List? bytes,
     String? localPath,
+    bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: 'feed_photo_slot',
-      strict: true,
-    );
-    EcoFireFlow.log('FEED_PHOTO slot $postType/$postId#$slotIndex');
+    final churchId = tenantId.trim();
+
+    if (!_isEventoPostType(postType)) {
+      Uint8List raw;
+      if (bytes != null && bytes.isNotEmpty) {
+        raw = bytes;
+      } else if (!kIsWeb && localPath != null && localPath.trim().isNotEmpty) {
+        raw = await IosPublishImagePipeline.compressForPublishFromPath(
+          localPath.trim(),
+        );
+      } else {
+        throw StateError('Sem imagem para enviar.');
+      }
+      return AvisoMediaUpload.uploadPhotoSlot(
+        churchId: churchId,
+        postId: postId,
+        slotIndex: slotIndex,
+        rawBytes: raw,
+        alreadyCompressed: alreadyCompressed || (bytes != null && bytes.isNotEmpty),
+        onProgress: onProgress,
+      );
+    }
 
     Uint8List raw;
     if (bytes != null && bytes.isNotEmpty) {
@@ -81,37 +84,17 @@ abstract final class EcoFireFeedPublishService {
     } else {
       throw StateError('Sem imagem para enviar.');
     }
-
-    final processed = await EcoFireImageProcess.processForFeedPhoto(raw);
-    final churchId = tenantId.trim();
-    final storagePath = _mainStoragePath(
+    return EventoMediaUpload.uploadPhotoSlot(
       churchId: churchId,
-      postType: postType,
       postId: postId,
       slotIndex: slotIndex,
-    );
-
-    final url = await EcoFireStorageUpload.putData(
-      storagePath: storagePath,
-      bytes: processed.bytes,
-      mimeType: processed.mime,
+      rawBytes: raw,
+      alreadyCompressed: alreadyCompressed || (bytes != null && bytes.isNotEmpty),
       onProgress: onProgress,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
-      ),
-    );
-
-    return EcoFireFeedPhotoSlot(
-      fullUrl: url,
-      thumbUrl: url,
-      fullPath: storagePath,
-      thumbPath: storagePath,
     );
   }
 
-  /// Lote — web (bytes) ou mobile (paths). Até 3 uploads em paralelo.
+  /// Lote — web (bytes) ou mobile (paths). Avisos: até 5 em paralelo.
   static Future<List<EcoFireFeedPhotoSlot>> uploadPendingPhotoSlots({
     required String tenantId,
     required String postType,
@@ -119,35 +102,37 @@ abstract final class EcoFireFeedPublishService {
     required int startSlotIndex,
     List<Uint8List>? bytesList,
     List<String>? localPaths,
+    bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
-    const maxParallel = 3;
+    final isAviso = !_isEventoPostType(postType);
+    final maxParallel = isAviso
+        ? AvisoMediaUpload.maxParallelSlots
+        : EventoMediaUpload.maxParallelSlots;
 
     if (kIsWeb) {
       final images = bytesList ?? const <Uint8List>[];
       if (images.isEmpty) return const [];
-      final slots = List<EcoFireFeedPhotoSlot?>.filled(images.length, null);
-      var completed = 0;
 
-      Future<void> uploadOne(int i) async {
-        slots[i] = await uploadPhotoSlot(
-          tenantId: tenantId,
-          postType: postType,
+      if (isAviso) {
+        return AvisoMediaUpload.uploadPhotoBatch(
+          churchId: tenantId,
           postId: postId,
-          slotIndex: startSlotIndex + i,
-          bytes: images[i],
+          startSlotIndex: startSlotIndex,
+          bytesList: images,
+          alreadyCompressed: true,
+          onProgress: onProgress,
         );
-        completed++;
-        onProgress?.call(completed / images.length);
       }
 
-      for (var start = 0; start < images.length; start += maxParallel) {
-        final end = (start + maxParallel).clamp(0, images.length);
-        await Future.wait([
-          for (var i = start; i < end; i++) uploadOne(i),
-        ]);
-      }
-      return slots.whereType<EcoFireFeedPhotoSlot>().toList();
+      return EventoMediaUpload.uploadPhotoBatch(
+        churchId: tenantId,
+        postId: postId,
+        startSlotIndex: startSlotIndex,
+        bytesList: images,
+        alreadyCompressed: true,
+        onProgress: onProgress,
+      );
     }
 
     final paths = localPaths

@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -83,6 +85,15 @@ class ChurchAutoSessionService {
       tid = await _resolveTenantIdFromUserDoc();
     }
     if (tid.isEmpty) return;
+
+    final churchId = ChurchRepository.churchId(tid);
+    if (churchId.isNotEmpty) {
+      ChurchContextService.bindPanelIdImmediate(
+        seed: tid,
+        canonicalId: churchId,
+      );
+      tid = churchId;
+    }
 
     unawaited(
       ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),

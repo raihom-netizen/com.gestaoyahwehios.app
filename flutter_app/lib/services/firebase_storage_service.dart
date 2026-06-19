@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'media_handler_service.dart';
 import 'media_upload_service.dart';
@@ -25,7 +25,7 @@ class FirebaseStorageService {
   FirebaseStorageService._();
   static final FirebaseStorageService instance = FirebaseStorageService._();
 
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  FirebaseStorage get _storage => firebaseDefaultStorage;
 
   /// Caminho completo no bucket (`igrejas/.../foto.jpg`), não encadear [Reference.child]
   /// com pastas que contêm `/` — em alguns SDKs isso grava no sítio errado.
@@ -56,8 +56,10 @@ class FirebaseStorageService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid);
-      final doc = await ChurchTenantResilientReads.churchDocument(op);
+      final op = ChurchRepository.churchId(tid);
+      final doc = await ChurchTenantResilientReads.churchDocument(
+        op.isNotEmpty ? op : tid,
+      );
       if (!doc.exists) return null;
       final d = doc.data();
       name = (d?['name'] ?? d?['nome'] ?? '').toString().trim();
@@ -117,7 +119,7 @@ class FirebaseStorageService {
     const timeout = Duration(seconds: 10);
     for (final p in paths) {
       try {
-        final ref = FirebaseStorage.instance.ref(p);
+        final ref = firebaseDefaultStorage.ref(p);
         final meta = await ref.getMetadata().timeout(timeout);
         final sz = meta.size ?? 0;
         // Ignora placeholder 1×1 / ficheiros corrompidos (~67 B) — URL válida mas imagem invisível no site.
@@ -203,7 +205,7 @@ class FirebaseStorageService {
     final jpgPath = ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tid);
     for (final p in [pngPath, jpgPath]) {
       try {
-        await FirebaseStorage.instance.ref(p).getMetadata();
+        await firebaseDefaultStorage.ref(p).getMetadata();
         return;
       } catch (_) {}
     }
@@ -214,7 +216,7 @@ class FirebaseStorageService {
       } catch (_) {}
     }
     try {
-      await FirebaseStorage.instance.ref(pngPath).putData(
+      await firebaseDefaultStorage.ref(pngPath).putData(
             ChurchStorageLayout.kMinimalTransparentIdentityPng,
             SettableMetadata(contentType: 'image/png'),
           );
@@ -273,7 +275,7 @@ class FirebaseStorageService {
     const timeout = Duration(seconds: 10);
     for (final p in ChurchStorageLayout.pastorSignatureConfigPaths(tid)) {
       try {
-        final ref = FirebaseStorage.instance.ref(p);
+        final ref = firebaseDefaultStorage.ref(p);
         final url = await ref.getDownloadURL().timeout(timeout, onTimeout: () => '');
         if (url.isNotEmpty) {
           _pastorSigConfigUrlCache[tid] = url;
@@ -621,7 +623,7 @@ class FirebaseStorageService {
     }
     final path = ChurchStorageLayout.gestorPublicProfilePhotoPath(tid);
     try {
-      final ref = FirebaseStorage.instance.ref(path);
+      final ref = firebaseDefaultStorage.ref(path);
       final url = await ref
           .getDownloadURL()
           .timeout(const Duration(seconds: 10), onTimeout: () => '');

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -23,9 +24,9 @@ class AdminAvisoGlobalPage extends StatefulWidget {
 }
 
 class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
-  final _ref = FirebaseFirestore.instance.doc('config/global_announcement');
+  final _ref = firebaseDefaultFirestore.doc('config/global_announcement');
   final _audit =
-      FirebaseFirestore.instance.collection('global_announcement_audit');
+      firebaseDefaultFirestore.collection('global_announcement_audit');
   final _messageCtrl = TextEditingController();
   final _titleCtrl = TextEditingController();
   final _primaryUrlCtrl = TextEditingController();

@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Painel premium de métricas do mural de **avisos** (curtidas e comentários).
 class ChurchAvisosInsightsDashboard extends StatefulWidget {
@@ -794,7 +795,7 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
       for (final uid in uids) {
         try {
           final u =
-              await FirebaseFirestore.instance.collection('users').doc(uid).get();
+              await firebaseDefaultFirestore.collection('users').doc(uid).get();
           final n = (u.data()?['nome'] ??
                   u.data()?['name'] ??
                   u.data()?['displayName'] ??

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -48,14 +48,15 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:gestao_yahweh/ui/widgets/church_department_member_picker_page.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  /// Módulos extras (ex.: `departamentos`) vindos de `users.permissions` / painel do gestor.
+  /// MÃ³dulos extras (ex.: `departamentos`) vindos de `users.permissions` / painel do gestor.
   final List<String>? permissions;
-  /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartão do módulo.
+  /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartÃ£o do mÃ³dulo.
   final bool embeddedInShell;
   const DepartmentsPage({
     super.key,
@@ -70,40 +71,40 @@ class DepartmentsPage extends StatefulWidget {
 }
 
 class _DepartmentsPageState extends State<DepartmentsPage> {
-  /// Carregamento explícito: na web + IndexedStack o FutureBuilder às vezes não reconstrói após o .get() — área ficava em branco.
+  /// Carregamento explÃ­cito: na web + IndexedStack o FutureBuilder Ã s vezes nÃ£o reconstrÃ³i apÃ³s o .get() â€” Ã¡rea ficava em branco.
   bool _deptLoading = true;
   Object? _deptError;
   bool _deptShowingStaleCache = false;
 
-  /// Snapshot do último `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
-  /// popular — evita hub sem cards até o stream alinhar.
+  /// Snapshot do Ãºltimo `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
+  /// popular â€” evita hub sem cards atÃ© o stream alinhar.
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _hydratedDeptDocs;
 
-  /// Evita loop em [StreamBuilder] quando cache veio vazio: uma leitura forçada no servidor.
+  /// Evita loop em [StreamBuilder] quando cache veio vazio: uma leitura forÃ§ada no servidor.
   bool _emptyServerDeptFetchTried = false;
 
-  /// O [snapshots] falhou (comum na web/offline) e o `.get()` de recuperação também falhou.
+  /// O [snapshots] falhou (comum na web/offline) e o `.get()` de recuperaÃ§Ã£o tambÃ©m falhou.
   bool _streamRecoveryFailed = false;
 
   bool _deptStreamRecoveryInFlight = false;
 
-  /// ID do documento da igreja (resolve slug/alias) — mesmo path do dashboard.
+  /// ID do documento da igreja (resolve slug/alias) â€” mesmo path do dashboard.
   String _effectiveTenantId = '';
 
-  /// Nomes de membros por CPF (11 dígitos) para exibir líderes nos cards.
+  /// Nomes de membros por CPF (11 dÃ­gitos) para exibir lÃ­deres nos cards.
   Map<String, String> _cpfToMemberName = const {};
 
-  /// [true] após a primeira tentativa de montar o mapa (mesmo se vazio).
+  /// [true] apÃ³s a primeira tentativa de montar o mapa (mesmo se vazio).
   bool _memberLookupDone = false;
 
   /// 0 = ativos, 1 = arquivados (inativos).
   int _deptListTab = 0;
 
-  /// Membros por id do documento do departamento (pré-visualização na lista).
+  /// Membros por id do documento do departamento (prÃ©-visualizaÃ§Ã£o na lista).
   Map<String, List<ChurchDepartmentMemberRow>> _membersByDeptId =
       const {};
 
-  /// CPF canónico (11 dígitos) → dados do membro (foto/nome do líder na lista).
+  /// CPF canÃ³nico (11 dÃ­gitos) â†’ dados do membro (foto/nome do lÃ­der na lista).
   Map<String, Map<String, dynamic>> _memberDataByNormCpf = const {};
 
   Timer? _webLoadCap;
@@ -211,7 +212,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// RAM + último snapshot Firestore — mesmo 1.º frame que Cargos/Android.
+  /// RAM + Ãºltimo snapshot Firestore â€” mesmo 1.Âº frame que Cargos/Android.
   void _hydrateDepartmentsFromInstantCache() {
     final seed = _loadChurchId;
     if (seed.isEmpty) return;
@@ -277,7 +278,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   void _ensureReadTenantResolved() => _bindPanelChurchId();
 
-  /// 1.º frame: cache RAM/memória; rede via [ChurchRepository.listCacheFirst] (igual Android/iOS).
+  /// 1.Âº frame: cache RAM/memÃ³ria; rede via [ChurchRepository.listCacheFirst] (igual Android/iOS).
   Future<void> _openDepartmentsFast() async {
     _ensureReadTenantResolved();
     final seed = _loadChurchId;
@@ -383,7 +384,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Leitura directa `igrejas/{churchId}/departamentos` — mesmo path Android/iOS.
+  /// Leitura directa `igrejas/{churchId}/departamentos` â€” mesmo path Android/iOS.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad({
     bool forceServer = false,
   }) async {
@@ -443,7 +444,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Sem permissão para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
+              'Sem permissÃ£o para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
               style: TextStyle(color: Colors.white),
             ),
             backgroundColor: const Color(0xFFB45309),
@@ -454,7 +455,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Garante os 11 padrões no servidor: subcoleção vazia (welcome kit) + ids de preset em falta + metadados.
+  /// Garante os 11 padrÃµes no servidor: subcoleÃ§Ã£o vazia (welcome kit) + ids de preset em falta + metadados.
   Future<void> _bootstrapDefaultDepartmentsIfAllowed(String tid) async {
     if (!AppPermissions.canEditDepartments(widget.role,
         permissions: widget.permissions)) {
@@ -489,7 +490,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Cria no Firestore cada preset cujo id ainda não existe (lógica compartilhada com Escalas).
+  /// Cria no Firestore cada preset cujo id ainda nÃ£o existe (lÃ³gica compartilhada com Escalas).
   Future<bool> _ensureMissingPresetDocuments() async {
     if (!_canWrite) return false;
     try {
@@ -499,7 +500,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         refreshToken: false);
   }
 
-  /// União stream + hidratação: evita lista só com o banner “Hub” quando o cache do stream vem vazio ou parcial.
+  /// UniÃ£o stream + hidrataÃ§Ã£o: evita lista sÃ³ com o banner â€œHubâ€ quando o cache do stream vem vazio ou parcial.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDeptStreamAndHydrated(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> streamDocs,
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? hydrated,
@@ -650,8 +651,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// [LayoutBuilder] + [SizedBox] com altura 0 (web/shell) deixava a lista invisível — ocupa todo o [Expanded].
-  /// Na web não usa pull-to-refresh (há botão Atualizar).
+  /// [LayoutBuilder] + [SizedBox] com altura 0 (web/shell) deixava a lista invisÃ­vel â€” ocupa todo o [Expanded].
+  /// Na web nÃ£o usa pull-to-refresh (hÃ¡ botÃ£o Atualizar).
   Widget _webSafeDeptScroller({
     required Future<void> Function() onRefresh,
     required List<Widget> slivers,
@@ -692,7 +693,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Lista vazia / sem presets — mensagem estável (evita sensação de “tela quebrada”).
+  /// Lista vazia / sem presets â€” mensagem estÃ¡vel (evita sensaÃ§Ã£o de â€œtela quebradaâ€).
   Widget _emptyDepartmentsMessage() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -715,7 +716,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ),
         const SizedBox(height: 10),
         Text(
-          'Toque em Atualizar ou em Gravar padrões.',
+          'Toque em Atualizar ou em Gravar padrÃµes.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: ThemeCleanPremium.onSurfaceVariant,
@@ -727,8 +728,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Hub com cards — [CustomScrollView] + slivers (web + [IndexedStack]: mais estável que
-  /// [SingleChildScrollView] + [SizedBox.expand], que às vezes deixava a área dos cards em branco).
+  /// Hub com cards â€” [CustomScrollView] + slivers (web + [IndexedStack]: mais estÃ¡vel que
+  /// [SingleChildScrollView] + [SizedBox.expand], que Ã s vezes deixava a Ã¡rea dos cards em branco).
   Widget _deptHubCustomScrollView({
     required Future<void> Function() onRefresh,
     required List<Widget> slivers,
@@ -775,20 +776,20 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
           added
-              ? 'Catálogo sincronizado: documentos criados ou atualizados.'
-              : 'Metadados do catálogo atualizados nos departamentos existentes.',
+              ? 'CatÃ¡logo sincronizado: documentos criados ou atualizados.'
+              : 'Metadados do catÃ¡logo atualizados nos departamentos existentes.',
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-            'Todos os departamentos padrão já estão cadastrados.'),
+            'Todos os departamentos padrÃ£o jÃ¡ estÃ£o cadastrados.'),
       );
     }
     await _startDeptLoad(forceServer: true);
   }
 
-  /// Abre sheet com lista de membros do departamento; permite remover membro (lançado errado).
+  /// Abre sheet com lista de membros do departamento; permite remover membro (lanÃ§ado errado).
   Future<void> _verMembrosDoDepartamento({
     required BuildContext context,
     required String deptId,
@@ -819,7 +820,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Exclui o departamento e remove o vínculo de todos os membros.
+  /// Exclui o departamento e remove o vÃ­nculo de todos os membros.
   Future<void> _excluirDepartamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
     if (!_canWrite) return;
@@ -853,8 +854,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ]),
         content: Text(
             'Excluir o departamento "$name"?\n\n'
-            '${vinculados > 0 ? 'Há $vinculados membro(s) vinculado(s). ' : ''}'
-            'Os vínculos serão removidos automaticamente.'),
+            '${vinculados > 0 ? 'HÃ¡ $vinculados membro(s) vinculado(s). ' : ''}'
+            'Os vÃ­nculos serÃ£o removidos automaticamente.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -894,7 +895,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       await batch.commit();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Departamento excluído.',
+            content: Text('Departamento excluÃ­do.',
                 style: TextStyle(color: Colors.white)),
             backgroundColor: Colors.green));
         _refreshDepartments(forceServer: true);
@@ -940,13 +941,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Convidar — $deptName',
+                  'Convidar â€” $deptName',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'O membro abre o link já logado na mesma igreja; a ficha (CPF) é vinculada a este departamento.',
+                  'O membro abre o link jÃ¡ logado na mesma igreja; a ficha (CPF) Ã© vinculada a este departamento.',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey.shade700,
@@ -989,8 +990,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () => Share.share(
-                    'Entre no departamento "$deptName" pela Gestão YAHWEH:\n$link',
-                    subject: 'Convite — $deptName',
+                    'Entre no departamento "$deptName" pela GestÃ£o YAHWEH:\n$link',
+                    subject: 'Convite â€” $deptName',
                   ),
                   icon: const Icon(Icons.share_rounded),
                   label: const Text('Compartilhar'),
@@ -1016,12 +1017,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       final result = await Navigator.of(context).push<Set<String>>(
         MaterialPageRoute<Set<String>>(
           fullscreenDialog: true,
-          builder: (ctx) => _VincularMembrosSheet(
+          builder: (ctx) => ChurchDepartmentMemberPickerPage(
             tenantId: _tid,
             deptId: deptId,
             deptName: deptName,
             accent1: accent1,
             accent2: accent2,
+            mode: ChurchDepartmentMemberPickerMode.linkMembers,
           ),
         ),
       );
@@ -1070,7 +1072,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Membros atualizados. Use esse vínculo para escalas e reuniões.',
+              'Membros atualizados. Use esse vÃ­nculo para escalas e reuniÃµes.',
               style: TextStyle(color: Colors.white),
             ),
             backgroundColor: Colors.green,
@@ -1113,8 +1115,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   bool _deptIdPreferCanonical(String id) =>
       !RegExp(r'_\d+$').hasMatch(id.trim());
 
-  /// Evita `add()` com ID aleatório e duplicatas (ex.: criancas + criancas_2 com o mesmo nome).
-  /// Retorna `true` se atualizou documento já existente (mesmo nome ou id estável ocupado com nome vazio).
+  /// Evita `add()` com ID aleatÃ³rio e duplicatas (ex.: criancas + criancas_2 com o mesmo nome).
+  /// Retorna `true` se atualizou documento jÃ¡ existente (mesmo nome ou id estÃ¡vel ocupado com nome vazio).
   Future<bool> _persistNewDepartment({
     required Map<String, dynamic> payload,
     required String iconKey,
@@ -1173,7 +1175,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return false;
   }
 
-  /// Opções de ícone para departamentos — ordem alfabética via _iconOptionsSorted.
+  /// OpÃ§Ãµes de Ã­cone para departamentos â€” ordem alfabÃ©tica via _iconOptionsSorted.
   /// Inclui keys legadas (kids, men, women, welcome, youth, worship, prayer) para compatibilidade.
   static const _iconOptions = <Map<String, dynamic>>[
     {
@@ -1184,13 +1186,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'kids',
-      'label': 'Crianças',
+      'label': 'CrianÃ§as',
       'icon': Icons.child_care_rounded,
       'color': 0xFF4FC3F7
     },
     {
       'key': 'men',
-      'label': 'Varões',
+      'label': 'VarÃµes',
       'icon': Icons.groups_rounded,
       'color': 0xFF81C784
     },
@@ -1202,7 +1204,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'welcome',
-      'label': 'Recepção',
+      'label': 'RecepÃ§Ã£o',
       'icon': Icons.waving_hand_rounded,
       'color': 0xFFFF8A65
     },
@@ -1220,19 +1222,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'prayer',
-      'label': 'Oração',
+      'label': 'OraÃ§Ã£o',
       'icon': Icons.auto_awesome_rounded,
       'color': 0xFFAED581
     },
     {
       'key': 'comunicacao',
-      'label': 'Comunicação',
+      'label': 'ComunicaÃ§Ã£o',
       'icon': Icons.campaign_rounded,
       'color': 0xFF0097A7
     },
     {
       'key': 'criancas',
-      'label': 'Crianças',
+      'label': 'CrianÃ§as',
       'icon': Icons.child_care_rounded,
       'color': 0xFF4FC3F7
     },
@@ -1256,14 +1258,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'escola_biblica',
-      'label': 'Escola Bíblica',
-      // `menu_book_rounded` pode não renderizar em alguns builds web (ícone vazio).
+      'label': 'Escola BÃ­blica',
+      // `menu_book_rounded` pode nÃ£o renderizar em alguns builds web (Ã­cone vazio).
       'icon': Icons.auto_stories_rounded,
       'color': 0xFF00897B
     },
     {
       'key': 'intercessao',
-      'label': 'Intercessão',
+      'label': 'IntercessÃ£o',
       'icon': Icons.favorite_rounded,
       'color': 0xFFD32F2F
     },
@@ -1281,13 +1283,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'media',
-      'label': 'Mídia',
+      'label': 'MÃ­dia',
       'icon': Icons.videocam_rounded,
       'color': 0xFF64B5F6
     },
     {
       'key': 'missionarios',
-      'label': 'Missionários',
+      'label': 'MissionÃ¡rios',
       'icon': Icons.public_rounded,
       'color': 0xFF607D8B
     },
@@ -1305,7 +1307,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'oracao',
-      'label': 'Oração',
+      'label': 'OraÃ§Ã£o',
       'icon': Icons.auto_awesome_rounded,
       'color': 0xFFAED581
     },
@@ -1317,19 +1319,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'presbiteros',
-      'label': 'Presbíteros',
+      'label': 'PresbÃ­teros',
       'icon': Icons.gavel_rounded,
       'color': 0xFF1565C0
     },
     {
       'key': 'recepcao',
-      'label': 'Recepção',
+      'label': 'RecepÃ§Ã£o',
       'icon': Icons.waving_hand_rounded,
       'color': 0xFFFF8A65
     },
     {
       'key': 'secretarios',
-      'label': 'Secretários',
+      'label': 'SecretÃ¡rios',
       'icon': Icons.description_rounded,
       'color': 0xFF3949AB
     },
@@ -1347,13 +1349,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'varoes',
-      'label': 'Varões',
+      'label': 'VarÃµes',
       'icon': Icons.groups_rounded,
       'color': 0xFF81C784
     },
   ];
 
-  /// Keys legadas em inglês — mesma figura que a opção em PT; não repetir no grid.
+  /// Keys legadas em inglÃªs â€” mesma figura que a opÃ§Ã£o em PT; nÃ£o repetir no grid.
   static const _legacyIconKeys = {
     'kids',
     'men',
@@ -1364,7 +1366,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     'prayer'
   };
 
-  /// Uma opção por rótulo (evita Crianças/Jovens/etc. duplicados); prioriza chave em português.
+  /// Uma opÃ§Ã£o por rÃ³tulo (evita CrianÃ§as/Jovens/etc. duplicados); prioriza chave em portuguÃªs.
   static List<Map<String, dynamic>> get _iconOptionsSorted {
     final byLabel = <String, Map<String, dynamic>>{};
     for (final e in _iconOptions) {
@@ -1433,8 +1435,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Firestore às vezes grava só RGB 24 bits (ex. 0xFFFFFF) → em Flutter vira ARGB com **alpha 0**
-  /// (gradiente invisível + texto branco no fundo branco). Força opaco e valida contraste.
+  /// Firestore Ã s vezes grava sÃ³ RGB 24 bits (ex. 0xFFFFFF) â†’ em Flutter vira ARGB com **alpha 0**
+  /// (gradiente invisÃ­vel + texto branco no fundo branco). ForÃ§a opaco e valida contraste.
   static int _opaqueArgb32(int v) {
     if ((v & 0xFF000000) == 0) return 0xFF000000 | (v & 0xFFFFFF);
     return v;
@@ -1444,7 +1446,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return Color(_opaqueArgb32(argb)).computeLuminance() > 0.74;
   }
 
-  /// Evita cast `as int` quebrar o card (Firestore às vezes devolve String ou double).
+  /// Evita cast `as int` quebrar o card (Firestore Ã s vezes devolve String ou double).
   (int, int) _deptCardGradientInts(Map<String, dynamic> m, String themeKey) {
     final th = _themeByKey(themeKey);
     final fallback1 = th['c1'] as int;
@@ -1479,7 +1481,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
     var a = _opaqueArgb32(parse(m['bgColor1'], fallback1));
     var b = _opaqueArgb32(parse(m['bgColor2'], fallback2));
-    // Só se **as duas** pontas forem claras (ex. branco no Firestore): usa tema do ícone.
+    // SÃ³ se **as duas** pontas forem claras (ex. branco no Firestore): usa tema do Ã­cone.
     if (_luminanceTooHighForWhiteText(a) && _luminanceTooHighForWhiteText(b)) {
       a = _opaqueArgb32(fallback1);
       b = _opaqueArgb32(fallback2);
@@ -1487,7 +1489,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return (a, b);
   }
 
-  /// Cores/ícones vindos do Firestore ou do mapa podem ter ARGB inválido — nunca deixar transparente.
+  /// Cores/Ã­cones vindos do Firestore ou do mapa podem ter ARGB invÃ¡lido â€” nunca deixar transparente.
   int _safeIconChipArgb(Map<String, dynamic> opt) {
     final raw = opt['color'];
     final base = raw is int ? raw : 0xFF0C3B8A;
@@ -1499,8 +1501,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return raw is IconData ? raw : Icons.groups_rounded;
   }
 
-  /// Ícone do departamento com gradiente, brilho suave e sombra na cor do tema
-  /// (Material em todas as plataformas — glifos estáveis na web).
+  /// Ãcone do departamento com gradiente, brilho suave e sombra na cor do tema
+  /// (Material em todas as plataformas â€” glifos estÃ¡veis na web).
   Widget _iconChip(String key, {double radius = 20}) {
     final opt = _iconOptions.firstWhere((e) => e['key'] == key,
         orElse: () => _iconOptions.first);
@@ -1574,7 +1576,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Alinha ícone do Firestore ao catálogo e ao nome exibível (aliases temáticos).
+  /// Alinha Ã­cone do Firestore ao catÃ¡logo e ao nome exibÃ­vel (aliases temÃ¡ticos).
   String _resolveVisualIconKey({
     required String iconKeyRaw,
     required String docId,
@@ -1639,27 +1641,27 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final n = (displayName ?? '').toLowerCase();
     if (n.contains('financeir') || n.contains('tesourar')) return 'finance';
     if (n.contains('infantil') ||
-        n.contains('criança') ||
+        n.contains('crianÃ§a') ||
         n.contains('crianca')) return 'criancas';
     if (n.contains('escola') && n.contains('bibl')) return 'escola_biblica';
     if (n.contains('evangel')) return 'evangelismo';
-    if (n.contains('intercess') || n.contains('oração') || n.contains('oracao')) {
+    if (n.contains('intercess') || n.contains('oraÃ§Ã£o') || n.contains('oracao')) {
       return 'intercessao';
     }
-    if (n.contains('louvor') || n.contains('música') || n.contains('musica')) {
+    if (n.contains('louvor') || n.contains('mÃºsica') || n.contains('musica')) {
       return 'louvor';
     }
     if (n.contains('jovens')) return 'jovens';
     if (n.contains('mulher')) return 'mulheres';
-    if (n.contains('varão') || n.contains('varao') || n.contains('homens')) {
+    if (n.contains('varÃ£o') || n.contains('varao') || n.contains('homens')) {
       return 'varoes';
     }
-    if (n.contains('recepç') || n.contains('recepc')) return 'recepcao';
-    if (n.contains('mídia') || n.contains('midia') || n.contains('som')) {
+    if (n.contains('recepÃ§') || n.contains('recepc')) return 'recepcao';
+    if (n.contains('mÃ­dia') || n.contains('midia') || n.contains('som')) {
       return 'media';
     }
-    if (n.contains('diácon') || n.contains('diacon')) return 'diaconal';
-    if (n.contains('sião') ||
+    if (n.contains('diÃ¡con') || n.contains('diacon')) return 'diaconal';
+    if (n.contains('siÃ£o') ||
         n.contains('siao') ||
         (n.contains('filhas') && n.contains('si'))) {
       return 'mulheres';
@@ -1720,7 +1722,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           );
         },
         onAddLeader: () async {
-          final cpf = await _pickMemberCpfDigitsForLeader();
+          final cpf = await _pickMemberCpfDigitsForLeader(
+            deptName: hubName,
+            accent1: c1,
+            accent2: c2,
+          );
           if (cpf == null || cpf.length != 11 || !mounted) return;
           try {
             await FirebaseAuth.instance.currentUser?.getIdToken(true);
@@ -1741,13 +1747,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             });
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Líder vinculado.'),
+                ThemeCleanPremium.successSnackBar('LÃ­der vinculado.'),
               );
             }
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Erro ao vincular líder: $e')),
+                SnackBar(content: Text('Erro ao vincular lÃ­der: $e')),
               );
             }
           }
@@ -1757,7 +1763,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Barra de ações premium: sempre visível (editar, incluir, membros, excluir).
+  /// Barra de aÃ§Ãµes premium: sempre visÃ­vel (editar, incluir, membros, excluir).
   Widget _departmentActionRow({
     required BuildContext context,
     required DocumentSnapshot<Map<String, dynamic>> doc,
@@ -1866,7 +1872,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     ),
   ];
 
-  /// Rodapé quando o departamento é só sugestão (ainda não existe doc no Firestore).
+  /// RodapÃ© quando o departamento Ã© sÃ³ sugestÃ£o (ainda nÃ£o existe doc no Firestore).
   Widget _presetSuggestionActionRow({
     required BuildContext context,
     required String deptKey,
@@ -1912,8 +1918,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         const SizedBox(height: 8),
         Text(
           _canWrite
-              ? 'Sugestão: ainda não está gravada nesta igreja. Use “Gravar padrões no sistema” no topo.'
-              : 'Sugestão de referência. Um gestor pode gravar no sistema para usar em escalas e cadastros.',
+              ? 'SugestÃ£o: ainda nÃ£o estÃ¡ gravada nesta igreja. Use â€œGravar padrÃµes no sistemaâ€ no topo.'
+              : 'SugestÃ£o de referÃªncia. Um gestor pode gravar no sistema para usar em escalas e cadastros.',
           style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.35),
           textAlign: TextAlign.center,
         ),
@@ -1921,7 +1927,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Intro + grelha/lista de presets (lista vazia no Firestore ou “só registros sem nome”).
+  /// Intro + grelha/lista de presets (lista vazia no Firestore ou â€œsÃ³ registros sem nomeâ€).
   List<Widget> _suggestedPresetsSlivers({
     required EdgeInsets padding,
     required EdgeInsets listPad,
@@ -1964,8 +1970,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 const SizedBox(height: 10),
                 Text(
                   _canWrite
-                      ? 'Lista enxuta para igrejas novas: Pastoral, Louvor, Jovens, Crianças, Evangelismo, Intercessão, Mídia, Recepção, Financeiro, Escola Bíblica e Varões. Toque em gravar para criar no Firestore (escalas e membros).'
-                      : 'Referência do sistema. Um gestor pode gravar estes departamentos na igreja.',
+                      ? 'Lista enxuta para igrejas novas: Pastoral, Louvor, Jovens, CrianÃ§as, Evangelismo, IntercessÃ£o, MÃ­dia, RecepÃ§Ã£o, Financeiro, Escola BÃ­blica e VarÃµes. Toque em gravar para criar no Firestore (escalas e membros).'
+                      : 'ReferÃªncia do sistema. Um gestor pode gravar estes departamentos na igreja.',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.4,
@@ -2041,7 +2047,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     ];
   }
 
-  /// Mesmo visual do card real, para lista padrão quando `departamentos` está vazio (todas as igrejas).
+  /// Mesmo visual do card real, para lista padrÃ£o quando `departamentos` estÃ¡ vazio (todas as igrejas).
   Widget _buildPresetSuggestionCard(
     Map<String, dynamic> preset,
   ) {
@@ -2113,7 +2119,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Text(
-                        'Sugestão',
+                        'SugestÃ£o',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -2179,7 +2185,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'Equipe e escalas no painel após gravar',
+                      'Equipe e escalas no painel apÃ³s gravar',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -2251,13 +2257,22 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   Widget _deptSegmentedTabs() {
-    const bg = Color(0xFFE4E9EF);
     final sel = _deptListTab;
     return Container(
-      padding: const EdgeInsets.all(3),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF2563EB).withValues(alpha: 0.1),
+            const Color(0xFF7C3AED).withValues(alpha: 0.08),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFF94A3B8).withValues(alpha: 0.35),
+        ),
       ),
       child: Row(
         children: [
@@ -2278,6 +2293,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required int index,
     required bool selected,
   }) {
+    const accent = Color(0xFF2563EB);
+    const accent2 = Color(0xFF7C3AED);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2285,24 +2302,32 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           if (_deptListTab == index) return;
           setState(() => _deptListTab = index);
         },
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(11),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 10),
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 11),
           decoration: BoxDecoration(
-            color: selected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: selected
-                ? const Border(
-                    top: BorderSide(color: Color(0xFF1565C0), width: 3),
+            gradient: selected
+                ? LinearGradient(
+                    colors: [
+                      Colors.white,
+                      accent.withValues(alpha: 0.06),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   )
+                : null,
+            color: selected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(11),
+            border: selected
+                ? Border.all(color: accent.withValues(alpha: 0.35), width: 1.2)
                 : null,
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      color: accent2.withValues(alpha: 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
                   ]
                 : null,
@@ -2313,9 +2338,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             style: TextStyle(
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
               fontSize: 13,
-              color: selected
-                  ? const Color(0xFF0C2D5C)
-                  : const Color(0xFF64748B),
+              color: selected ? const Color(0xFF1E3A8A) : const Color(0xFF64748B),
             ),
           ),
         ),
@@ -2323,7 +2346,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Card temático premium (gradiente + ícone da categoria; sem foto de fundo).
+  /// Card temÃ¡tico premium (gradiente + Ã­cone da categoria; sem foto de fundo).
   Widget _buildDepartmentCard(
     QueryDocumentSnapshot<Map<String, dynamic>> d,
   ) {
@@ -2361,7 +2384,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Não foi possível montar o card (dados inválidos). Toque para tentar abrir ou edite no Firebase.',
+                    'NÃ£o foi possÃ­vel montar o card (dados invÃ¡lidos). Toque para tentar abrir ou edite no Firebase.',
                     style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700, height: 1.3),
                   ),
                   if (kDebugMode) Text('$e', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
@@ -2387,52 +2410,80 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       displayName: name,
       docData: m,
     );
+    final (c1, c2) = _deptCardGradientInts(m, resolvedIcon);
+    final colorA = Color(c1);
+    final colorB = Color(c2);
+    final isArchived = !churchDepartmentDocIsActive(m);
     final members = _membersByDeptId[d.id] ?? const [];
     final stored = ChurchDepartmentVisualMapper.membrosCountFromDoc(m);
     final total = math.max(stored, members.length);
     final leaderName = ChurchDepartmentLeaders.leaderNameFromDepartmentData(m);
     final leaderFoto =
         ChurchDepartmentLeaders.leaderFotoUrlFromDepartmentData(m);
+    final leaderCpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(m);
+    ChurchDepartmentMemberRow? leaderRow;
+    if (leaderCpfs.isNotEmpty && members.isNotEmpty) {
+      for (final row in members) {
+        final cpf = (row.data['CPF'] ?? row.data['cpf'] ?? '')
+            .toString()
+            .replaceAll(RegExp(r'\D'), '');
+        final cpfNorm = cpf.length >= 9
+            ? ChurchDepartmentLeaders.canonicalCpfDigits(cpf)
+            : '';
+        if (cpfNorm.isNotEmpty && leaderCpfs.contains(cpfNorm)) {
+          leaderRow = row;
+          break;
+        }
+      }
+    }
+    final displayLeaderName = leaderName.isNotEmpty
+        ? leaderName
+        : (leaderRow?.displayName ?? '');
+    final displayLeaderFoto = leaderFoto.isNotEmpty
+        ? leaderFoto
+        : (leaderRow != null ? imageUrlFromMap(leaderRow.data) : '');
+    final displayLeaderMemberId = leaderRow?.memberDocId ?? '';
 
     void openHub() => _openDepartmentHubSheet(deptDoc: d);
 
-    const navy = Color(0xFF0C2D5C);
-    final primaryAvatar = _iconChip(resolvedIcon, radius: 25);
+    final primaryAvatar = _iconChip(resolvedIcon, radius: 24);
 
-    late final Widget memberSection;
-    if (total == 0) {
-      memberSection = const Text(
-        '*Sem participantes',
-        style: TextStyle(
-          fontStyle: FontStyle.italic,
-          color: Color(0xFF94A3B8),
-          fontSize: 12,
-        ),
-      );
-    } else if (members.isEmpty) {
-      memberSection = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFE8EDF4),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          '+$total',
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
+    Widget memberAvatarsFooter() {
+      if (total == 0) {
+        return Text(
+          'Sem participantes',
+          style: TextStyle(
+            fontStyle: FontStyle.italic,
+            color: Colors.white.withValues(alpha: 0.72),
             fontSize: 12,
-            color: Color(0xFF64748B),
+            fontWeight: FontWeight.w600,
           ),
-        ),
-      );
-    } else {
-      const maxVisible = 6;
+        );
+      }
+      if (members.isEmpty) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+          ),
+          child: Text(
+            '$total membro${total == 1 ? '' : 's'}',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 11.5,
+              color: Colors.white,
+            ),
+          ),
+        );
+      }
+      const maxVisible = 5;
       final shown = members.take(maxVisible).toList();
       final rest = math.max(0, total - shown.length);
-      final stackW = 28.0 + (shown.length - 1) * 20.0 + (rest > 0 ? 28.0 : 0.0);
-
-      memberSection = SizedBox(
-        height: 32,
+      final stackW = 30.0 + (shown.length - 1) * 20.0 + (rest > 0 ? 30.0 : 0.0);
+      return SizedBox(
+        height: 34,
         width: stackW,
         child: Stack(
           clipBehavior: Clip.none,
@@ -2446,13 +2497,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     border: Border.all(color: Colors.white, width: 2),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.08),
+                        color: Colors.black.withValues(alpha: 0.18),
                         blurRadius: 4,
                       ),
                     ],
                   ),
                   child: FotoMembroWidget(
-                    size: 28,
+                    size: 30,
                     tenantId: _tid,
                     memberId: shown[i].memberDocId,
                     imageUrl: imageUrlFromMap(shown[i].data),
@@ -2469,12 +2520,12 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
               Positioned(
                 left: shown.length * 20.0,
                 child: Container(
-                  width: 28,
-                  height: 28,
+                  width: 30,
+                  height: 30,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFFE2E8F0),
+                    color: Colors.white.withValues(alpha: 0.22),
                     border: Border.all(color: Colors.white, width: 2),
                   ),
                   child: Text(
@@ -2482,7 +2533,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF475569),
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -2492,183 +2543,329 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       );
     }
 
+    Widget menuButton() {
+      return PopupMenuButton<String>(
+        tooltip: 'Opções do departamento',
+        color: Colors.white,
+        elevation: 10,
+        shadowColor: colorA.withValues(alpha: 0.35),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        offset: const Offset(0, 6),
+        icon: Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.45),
+              width: 1.2,
+            ),
+          ),
+          child: const Icon(
+            Icons.more_vert_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
+        ),
+        onSelected: (v) async {
+          if (v == 'edit') _edit(doc: d);
+          if (v == 'members') {
+            await _verMembrosDoDepartamento(
+              context: context,
+              deptId: d.id,
+              deptName: name,
+            );
+          }
+          if (v == 'link') {
+            await _vincularMembros(
+              context: context,
+              deptId: d.id,
+              deptName: name,
+              accent1: c1,
+              accent2: c2,
+            );
+          }
+          if (v == 'invite') {
+            await _openDepartmentInviteSheet(
+              deptId: d.id,
+              deptName: name,
+            );
+          }
+          if (v == 'archive') {
+            await _toggleDepartmentArchived(d, true);
+          }
+          if (v == 'restore') {
+            await _toggleDepartmentArchived(d, false);
+          }
+          if (v == 'delete') {
+            await _excluirDepartamento(d);
+          }
+        },
+        itemBuilder: (ctx) {
+          final active = churchDepartmentDocIsActive(m);
+          return [
+            const PopupMenuItem(value: 'edit', child: Text('Editar')),
+            const PopupMenuItem(
+              value: 'members',
+              child: Text('Ver membros'),
+            ),
+            const PopupMenuItem(
+              value: 'link',
+              child: Text('Incluir membros'),
+            ),
+            const PopupMenuItem(
+              value: 'invite',
+              child: Text('Convidar (QR)'),
+            ),
+            if (active)
+              const PopupMenuItem(
+                value: 'archive',
+                child: Text('Arquivar'),
+              )
+            else
+              const PopupMenuItem(
+                value: 'restore',
+                child: Text('Reativar'),
+              ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: 'delete',
+              child: Text(
+                'Excluir',
+                style: TextStyle(color: Color(0xFFDC2626)),
+              ),
+            ),
+          ];
+        },
+      );
+    }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0C3B8A).withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: colorA.withValues(alpha: isArchived ? 0.28 : 0.48),
+            width: 1.15,
+          ),
+          boxShadow: _deptCardShadow,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: openHub,
-              borderRadius: BorderRadius.circular(14),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    primaryAvatar,
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 16,
-                              color: navy,
-                              letterSpacing: -0.2,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [colorA, colorB],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                          if (m['isWelcomeKit'] == true) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Kit inicial',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                          if (leaderName.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                if (leaderFoto.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(right: 6),
-                                    child: ClipOval(
-                                      child: FotoMembroWidget(
-                                        size: 22,
-                                        tenantId: _tid,
-                                        memberId: '',
-                                        imageUrl: leaderFoto,
-                                        memberData: const {},
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              primaryAvatar,
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 17,
+                                        color: Colors.white,
+                                        letterSpacing: -0.25,
+                                        height: 1.15,
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (m['isWelcomeKit'] == true) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.28),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: const Text(
+                                          'Kit inicial',
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                    if (isArchived) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black
+                                              .withValues(alpha: 0.32),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: Colors.white
+                                                .withValues(alpha: 0.35),
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Arquivado',
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _formatLinkedMembersCount(m),
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            Colors.white.withValues(alpha: 0.82),
                                       ),
                                     ),
-                                  ),
-                                Flexible(
-                                  child: Text(
-                                    'Líder: $leaderName',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade700,
-                                      fontWeight: FontWeight.w600,
+                                  ],
+                                ),
+                              ),
+                              if (_canWrite) menuButton(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    width: double.infinity,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.28),
+                      border: const Border(
+                        top: BorderSide(color: Color(0x33FFFFFF)),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        if (displayLeaderName.isNotEmpty) ...[
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              FotoMembroWidget(
+                                size: 32,
+                                tenantId: _tid,
+                                memberId: displayLeaderMemberId,
+                                imageUrl: displayLeaderFoto.isEmpty
+                                    ? null
+                                    : displayLeaderFoto,
+                                memberData: leaderRow?.data ?? const {},
+                                preferListThumbnail: true,
+                                memCacheWidth: 96,
+                              ),
+                              Positioned(
+                                right: -3,
+                                bottom: -3,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 1.5,
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  child: const Icon(
+                                    Icons.star_rounded,
+                                    size: 10,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Líder',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white.withValues(alpha: 0.65),
+                                  ),
+                                ),
+                                Text(
+                                  displayLeaderName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ],
                             ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: memberSection,
-                      ),
-                    ),
-                    if (_canWrite) ...[
-                      const SizedBox(width: 2),
-                      PopupMenuButton<String>(
-                        tooltip: 'Opções',
-                        onSelected: (v) async {
-                          if (v == 'edit') _edit(doc: d);
-                          if (v == 'members') {
-                            await _verMembrosDoDepartamento(
-                              context: context,
-                              deptId: d.id,
-                              deptName: name,
-                            );
-                          }
-                          if (v == 'link') {
-                            await _vincularMembros(
-                              context: context,
-                              deptId: d.id,
-                              deptName: name,
-                            );
-                          }
-                          if (v == 'invite') {
-                            await _openDepartmentInviteSheet(
-                              deptId: d.id,
-                              deptName: name,
-                            );
-                          }
-                          if (v == 'archive') {
-                            await _toggleDepartmentArchived(d, true);
-                          }
-                          if (v == 'restore') {
-                            await _toggleDepartmentArchived(d, false);
-                          }
-                          if (v == 'delete') {
-                            await _excluirDepartamento(d);
-                          }
-                        },
-                        itemBuilder: (ctx) {
-                          final active = churchDepartmentDocIsActive(m);
-                          return [
-                            const PopupMenuItem(
-                                value: 'edit', child: Text('Editar')),
-                            const PopupMenuItem(
-                              value: 'members',
-                              child: Text('Ver membros'),
-                            ),
-                            const PopupMenuItem(
-                              value: 'link',
-                              child: Text('Incluir membros'),
-                            ),
-                            const PopupMenuItem(
-                              value: 'invite',
-                              child: Text('Convidar (QR)'),
-                            ),
-                            if (active)
-                              const PopupMenuItem(
-                                value: 'archive',
-                                child: Text('Arquivar'),
-                              )
-                            else
-                              const PopupMenuItem(
-                                value: 'restore',
-                                child: Text('Reativar'),
-                              ),
-                            const PopupMenuDivider(),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text(
-                                'Excluir',
-                                style: TextStyle(color: Color(0xFFDC2626)),
+                          ),
+                        ] else
+                          Expanded(
+                            child: Text(
+                              'Toque para abrir o departamento',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white.withValues(alpha: 0.78),
                               ),
                             ),
-                          ];
-                        },
-                      ),
-                    ],
-                  ],
-                ),
+                          ),
+                        memberAvatarsFooter(),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.white.withValues(alpha: 0.85),
+                          size: 22,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -2677,87 +2874,22 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  Future<String?> _pickMemberCpfDigitsForLeader() async {
-    final tid = _tid.trim();
-    if (tid.isEmpty || !mounted) return null;
-    QuerySnapshot<Map<String, dynamic>> snap;
-    try {
-      snap = await ChurchRepository.collection('membros', churchIdHint: tid)
-          .limit(450)
-          .get();
-    } catch (_) {
-      return null;
-    }
-    final docs = snap.docs.toList();
-    final qCtrl = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setS) {
-          final q = qCtrl.text.trim().toLowerCase();
-          final qDigits = q.replaceAll(RegExp(r'\D'), '');
-          final filtered = docs.where((d) {
-            if (q.isEmpty) return true;
-            final nome = (d.data()['NOME_COMPLETO'] ?? d.data()['nome'] ?? '')
-                .toString()
-                .toLowerCase();
-            final cpf =
-                (d.data()['CPF'] ?? d.data()['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-            return nome.contains(q) ||
-                (qDigits.length >= 3 && cpf.contains(qDigits));
-          }).take(120).toList();
-          return AlertDialog(
-            title: const Text('Vincular líder ao departamento'),
-            content: SizedBox(
-              width: 340,
-              height: 420,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: qCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Buscar nome ou CPF',
-                      prefixIcon: Icon(Icons.search_rounded),
-                    ),
-                    onChanged: (_) => setS(() {}),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: filtered.length,
-                      itemBuilder: (_, i) {
-                        final d = filtered[i];
-                        final nom = (d.data()['NOME_COMPLETO'] ??
-                                d.data()['nome'] ??
-                                'Membro')
-                            .toString();
-                        final cpf = (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
-                            .toString()
-                            .replaceAll(RegExp(r'\D'), '');
-                        return ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.person_rounded),
-                          title: Text(nom,
-                              maxLines: 2, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(
-                              cpf.length == 11 ? 'CPF $cpf' : 'Sem CPF válido'),
-                          onTap: () =>
-                              Navigator.pop(ctx, cpf.length == 11 ? cpf : null),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar')),
-            ],
-          );
-        },
+  Future<String?> _pickMemberCpfDigitsForLeader({
+    String deptName = 'Departamento',
+    int accent1 = 0xFF2563EB,
+    int accent2 = 0xFF7C3AED,
+  }) async {
+    if (_tid.trim().isEmpty || !mounted) return null;
+    return Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        fullscreenDialog: true,
+        builder: (ctx) => ChurchDepartmentMemberPickerPage(
+          tenantId: _tid,
+          deptName: deptName,
+          accent1: accent1,
+          accent2: accent2,
+          mode: ChurchDepartmentMemberPickerMode.singleLeader,
+        ),
       ),
     );
   }
@@ -2842,7 +2974,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                             labelText: 'Nome',
                             prefixIcon: Icon(Icons.group_rounded))),
                     const SizedBox(height: 16),
-                    Text('Escolher ícone',
+                    Text('Escolher Ã­cone',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -2893,7 +3025,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Líderes do departamento',
+                      'LÃ­deres do departamento',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -2903,7 +3035,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Podem ser vários. Usados no painel, escalas e permissões de gestão do grupo.',
+                    'Podem ser vÃ¡rios. Usados no painel, escalas e permissÃµes de gestÃ£o do grupo.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 10),
@@ -2928,14 +3060,28 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
                     onPressed: () async {
-                      final c = await _pickMemberCpfDigitsForLeader();
+                      final c = await _pickMemberCpfDigitsForLeader(
+                        deptName: nameCtrl.text.trim().isEmpty
+                            ? 'Departamento'
+                            : nameCtrl.text.trim(),
+                        accent1: c1Sheet.value,
+                        accent2: c2Sheet.value,
+                      );
                       if (c == null || c.length != 11) return;
                       setD(() {
                         if (!leaderCpfs.contains(c)) leaderCpfs.add(c);
                       });
                     },
-                    icon: const Icon(Icons.person_add_rounded, size: 20),
-                    label: const Text('Adicionar líder (membro com CPF)'),
+                    icon: Icon(Icons.star_rounded, color: c1Sheet, size: 20),
+                    label: const Text('Escolher líder (com foto)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c1Sheet,
+                      side: BorderSide(color: c1Sheet.withValues(alpha: 0.55)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Row(children: [
@@ -2998,7 +3144,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (user == null) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Faça login para salvar.')));
+            const SnackBar(content: Text('FaÃ§a login para salvar.')));
       return;
     }
 
@@ -3080,7 +3226,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
       itemCount: docsForTab.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 6),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final card = _buildDepartmentCard(docsForTab[i]);
         if (kIsWeb) return card;
@@ -3106,7 +3252,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Lista de departamentos só via `.get()` em [initState] — **sem** `StreamBuilder`/`snapshots()`.
+  /// Lista de departamentos sÃ³ via `.get()` em [initState] â€” **sem** `StreamBuilder`/`snapshots()`.
   Widget _buildDepartmentsHubFromHydrated({
     required BuildContext context,
     required EdgeInsets padding,
@@ -3206,7 +3352,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             hasLocalData: hasLocalDepts,
             isSyncing: _deptLoading && hasLocalDepts,
             showStaleCache: _deptShowingStaleCache && !_deptLoading,
-            errorTitle: 'Não foi possível carregar os departamentos',
+            errorTitle: 'NÃ£o foi possÃ­vel carregar os departamentos',
             error: hasLocalDepts ? null : _deptError?.toString(),
             onRetry: _canWrite
                 ? () => _refreshDepartments(forceServer: true)
@@ -3246,7 +3392,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Há departamentos com o mesmo nome. Exclua ou renomeie os duplicados — assim a Escala deixa de listar a mesma opção várias vezes.',
+                      'HÃ¡ departamentos com o mesmo nome. Exclua ou renomeie os duplicados â€” assim a Escala deixa de listar a mesma opÃ§Ã£o vÃ¡rias vezes.',
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.35,
@@ -3277,7 +3423,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — edite e preencha o nome.',
+                      '$orphanNamelessCount departamento(s) sem campo de nome reconhecido â€” edite e preencha o nome.',
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.35,
@@ -3342,18 +3488,18 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final mq = MediaQuery.paddingOf(context);
     final pagePad = ThemeCleanPremium.pagePadding(context);
-    /// No painel (shell): corpo edge-to-edge — sem margens laterais do módulo.
+    /// No painel (shell): corpo edge-to-edge â€” sem margens laterais do mÃ³dulo.
     final padding = widget.embeddedInShell
         ? EdgeInsets.fromLTRB(0, 0, 0, mq.bottom + (isMobile ? 80 : 12))
         : pagePad;
-    /// No shell, [VersionFooter] já está na barra inferior — não usar 88px extra no fim da lista
-    /// (evita faixa branca entre o último departamento e o rodapé).
+    /// No shell, [VersionFooter] jÃ¡ estÃ¡ na barra inferior â€” nÃ£o usar 88px extra no fim da lista
+    /// (evita faixa branca entre o Ãºltimo departamento e o rodapÃ©).
     final listBottomInset = widget.embeddedInShell
         ? (isMobile ? 8.0 : padding.bottom)
         : (isMobile ? 88.0 : padding.bottom);
-    /// Mesmo tom suave do [VersionFooter] — preenche o espaço sem “bloco branco” óbvio.
+    /// Mesmo tom suave do [VersionFooter] â€” preenche o espaÃ§o sem â€œbloco brancoâ€ Ã³bvio.
     final shellBodyTint = const Color(0xFF1565C0).withValues(alpha: 0.035);
-    // Shell já exibe [ModuleHeaderPremium] com título — sem AppBar/barra duplicada.
+    // Shell jÃ¡ exibe [ModuleHeaderPremium] com tÃ­tulo â€” sem AppBar/barra duplicada.
     return Scaffold(
       backgroundColor: widget.embeddedInShell
           ? shellBodyTint
@@ -3398,7 +3544,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         hasLocalData: false,
                         isSyncing: false,
                         errorTitle:
-                            'Não foi possível carregar os departamentos',
+                            'NÃ£o foi possÃ­vel carregar os departamentos',
                         error: _deptError,
                         onRetry: _canWrite
                             ? () =>
@@ -3414,7 +3560,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                             horizontal: padding.horizontal,
                             vertical: ThemeCleanPremium.spaceLg),
                         child: Text(
-                          'Igreja não identificada. Entre novamente no painel ou selecione a igreja correta.',
+                          'Igreja nÃ£o identificada. Entre novamente no painel ou selecione a igreja correta.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               color: ThemeCleanPremium.onSurfaceVariant,
@@ -3438,7 +3584,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 }
 
-/// Hub do departamento — `.get()` único em [initState] (sem `snapshots()` no build).
+/// Hub do departamento â€” `.get()` Ãºnico em [initState] (sem `snapshots()` no build).
 class _DepartmentHubSheet extends StatefulWidget {
   final String tenantId;
   final String deptId;
@@ -3630,9 +3776,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Remover líder'),
+        title: const Text('Remover lÃ­der'),
         content: const Text(
-            'Este CPF deixa de constar como líder do departamento. O vínculo como membro permanece, salvo se você removê-lo da lista abaixo.'),
+            'Este CPF deixa de constar como lÃ­der do departamento. O vÃ­nculo como membro permanece, salvo se vocÃª removÃª-lo da lista abaixo.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -3661,7 +3807,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Líder removido.'),
+          ThemeCleanPremium.successSnackBar('LÃ­der removido.'),
         );
         unawaited(_loadHubData(forceRefresh: true));
       }
@@ -3805,7 +3951,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           ],
         ),
         subtitle: Text(
-          'Líder',
+          'LÃ­der',
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade800,
@@ -3843,7 +3989,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             ),
             if (widget.canWrite && cpf.length == 11)
               IconButton(
-                tooltip: 'Remover da liderança',
+                tooltip: 'Remover da lideranÃ§a',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
                 icon: const Icon(Icons.star_outline_rounded,
                     color: Color(0xFF92400E)),
@@ -3885,12 +4031,12 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         ),
         subtitle: Text(
           denormName.isNotEmpty
-              ? 'Líder · CPF ${_cpfMask(cpf)} · membro não listado neste dept.'
-              : 'Líder gravado, mas sem membro vinculado a este departamento.',
+              ? 'LÃ­der Â· CPF ${_cpfMask(cpf)} Â· membro nÃ£o listado neste dept.'
+              : 'LÃ­der gravado, mas sem membro vinculado a este departamento.',
         ),
         trailing: widget.canWrite
             ? IconButton(
-                tooltip: 'Remover da liderança',
+                tooltip: 'Remover da lideranÃ§a',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
                 icon: const Icon(Icons.close_rounded),
               )
@@ -3992,7 +4138,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             CircularProgressIndicator(color: _cA),
             const SizedBox(height: 16),
             Text(
-              'Carregando membros…',
+              'Carregando membrosâ€¦',
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
@@ -4053,15 +4199,15 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: [
-        _sectionTitle('Liderança'),
+        _sectionTitle('LideranÃ§a'),
         const SizedBox(height: 8),
         if (leaderRows.isEmpty && orphanCpfs.isEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               widget.canWrite
-                  ? 'Nenhum líder. Use o botão “Líder” acima.'
-                  : 'Nenhum líder definido neste departamento.',
+                  ? 'Nenhum lÃ­der. Use o botÃ£o â€œLÃ­derâ€ acima.'
+                  : 'Nenhum lÃ­der definido neste departamento.',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.grey.shade600,
@@ -4110,7 +4256,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             otherRows.isEmpty &&
             filteredLeaderRows.isEmpty)
           Text(
-            'Nenhum membro corresponde à busca.',
+            'Nenhum membro corresponde Ã  busca.',
             style: TextStyle(color: Colors.grey.shade600),
           ),
         ...otherRows.map((row) => _memberRow(context, row)),
@@ -4238,17 +4384,20 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                           ),
                         ),
                       ),
-                      FilledButton.tonalIcon(
+                      FilledButton.icon(
                         onPressed: () async {
                           await widget.onAddLeader();
                           if (mounted) unawaited(_loadHubData(forceRefresh: true));
                         },
-                        icon: Icon(Icons.star_rounded,
-                            size: 18, color: _cA),
-                        label: const Text('Líder'),
+                        icon: const Icon(Icons.star_rounded, size: 18),
+                        label: const Text('Escolher líder'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: _cB.withValues(alpha: 0.14),
-                          foregroundColor: Colors.grey.shade900,
+                          backgroundColor: const Color(0xFFF59E0B),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -4261,7 +4410,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: 'Buscar membro por nome…',
+                    hintText: 'Buscar membro por nomeâ€¦',
                     prefixIcon: const Icon(Icons.search_rounded, size: 22),
                     suffixIcon: _memberSearchCtrl.text.isEmpty
                         ? null
@@ -4308,7 +4457,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   }
 }
 
-/// Sheet para ver membros do departamento e remover (quando lançado errado).
+/// Sheet para ver membros do departamento e remover (quando lanÃ§ado errado).
 class _VerMembrosSheet extends StatefulWidget {
   final String tenantId;
   final String deptId;
@@ -4498,436 +4647,6 @@ class _VerMembrosSheetState extends State<_VerMembrosSheet> {
                     ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Tela «Vincular membros» — lista com filtros (igual mobile).
-class _VincularMembrosSheet extends StatefulWidget {
-  final String tenantId;
-  final String deptId;
-  final String deptName;
-  final int accent1;
-  final int accent2;
-
-  const _VincularMembrosSheet({
-    required this.tenantId,
-    required this.deptId,
-    required this.deptName,
-    this.accent1 = 0xFF2563EB,
-    this.accent2 = 0xFF3B82F6,
-  });
-
-  @override
-  State<_VincularMembrosSheet> createState() => _VincularMembrosSheetState();
-}
-
-class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
-  late Set<String> _selected;
-  List<ChurchDepartmentMemberRow> _members = const [];
-  bool _loading = true;
-  String? _loadError;
-  final TextEditingController _searchCtrl = TextEditingController();
-  String _searchQuery = '';
-  Timer? _searchDebounce;
-  String _sexFilter = '';
-  String _presetFilter = 'todos';
-
-  Color get _cA => Color(widget.accent1);
-  Color get _cB => Color(widget.accent2);
-
-  @override
-  void initState() {
-    super.initState();
-    _selected = {};
-    _searchCtrl.addListener(_onSearchChanged);
-    unawaited(_loadMembers());
-  }
-
-  Future<void> _loadMembers() async {
-    if (!mounted) setState(() => _loading = true);
-    try {
-      final loaded = await ChurchDepartmentMembersLoadService.loadAllForPicker(
-        seedTenantId: widget.tenantId,
-      ).timeout(const Duration(seconds: 16));
-      if (!mounted) return;
-      final selected = <String>{};
-      for (final row in loaded.members) {
-        if (ChurchDepartmentMembersLoadService.memberInDepartment(
-          row.data,
-          widget.deptId,
-        )) {
-          selected.add(row.memberDocId);
-        }
-      }
-      setState(() {
-        _members = loaded.members;
-        _selected = selected;
-        _loading = false;
-        _loadError = loaded.members.isEmpty ? loaded.softError : null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _loadError = e.toString();
-      });
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _onSearchChanged() {
-    _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
-      if (!mounted) return;
-      final q = _searchCtrl.text.trim();
-      if (q == _searchQuery) return;
-      setState(() => _searchQuery = q);
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchDebounce?.cancel();
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  bool _memberMatchesFilters(ChurchDepartmentMemberRow row) {
-    final d = row.data;
-    final q = _searchQuery.toLowerCase();
-    if (q.isNotEmpty) {
-      final name = row.displayName.toLowerCase();
-      if (!name.contains(q)) return false;
-    }
-    final gender = genderCategoryFromMemberData(d);
-    if (_sexFilter.isNotEmpty && gender != _sexFilter) return false;
-    final age = ageFromMemberData(d);
-    switch (_presetFilter) {
-      case 'todos':
-        return true;
-      case 'homem':
-        if (gender != 'M') return false;
-        if (age == null) return false;
-        return age >= 18 && age < 60;
-      case 'menino':
-        if (gender != 'M') return false;
-        if (age == null) return false;
-        return age < 18;
-      case 'menina':
-        if (gender != 'F') return false;
-        if (age == null) return false;
-        return age < 18;
-      case 'mulher':
-        if (gender != 'F') return false;
-        if (age == null) return false;
-        return age >= 18 && age < 60;
-      case 'idoso':
-        if (age == null) return false;
-        return age >= 60;
-      case 'crianca':
-        if (age == null) return false;
-        return age < 13;
-      default:
-        return true;
-    }
-  }
-
-  List<ChurchDepartmentMemberRow> get _visibleMembers {
-    final sorted = List<ChurchDepartmentMemberRow>.from(_members)
-      ..sort((a, b) => a.displayName
-          .toLowerCase()
-          .compareTo(b.displayName.toLowerCase()));
-    return sorted.where(_memberMatchesFilters).toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = _visibleMembers;
-    final pagePad = ThemeCleanPremium.pagePadding(context);
-    void closeSheet() => Navigator.pop(context);
-
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        elevation: 0,
-        flexibleSpace: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [_cA, _cB],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-          ),
-        ),
-        foregroundColor: Colors.white,
-        leading: IconButton(
-          tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: closeSheet,
-        ),
-        title: const Text(
-          'Vincular membros',
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 17,
-            letterSpacing: -0.2,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: closeSheet,
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-            ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        top: false,
-        child: Padding(
-          padding: pagePad.copyWith(top: 12, bottom: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                '${widget.deptName} — marque os membros que fazem parte para escalas e reuniões.',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _searchCtrl,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  isDense: true,
-                  hintText: 'Buscar por nome…',
-                  prefixIcon: Icon(Icons.search_rounded, size: 22, color: _cA),
-                  suffixIcon: _searchCtrl.text.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: 'Limpar',
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            setState(() => _searchQuery = '');
-                          },
-                          icon: const Icon(Icons.close_rounded, size: 20),
-                        ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: _cA.withValues(alpha: 0.25)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: _cA.withValues(alpha: 0.25)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: _cA, width: 1.4),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text('Sexo',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.grey.shade700)),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Todos'),
-                      selected: _sexFilter.isEmpty,
-                      selectedColor: _cA.withValues(alpha: 0.18),
-                      onSelected: (v) {
-                        if (v) setState(() => _sexFilter = '');
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('Masculino'),
-                      selected: _sexFilter == 'M',
-                      selectedColor: _cA.withValues(alpha: 0.18),
-                      onSelected: (v) {
-                        if (v) setState(() => _sexFilter = 'M');
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    ChoiceChip(
-                      label: const Text('Feminino'),
-                      selected: _sexFilter == 'F',
-                      selectedColor: _cA.withValues(alpha: 0.18),
-                      onSelected: (v) {
-                        if (v) setState(() => _sexFilter = 'F');
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text('Idade / perfil',
-                  style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.grey.shade700)),
-              const SizedBox(height: 6),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    for (final (id, label) in [
-                      ('todos', 'Todos'),
-                      ('crianca', 'Criança'),
-                      ('menino', 'Menino'),
-                      ('menina', 'Menina'),
-                      ('homem', 'Homem'),
-                      ('mulher', 'Mulher'),
-                      ('idoso', 'Idoso'),
-                    ])
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(label),
-                          selected: _presetFilter == id,
-                          selectedColor: _cB.withValues(alpha: 0.2),
-                          onSelected: (v) {
-                            if (v) setState(() => _presetFilter = id);
-                          },
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Ordem alfabética · ${visible.length} de ${_members.length} na lista',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: _loading
-                    ? Center(child: CircularProgressIndicator(color: _cA))
-                    : _loadError != null && _members.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(_loadError!,
-                                    textAlign: TextAlign.center),
-                                const SizedBox(height: 12),
-                                FilledButton.icon(
-                                  onPressed: _loadMembers,
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  label: const Text('Tentar novamente'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : visible.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'Nenhum membro corresponde aos filtros.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Colors.grey.shade600),
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: visible.length,
-                                itemBuilder: (context, i) {
-                                  final row = visible[i];
-                                  final id = row.memberDocId;
-                                  final checked = _selected.contains(id);
-                                  return Card(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    elevation: 0,
-                                    color: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                      side: BorderSide(
-                                        color: checked
-                                            ? _cA.withValues(alpha: 0.45)
-                                            : _cA.withValues(alpha: 0.1),
-                                      ),
-                                    ),
-                                    child: CheckboxListTile(
-                                      value: checked,
-                                      activeColor: _cA,
-                                      title: Text(
-                                        row.displayName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      secondary: FotoMembroWidget(
-                                        size: 44,
-                                        tenantId: widget.tenantId,
-                                        memberId: id,
-                                        imageUrl: imageUrlFromMap(row.data),
-                                        cpfDigits: (row.data['CPF'] ??
-                                                row.data['cpf'] ??
-                                                '')
-                                            .toString(),
-                                        memberData: row.data,
-                                        preferListThumbnail: true,
-                                        memCacheWidth: 120,
-                                      ),
-                                      controlAffinity:
-                                          ListTileControlAffinity.leading,
-                                      onChanged: (v) {
-                                        setState(() {
-                                          if (v == true) {
-                                            _selected.add(id);
-                                          } else {
-                                            _selected.remove(id);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  );
-                                },
-                              ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: closeSheet,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: _cA,
-                        side: BorderSide(color: _cA.withValues(alpha: 0.5)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Cancelar'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => Navigator.pop(context, _selected),
-                      icon: const Icon(Icons.check_rounded, size: 20),
-                      label: Text('Salvar (${_selected.length})'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _cA,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
       ),
     );

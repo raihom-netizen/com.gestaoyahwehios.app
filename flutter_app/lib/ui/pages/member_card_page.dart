@@ -1,5 +1,4 @@
 import 'dart:async' show Timer, unawaited;
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -17,14 +16,13 @@ import 'package:gestao_yahweh/services/member_card_directory_service.dart'
         MemberCardListEntry,
         MemberCardSignatory;
 import 'package:gestao_yahweh/services/member_card_load_service.dart';
+import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
 import 'package:gestao_yahweh/services/member_card_sign_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
-import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -205,6 +203,10 @@ class _MemberCardPageState extends State<MemberCardPage>
           _members = _mapEntries(instant);
           _loadingMembers = false;
         });
+        if (!forceRefresh) {
+          unawaited(_refreshMembersInBackground(limit: limit));
+          return;
+        }
       }
       final entries = await MemberCardDirectoryService.loadMembers(
         tenantId: widget.tenantId,
@@ -223,6 +225,18 @@ class _MemberCardPageState extends State<MemberCardPage>
         _loadingMembers = false;
       });
     }
+  }
+
+  Future<void> _refreshMembersInBackground({required int limit}) async {
+    try {
+      final entries = await MemberCardDirectoryService.loadMembers(
+        tenantId: widget.tenantId,
+        limit: limit,
+        forceRefresh: false,
+      );
+      if (!mounted || entries.isEmpty) return;
+      setState(() => _members = _mapEntries(entries));
+    } catch (_) {}
   }
 
   List<_MemberRow> _mapEntries(List<MemberCardListEntry> entries) {
@@ -298,13 +312,135 @@ class _MemberCardPageState extends State<MemberCardPage>
     });
   }
 
-  String _safePdfStub(String name, String id) {
-    final stub = name
-        .replaceAll(RegExp(r'[^\w\s-]'), '')
-        .trim()
-        .replaceAll(RegExp(r'\s+'), '_');
-    if (stub.isNotEmpty) return stub;
-    return id.replaceAll(RegExp(r'[^\w-]'), '_');
+  Future<MemberCardPdfLayout?> _pickPdfLayout(BuildContext context, int count) {
+    MemberCardPdfLayout selected = count > 1
+        ? MemberCardPdfLayout.a4GridCut
+        : MemberCardPdfLayout.realSize;
+    return showModalBottomSheet<MemberCardPdfLayout>(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                8,
+                20,
+                20 + MediaQuery.paddingOf(ctx).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Formato do PDF',
+                    style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$count carteirinha(s) · um arquivo para compartilhar',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _pdfLayoutTile(
+                    title: 'A4 para recorte (2×3 CNH digital)',
+                    subtitle:
+                        'Várias carteiras CNH digital por folha, com linhas pontilhadas para tesoura.',
+                    icon: Icons.grid_view_rounded,
+                    value: MemberCardPdfLayout.a4GridCut,
+                    group: selected,
+                    onPick: (v) => setLocal(() => selected = v),
+                  ),
+                  const SizedBox(height: 8),
+                  _pdfLayoutTile(
+                    title: 'Tamanho real CNH digital',
+                    subtitle:
+                        'Uma carteira por página com marcas de corte — ideal para impressão/PVC.',
+                    icon: Icons.credit_card_rounded,
+                    value: MemberCardPdfLayout.realSize,
+                    group: selected,
+                    onPick: (v) => setLocal(() => selected = v),
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, selected),
+                    child: const Text('Gerar PDF'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _pdfLayoutTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required MemberCardPdfLayout value,
+    required MemberCardPdfLayout group,
+    required ValueChanged<MemberCardPdfLayout> onPick,
+  }) {
+    final sel = group == value;
+    return Material(
+      color: sel ? _gradA.withValues(alpha: 0.08) : Colors.grey.shade50,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => onPick(value),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: sel ? _gradA : Colors.grey.shade600),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: sel ? _gradA : Colors.grey.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Radio<MemberCardPdfLayout>(
+                value: value,
+                groupValue: group,
+                activeColor: _gradA,
+                onChanged: (_) => onPick(value),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _exportSelectedPdf(BuildContext context) async {
@@ -319,6 +455,10 @@ class _MemberCardPageState extends State<MemberCardPage>
       );
       return;
     }
+
+    final layout = await _pickPdfLayout(context, ids.length);
+    if (!context.mounted || layout == null) return;
+
     if (_exportingPdf) return;
     setState(() => _exportingPdf = true);
 
@@ -347,9 +487,17 @@ class _MemberCardPageState extends State<MemberCardPage>
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '$d de $total carteirinha(s)',
+                  '$d de $total membro(s)',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  layout == MemberCardPdfLayout.a4GridCut
+                      ? 'Montando folhas A4 CNH digital…'
+                      : 'Montando carteiras CNH digital tamanho real…',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
               ],
             ),
@@ -360,17 +508,25 @@ class _MemberCardPageState extends State<MemberCardPage>
     await Future<void>.delayed(Duration.zero);
 
     MemberCardPdfExportResult result;
+    final seedById = {
+      for (final m in _members) m.id.trim(): Map<String, dynamic>.from(m.data),
+    };
     try {
-      result = await MemberCardPdfExportService.generatePdfs(
-        tenantId: _churchIdResolved,
+      result = await MemberCardPdfExportService.generateBatchPdf(
+        churchId: _churchIdResolved,
         memberIds: ids,
-        onProgress: (d, _, __) => progress.value = d,
+        layout: layout,
+        memberSeedById: seedById,
+        onProgress: (d, _) => progress.value = d,
       );
-    } catch (_) {
-      result = const MemberCardPdfExportResult(
-        pdfsByMemberId: {},
-        ok: 0,
-        fail: 0,
+    } catch (e) {
+      result = MemberCardPdfExportResult(
+        pdfBytes: null,
+        memberCount: 0,
+        requestedCount: ids.length,
+        failCount: ids.length,
+        layout: layout,
+        errorMessage: e.toString(),
       );
     }
 
@@ -381,45 +537,37 @@ class _MemberCardPageState extends State<MemberCardPage>
     setState(() => _exportingPdf = false);
 
     if (!context.mounted) return;
-    if (result.ok == 0) {
+    if (!result.ok) {
+      final detail = (result.errorMessage ?? '').trim();
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível gerar PDF. Verifique conexão e permissões.',
+          detail.isNotEmpty
+              ? detail
+              : result.memberCount == 0
+                  ? 'Não foi possível gerar o PDF. Verifique conexão e tente de novo.'
+                  : 'PDF incompleto — nenhum membro carregado.',
         ),
       );
       return;
     }
 
-    final nameById = {for (final m in _members) m.id: m.name};
-    if (result.ok == 1) {
-      final only = result.pdfsByMemberId.entries.first;
-      final label = nameById[only.key] ?? only.key;
-      await showPdfActions(
-        context,
-        bytes: only.value,
-        filename: 'carteirinha_${_safePdfStub(label, only.key)}.pdf',
-      );
-    } else {
-      final zipEntries = <String, Uint8List>{};
-      for (final e in result.pdfsByMemberId.entries) {
-        final label = nameById[e.key] ?? e.key;
-        zipEntries['carteirinha_${_safePdfStub(label, e.key)}.pdf'] = e.value;
-      }
-      final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
-      await YahwehShareService.shareBytes(
-        bytes: zipBytes,
-        fileName: 'carteirinhas_${result.ok}_membros.zip',
-        mimeType: 'application/zip',
-        subject: 'Carteirinhas PDF',
-      );
-    }
+    final layoutTag =
+        layout == MemberCardPdfLayout.a4GridCut ? 'a4_cnh' : 'cnh_real';
+    final filename =
+        'carteirinhas_${result.memberCount}_membros_$layoutTag.pdf';
+    await showPdfActions(
+      context,
+      bytes: result.pdfBytes!,
+      filename: filename,
+    );
 
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar(
-        result.fail == 0
-            ? '${result.ok} PDF(s) prontos.'
-            : '${result.ok} PDF(s) OK · ${result.fail} falha(s).',
+        result.failCount == 0
+            ? 'PDF com ${result.memberCount} carteirinha(s) pronto.'
+            : 'PDF com ${result.memberCount} de ${result.requestedCount} '
+                'carteirinha(s) · ${result.failCount} não carregou(aram).',
       ),
     );
   }
@@ -617,6 +765,68 @@ class _MemberCardPageState extends State<MemberCardPage>
   Widget _buildManagerScaffold(BuildContext context) {
     final hideAppBar =
         widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
+    final shellChrome = widget.onShellBack != null && _canManage;
+    const memberTabs = [
+      Tab(
+        icon: Icon(Icons.people_alt_rounded, size: 20),
+        text: 'Membros',
+      ),
+      Tab(
+        icon: Icon(Icons.badge_rounded, size: 20),
+        text: 'Cartão',
+      ),
+      Tab(
+        icon: Icon(Icons.draw_rounded, size: 20),
+        text: 'Assinar',
+      ),
+    ];
+
+    Widget tabBody;
+    if (_tabs != null) {
+      tabBody = NestedScrollView(
+        headerSliverBuilder: (context, innerBoxIsScrolled) {
+          return [
+            if (shellChrome)
+              SliverToBoxAdapter(
+                child: ChurchModuleShellChrome(
+                  onBack: widget.onShellBack!,
+                  title: 'Cartão membro',
+                  icon: kChurchShellNavEntries[13].icon,
+                  accent: kChurchShellNavEntries[13].accent,
+                  subtitle: 'Buscar · emitir · assinar',
+                  tabController: _tabs!,
+                  tabs: memberTabs,
+                ),
+              )
+            else
+              SliverToBoxAdapter(
+                child: Material(
+                  color: Colors.white,
+                  child: TabBar(
+                    controller: _tabs,
+                    labelColor: _gradA,
+                    unselectedLabelColor: Colors.grey.shade600,
+                    indicatorColor: _gradC,
+                    indicatorWeight: 3,
+                    tabs: memberTabs,
+                  ),
+                ),
+              ),
+          ];
+        },
+        body: TabBarView(
+          controller: _tabs,
+          children: [
+            _buildMembersTab(),
+            _buildCardTab(),
+            _buildSignTab(),
+          ],
+        ),
+      );
+    } else {
+      tabBody = _buildMembersTab();
+    }
+
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: hideAppBar
@@ -635,230 +845,124 @@ class _MemberCardPageState extends State<MemberCardPage>
               ),
               foregroundColor: Colors.white,
             ),
-      body: Column(
-        children: [
-          if (widget.onShellBack != null && _canManage)
-            ChurchEmbeddedModuleBar(
-              title: 'Emissão de carteirinhas',
-              icon: kChurchShellNavEntries[13].icon,
-              accent: kChurchShellNavEntries[13].accent,
-              onBack: widget.onShellBack!,
-              subtitle: 'Buscar · emitir · assinar',
-            ),
-          Expanded(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: ThemeCleanPremium.churchPanelBodyGradient,
-              ),
-              child: SafeArea(
-                top: !hideAppBar,
-                child: Column(
-                  children: [
-                    _buildHero(),
-                    if (_tabs != null) ...[
-                      Material(
-                        color: Colors.white,
-                        child: TabBar(
-                          controller: _tabs,
-                          labelColor: _gradA,
-                          unselectedLabelColor: Colors.grey.shade600,
-                          indicatorColor: _gradC,
-                          indicatorWeight: 3,
-                          tabs: const [
-                            Tab(
-                              icon: Icon(Icons.people_alt_rounded, size: 20),
-                              text: 'Membros',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.badge_rounded, size: 20),
-                              text: 'Cartão',
-                            ),
-                            Tab(
-                              icon: Icon(Icons.draw_rounded, size: 20),
-                              text: 'Assinar',
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: TabBarView(
-                          controller: _tabs,
-                          children: [
-                            _buildMembersTab(),
-                            _buildCardTab(),
-                            _buildSignTab(),
-                          ],
-                        ),
-                      ),
-                    ] else
-                      Expanded(child: _buildMembersTab()),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHero() {
-    return Container(
-      margin: ThemeCleanPremium.pagePadding(context).copyWith(top: 8, bottom: 8),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [_gradA, _gradB, _gradC],
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
         ),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        boxShadow: [
-          BoxShadow(
-            color: _gradA.withValues(alpha: 0.35),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(Icons.badge_rounded, color: Colors.white, size: 32),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Emissão de Carteirinha',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Busque membros, selecione em lote, exporte PDF e assine.',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    fontSize: 13,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        child: SafeArea(
+          top: !hideAppBar,
+          child: tabBody,
+        ),
       ),
     );
   }
 
   Widget _buildMembersTab() {
-    return Padding(
-      padding: ThemeCleanPremium.pagePadding(context).copyWith(top: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextField(
-            controller: _searchCtrl,
-            decoration: InputDecoration(
-              hintText: 'Buscar por nome ou CPF…',
-              prefixIcon: Icon(Icons.search_rounded, color: _gradA),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
-              ),
-            ),
-            onChanged: (_) {
-              _searchDebounce?.cancel();
-              _searchDebounce = Timer(const Duration(milliseconds: 200), () {
-                if (mounted) setState(() => _search = _searchCtrl.text);
-              });
-            },
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _filterChip('Todos', 'todos', const Color(0xFF6366F1)),
-              _filterChip('Homens', 'masculino', const Color(0xFF0EA5E9)),
-              _filterChip('Mulheres', 'feminino', const Color(0xFFEC4899)),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_canManage)
-            Row(
-              children: [
-                SizedBox(
-                  height: 40,
-                  width: 40,
-                  child: Checkbox(
-                    tristate: true,
-                    value: _selectAllTriState,
-                    activeColor: _gradA,
-                    onChanged: _filtered.isEmpty
-                        ? null
-                        : (v) => _toggleSelectAllFiltered(v),
+    final pad = ThemeCleanPremium.pagePadding(context).copyWith(top: 4);
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: pad,
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Buscar por nome ou CPF…',
+                  prefixIcon: Icon(Icons.search_rounded, color: _gradA),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
                   ),
                 ),
-                Expanded(
-                  child: Text(
-                    _allFilteredSelected
-                        ? 'Desmarcar todos (${_filtered.length})'
-                        : 'Selecionar todos (${_filtered.length})',
+                onChanged: (_) {
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 200), () {
+                    if (mounted) setState(() => _search = _searchCtrl.text);
+                  });
+                },
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _filterChip('Todos', 'todos', const Color(0xFF6366F1)),
+                  _filterChip('Homens', 'masculino', const Color(0xFF0EA5E9)),
+                  _filterChip('Mulheres', 'feminino', const Color(0xFFEC4899)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (_canManage)
+                Row(
+                  children: [
+                    SizedBox(
+                      height: 40,
+                      width: 40,
+                      child: Checkbox(
+                        tristate: true,
+                        value: _selectAllTriState,
+                        activeColor: _gradA,
+                        onChanged: _filtered.isEmpty
+                            ? null
+                            : (v) => _toggleSelectAllFiltered(v),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _allFilteredSelected
+                            ? 'Desmarcar todos (${_filtered.length})'
+                            : 'Selecionar todos (${_filtered.length})',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade800,
+                        ),
+                      ),
+                    ),
+                    if (_selectedIds.isNotEmpty) ...[
+                      TextButton.icon(
+                        onPressed: _exportingPdf
+                            ? null
+                            : () => unawaited(_exportSelectedPdf(context)),
+                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                        label: Text('PDF (${_selectedIds.length})'),
+                      ),
+                    ],
+                  ],
+                ),
+              Row(
+                children: [
+                  Text(
+                    '${_filtered.length} de ${_members.length} membros'
+                        '${_selectedIds.isEmpty ? '' : ' · ${_selectedIds.length} sel.'}',
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade800,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
                     ),
                   ),
-                ),
-                if (_selectedIds.isNotEmpty) ...[
-                  TextButton.icon(
-                    onPressed: _exportingPdf
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Recarregar',
+                    onPressed: _loadingMembers
                         ? null
-                        : () => unawaited(_exportSelectedPdf(context)),
-                    icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-                    label: Text('PDF (${_selectedIds.length})'),
+                        : () => unawaited(_reloadMembers(forceRefresh: true)),
+                    icon: const Icon(Icons.refresh_rounded),
                   ),
                 ],
-              ],
-            ),
-          Row(
-            children: [
-              Text(
-                '${_filtered.length} de ${_members.length} membros'
-                    '${_selectedIds.isEmpty ? '' : ' · ${_selectedIds.length} sel.'}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
-                ),
               ),
-              const Spacer(),
-              IconButton(
-                tooltip: 'Recarregar',
-                onPressed: _loadingMembers
-                    ? null
-                    : () => unawaited(_reloadMembers(forceRefresh: true)),
-                icon: const Icon(Icons.refresh_rounded),
-              ),
-            ],
+              const SizedBox(height: 4),
+            ]),
           ),
-          Expanded(child: _buildMembersList()),
-        ],
-      ),
+        ),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 16),
+          sliver: _buildMembersListSliver(),
+        ),
+      ],
     );
   }
 
@@ -878,15 +982,23 @@ class _MemberCardPageState extends State<MemberCardPage>
     );
   }
 
-  Widget _buildMembersList() {
+  Widget _buildMembersListSliver() {
     if (_loadingMembers && _members.isEmpty) {
-      return YahwehSkeletonLoading.membrosList(itemCount: 8);
+      return SliverToBoxAdapter(
+        child: SizedBox(
+          height: 420,
+          child: YahwehSkeletonLoading.membrosList(itemCount: 8),
+        ),
+      );
     }
     if (_membersError != null && _members.isEmpty) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar membros',
-        error: _membersError,
-        onRetry: () => unawaited(_reloadMembers()),
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: ChurchPanelErrorBody(
+          title: 'Não foi possível carregar membros',
+          error: _membersError,
+          onRetry: () => unawaited(_reloadMembers()),
+        ),
       );
     }
     final list = _filtered;
@@ -895,126 +1007,135 @@ class _MemberCardPageState extends State<MemberCardPage>
           ? 'igrejas/{churchId}/membros'
           : 'igrejas/$_churchIdResolved/membros';
       final q = (_search.isNotEmpty ? _search : _searchCtrl.text).trim();
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Text(
-            _members.isEmpty
-                ? 'Nenhum membro em $path.\nPuxe para recarregar ou abra Membros primeiro.'
-                : 'Nenhum membro corresponde à busca${q.isEmpty ? '' : ' «$q»'}.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              _members.isEmpty
+                  ? 'Nenhum membro em $path.\nPuxe para recarregar ou abra Membros primeiro.'
+                  : 'Nenhum membro corresponde à busca${q.isEmpty ? '' : ' «$q»'}.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+            ),
           ),
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.only(bottom: 16),
-      cacheExtent: 480,
+    return SliverList.separated(
       itemCount: list.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (_, i) {
-        final m = list[i];
-        final selected = _selectedIds.contains(m.id);
-        return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          child: InkWell(
+      itemBuilder: (_, i) => _buildMemberListTile(list[i]),
+    );
+  }
+
+  Widget _buildMemberListTile(_MemberRow m) {
+    final selected = _selectedIds.contains(m.id);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => unawaited(_openPreview(m)),
+        onLongPress: _canManage
+            ? () => setState(() {
+                  if (selected) {
+                    _selectedIds.remove(m.id);
+                  } else {
+                    _selectedIds.add(m.id);
+                  }
+                })
+            : null,
+        child: Container(
+          decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            onTap: () => unawaited(_openPreview(m)),
-            onLongPress: _canManage
-                ? () => setState(() {
-                      if (selected) {
-                        _selectedIds.remove(m.id);
-                      } else {
-                        _selectedIds.add(m.id);
-                      }
-                    })
-                : null,
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: selected
-                      ? _gradA.withValues(alpha: 0.55)
-                      : const Color(0xFFE2E8F0),
-                ),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                children: [
-                  if (_canManage)
-                    Checkbox(
-                      value: selected,
-                      activeColor: _gradA,
-                      onChanged: (v) => setState(() {
-                        if (v == true) {
-                          _selectedIds.add(m.id);
-                        } else {
-                          _selectedIds.remove(m.id);
-                        }
-                      }),
-                    ),
-                  FotoMembroWidget(
-                    tenantId: _churchIdResolved,
-                    memberId: m.id,
-                    imageUrl: m.photoUrl,
-                    size: 52,
-                    preferListThumbnail: true,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          m.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 15,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          m.isSigned ? 'Assinada' : 'Pendente assinatura',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: m.isSigned
-                                ? const Color(0xFF059669)
-                                : const Color(0xFFD97706),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, color: Colors.grey.shade500),
-                ],
-              ),
+            border: Border.all(
+              color: selected
+                  ? _gradA.withValues(alpha: 0.55)
+                  : const Color(0xFFE2E8F0),
             ),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
-        );
-      },
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              if (_canManage)
+                Checkbox(
+                  value: selected,
+                  activeColor: _gradA,
+                  onChanged: (v) => setState(() {
+                    if (v == true) {
+                      _selectedIds.add(m.id);
+                    } else {
+                      _selectedIds.remove(m.id);
+                    }
+                  }),
+                ),
+              FotoMembroWidget(
+                tenantId: _churchIdResolved,
+                memberId: m.id,
+                imageUrl: m.photoUrl,
+                size: 52,
+                preferListThumbnail: true,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      m.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      m.isSigned ? 'Assinada' : 'Pendente assinatura',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: m.isSigned
+                            ? const Color(0xFF059669)
+                            : const Color(0xFFD97706),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: Colors.grey.shade500),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildCardTab() {
     if (_previewMember == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            'Toque em um membro na aba «Membros» para ver o cartão virtual.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontWeight: FontWeight.w500,
+      return CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Toque em um membro na aba «Membros» para ver o cartão virtual.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       );
     }
     return _buildCardBody(context);
@@ -1022,73 +1143,77 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   Widget _buildSignTab() {
     final n = _selectedIds.length;
-    return Padding(
-      padding: ThemeCleanPremium.pagePadding(context),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  _gradC.withValues(alpha: 0.12),
-                  _gradA.withValues(alpha: 0.08),
-                ],
+    final pad = ThemeCleanPremium.pagePadding(context);
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: pad,
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      _gradC.withValues(alpha: 0.12),
+                      _gradA.withValues(alpha: 0.08),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: _gradC.withValues(alpha: 0.25)),
+                ),
+                child: Text(
+                  n == 0
+                      ? 'Marque membros na lista (checkbox) ou abra um cartão e assine só ele.'
+                      : '$n membro(s) selecionado(s) para assinatura.',
+                  style: const TextStyle(fontWeight: FontWeight.w600, height: 1.4),
+                ),
               ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _gradC.withValues(alpha: 0.25)),
-            ),
-            child: Text(
-              n == 0
-                  ? 'Marque membros na lista (checkbox) ou abra um cartão e assine só ele.'
-                  : '$n membro(s) selecionado(s) para assinatura.',
-              style: const TextStyle(fontWeight: FontWeight.w600, height: 1.4),
-            ),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _gradB,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _gradB,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: _exportingPdf
+                    ? null
+                    : () => unawaited(_exportSelectedPdf(context)),
+                icon: const Icon(Icons.picture_as_pdf_rounded),
+                label: Text(
+                  n == 0
+                      ? 'Exportar PDF (preview ou selecionados)'
+                      : 'Exportar PDF ($n)',
+                ),
               ),
-            ),
-            onPressed: _exportingPdf
-                ? null
-                : () => unawaited(_exportSelectedPdf(context)),
-            icon: const Icon(Icons.picture_as_pdf_rounded),
-            label: Text(
-              n == 0
-                  ? 'Exportar PDF (preview ou selecionados)'
-                  : 'Exportar PDF ($n)',
-            ),
-          ),
-          const SizedBox(height: 10),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: _gradA,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: _gradA,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: () => unawaited(_signSelected(context)),
+                icon: const Icon(Icons.draw_rounded),
+                label: Text(
+                  n == 0 ? 'Assinar membro em preview' : 'Assinar $n selecionado(s)',
+                ),
               ),
-            ),
-            onPressed: () => unawaited(_signSelected(context)),
-            icon: const Icon(Icons.draw_rounded),
-            label: Text(
-              n == 0 ? 'Assinar membro em preview' : 'Assinar $n selecionado(s)',
-            ),
+              if (n > 0) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => setState(_selectedIds.clear),
+                  child: const Text('Limpar seleção'),
+                ),
+              ],
+            ]),
           ),
-          if (n > 0) ...[
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () => setState(_selectedIds.clear),
-              child: const Text('Limpar seleção'),
-            ),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 

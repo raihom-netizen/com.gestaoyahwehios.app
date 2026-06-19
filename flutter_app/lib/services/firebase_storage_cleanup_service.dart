@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -40,7 +41,7 @@ class FirebaseStorageCleanupService {
     final u = sanitizeImageUrl((downloadUrl ?? '').trim());
     if (u.isEmpty || !isFirebaseStorageHttpUrl(u)) return;
     try {
-      await FirebaseStorage.instance.refFromURL(u).delete();
+      await firebaseDefaultStorage.refFromURL(u).delete();
     } on FirebaseException catch (e) {
       if (e.code == 'object-not-found') return;
       debugPrint('FirebaseStorageCleanupService.deleteObjectAtDownloadUrl: $e');
@@ -61,15 +62,15 @@ class FirebaseStorageCleanupService {
     if (s.isEmpty || s.startsWith('data:')) return;
     try {
       if (isFirebaseStorageHttpUrl(s)) {
-        await FirebaseStorage.instance.refFromURL(s).delete();
+        await firebaseDefaultStorage.refFromURL(s).delete();
         return;
       }
       if (s.startsWith('gs://')) {
-        await FirebaseStorage.instance.refFromURL(s).delete();
+        await firebaseDefaultStorage.refFromURL(s).delete();
         return;
       }
       if (!s.startsWith('http') && s.contains('/')) {
-        await FirebaseStorage.instance.ref(s).delete();
+        await firebaseDefaultStorage.ref(s).delete();
       }
     } catch (e) {
       debugPrint('FirebaseStorageCleanupService.deleteByUrlPathOrGs: $e');
@@ -105,7 +106,7 @@ class FirebaseStorageCleanupService {
     final p = prefix.trim().replaceAll(RegExp(r'/+$'), '');
     if (p.isEmpty) return;
     try {
-      await _deleteAllObjectsRecursive(FirebaseStorage.instance.ref(p));
+      await _deleteAllObjectsRecursive(firebaseDefaultStorage.ref(p));
     } catch (e) {
       debugPrint('FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix: $e');
     }
@@ -218,24 +219,24 @@ class FirebaseStorageCleanupService {
       ],
     ]) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
 
     try {
       await _deleteAllObjectsRecursive(
-          FirebaseStorage.instance.ref('igrejas/$tid/membros/$mid'));
+          firebaseDefaultStorage.ref('igrejas/$tid/membros/$mid'));
     } catch (_) {}
     if (storageMid != mid) {
       try {
         await _deleteAllObjectsRecursive(
-            FirebaseStorage.instance.ref('igrejas/$tid/membros/$storageMid'));
+            firebaseDefaultStorage.ref('igrejas/$tid/membros/$storageMid'));
       } catch (_) {}
     }
     if (cpf.length == 11 && cpf != mid) {
       try {
         await _deleteAllObjectsRecursive(
-            FirebaseStorage.instance.ref('igrejas/$tid/membros/$cpf'));
+            firebaseDefaultStorage.ref('igrejas/$tid/membros/$cpf'));
       } catch (_) {}
     }
 
@@ -250,7 +251,7 @@ class FirebaseStorageCleanupService {
     );
     try {
       await _deleteAllObjectsRecursive(
-          FirebaseStorage.instance.ref('igrejas/$tid/membros/$stemAtual'));
+          firebaseDefaultStorage.ref('igrejas/$tid/membros/$stemAtual'));
     } catch (_) {}
 
     for (final p in <String>[
@@ -264,18 +265,18 @@ class FirebaseStorageCleanupService {
       ],
     ]) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
     for (final suffix in <String>['_thumb.jpg', '_card.jpg', '_full.jpg']) {
       try {
-        await FirebaseStorage.instance
+        await firebaseDefaultStorage
             .ref('igrejas/$tid/members/$mid$suffix')
             .delete();
       } catch (_) {}
       if (cpf.length == 11 && cpf != mid) {
         try {
-          await FirebaseStorage.instance
+          await firebaseDefaultStorage
               .ref('igrejas/$tid/members/$cpf$suffix')
               .delete();
         } catch (_) {}
@@ -304,7 +305,7 @@ class FirebaseStorageCleanupService {
     if (tid.isEmpty || stem.isEmpty) return;
     for (final name in _memberProfileDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance
+        await firebaseDefaultStorage
             .ref('igrejas/$tid/membros/$stem/$name')
             .delete();
       } catch (_) {}
@@ -345,11 +346,11 @@ class FirebaseStorageCleanupService {
     final base = '${ChurchStorageLayout.churchRoot(tid)}/gestor';
     for (final name in _memberProfileDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(base).listAll();
+      final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalGestorProfileFile(item.name)) continue;
         final n = item.name.toLowerCase();
@@ -423,11 +424,11 @@ class FirebaseStorageCleanupService {
     final base = 'igrejas/$tid/configuracoes';
     for (final name in _churchConfigDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(base).listAll();
+      final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalChurchConfigFile(item.name)) continue;
         final n = item.name.toLowerCase();
@@ -496,16 +497,16 @@ class FirebaseStorageCleanupService {
     final base = '${ChurchStorageLayout.churchRoot(tid)}/${ChurchStorageLayout.kSegAvisos}/$pid';
     for (final name in _avisoPostCapaDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     for (final name in _avisoPostGaleriaDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(base).listAll();
+      final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalAvisoPostFile(item.name)) continue;
         final n = item.name.toLowerCase();
@@ -604,16 +605,16 @@ class FirebaseStorageCleanupService {
         '${ChurchStorageLayout.churchRoot(tid)}/${ChurchStorageLayout.kSegEventos}/$pid';
     for (final name in _eventPostBannerDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     for (final name in _eventPostGaleriaDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(base).listAll();
+      final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalEventPostFile(item.name)) continue;
         final n = item.name.toLowerCase();
@@ -685,11 +686,11 @@ class FirebaseStorageCleanupService {
     ];
     for (final name in fixed) {
       try {
-        await FirebaseStorage.instance.ref('$dir/$name').delete();
+        await firebaseDefaultStorage.ref('$dir/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(dir).listAll();
+      final list = await firebaseDefaultStorage.ref(dir).listAll();
       for (final item in list.items) {
         if (_isCanonicalEventTemplateCoverFile(item.name, stem)) continue;
         final n = item.name.toLowerCase();
@@ -746,11 +747,11 @@ class FirebaseStorageCleanupService {
     final base = ChurchStorageLayout.cartaoMembroMediaPrefix(tid);
     for (final name in _cartaoMembroLogoDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$base/$name').delete();
+        await firebaseDefaultStorage.ref('$base/$name').delete();
       } catch (_) {}
     }
     try {
-      final list = await FirebaseStorage.instance.ref(base).listAll();
+      final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         final n = item.name.toLowerCase();
         if (n == 'logo.jpg' || n == 'logo.jpeg' || n == 'logo.png') {
@@ -803,7 +804,7 @@ class FirebaseStorageCleanupService {
     ];
     for (final p in paths) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
   }
@@ -821,7 +822,7 @@ class FirebaseStorageCleanupService {
       tenantId: tid,
       memberFolder: mid,
     );
-    final prefixRef = FirebaseStorage.instance.ref('igrejas/$tid/membros/$mid');
+    final prefixRef = firebaseDefaultStorage.ref('igrejas/$tid/membros/$mid');
     bool isCanonicalMain(String name) {
       final n = name.toLowerCase();
       return n == 'foto_perfil.jpg' ||
@@ -1003,7 +1004,7 @@ class FirebaseStorageCleanupService {
     }
     for (final p in paths) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
 
@@ -1019,7 +1020,7 @@ class FirebaseStorageCleanupService {
       ],
     ]) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
   }
@@ -1036,7 +1037,7 @@ class FirebaseStorageCleanupService {
     if (tid.isEmpty || iid.isEmpty) return;
     final path = ChurchStorageLayout.patrimonioPhotoPath(tid, iid, slot);
     try {
-      await FirebaseStorage.instance
+      await firebaseDefaultStorage
           .ref(path)
           .delete()
           .timeout(const Duration(seconds: 5));
@@ -1081,7 +1082,7 @@ class FirebaseStorageCleanupService {
     ];
     await Future.wait(paths.map((p) async {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }));
   }
@@ -1127,7 +1128,7 @@ class FirebaseStorageCleanupService {
     if (tid.isEmpty || prefix.isEmpty) return;
     for (final name in _patrimonioGaleriaDerivativeFileNames) {
       try {
-        await FirebaseStorage.instance.ref('$prefix/$name').delete();
+        await firebaseDefaultStorage.ref('$prefix/$name').delete();
       } catch (_) {}
     }
   }
@@ -1146,7 +1147,7 @@ class FirebaseStorageCleanupService {
       itemFolderPrefix: prefix,
     );
     try {
-      final list = await FirebaseStorage.instance.ref(prefix).listAll();
+      final list = await firebaseDefaultStorage.ref(prefix).listAll();
       for (final item in list.items) {
         if (_isCanonicalPatrimonioItemFile(item.name)) continue;
         final n = item.name.toLowerCase();
@@ -1191,7 +1192,7 @@ class FirebaseStorageCleanupService {
     );
     try {
       final list =
-          await FirebaseStorage.instance.ref('igrejas/$tid/patrimonio').listAll();
+          await firebaseDefaultStorage.ref('igrejas/$tid/patrimonio').listAll();
       for (final item in list.items) {
         if (!re.hasMatch(item.name)) continue;
         try {
@@ -1241,11 +1242,11 @@ class FirebaseStorageCleanupService {
     await deleteAllObjectsUnderPrefix('igrejas/$tid/logo');
     for (final p in ChurchStorageLayout.legacyLogoObjectPaths(tid)) {
       try {
-        await FirebaseStorage.instance.ref(p).delete();
+        await firebaseDefaultStorage.ref(p).delete();
       } catch (_) {}
     }
     try {
-      await FirebaseStorage.instance
+      await firebaseDefaultStorage
           .ref(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tid))
           .delete();
     } catch (_) {}
@@ -1258,7 +1259,7 @@ class FirebaseStorageCleanupService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      final ref = FirebaseStorage.instance.ref('igrejas/$tid/members');
+      final ref = firebaseDefaultStorage.ref('igrejas/$tid/members');
       final list = await ref.listAll();
       for (final item in list.items) {
         final n = item.name.toLowerCase();

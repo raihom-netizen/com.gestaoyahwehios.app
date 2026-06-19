@@ -92,6 +92,18 @@ abstract final class ChurchContext {
 
   static void clear() => ChurchContextService.clear();
 
+  /// Bind imediato após login/shell — `igrejas/{churchId}` antes de leituras async.
+  static void bindImmediate({
+    required String seed,
+    String? canonicalId,
+    String? userUid,
+  }) =>
+      ChurchContextService.bindPanelIdImmediate(
+        seed: seed,
+        canonicalId: canonicalId,
+        userUid: userUid,
+      );
+
   static bool get isBound =>
       currentChurchId != null && currentChurchId!.isNotEmpty;
 }

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart'
@@ -9,6 +10,10 @@ abstract final class ImmediateStorageUploadGuard {
   ImmediateStorageUploadGuard._();
 
   static Future<void> ensureReady({String debugLabel = 'immediate_attach'}) async {
+    await AppFinalizeBootstrap.ensureSessionForPublish(
+      logLabel: debugLabel,
+    );
+    await ensureFirebaseReadyForMediaUpload();
     await EcoFirePublishBootstrap.ensureHard(logLabel: debugLabel);
   }
 

@@ -160,6 +160,7 @@ abstract final class ChurchFeedLinearPublishService {
         startSlotIndex: startSlotIndex,
         bytesList: kIsWeb ? newImagesBytes : null,
         localPaths: kIsWeb ? null : newImagePaths,
+        alreadyCompressed: newImagesBytes?.isNotEmpty ?? false,
         onProgress: (batchP) {
           _report(onUploadProgress, 0.20 + batchP * 0.52);
         },

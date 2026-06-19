@@ -94,6 +94,7 @@ import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/church_shell_tenant_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
+import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
 const double _breakpointDesktop = 900;
@@ -230,12 +231,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   ValueKey _shellPageKey(int index) =>
       ValueKey('page_${index}_$_moduleTenantId');
 
-  /// Sempre doc canÃ³nico â€” nunca slug legado nos mÃ³dulos do shell.
-  String get _moduleTenantId => ChurchPanelTenant.resolve(
-        (_operationalTenantId ?? '').isNotEmpty
-            ? _operationalTenantId
-            : widget.tenantId,
-      );
+  /// Sempre doc canônico — nunca slug legado nos módulos do shell.
+  String get _moduleTenantId {
+    final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
+    if (ctx.isNotEmpty) return ctx;
+    final op = (_operationalTenantId ?? '').trim();
+    if (op.isNotEmpty) return ChurchPanelTenant.resolve(op);
+    return ChurchPanelTenant.resolve(widget.tenantId.trim());
+  }
 
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).
   String _lastSubscriptionGuardSignature = '';
@@ -463,11 +466,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.initState();
     final hint = widget.tenantId.trim();
     if (hint.isNotEmpty) {
-      _operationalTenantId = ChurchPanelTenant.resolve(hint);
+      final canonical = ChurchPanelTenant.resolve(hint);
+      _operationalTenantId = canonical;
+      ChurchContextService.bindPanelIdImmediate(
+        seed: hint,
+        canonicalId: canonical,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
       _applyBoundChurchContextToLastGood(_operationalTenantId!);
       // Desbloqueia módulos no 1.º frame — bind async continua em background.
       _tenantResolveComplete = _operationalTenantId!.isNotEmpty;
     }
+    unawaited(_warmTenantDocFromLocalCacheFirst());
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
@@ -490,51 +500,115 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         });
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await ensureFirebaseReadyForPanelRead().catchError((_) {});
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      try {
-        await _resolveOperationalTenant(forceRefresh: false);
-        await _bootstrapShellTenantDoc(forceRefresh: false);
-      } finally {
-        if (mounted) setState(() => _tenantResolveComplete = true);
-      }
-      ChurchTenantConsolidationService.ensureConsolidated(
-        _moduleTenantId,
-        source: 'igreja_clean_shell',
-      );
-      reportChurchClientSessionToUserDoc();
-      _runMembersToMembrosMigration();
-      _schedulePostTenantWarmups();
-      YahwehPerformanceMonitor.markScreenStart('church_shell');
-      YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
-      Future<void>.delayed(const Duration(seconds: 12), () {
-        if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
-      });
-      if (_shellBootstrapOpenMemberId != null && mounted) {
-        setState(() => _selectedIndex = ChurchShellIndices.membros);
-      } else {
-        // Sempre painel inicial ao entrar â€” sem restaurar aba/chat/mÃ³dulo anterior.
-        if (widget.initialShellIndex != null &&
-            mounted &&
-            _canAccessItem(widget.initialShellIndex!)) {
-          setState(() => _selectedIndex = widget.initialShellIndex!);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited((() async {
+        unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
+        if (kIsWeb) {
+          unawaited(FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}));
+        }
+        try {
+          await _resolveOperationalTenant(forceRefresh: false).timeout(
+            const Duration(seconds: 6),
+            onTimeout: () {},
+          );
+          await _bootstrapShellTenantDoc(forceRefresh: false).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {},
+          );
+        } catch (_) {}
+        finally {
+          if (mounted) setState(() => _tenantResolveComplete = true);
+        }
+        ChurchTenantConsolidationService.ensureConsolidated(
+          _moduleTenantId,
+          source: 'igreja_clean_shell',
+        );
+        reportChurchClientSessionToUserDoc();
+        _runMembersToMembrosMigration();
+        _schedulePostTenantWarmups();
+        YahwehPerformanceMonitor.markScreenStart('church_shell');
+        YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
+        Future<void>.delayed(const Duration(seconds: 12), () {
+          if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
+        });
+        if (_shellBootstrapOpenMemberId != null && mounted) {
+          setState(() => _selectedIndex = ChurchShellIndices.membros);
+        } else {
+          // Sempre painel inicial ao entrar â€” sem restaurar aba/chat/mÃ³dulo anterior.
+          if (widget.initialShellIndex != null &&
+              mounted &&
+              _canAccessItem(widget.initialShellIndex!)) {
+            setState(() => _selectedIndex = widget.initialShellIndex!);
+          }
+        }
+        unawaited(
+          AppResumeStateService.saveShellContext(
+            tenantId: _moduleTenantId,
+            shellIndex: 0,
+          ),
+        );
+        unawaited(GestorWelcomeDialog.tryShowIfNeeded(
+          context: context,
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+        ));
+      })());
+    });
+  }
+
+  /// Cache local do cadastro — pinta o shell no 1.º frame (web cold start).
+  Future<void> _warmTenantDocFromLocalCacheFirst() async {
+    final tid = _moduleTenantId.trim();
+    if (tid.isEmpty) return;
+    if (_applyBoundChurchContextToLastGood(tid)) {
+      if (mounted) setState(() {});
+      return;
+    }
+
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      final peek = AuthProfileCacheService.instance.peek(uid);
+      if (peek != null) {
+        final profileChurch = peek['church'];
+        final profileId = ChurchPanelTenant.resolve(
+          (peek['igrejaId'] ?? '').toString(),
+        );
+        if (profileId.isNotEmpty &&
+            profileId == ChurchPanelTenant.resolve(tid) &&
+            profileChurch is Map &&
+            profileChurch.isNotEmpty) {
+          _storeTenantDocSnapshot(
+            profileId,
+            Map<String, dynamic>.from(profileChurch),
+          );
+          if (mounted) setState(() {});
+          return;
         }
       }
-      unawaited(
-        AppResumeStateService.saveShellContext(
-          tenantId: _moduleTenantId,
-          shellIndex: 0,
-        ),
+    }
+
+    try {
+      final local = await ChurchShellTenantLoadService.tryLocal(
+        seedTenantId: widget.tenantId,
       );
-      unawaited(GestorWelcomeDialog.tryShowIfNeeded(
-        context: context,
-        tenantId: _moduleTenantId,
-        role: _panelRole,
-      ));
-    });
+      if (local != null && local.data.isNotEmpty && mounted) {
+        _storeTenantDocSnapshot(local.churchId, local.data);
+        setState(() {});
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      final cached = await ChurchPanelLocalCache.readMap(
+        churchId: tid,
+        module: ChurchPanelLocalCache.moduleCadastro,
+        maxAge: const Duration(days: 30),
+      );
+      if (cached != null && cached.isNotEmpty && mounted) {
+        _storeTenantDocSnapshot(tid, cached);
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   @override
@@ -612,12 +686,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   bool _applyBoundChurchContextToLastGood(String tid) {
+    final want = ChurchPanelTenant.resolve(tid);
+    if (want.isEmpty) return false;
     final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
     final data = ChurchContextService.currentChurchData;
-    if (tid.isEmpty || ctxId != tid || data == null || data.isEmpty) {
-      return false;
-    }
-    _lastGoodTenantDoc = _CachedChurchDocumentSnapshot(id: tid, data: data);
+    if (data == null || data.isEmpty) return false;
+    final bound = ChurchPanelTenant.resolve(ctxId);
+    if (bound != want && ctxId != want) return false;
+    _lastGoodTenantDoc = _CachedChurchDocumentSnapshot(id: want, data: data);
     _syncPanelRoleFromChurch(data);
     return true;
   }
@@ -668,8 +744,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         await ChurchShellTenantLoadService.persistAfterLoad(result);
       } else {
         _shellTenantLastError = result.softError ??
-            'NÃ£o foi possÃ­vel carregar igrejas/$tid.';
-        await _hydrateTenantDocFromFallbacks(tid);
+            'Não foi possível carregar igrejas/$tid.';
+        if (result.data.isNotEmpty) {
+          _storeTenantDocSnapshot(
+            result.churchId.isNotEmpty ? result.churchId : tid,
+            ChurchCadastroLoadService.sliceCadastroFormFields(result.data),
+          );
+        } else {
+          await _hydrateTenantDocFromFallbacks(tid);
+        }
       }
     } catch (e) {
       _shellTenantLastError = e;
@@ -688,6 +771,37 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final id = tid.trim();
     if (id.isEmpty) return;
     if (_applyBoundChurchContextToLastGood(id)) return;
+
+    try {
+      final local = await ChurchShellTenantLoadService.tryLocal(
+        seedTenantId: id,
+      );
+      if (local != null && local.data.isNotEmpty) {
+        _storeTenantDocSnapshot(local.churchId, local.data);
+        return;
+      }
+    } catch (_) {}
+
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    if (uid != null && uid.isNotEmpty) {
+      final peek = AuthProfileCacheService.instance.peek(uid);
+      if (peek != null) {
+        final profileChurch = peek['church'];
+        final profileId = ChurchPanelTenant.resolve(
+          (peek['igrejaId'] ?? '').toString(),
+        );
+        if (profileId.isNotEmpty &&
+            profileId == ChurchPanelTenant.resolve(id) &&
+            profileChurch is Map &&
+            profileChurch.isNotEmpty) {
+          _storeTenantDocSnapshot(
+            profileId,
+            Map<String, dynamic>.from(profileChurch),
+          );
+          return;
+        }
+      }
+    }
 
     try {
       final cached = await ChurchPanelLocalCache.readMap(
@@ -778,7 +892,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           child: ChurchPanelResilientLoadBanner(
             hasLocalData: false,
             isSyncing: true,
-            syncMessage: 'Sincronizando cadastro da igreja (igrejas/$tid)â€¦',
+            syncMessage: 'Sincronizando cadastro da igreja (igrejas/$tid)…',
           ),
         );
       }
@@ -786,9 +900,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         child: ChurchPanelResilientLoadBanner(
           hasLocalData: false,
           isSyncing: false,
-          errorTitle: 'NÃ£o foi possÃ­vel carregar os dados da igreja',
+          errorTitle: 'Não foi possível carregar os dados da igreja',
           error: _shellTenantLastError ??
-              'Verifique sua conexÃ£o ou tente novamente. '
+              'Verifique sua conexão ou tente novamente. '
               'Path: igrejas/$tid',
           onRetry: _retryTenantDocLoad,
         ),

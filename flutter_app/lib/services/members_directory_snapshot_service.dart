@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'firestore_stream_utils.dart' show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
 
@@ -324,11 +325,9 @@ class MembersDirectorySnapshotService {
         .doc('members_directory');
   }
 
-  static Future<DocumentReference<Map<String, dynamic>>> cacheRef(
-    String tenantId,
-  ) async {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    return cacheRefForOperational(op);
+  static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
+    final op = ChurchRepository.churchId(tenantId.trim());
+    return cacheRefForOperational(op.isNotEmpty ? op : tenantId.trim());
   }
 
   static Stream<MembersDirectorySnapshot> watch(String tenantId) {
@@ -336,11 +335,11 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const MembersDirectorySnapshot());
     }
-    return Stream.fromFuture(ChurchOperationalPaths.resolveCached(tid))
-        .asyncExpand((op) {
-      return FirestoreStreamUtils.documentWatchBootstrap(cacheRefForOperational(op))
-          .map((snap) => MembersDirectorySnapshot.fromMap(snap.data()));
-    });
+    final op = ChurchRepository.churchId(tid);
+    final churchId = op.isNotEmpty ? op : tid;
+    return FirestoreStreamUtils.documentWatchBootstrap(
+      cacheRefForOperational(churchId),
+    ).map((snap) => MembersDirectorySnapshot.fromMap(snap.data()));
   }
 
   static Future<MembersDirectorySnapshot> readOnce(String tenantId) async {
@@ -348,8 +347,9 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) return const MembersDirectorySnapshot();
     final mem = peekMemory(tid);
     if (mem != null) return mem;
+    final ref = cacheRef(tid);
     try {
-      final cached = await (await cacheRef(tid))
+      final cached = await ref
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       final fromCache = MembersDirectorySnapshot.fromMap(cached.data());
@@ -359,7 +359,7 @@ class MembersDirectorySnapshotService {
       }
     } catch (_) {}
     try {
-      final snap = await (await cacheRef(tid))
+      final snap = await ref
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 8));
       final fromServer = MembersDirectorySnapshot.fromMap(snap.data());
@@ -388,7 +388,7 @@ class MembersDirectorySnapshotService {
     final mem = peekMemory(tid);
     if (mem != null && _snapshotComplete(mem)) return mem;
     try {
-      final doc = await (await cacheRef(tid))
+      final doc = await cacheRef(tid)
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       final u = doc.data()?['updatedAt'];

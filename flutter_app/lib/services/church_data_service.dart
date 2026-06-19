@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_firestore_map.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -71,8 +72,8 @@ final class ChurchDataService {
     String churchIdSeed,
     String collection,
   ) async {
-    final op = await ChurchOperationalPaths.resolveCached(churchIdSeed);
-    return tenantCollection(op, collection);
+    final op = ChurchRepository.churchId(churchIdSeed);
+    return tenantCollection(op.isNotEmpty ? op : churchIdSeed.trim(), collection);
   }
 
   static DocumentReference<Map<String, dynamic>> tenantDocument(

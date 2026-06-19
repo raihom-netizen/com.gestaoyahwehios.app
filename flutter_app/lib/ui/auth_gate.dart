@@ -486,6 +486,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   Timer? _webSessionCapTimer;
   bool _webSessionCapHit = false;
   bool _restoreInFlight = false;
+  int _webSessionCapAttempts = 0;
+  static const _kMaxWebSessionCapAttempts = 4;
 
   @override
   void initState() {
@@ -495,7 +497,21 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     WebPanelStability.bindLoginSession(FirebaseAuth.instance.currentUser);
     if (kIsWeb) {
       _scheduleWebSessionCap();
+      unawaited(_kickEarlyWebSessionRestore());
     }
+  }
+
+  /// Web: restaura sessão persistida cedo — evita spinner infinito em authStateChanges «waiting».
+  Future<void> _kickEarlyWebSessionRestore() async {
+    try {
+      final restored = await PersistentAuthSessionService.currentPersistedUser()
+          .timeout(const Duration(milliseconds: 1800));
+      if (restored != null && mounted) {
+        AppSessionStability.rememberUser(restored);
+        _webSessionCapAttempts = 0;
+        setState(() {});
+      }
+    } catch (_) {}
   }
 
   /// Web: só redireciona ao login após restaurar sessão persistida (padrão Controle Total).
@@ -503,13 +519,14 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (!kIsWeb) return;
     _webSessionCapTimer?.cancel();
     final delay = AppSessionStability.hasReturningSessionHints()
-        ? const Duration(seconds: 3)
-        : const Duration(milliseconds: 900);
+        ? const Duration(milliseconds: 1800)
+        : const Duration(milliseconds: 700);
     _webSessionCapTimer = Timer(delay, () async {
       if (!mounted) return;
       final sync = FirebaseAuth.instance.currentUser;
       if (sync != null && !sync.isAnonymous) {
         AppSessionStability.rememberUser(sync);
+        _webSessionCapAttempts = 0;
         return;
       }
       final restored =
@@ -517,12 +534,16 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (!mounted) return;
       if (restored != null) {
         AppSessionStability.rememberUser(restored);
+        _webSessionCapAttempts = 0;
         setState(() {});
         return;
       }
       if (AppSessionStability.hasReturningSessionHints()) {
-        _scheduleWebSessionCap();
-        return;
+        _webSessionCapAttempts++;
+        if (_webSessionCapAttempts < _kMaxWebSessionCapAttempts) {
+          _scheduleWebSessionCap();
+          return;
+        }
       }
       setState(() => _webSessionCapHit = true);
     });
@@ -627,7 +648,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
         return claimsFast;
       }
-      if (!kIsWeb) {
+      if (AppConnectivityService.instance.isOnline) {
         final fast = await _loadProfileOnlineFast(user, cached);
         if (fast != null) {
           await AuthProfileCacheService.instance.save(user.uid, fast);
@@ -673,8 +694,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (igrejaId.isEmpty && cached != null) {
         igrejaId = (cached['igrejaId'] ?? '').toString().trim();
       }
-      // Fallback: resolve igreja pelo e-mail do gestor (ex.: Brasil para Cristo — requer rede)
-      if (AppConnectivityService.instance.isOnline &&
+      // Fallback: resolve igreja pelo e-mail do gestor — omitido na web (2 queries lentas no cold start).
+      if (!kIsWeb &&
+          AppConnectivityService.instance.isOnline &&
           igrejaId.isEmpty &&
           (user.email ?? '').toString().trim().isNotEmpty) {
         try {
@@ -718,7 +740,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         final bound = await ChurchContextService.resolveAndBind(
           seed: igrejaId,
           userUid: user.uid,
-        );
+        ).timeout(ChurchContextService.kResolveTimeout);
         if (bound.trim().isNotEmpty) igrejaId = bound.trim();
       } catch (_) {}
       if (igrejaId.trim().isEmpty) {
@@ -735,6 +757,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }
       igrejaId = ChurchPanelTenant.resolve(igrejaId);
+      ChurchContextService.bindPanelIdImmediate(
+        seed: igrejaSeedBeforeBind,
+        canonicalId: igrejaId,
+        userUid: user.uid,
+      );
 
       final storedTenant = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
           .toString()
@@ -1146,6 +1173,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       );
       if (!access.active) return null;
 
+      ChurchContextService.bindChurchData(
+        churchId: igrejaId,
+        data: churchData,
+      );
+
       return AuthGateProfileCachePolicy.stampVerified(
         authGateNormalizeProfile(
         {
@@ -1195,7 +1227,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       );
       final res = await fn
           .call<Map<String, dynamic>>(<String, dynamic>{})
-          .timeout(kIsWeb ? const Duration(seconds: 13) : const Duration(seconds: 8));
+          .timeout(kIsWeb ? const Duration(seconds: 7) : const Duration(seconds: 8));
       final data = res.data;
       final profile = data['profile'];
       if (profile == null || profile is! Map) return null;
@@ -1231,6 +1263,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         userEmail: user.email,
         cpfDigitsOrRaw: (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
         claimsActive: p['active'] == true,
+      );
+      ChurchContextService.bindChurchData(
+        churchId: igrejaId,
+        data: churchData,
       );
       return AuthGateProfileCachePolicy.stampVerified(
         {
@@ -1639,7 +1675,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     }());
     unawaited(_tryEmergencyBootstrapFromLocalFirestore());
     _emergencyBootstrapTimer = Timer(
-      const Duration(milliseconds: 350),
+      const Duration(milliseconds: 120),
       () => unawaited(_tryEmergencyBootstrapFromLocalFirestore()),
     );
     _profileFuture = _profileFutureCacheFirst();
@@ -1651,8 +1687,13 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
         .timeout(
-          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 6),
+          kIsWeb ? const Duration(seconds: 2) : const Duration(seconds: 5),
           onTimeout: () async {
+            final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
+            if (peek != null &&
+                (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+              return (peek, false);
+            }
             final c =
                 await AuthProfileCacheService.instance.load(widget.user.uid);
             if (c != null &&
@@ -1795,6 +1836,16 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         : false;
 
     final roleTxt = (p['role'] ?? '').toString().toLowerCase();
+
+    if (igrejaId.isNotEmpty) {
+      final churchMap = church != null && church.isNotEmpty
+          ? Map<String, dynamic>.from(church)
+          : <String, dynamic>{'id': igrejaId};
+      ChurchContextService.bindChurchData(
+        churchId: igrejaId,
+        data: churchMap,
+      );
+    }
 
     if (!kIsWeb) {
       unawaited(

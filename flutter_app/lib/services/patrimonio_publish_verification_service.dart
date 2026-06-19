@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -56,9 +57,10 @@ abstract final class PatrimonioPublishVerificationService {
     required String igrejaId,
     required String itemId,
   }) {
-    final ref = ChurchOperationalPaths.churchDoc(igrejaId.trim())
-        .collection('patrimonio')
-        .doc(itemId.trim());
+    final ref = ChurchRepository.collection(
+      ChurchDataPaths.patrimonio,
+      churchIdHint: igrejaId.trim(),
+    ).doc(itemId.trim());
     assertPatrimonioDocPath(ref);
     return ref;
   }

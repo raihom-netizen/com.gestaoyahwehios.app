@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/church_panel_paths.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 
@@ -38,8 +39,12 @@ abstract final class ChurchPanelTenantGateway {
   static String storageRoot([String? shellHint]) =>
       ChurchPanelPaths.storageRoot(shellHint);
 
-  static String storagePath(String relative, [String? shellHint]) =>
-      ChurchContext.storagePath(relative);
+  static String storagePath(String relative, [String? shellHint]) {
+    final root = storageRoot(shellHint);
+    if (root.isEmpty) return relative.trim();
+    final rel = relative.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+    return rel.isEmpty ? root : '$root$rel';
+  }
 
   static String storageFolder(String folder, [String? shellHint]) {
     final root = storageRoot(shellHint);

@@ -1,35 +1,35 @@
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMediaEventVideoMaxSeconds, kStandardUploadImageQuality;
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
+import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/services/video_duration.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
-import 'media_upload_service.dart';
-import 'video_duration.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-
-/// Regra de negócio: cada evento pode ter no máximo 2 vídeos (90s cada), 20 fotos.
-/// Vídeos: verificação de duração no upload; fotos: comprimidas em Full HD (1920x1080).
-/// Vídeo: capa estática no Storage como `video_poster_*.jpg` (sem prefixo `thumb_`); URL no Firestore.
+/// Galeria de evento — `igrejas/{churchId}/eventos/{eventoId}/…`.
+///
+/// Fotos via [EventoMediaUpload] / [UnifiedUploadService] (anti `firebase_core/no-app`).
 class EventoGalleryService {
   EventoGalleryService._();
   static final EventoGalleryService instance = EventoGalleryService._();
 
-  Future<FirebaseFirestore> _firestore() => FirebaseService.firestore(requireAuth: true);
   static const int _maxVideosPerEvent = 2;
   static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
   static const int _maxPhotosPerEvent = kMaxEventFeedPhotosPerPost;
@@ -38,22 +38,16 @@ class EventoGalleryService {
   static const int _photoMaxHeight = 1080;
 
   /// Adiciona mídia a um evento em `igrejas/{tenantId}/eventos/{eventoId}`.
-  /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 720p HD, thumb, upload e salva URL + thumb.
-  /// Foto: upload em alta resolução e salva URL (getDownloadURL).
   Future<void> adicionarMidiaAoEvento(
     String tenantId,
     String eventoId,
     File arquivo,
     bool isVideo,
   ) async {
-    final db = await _firestore();
-    final tid = tenantId.trim();
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final eventoRef =         ChurchOperationalPaths.churchDoc(op)
-        .collection('eventos')
-        .doc(eventoId);
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final eventoRef = ChurchUiCollections.eventos(churchId).doc(eventoId);
     final storagePrefix =
-        '${ChurchStorageLayout.churchRoot(tid)}/${ChurchStorageLayout.kSegEventos}/$eventoId';
+        '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegEventos}/$eventoId';
     await adicionarMidiaAoEventoRef(
       eventoRef,
       storagePrefix,
@@ -63,8 +57,7 @@ class EventoGalleryService {
     );
   }
 
-  /// Adiciona mídia a um evento referenciado por [eventRef] (ex.: `igrejas/{churchId}/eventos/docId`).
-  /// [storagePathPrefix] ex.: `igrejas/{churchId}/eventos/{eventoId}`. [photoField]: 'fotos' ou 'imageUrls'.
+  /// Adiciona mídia a um evento referenciado por [eventRef].
   Future<void> adicionarMidiaAoEventoRef(
     DocumentReference<Map<String, dynamic>> eventRef,
     String storagePathPrefix,
@@ -72,104 +65,145 @@ class EventoGalleryService {
     bool isVideo, {
     String photoField = 'imageUrls',
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
-    if (isVideo) {
-      final snap = await eventRef.get();
-      final data = snap.data();
-      final videosAtuais = (data != null && data['videos'] != null)
-          ? (data['videos'] is List ? data['videos'] as List : [])
-          : <dynamic>[];
-      if (videosAtuais.length >= _maxVideosPerEvent) {
-        throw Exception('Limite atingido: cada evento pode ter no máximo $_maxVideosPerEvent vídeos.');
-      }
-      final durationSec = await getVideoDurationSeconds(XFile(arquivo.path));
-      if (durationSec != null && durationSec > _maxVideoSeconds) {
-        throw Exception('Vídeo deve ter no máximo $_maxVideoSeconds segundos. Este tem $durationSec s.');
-      }
-    } else {
-      final snap = await eventRef.get();
-      final data = snap.data();
-      final fotosAtuais = (data != null && data[photoField] != null)
-          ? (data[photoField] is List ? (data[photoField] as List).length : 0)
-          : 0;
-      if (fotosAtuais >= _maxPhotosPerEvent) {
-        throw Exception('Limite atingido: cada evento pode ter no máximo $_maxPhotosPerEvent fotos.');
-      }
-    }
+    await FirebaseBootstrapService.runGuarded(
+      () async {
+        await EventoMediaUpload.ensureUploadReady();
 
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}';
-
-    if (isVideo) {
-      final prepared = await MediaService.prepareEventVideoForUpload(arquivo.path);
-      if (prepared == null) {
-        throw Exception('Falha ao preparar o vídeo para envio.');
-      }
-      final compressed = File(prepared.outputPath);
-      File? thumbFile = prepared.thumbnailFile;
-      final storageVideoPath = '$storagePathPrefix/$fileName.mp4';
-
-      await StorageUploadPersistenceService.enqueueFileJob(
-        storagePath: storageVideoPath,
-        localFilePath: compressed.path,
-        contentType: 'video/mp4',
-      );
-
-      final videoUrlFuture = _uploadToStorage(
-        storagePathPrefix,
-        compressed,
-        '$fileName.mp4',
-        'video/mp4',
-      );
-      final thumbUrlFuture = (thumbFile != null && thumbFile.existsSync())
-          ? _uploadToStorage(
-              storagePathPrefix,
-              thumbFile,
-              'video_poster_$fileName.jpg',
-              'image/jpeg',
-            )
-          : Future<String>.value('');
-      final urls = await Future.wait([videoUrlFuture, thumbUrlFuture]);
-      final videoUrl = urls[0];
-      final thumbUrl = urls[1];
-
-      final novoVideo = {
-        'url': videoUrl,
-        'thumb': thumbUrl,
-        'videoUrl': videoUrl,
-        'thumbUrl': thumbUrl,
-      };
-      final snap = await eventRef.get();
-      final list = snap.exists && snap.data() != null
-          ? List<Map<String, dynamic>>.from((snap.data()!['videos'] as List?) ?? [])
-          : <Map<String, dynamic>>[];
-      list.add(novoVideo);
-      await eventRef.set({'videos': list}, SetOptions(merge: true));
-    } else {
-      final File fileToUpload = await _compressPhotoToFullHd(arquivo);
-      final downloadUrl = await _uploadToStorage(
-        storagePathPrefix,
-        fileToUpload,
-        '$fileName.jpg',
-        'image/jpeg',
-      );
-      if (fileToUpload.path != arquivo.path && fileToUpload.existsSync()) {
-        try { fileToUpload.deleteSync(); } catch (_) {}
-      }
-      final snap = await eventRef.get();
-      final list = snap.exists && snap.data() != null
-          ? List<String>.from((snap.data()![photoField] as List?)?.map((e) => e.toString()) ?? [])
-          : <String>[];
-      list.add(downloadUrl);
-      await eventRef.set({photoField: list}, SetOptions(merge: true));
-    }
+        if (isVideo) {
+          await _adicionarVideo(eventRef, storagePathPrefix, arquivo);
+        } else {
+          await _adicionarFoto(
+            eventRef,
+            storagePathPrefix,
+            arquivo,
+            photoField: photoField,
+          );
+        }
+      },
+      debugLabel: 'evento_gallery_media',
+    );
   }
 
-  /// Comprime foto para Full HD (1920x1080) mantendo proporção; qualidade 90.
+  Future<void> _adicionarVideo(
+    DocumentReference<Map<String, dynamic>> eventRef,
+    String storagePathPrefix,
+    File arquivo,
+  ) async {
+    final snap = await eventRef.get();
+    final data = snap.data();
+    final videosAtuais = (data != null && data['videos'] != null)
+        ? (data['videos'] is List ? data['videos'] as List : [])
+        : <dynamic>[];
+    if (videosAtuais.length >= _maxVideosPerEvent) {
+      throw Exception(
+        'Limite atingido: cada evento pode ter no máximo $_maxVideosPerEvent vídeos.',
+      );
+    }
+    final durationSec = await getVideoDurationSeconds(XFile(arquivo.path));
+    if (durationSec != null && durationSec > _maxVideoSeconds) {
+      throw Exception(
+        'Vídeo deve ter no máximo $_maxVideoSeconds segundos. Este tem $durationSec s.',
+      );
+    }
+
+    final prepared = await MediaService.prepareEventVideoForUpload(arquivo.path);
+    if (prepared == null) {
+      throw Exception('Falha ao preparar o vídeo para envio.');
+    }
+    final compressed = File(prepared.outputPath);
+    final thumbFile = prepared.thumbnailFile;
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}';
+    final storageVideoPath = '$storagePathPrefix/$fileName.mp4';
+
+    await StorageUploadPersistenceService.enqueueFileJob(
+      storagePath: storageVideoPath,
+      localFilePath: compressed.path,
+      contentType: 'video/mp4',
+    );
+
+    final videoUrl = await UnifiedUploadService.uploadFile(
+      storagePath: storageVideoPath,
+      localPath: compressed.path,
+      contentType: 'video/mp4',
+      module: YahwehUploadModule.generic,
+      maxAttempts: 4,
+    );
+
+    var thumbUrl = '';
+    if (thumbFile != null && thumbFile.existsSync()) {
+      final thumbBytes = await thumbFile.readAsBytes();
+      thumbUrl = await UnifiedUploadService.uploadJpegBytes(
+        storagePath: '$storagePathPrefix/video_poster_$fileName.jpg',
+        bytes: thumbBytes,
+      );
+    }
+
+    final novoVideo = {
+      'url': videoUrl,
+      'thumb': thumbUrl,
+      'videoUrl': videoUrl,
+      'thumbUrl': thumbUrl,
+    };
+    final fresh = await eventRef.get();
+    final list = fresh.exists && fresh.data() != null
+        ? List<Map<String, dynamic>>.from(
+            (fresh.data()!['videos'] as List?) ?? [],
+          )
+        : <Map<String, dynamic>>[];
+    list.add(novoVideo);
+    await eventRef.set({'videos': list}, SetOptions(merge: true));
+  }
+
+  Future<void> _adicionarFoto(
+    DocumentReference<Map<String, dynamic>> eventRef,
+    String storagePathPrefix,
+    File arquivo, {
+    required String photoField,
+  }) async {
+    final snap = await eventRef.get();
+    final data = snap.data();
+    final fotosAtuais = (data != null && data[photoField] != null)
+        ? (data[photoField] is List ? (data[photoField] as List).length : 0)
+        : 0;
+    if (fotosAtuais >= _maxPhotosPerEvent) {
+      throw Exception(
+        'Limite atingido: cada evento pode ter no máximo $_maxPhotosPerEvent fotos.',
+      );
+    }
+
+    final fileToUpload = await _compressPhotoToFullHd(arquivo);
+    final bytes = await fileToUpload.readAsBytes();
+    if (fileToUpload.path != arquivo.path && fileToUpload.existsSync()) {
+      try {
+        fileToUpload.deleteSync();
+      } catch (_) {}
+    }
+
+    final fileName = '${DateTime.now().millisecondsSinceEpoch}';
+    final storagePath = '$storagePathPrefix/$fileName.jpg';
+    final downloadUrl = await UnifiedUploadService.uploadJpegBytes(
+      storagePath: storagePath,
+      bytes: bytes,
+    );
+
+    final fresh = await eventRef.get();
+    final list = fresh.exists && fresh.data() != null
+        ? List<String>.from(
+            (fresh.data()![photoField] as List?)?.map((e) => e.toString()) ??
+                [],
+          )
+        : <String>[];
+    list.add(downloadUrl);
+    await eventRef.set({photoField: list}, SetOptions(merge: true));
+  }
+
   Future<File> _compressPhotoToFullHd(File arquivo) async {
+    if (kIsWeb) return arquivo;
     final dir = await getTemporaryDirectory();
-    final targetPath = p.join(dir.path, '${DateTime.now().millisecondsSinceEpoch}_event_fhd.jpg');
+    final targetPath = p.join(
+      dir.path,
+      '${DateTime.now().millisecondsSinceEpoch}_event_fhd.jpg',
+    );
     final result = await FlutterImageCompress.compressAndGetFile(
       arquivo.path,
       targetPath,
@@ -182,18 +216,5 @@ class EventoGalleryService {
       if (compressedFile.existsSync()) return compressedFile;
     }
     return arquivo;
-  }
-
-  Future<String> _uploadToStorage(
-    String pathPrefix,
-    File file,
-    String name,
-    String contentType,
-  ) async {
-    return MediaUploadService.uploadFileWithRetry(
-      storagePath: '$pathPrefix/$name',
-      file: file,
-      contentType: contentType,
-    );
   }
 }

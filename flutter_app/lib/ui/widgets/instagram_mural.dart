@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
@@ -3561,10 +3562,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await EcoFirePublishBootstrap.ensureHard(
+      await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'aviso_save_tap',
-        strict: true,
       );
+      await ensureFirebaseReadyForMediaUpload();
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
@@ -3612,6 +3613,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
         'tipo': 'image',
       };
+      if (mounted) setState(() => _saving = false);
       await _publishAvisoLinear(
         docRef: ctx.docRef,
         publishTenantId: ctx.igrejaId,
@@ -4850,13 +4852,27 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       ),
     );
 
-    try {
-      await EcofirePublishProgressUi.runWithProgress<void>(
-        context,
-        uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
-        saveLabel: 'A gravar aviso…',
-        distributeLabel: 'A notificar e publicar no site…',
-        action: (reportProgress) async {
+    if (!mounted) return;
+
+    EcofirePublishProgressUi.schedule<void>(
+      context: context,
+      uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
+      saveLabel: 'A gravar aviso…',
+      distributeLabel: 'A notificar e publicar no site…',
+      successMessage:
+          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
+      closeEditor: () {
+        if (!mounted) return;
+        Navigator.pop(context, {
+          'ok': true,
+          'bg': true,
+          'docId': docRef.id,
+          'tenantId': publishTenantId,
+        });
+      },
+      formatError: formatUploadErrorForUser,
+      action: (reportProgress) async {
+        try {
           await YahwehCentralEngineService.executeInstantSaveAviso(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -4875,6 +4891,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             tenantId: publishTenantId,
             postId: docRef.id,
           );
+          AvisosPublishVerificationService.clearLastError();
           unawaited(
             AvisosPublishVerificationService.logPublishPhase(
               phase: 'after',
@@ -4884,27 +4901,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               docId: docRef.id,
             ),
           );
-        },
-      );
-      AvisosPublishVerificationService.clearLastError();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
-        ),
-      );
-      Navigator.pop(context, true);
-    } catch (e, st) {
-      AvisosPublishVerificationService.rememberLastError(e);
-      await CrashlyticsService.record(e, st, reason: 'avisos_publish');
-      if (mounted) {
-        ThemeCleanPremium.showErrorSnackBarWithRetry(
-          context,
-          formatUploadErrorForUser(e),
-          onRetry: _save,
-        );
-      }
-    }
+        } catch (e, st) {
+          AvisosPublishVerificationService.rememberLastError(e);
+          await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+          rethrow;
+        }
+      },
+    );
   }
 
   Future<void> _save() async {

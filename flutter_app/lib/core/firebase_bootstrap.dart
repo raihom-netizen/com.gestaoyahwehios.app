@@ -34,7 +34,10 @@ Future<void> ensureFirebaseInitialized() =>
 /// Núcleo Firebase — Ecofire: init único antes de Storage/Firestore.
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
   if (requireAuth) {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'ensureFirebaseCore');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'ensureFirebaseCore',
+      strict: true,
+    );
     return;
   }
   if (!FirebaseBootstrapService.isReady()) {

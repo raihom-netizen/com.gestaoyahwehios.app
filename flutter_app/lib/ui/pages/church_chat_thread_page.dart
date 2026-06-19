@@ -6,7 +6,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -24,6 +23,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart'
     show churchChatReadFileBytes;
@@ -55,6 +55,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
 import 'package:gestao_yahweh/services/church_chat_fast_send_service.dart';
+import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -69,13 +70,12 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_storage_media.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_pending_voice_bubble.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_voice_mic_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chat_video_message_bubble.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
@@ -122,9 +122,6 @@ class _ReplyDraft {
         break;
       case 'image':
         preview = '📷 Imagem';
-        break;
-      case 'video':
-        preview = '🎬 Vídeo';
         break;
       case 'document':
         final n = (m['fileName'] ?? '').toString().trim();
@@ -206,6 +203,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   bool _voiceRecording = false;
   /// Evita `IconButton.onPressed` após soltar o long-press (reiniciava gravação).
   bool _micLongPressActive = false;
+  bool _voiceSlideCancel = false;
+  double _voiceSlideOffset = 0;
+  static const double _voiceCancelSlideThreshold = 72;
   Timer? _voiceTicker;
   Duration _voiceElapsed = Duration.zero;
 
@@ -1715,6 +1715,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<bool> _ensureChatFirebaseReadyForMedia() async {
     try {
+      await AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: 'chat_media_picker',
+      );
+      await ensureFirebaseReadyForMediaUpload();
       await EcoFirePublishBootstrap.ensureHard(
         logLabel: 'chat_media_send',
         strict: true,
@@ -1897,6 +1901,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (kindBlocked != null) {
       _showChatAttachmentError(kindBlocked);
       return;
+    }
+    if (kind != 'audio' && kind != 'image') {
+      final docBlocked =
+          ChurchChatAttachmentUtils.blockReasonForDocumentFileName(name);
+      if (docBlocked != null) {
+        _showChatAttachmentError(docBlocked);
+        return;
+      }
     }
     final maxB = _maxBytesForChatKind(kind);
     if (f.bytes != null && maxB != null && f.bytes!.length > maxB) {
@@ -2254,8 +2266,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   int? _maxBytesForChatKind(String kind) {
     switch (kind) {
-      case 'video':
-        return mediaChatVideoHardMaxBytesEffective;
       case 'document':
         return kChatMaxDocumentBytes;
       case 'audio':
@@ -2298,61 +2308,59 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     final replyTo =
         pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
-    unawaited(
-      runChatMediaUploadTask(() async {
-        final uploadBytes = await _bytesForPendingUpload(
-          pending: pending,
-          bytes: bytes,
-          localPath: localPath,
-        );
-        if (mounted &&
-            pending.kind == 'image' &&
-            pending.previewBytes != null &&
-            pending.previewBytes!.isNotEmpty) {
-          setState(() {});
-        }
-        if (kIsWeb &&
-            uploadBytes != null &&
-            uploadBytes.isNotEmpty &&
-            (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
-          final cached = uploadBytes is Uint8List
-              ? uploadBytes
-              : Uint8List.fromList(uploadBytes);
-          pending.previewBytes = cached;
-          unawaited(
-            ChurchChatPendingMediaCache.put(
-              tenantId: _tid,
-              threadId: widget.threadId,
-              localId: pending.localId,
-              bytes: cached,
-            ),
-          );
-        }
-        await ChurchChatFastSendService.sendMedia(
+    final uploadBytes = await _bytesForPendingUpload(
+      pending: pending,
+      bytes: bytes,
+      localPath: localPath,
+    );
+    if (mounted &&
+        pending.kind == 'image' &&
+        pending.previewBytes != null &&
+        pending.previewBytes!.isNotEmpty) {
+      setState(() {});
+    }
+    if (kIsWeb &&
+        uploadBytes != null &&
+        uploadBytes.isNotEmpty &&
+        (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
+      final cached = uploadBytes is Uint8List
+          ? uploadBytes
+          : Uint8List.fromList(uploadBytes);
+      pending.previewBytes = cached;
+      unawaited(
+        ChurchChatPendingMediaCache.put(
           tenantId: _tid,
           threadId: widget.threadId,
-          pending: pending,
-          bytes: uploadBytes,
-          localPath: localPath,
-          replyTo: replyTo,
-          onProgress: (p) => _setPendingProgress(pending.localId, p),
-          onSuccess: () {
-            if (mounted && pending.albumIndex == 0) {
-              setState(() => _replyDraft = null);
-            }
-            _removePending(pending.localId);
-          },
-          onError: (msg) {
-            final i =
-                _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-            if (i >= 0) {
-              _pendingOutbound[i].failed = true;
-              _pendingOutbound[i].errorMessage = msg;
-              if (mounted) setState(() {});
-            }
-          },
-        );
-      }, debugLabel: 'chat_media_whatsapp').catchError((Object e, StackTrace st) {
+          localId: pending.localId,
+          bytes: cached,
+        ),
+      );
+    }
+    unawaited(
+      OptimisticChatMediaUpload.upload(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        pending: pending,
+        bytes: uploadBytes,
+        localPath: localPath,
+        replyTo: replyTo,
+        onProgress: (p) => _setPendingProgress(pending.localId, p),
+        onSuccess: () {
+          if (mounted && pending.albumIndex == 0) {
+            setState(() => _replyDraft = null);
+          }
+          _removePending(pending.localId);
+        },
+        onError: (msg) {
+          final i =
+              _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+          if (i >= 0) {
+            _pendingOutbound[i].failed = true;
+            _pendingOutbound[i].errorMessage = msg;
+            if (mounted) setState(() {});
+          }
+        },
+      ).catchError((Object e, StackTrace st) {
         YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -2385,6 +2393,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String? albumGroupId,
     int albumIndex = 0,
     int albumCount = 1,
+    int? voiceDurationMs,
   }) async {
     final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
     if (blocked != null) {
@@ -2413,6 +2422,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       albumGroupId: albumGroupId,
       albumIndex: albumIndex,
       albumCount: albumCount,
+      voiceDurationMs: voiceDurationMs,
     );
     unawaited(_enqueueAndUploadPending(
       pending: pending,
@@ -2459,6 +2469,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       if (blocked != null) {
         _showChatAttachmentError(blocked);
+        continue;
+      }
+      final docBlocked = ChurchChatAttachmentUtils.blockReasonForDocumentFileName(
+        f.name.isNotEmpty ? f.name : 'ficheiro',
+      );
+      if (docBlocked != null) {
+        _showChatAttachmentError(docBlocked);
         continue;
       }
       await _sendPickedPlatformFile(f);
@@ -2512,6 +2529,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String? albumGroupId,
     int albumIndex = 0,
     int albumCount = 1,
+    int? voiceDurationMs,
   }) async {
     final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
     if (blocked != null) {
@@ -2541,6 +2559,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       albumGroupId: albumGroupId,
       albumIndex: albumIndex,
       albumCount: albumCount,
+      voiceDurationMs: voiceDurationMs,
     );
     unawaited(_enqueueAndUploadPending(
       pending: pending,
@@ -2548,22 +2567,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       localPath: null,
     ));
   }
-
-  Widget _pendingVideoPlaceholder() {
-    return Container(
-      width: 200,
-      height: 140,
-      color: Colors.grey.shade900,
-      child: Icon(
-        Icons.videocam_rounded,
-        size: 40,
-        color: Colors.white.withValues(alpha: 0.7),
-      ),
-    );
-  }
-
-  static String _formatChatFileSize(int bytes) =>
-      ChurchChatAttachmentUtils.formatFileSize(bytes);
 
   Widget _buildPendingOutboundBubble(
     ChurchChatOutboundPending p,
@@ -2640,55 +2643,31 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     } else if (!kIsWeb &&
         p.localPath != null &&
         p.localPath!.isNotEmpty &&
-        (p.kind == 'image' || p.kind == 'video')) {
-      final preview = p.previewBytes;
-      Widget previewWidget;
-      if (p.kind == 'video') {
-        if (preview != null && preview.isNotEmpty) {
-          previewWidget = Image.memory(
-            preview,
-            width: 200,
-            height: 140,
-            fit: BoxFit.cover,
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => _pendingVideoPlaceholder(),
-          );
-        } else {
-          previewWidget = _pendingVideoPlaceholder();
-        }
-      } else {
-        previewWidget = Image.file(
-          File(p.localPath!),
-          width: 200,
-          height: 200,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const SizedBox(
-            width: 200,
-            height: 120,
-            child: Icon(Icons.broken_image_outlined),
-          ),
-        );
-      }
+        p.kind == 'image') {
       body = ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            previewWidget,
-            if (p.kind == 'video')
-              Icon(
-                Icons.play_circle_fill_rounded,
-                size: 48,
-                color: Colors.white.withValues(alpha: 0.92),
+            Image.file(
+              File(p.localPath!),
+              width: 200,
+              height: 200,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox(
+                width: 200,
+                height: 120,
+                child: Icon(Icons.broken_image_outlined),
               ),
-            if (!p.failed && (p.kind == 'image' || p.kind == 'video'))
+            ),
+            if (!p.failed)
               ValueListenableBuilder<double>(
                 valueListenable: p.progressListenable,
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
                   return Container(
                     width: 200,
-                    height: p.kind == 'video' ? 140 : 200,
+                    height: 200,
                     color: Colors.black.withValues(alpha: 0.35),
                     child: Center(
                       child: SizedBox(
@@ -2708,18 +2687,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ),
       );
     } else if (p.kind == 'audio') {
-      body = ValueListenableBuilder<double>(
-        valueListenable: p.progressListenable,
-        builder: (context, progress, _) {
-          return ChurchChatUploadProgressIndicator(
-            progress: p.failed ? null : progress,
-            label: p.failed
-                ? (p.errorMessage ?? 'Falha no envio')
-                : 'A enviar áudio',
-            icon: p.failed ? Icons.error_outline_rounded : Icons.mic_rounded,
-            compact: true,
-          );
-        },
+      body = ChurchChatPendingVoiceBubble(
+        progressListenable: p.progressListenable,
+        failed: p.failed,
+        localPath: p.localPath,
+        errorMessage: p.errorMessage,
+        durationMs: p.voiceDurationMs,
       );
     } else {
       body = ValueListenableBuilder<double>(
@@ -2824,7 +2797,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ChurchChatAlbumCell(
           previewBytes: p.previewBytes,
           localPath: p.localPath,
-          type: p.kind == 'video' ? 'video' : 'image',
+          type: 'image',
         ),
     ];
     final failed = group.any((p) => p.failed);
@@ -2955,6 +2928,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     setState(() {
       _voiceRecording = true;
       _voiceElapsed = Duration.zero;
+      _voiceSlideCancel = false;
+      _voiceSlideOffset = 0;
     });
     unawaited(
       ChatThreadOperations.setTypingActive(
@@ -2981,6 +2956,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _finishVoiceRecording({required bool send}) async {
     _voiceTicker?.cancel();
     _voiceTicker = null;
+    final recordedMs = _voiceElapsed.inMilliseconds;
     unawaited(
       ChatThreadOperations.clearTypingForMe(
         tenantId: _tid,
@@ -2991,9 +2967,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     setState(() {
       _voiceRecording = false;
       _voiceElapsed = Duration.zero;
+      _voiceSlideCancel = false;
+      _voiceSlideOffset = 0;
     });
 
     if (!send) {
+      await _chatAudio.stopRecording(send: false);
+      return;
+    }
+
+    if (!await _ensureChatFirebaseReadyForMedia()) {
+      if (mounted) {
+        _showChatAttachmentError(
+          'Firebase ainda não está pronto. Aguarde e tente gravar de novo.',
+        );
+      }
       await _chatAudio.stopRecording(send: false);
       return;
     }
@@ -3016,7 +3004,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final name =
           'voice_${DateTime.now().millisecondsSinceEpoch}.${bytes.length > 4 && bytes[0] == 0x4F && bytes[1] == 0x67 ? 'ogg' : 'm4a'}';
       final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-      unawaited(_uploadAndSend(bytes, name, mime, 'audio'));
+      unawaited(_uploadAndSend(
+        bytes,
+        name,
+        mime,
+        'audio',
+        voiceDurationMs: recordedMs,
+      ));
       return;
     }
     if (voicePath == null || voicePath.isEmpty) {
@@ -3049,7 +3043,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
     final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-    unawaited(_uploadAndSendFromPath(mat, name, mime, 'audio'));
+    unawaited(_uploadAndSendFromPath(
+      mat,
+      name,
+      mime,
+      'audio',
+      voiceDurationMs: recordedMs,
+    ));
   }
 
   Future<void> _openAttachmentExternally(String rawUrl) async {
@@ -4147,80 +4147,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 children: [
                   _buildReplyDraftBar(),
                   if (_voiceRecording)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.error.withValues(alpha: 0.08),
-                        border: Border(
-                          bottom: BorderSide(
-                            color: ThemeCleanPremium.primary
-                                .withValues(alpha: 0.1),
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          TextButton(
-                            onPressed: () => _finishVoiceRecording(send: false),
-                            child: Text(
-                              'Cancelar',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: ThemeCleanPremium.error,
-                              ),
-                            ),
-                          ),
-                          FilledButton.icon(
-                            onPressed: () =>
-                                unawaited(_finishVoiceRecording(send: true)),
-                            icon: const Icon(Icons.send_rounded, size: 18),
-                            label: const Text('Enviar'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ChurchChatWhatsAppTheme.header,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.fiber_manual_record_rounded,
-                                    size: 14,
-                                    color: ThemeCleanPremium.error),
-                                const SizedBox(width: 8),
-                                Text(
-                                  _formatVoiceDuration(_voiceElapsed),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16,
-                                    color: ThemeCleanPremium.onSurface,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Flexible(
-                            child: Text(
-                              kIsWeb
-                                  ? 'Toque em parar para enviar'
-                                  : 'Solte para enviar · deslize para cancelar',
-                              maxLines: 2,
-                              textAlign: TextAlign.end,
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    ChurchChatVoiceRecordingBar(
+                      elapsedLabel: _formatVoiceDuration(_voiceElapsed),
+                      slideCancelArmed: _voiceSlideCancel,
+                      onCancel: () => unawaited(_finishVoiceRecording(send: false)),
+                      onSend: () =>
+                          unawaited(_finishVoiceRecording(send: true)),
                     ),
                   Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
@@ -4233,7 +4165,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       Icons.add_rounded,
                       color: Color(0xFF54656F),
                     ),
-                    tooltip: 'Foto, vídeo, documento…',
+                    tooltip: 'Foto, documento ou áudio…',
                   ),
                   if (widget.isDepartment &&
                       (widget.departmentId?.trim().isNotEmpty ?? false))
@@ -4247,17 +4179,34 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       ),
                       tooltip: 'Mencionar membro (@)',
                     ),
-                  GestureDetector(
+                  ChurchChatVoiceMicButton(
+                    recording: _voiceRecording,
+                    slideCancelArmed: _voiceSlideCancel,
+                    slideOffsetDx: _voiceSlideOffset,
+                    onWebTap: () => unawaited(_toggleVoiceRecordSend()),
                     onLongPressStart: kIsWeb
                         ? null
                         : (_) {
                             _micLongPressActive = true;
+                            _voiceSlideCancel = false;
+                            _voiceSlideOffset = 0;
                             unawaited(_startVoiceRecording());
+                          },
+                    onLongPressMoveUpdate: kIsWeb
+                        ? null
+                        : (details) {
+                            final dx = details.offsetFromOrigin.dx;
+                            setState(() {
+                              _voiceSlideOffset = dx;
+                              _voiceSlideCancel =
+                                  dx < -_voiceCancelSlideThreshold;
+                            });
                           },
                     onLongPressEnd: kIsWeb
                         ? null
                         : (_) {
-                            unawaited(_finishVoiceRecording(send: true));
+                            final send = !_voiceSlideCancel;
+                            unawaited(_finishVoiceRecording(send: send));
                             Future<void>.delayed(
                               const Duration(milliseconds: 250),
                               () {
@@ -4274,32 +4223,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         : () {
                             unawaited(_finishVoiceRecording(send: false));
                             _micLongPressActive = false;
+                            setState(() {
+                              _voiceSlideCancel = false;
+                              _voiceSlideOffset = 0;
+                            });
                           },
-                    child: IconButton(
-                      onPressed: () {
-                        if (_micLongPressActive) return;
-                        if (kIsWeb) {
-                          unawaited(_toggleVoiceRecordSend());
-                          return;
-                        }
-                        if (_voiceRecording) {
-                          unawaited(_finishVoiceRecording(send: true));
-                        }
-                      },
-                      icon: Icon(
-                        _voiceRecording
-                            ? Icons.stop_circle_rounded
-                            : Icons.mic_rounded,
-                        color: _voiceRecording
-                            ? ThemeCleanPremium.error
-                            : ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                      tooltip: _voiceRecording
-                          ? (kIsWeb ? 'Toque para enviar' : 'Soltar para enviar')
-                          : (kIsWeb
-                              ? 'Toque para gravar voz'
-                              : 'Segure para gravar · toque para modo alternativo'),
-                    ),
+                    onTapWhileRecording: () {
+                      if (_micLongPressActive) return;
+                      unawaited(_finishVoiceRecording(send: true));
+                    },
                   ),
                   Expanded(
                     child: TextField(
@@ -4725,18 +4657,14 @@ class _MessageBody extends StatelessWidget {
         final progress = (data['uploadProgress'] is num)
             ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
             : null;
-        final uploadIcon = type == 'video'
-            ? Icons.videocam_rounded
-            : type == 'audio'
-                ? Icons.mic_rounded
-                : type == 'image'
-                    ? Icons.image_rounded
-                    : Icons.cloud_upload_rounded;
-        final uploadLabel = type == 'video'
-            ? 'A enviar vídeo'
-            : type == 'audio'
-                ? 'A enviar áudio'
-                : 'A enviar ficheiro';
+        final uploadIcon = type == 'audio'
+            ? Icons.mic_rounded
+            : type == 'image'
+                ? Icons.image_rounded
+                : Icons.cloud_upload_rounded;
+        final uploadLabel = type == 'audio'
+            ? 'A enviar áudio'
+            : 'A enviar ficheiro';
         return Column(
           crossAxisAlignment:
               mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -4910,22 +4838,36 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'video') {
-      final thumbPath = ChurchChatMessageFields.thumbStoragePath(data);
-      final thumbData = thumbPath.isNotEmpty
-          ? <String, dynamic>{'storagePath': thumbPath}
-          : data;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          _ChatVideoFromStoragePath(
-            data: data,
-            thumbData: thumbData,
-            tenantId: tenantId,
-            messageId: messageId,
-            mine: mine,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.videocam_off_outlined,
+                  size: 20,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Vídeo não disponível no chat.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       );
@@ -4998,105 +4940,6 @@ class _MessageBody extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Vídeo do chat — resolve URL do [storagePath] só ao reproduzir.
-class _ChatVideoFromStoragePath extends StatelessWidget {
-  const _ChatVideoFromStoragePath({
-    required this.data,
-    required this.thumbData,
-    required this.tenantId,
-    required this.messageId,
-    required this.mine,
-  });
-
-  final Map<String, dynamic> data;
-  final Map<String, dynamic> thumbData;
-  final String tenantId;
-  final String messageId;
-  final bool mine;
-
-  Future<String?> _resolveVideoUrl() async {
-    final sp = ChurchChatMessageFields.storagePath(data);
-    if (sp.isNotEmpty) {
-      return ChurchChatMediaResolver.resolveDownloadUrl(
-        storagePath: sp,
-        tenantId: tenantId,
-        messageId: messageId,
-      );
-    }
-    final legacy = ChurchChatMessageFields.mediaUrl(data);
-    return legacy.isEmpty ? null : legacy;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: SizedBox(
-        width: 260,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Material(
-            color: Colors.black,
-            child: InkWell(
-              onTap: () async {
-                final videoUrl = await _resolveVideoUrl();
-                if (videoUrl == null || videoUrl.isEmpty || !context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Falha ao carregar vídeo. Tente novamente.'),
-                    ),
-                  );
-                  return;
-                }
-                try {
-                  await showChurchHostedVideoTheater(
-                    context,
-                    videoUrl: videoUrl,
-                    title: ChurchChatMessageFields.fileName(data).isEmpty
-                        ? 'Vídeo'
-                        : ChurchChatMessageFields.fileName(data),
-                    autoPlay: true,
-                  );
-                } catch (_) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Não foi possível abrir o vídeo.'),
-                      ),
-                    );
-                  }
-                }
-              },
-              child: AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ChurchChatStorageMediaImage(
-                      data: thumbData,
-                      tenantId: tenantId,
-                      messageId: messageId,
-                      fit: BoxFit.cover,
-                    ),
-                    const ColoredBox(color: Color(0x44000000)),
-                    const Center(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 48,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

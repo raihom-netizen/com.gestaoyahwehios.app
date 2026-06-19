@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -413,9 +414,11 @@ void main() async {
   // 1. Bindings Flutter antes de qualquer plugin nativo/async.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Firebase — único initializeApp (DefaultFirebaseOptions via FirebaseBootstrap).
-  //    Aguarda conclusão antes de Firestore, Auth, Storage ou runApp.
-  await FirebaseBootstrap.ensureInitialized();
+  // 2. Firebase — único initializeApp (FlutterFire / DefaultFirebaseOptions).
+  //    Obrigatório antes de Firestore, Auth, Storage ou runApp (evita core/no-app).
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();

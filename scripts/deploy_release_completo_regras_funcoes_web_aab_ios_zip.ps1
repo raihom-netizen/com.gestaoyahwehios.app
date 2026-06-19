@@ -83,7 +83,10 @@ Push-Location $FlutterApp
 try {
     if ($ForceClean) {
         Write-Host "ForceClean: rodando flutter clean..." -ForegroundColor DarkGray
-        flutter clean
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        flutter clean 2>&1 | Out-Host
+        $ErrorActionPreference = $prevEap
         if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
     }
     else {
@@ -98,7 +101,10 @@ try {
         }
     }
     Write-Host "Rodando flutter pub get..." -ForegroundColor DarkGray
-    flutter pub get
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    flutter pub get 2>&1 | Out-Host
+    $ErrorActionPreference = $prevEap
     if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 }
 finally { Pop-Location }

@@ -2,20 +2,18 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
+import 'package:gestao_yahweh/services/member_profile_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 /// Foto de perfil do membro — um único ficheiro em
 /// `igrejas/{tenant}/membros/{authUid|docId}/foto_perfil.jpg`.
 abstract final class MemberProfileVariantsService {
   MemberProfileVariantsService._();
 
-  /// Full 1024 @ 80% (quadrado) — usado como único upload.
+  /// Full 1024 @ 80% (quadrado) + thumb 200 webp — compressão obrigatória.
   static Future<({
     Uint8List thumb,
     Uint8List full,
@@ -36,30 +34,25 @@ abstract final class MemberProfileVariantsService {
     void Function(double progress)? onProgress,
     bool requireAuth = true,
   }) async {
+    final churchId = tenantId.trim();
+    final folderId = storageFolderId.trim();
     final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
-      tenantId,
-      storageFolderId,
+      churchId,
+      folderId,
     );
     final thumbPath = ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(
-      tenantId,
-      storageFolderId,
+      churchId,
+      folderId,
     );
-
-    if (requireAuth) {
-      await ensureFirebaseReadyForPublishUpload()
-          .timeout(const Duration(seconds: 25));
-    } else {
-      await FirebaseBootstrap.ensureInitialized();
-      FirebaseBootstrapService.refreshCachedApp();
-    }
 
     void report(double p) => onProgress?.call(p * 0.85);
 
-    final fullUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
-      storagePath: fullPath,
-      bytes: fullBytes,
-      onProgress: report,
+    final fullUrl = await MemberProfileMediaUpload.uploadProfileFull(
+      churchId: churchId,
+      storageFolderId: folderId,
+      fullBytes: fullBytes,
       requireAuth: requireAuth,
+      onProgress: report,
     );
     if (fullUrl.trim().isEmpty) {
       throw StateError('Upload da foto concluiu sem URL de download.');
@@ -70,11 +63,12 @@ abstract final class MemberProfileVariantsService {
     final tb = thumbBytes;
     if (tb != null && tb.isNotEmpty) {
       try {
-        thumbUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
-          storagePath: thumbPath,
-          bytes: tb,
-          onProgress: (p) => onProgress?.call(0.85 + p * 0.15),
+        thumbUrl = await MemberProfileMediaUpload.uploadProfileThumb(
+          churchId: churchId,
+          storageFolderId: folderId,
+          thumbBytes: tb,
           requireAuth: requireAuth,
+          onProgress: (p) => onProgress?.call(0.85 + p * 0.15),
         );
         thumbPathResolved = thumbPath;
       } catch (_) {

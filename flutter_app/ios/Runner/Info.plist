@@ -52,7 +52,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Usamos a câmera para você tirar e enviar fotos no perfil, no mural, em eventos e no cadastro de membros.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Permitimos gravação de áudio apenas quando você publicar um vídeo no mural com som.</string>
+	<string>Precisamos de acesso ao microfone para enviar mensagens de voz no chat da igreja e, quando você optar, gravar vídeos no mural.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Salvar a carteirinha digital na galeria de fotos quando você tocar em Salvar.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

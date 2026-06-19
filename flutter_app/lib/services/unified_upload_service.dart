@@ -34,8 +34,17 @@ abstract final class UnifiedUploadService {
 
   static Future<void> _ensureReady({String? module}) async {
     if (EcoFireFlow.directStorageUpload) {
-      await ensureFirebaseCore(requireAuth: true);
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+      );
       return;
+    }
+    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      try {
+        FirebaseBootstrapService.probeStorageLinked();
+      } catch (_) {
+        FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+      }
     }
     if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
       try {
@@ -236,6 +245,10 @@ abstract final class UnifiedUploadService {
     int maxAttempts = 3,
   }) async {
     await _ensureReady(module: module.name);
+    LegacyPathGuard.assertCanonicalStoragePath(
+      storagePath,
+      context: 'UnifiedUploadService.uploadFile',
+    );
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|$storagePath|file');
     try {
       if (kIsWeb) {
@@ -260,6 +273,49 @@ abstract final class UnifiedUploadService {
         stack: st,
       );
       unawaited(CrashlyticsService.record(e, st, reason: 'unified_upload_file'));
+      rethrow;
+    }
+  }
+
+  /// Áudio/documento/bytes do chat — após bootstrap e path canónico.
+  static Future<String> uploadChatMediaBytes({
+    required String storagePath,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(double progress)? onProgress,
+    int maxAttempts = 3,
+  }) async {
+    await _ensureReady(module: YahwehUploadModule.chat.name);
+    LegacyPathGuard.assertCanonicalStoragePath(
+      storagePath,
+      context: 'UnifiedUploadService.uploadChatMediaBytes',
+    );
+    logFirebasePublishPhase(
+      'UPLOAD_START',
+      '$platformLabel|$storagePath|chat_media',
+    );
+    try {
+      final url = await MediaUploadService.uploadBytesWithRetry(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        maxAttempts: maxAttempts,
+        useOfflineQueue: false,
+        skipClientPrepare: true,
+        onProgress: onProgress,
+      );
+      logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');
+      return url;
+    } catch (e, st) {
+      logFirebasePublishPhase(
+        'UPLOAD_ERROR',
+        '$platformLabel|$storagePath',
+        error: e,
+        stack: st,
+      );
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'unified_upload_chat_bytes'),
+      );
       rethrow;
     }
   }

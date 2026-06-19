@@ -1,0 +1,585 @@
+
+    // ── Performance (2026-06): custom claims (request.auth.token) primeiro; get()/exists() só fallback.
+    // Backend: gravar role + tenantId + cpf nos claims no login → zero leituras Firestore por request.
+
+    function isSignedIn() { return request.auth != null; }
+    function isMasterEmail() { return isSignedIn() && request.auth.token.email == 'raihom@gmail.com'; }
+
+    function authUserDocPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+    function tenantUserDocPath(tenantId) {
+      return /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+    }
+    function membroDocPath(tenantId, memberId) {
+      return /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(memberId);
+    }
+    function igrejaDocPath(tenantId) {
+      return /databases/$(database)/documents/igrejas/$(tenantId);
+    }
+
+    function tokenString(key) {
+      return isSignedIn() && (key in request.auth.token) && request.auth.token[key] is string
+        ? request.auth.token[key] : '';
+    }
+    function tokenTenantIdFast() {
+      let ig = tokenString('igrejaId');
+      return ig.size() > 0 ? ig
+        : (tokenString('tenantId').size() > 0 ? tokenString('tenantId') : tokenString('churchId'));
+    }
+    function tokenRoleFast() { return tokenString('role'); }
+    function tokenCpf11Fast() {
+      let c = tokenString('cpf');
+      return c.matches('^[0-9]{11}$') ? c
+        : (tokenString('cpfDigits').matches('^[0-9]{11}$') ? tokenString('cpfDigits') : '');
+    }
+    function tokenMemberDocIdFast() {
+      let m = tokenString('memberDocId');
+      return m.size() > 0 ? m : tokenString('member_doc_id');
+    }
+    function tokenTenantMatches(tenantId) {
+      return isSignedIn() && (
+        tokenString('igrejaId') == tenantId
+        || tokenString('tenantId') == tenantId
+        || tokenString('churchId') == tenantId
+        || tokenString('churchCanonicalId') == tenantId
+        || tokenString('canonicalTenantId') == tenantId
+      );
+    }
+    function tokenHasModulePermission(moduleKey) {
+      return isSignedIn()
+        && (request.auth.token.permissions is list)
+        && request.auth.token.permissions.hasAny([moduleKey]);
+    }
+
+    function masterCpfDigits() { return '94536368191'; }
+    function cpf11FromUserData(d) {
+      let c1 = d.get('cpf', '');
+      let c2 = d.get('CPF', '');
+      let c3 = d.get('linkedCpf', '');
+      let c4 = d.get('cpfDigits', '');
+      let c5 = d.get('CPF_DIGITS', '');
+      return c1.matches('^[0-9]{11}$') ? c1
+        : (c2.matches('^[0-9]{11}$') ? c2
+        : (c3.matches('^[0-9]{11}$') ? c3
+        : (c4.matches('^[0-9]{11}$') ? c4
+        : (c5.matches('^[0-9]{11}$') ? c5 : ''))));
+    }
+    function cpf11ForAuth(userData) {
+      let tc = tokenCpf11Fast();
+      return tc.size() == 11 ? tc : cpf11FromUserData(userData);
+    }
+
+    /// Reforço ao e-mail: mesmo CPF que [AppConstants.productMasterCpfDigits] no doc users (formatos comuns).
+    function userIsProductMasterByCpf() {
+      let p = authUserDocPath();
+      return tokenCpf11Fast() == masterCpfDigits()
+        || (exists(p) && (
+          cpf11FromUserData(get(p).data) == masterCpfDigits()
+          || get(p).data.get('linkedCpf', '') == masterCpfDigits()
+          || get(p).data.get('cpf', '') == '945.363.681-91'
+        ));
+    }
+    function isPlatformOperator() {
+      return isSignedIn() && (
+        isMasterEmail()
+        || userIsProductMasterByCpf()
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function roleFromUsersRolesList(roles) {
+      return roles is list && roles.hasAny(['MASTER', 'master']) ? 'MASTER'
+        : (roles is list && roles.hasAny(['ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin']) ? 'ADM'
+        : (roles is list && roles.hasAny(['GESTOR', 'gestor', 'Gestor']) ? 'GESTOR' : ''));
+    }
+    function roleFromUserData(d) {
+      let singular = d.get('role', '');
+      return singular.size() > 0 ? singular : roleFromUsersRolesList(d.get('roles', []));
+    }
+    function role() {
+      let tr = tokenRoleFast();
+      return tr.size() > 0 ? tr
+        : (isSignedIn() && exists(authUserDocPath()) ? roleFromUserData(get(authUserDocPath()).data) : '');
+    }
+    /// Legado: nome conservado; significado = operador global (e-mail/CPF/admins), **sem** role MASTER/ADM no cadastro users.
+    function isMaster() { return isPlatformOperator(); }
+    function adminRoleVariants() {
+      return ['ADM', 'ADMIN', 'adm', 'admin', 'Adm', 'Admin', 'administrador', 'administradora', 'Administrador', 'Administradora'];
+    }
+    function isAdm() {
+      let r = role();
+      return isSignedIn() && r.size() > 0 && adminRoleVariants().hasAny([r]);
+    }
+    // Painel master YAHWEH (vendas, licenças, analytics global): só operador de plataforma — não ADM local da igreja.
+    function isAdminPanel() { return isSignedIn() && isMaster(); }
+
+    function userTenantFromData(d) {
+      let ig = d.get('igrejaId', '');
+      return ig.size() > 0 ? ig : d.get('tenantId', '');
+    }
+    function userBoundTenantId() {
+      let tt = tokenTenantIdFast();
+      return tt.size() > 0 ? tt
+        : (isSignedIn() && exists(authUserDocPath()) ? userTenantFromData(get(authUserDocPath()).data) : '');
+    }
+    function userDocMatchesTenant(tenantId) {
+      return tokenTenantMatches(tenantId)
+        || (isSignedIn() && exists(authUserDocPath()) && tenantIdMatchesUserData(tenantId, get(authUserDocPath()).data));
+    }
+    function tenantIdMatchesUserData(tenantId, d) {
+      return d.get('igrejaId', '') == tenantId
+        || d.get('tenantId', '') == tenantId
+        || d.get('churchId', '') == tenantId
+        || d.get('churchCanonicalId', '') == tenantId
+        || d.get('canonicalTenantId', '') == tenantId;
+    }
+
+    function bpcCanonicalId() { return 'igreja_o_brasil_para_cristo_jardim_goiano'; }
+    function isBpcLegacyTenantId(id) {
+      return id == 'brasilparacristo' || id == 'brasilparacristo_sistema'
+        || id == 'iobpc-jardim-goiano' || id == 'o-brasil-cristo-jardim-goiano';
+    }
+    function bpcClusterMatches(tenantId) {
+      let bound = userBoundTenantId();
+      return isSignedIn() && (
+        (tenantId == bpcCanonicalId() && (isBpcLegacyTenantId(bound) || tokenTenantMatches(bpcCanonicalId()) || isBpcLegacyTenantId(tokenTenantIdFast())))
+        || (isBpcLegacyTenantId(tenantId) && (bound == bpcCanonicalId() || tokenString('igrejaId') == bpcCanonicalId() || tokenString('tenantId') == bpcCanonicalId()))
+      );
+    }
+    function sameChurch(tenantId) {
+      let bound = userBoundTenantId();
+      return isSignedIn() && (
+        bound == tenantId
+        || tokenTenantMatches(tenantId)
+        || userDocMatchesTenant(tenantId)
+        || bpcClusterMatches(tenantId)
+      );
+    }
+
+    function manageChurchRoleVariants() {
+      return ['ADMIN', 'ADM', 'GESTOR', 'MASTER', 'admin', 'adm', 'gestor', 'master',
+        'Gestor', 'Master', 'Admin', 'Adm', 'administrador', 'administradora', 'Administrador', 'Administradora'];
+    }
+    function canManageChurch() {
+      let r = role();
+      return isSignedIn() && r.size() > 0 && manageChurchRoleVariants().hasAny([r]);
+    }
+    function treasurerRoleVariants() {
+      return ['TESOUREIRO', 'tesoureiro', 'Tesoureiro', 'TESOURARIA', 'tesouraria', 'Tesouraria'];
+    }
+    function isTreasurer() {
+      let r = role();
+      return isSignedIn() && r.size() > 0 && treasurerRoleVariants().hasAny([r]);
+    }
+    function pastorOnlyRoleVariants() {
+      return ['PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar',
+        'ministerial', 'pastor_auxiliar_ministerial'];
+    }
+    function isPastorOnlyRole() {
+      let r = role();
+      return isSignedIn() && r.size() > 0 && pastorOnlyRoleVariants().hasAny([r]);
+    }
+    function isFinanceExclusiveReader(tenantId) {
+      return isMaster() || (canAccessTenant(tenantId) && (isPastorOnlyRole() || isTreasurer()));
+    }
+    function isCorporateModuleReader(tenantId) {
+      return isMaster() || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatMuralRole() || isTreasurer()));
+    }
+    function deptLeaderRoleVariants() {
+      return ['lider', 'LIDER', 'Lider', 'lÃ­der', 'LÃ­der', 'LÃDER',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'LÃ­der de Departamento', 'lÃ­der de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'LÃ­der de grupo', 'lÃ­der de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO'];
+    }
+    function isDepartmentLeaderRole() {
+      let r = role();
+      return r.size() > 0 && deptLeaderRoleVariants().hasAny([r]);
+    }
+    function pastorAuxiliarRoleVariants() {
+      return ['pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar', 'ministerial', 'pastor_auxiliar_ministerial'];
+    }
+    function isPastorAuxiliarRole() {
+      let r = role();
+      return r.size() > 0 && pastorAuxiliarRoleVariants().hasAny([r]);
+    }
+    function canWriteIgrejaDepartamentos(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole())
+        || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'departamentos'));
+    }
+    function canPost() { return canManageChurch(); }
+
+    function emailMatchesTenant(tenantId) {
+      return isSignedIn() && request.auth.token.email != null && exists(igrejaDocPath(tenantId))
+        && (get(igrejaDocPath(tenantId)).data.get('email', '') == request.auth.token.email
+            || get(igrejaDocPath(tenantId)).data.get('gestorEmail', '') == request.auth.token.email);
+    }
+
+    function membroDocAuthMatches(d) {
+      return d.get('authUid', '') == request.auth.uid || d.get('firebaseUid', '') == request.auth.uid;
+    }
+    function memberDocIdFromUserData(d) {
+      let m = d.get('memberDocId', '');
+      return m.size() > 0 ? m : d.get('member_doc_id', '');
+    }
+    function memberDocIdLinksAuthToMembroFiltered(tenantId, d, requireMural, requireStaff) {
+      let fromDoc = memberDocIdFromUserData(d);
+      let chosen = fromDoc.size() > 0 ? fromDoc : tokenMemberDocIdFast();
+      let p = membroDocPath(tenantId, chosen);
+      return chosen.size() > 0 && exists(p)
+        && membroDocAuthMatches(get(p).data)
+        && (!requireMural || memberMembroDataAllowsMural(get(p).data))
+        && (!requireStaff || staffMembroDataAllows(get(p).data));
+    }
+    function memberDocIdLinksAuthToMembro(tenantId, d) {
+      return memberDocIdLinksAuthToMembroFiltered(tenantId, d, false, false);
+    }
+    function memberDocIdLinksAuthToMembroMural(tenantId, d) {
+      return memberDocIdLinksAuthToMembroFiltered(tenantId, d, true, false);
+    }
+    function memberDocIdLinksAuthToMembroStaff(tenantId, d) {
+      return memberDocIdLinksAuthToMembroFiltered(tenantId, d, false, true);
+    }
+    function cpf11MembroDocLinksAuthFiltered(tenantId, d, requireMural, requireStaff) {
+      let cpf = cpf11ForAuth(d);
+      let p = membroDocPath(tenantId, cpf);
+      return cpf.size() == 11 && exists(p)
+        && membroDocAuthMatches(get(p).data)
+        && (!requireMural || memberMembroDataAllowsMural(get(p).data))
+        && (!requireStaff || staffMembroDataAllows(get(p).data));
+    }
+    function cpf11MembroDocLinksAuth(tenantId, d) {
+      return cpf11MembroDocLinksAuthFiltered(tenantId, d, false, false);
+    }
+    function cpf11MembroDocLinksAuthMural(tenantId, d) {
+      return cpf11MembroDocLinksAuthFiltered(tenantId, d, true, false);
+    }
+    function cpf11MembroDocLinksAuthStaff(tenantId, d) {
+      return cpf11MembroDocLinksAuthFiltered(tenantId, d, false, true);
+    }
+
+    function memberLinkedFromUserDoc(tenantId, d) {
+      return memberDocIdLinksAuthToMembro(tenantId, d) || cpf11MembroDocLinksAuth(tenantId, d);
+    }
+    /// Membro cadastrado na igreja (doc por UID ou por CPF 11 dígitos vinculado ao authUid).
+    /// Evita bloqueio de gravação para quem está ativo em `membros`, mas sem espelho completo em `users`.
+    /// Inclui `memberDocId` / `linkedCpf` / `cpfDigits` no `users` (doc `membros` muitas vezes com id = CPF).
+    function memberLinkedToTenant(tenantId) {
+      return isSignedIn() && (
+        exists(membroDocPath(tenantId, request.auth.uid))
+        || (exists(authUserDocPath()) && memberLinkedFromUserDoc(tenantId, get(authUserDocPath()).data))
+      );
+    }
+
+    function canAccessTenant(tenantId) {
+      return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId)
+        || exists(tenantUserDocPath(tenantId))
+        || memberLinkedToTenant(tenantId);
+    }
+
+    function requesterOwnsMemberDoc(tenantId, memberId) {
+      let p = membroDocPath(tenantId, memberId);
+      return isSignedIn() && exists(p) && (
+        memberId == request.auth.uid
+        || membroDocAuthMatches(get(p).data)
+        || (exists(authUserDocPath()) && memberDocIdFromUserData(get(authUserDocPath()).data) == memberId
+          && membroDocAuthMatches(get(p).data))
+        || (exists(authUserDocPath()) && cpf11MembroDocLinksAuth(tenantId, get(authUserDocPath()).data)
+          && memberId.matches('^[0-9]{11}$'))
+      );
+    }
+    function canApprovePendingMemberRecord(tenantId) {
+      return isMaster() || canAccessAprovacoesTenant(tenantId) || canStaffEditAnyMemberRecord(tenantId)
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole());
+    }
+    function canStaffEditAnyMemberRecord(tenantId) {
+      return isMaster() || isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatRole() || isPastorAuxiliarRole() || isTreasurer()))
+        || (emailMatchesTenant(tenantId) && (isPastoralOrSecretariatRole() || isPastorAuxiliarRole() || isTreasurer()));
+    }
+
+    function muralRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'GESTOR', 'gestor', 'Gestor', 'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar', 'ministerial', 'pastor_auxiliar_ministerial',
+        'SECRETARIO', 'secretario', 'SecretÃ¡rio', 'SECRETÃRIO', 'Secretario', 'secretÃ¡ria', 'Secretaria',
+        'lider', 'LIDER', 'Lider', 'lÃ­der', 'LÃDER', 'LÃ­der',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento', 'lider_depto', 'LIDER_DEPTO',
+        'lider_de_departamento', 'lider_ministerio', 'LÃ­der de Departamento', 'lÃ­der de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'LÃ­der de grupo', 'lÃ­der de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro', 'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ]);
+    }
+    function muralRoleFromRolesArrays(tenantId) {
+      let rootRoles = exists(authUserDocPath()) && get(authUserDocPath()).data.roles is list
+        ? get(authUserDocPath()).data.roles : [];
+      let tenantRoles = exists(tenantUserDocPath(tenantId)) && get(tenantUserDocPath(tenantId)).data.roles is list
+        ? get(tenantUserDocPath(tenantId)).data.roles : [];
+      return muralRolesArrayMatches(rootRoles) || muralRolesArrayMatches(tenantRoles);
+    }
+    function muralSingleRoleAllowsMural(r) {
+      return r.size() > 0 && muralRolesArrayMatches([r]);
+    }
+    function muralRoleFromMemberDoc(tenantId) {
+      let byUid = membroDocPath(tenantId, request.auth.uid);
+      return (exists(byUid) && memberMembroDataAllowsMural(get(byUid).data))
+        || (exists(authUserDocPath()) && cpf11MembroDocLinksAuthMural(tenantId, get(authUserDocPath()).data));
+    }
+    function muralRoleFromTenantUserDoc(tenantId) {
+      let p = tenantUserDocPath(tenantId);
+      return exists(p) && memberMembroDataAllowsMural(get(p).data);
+    }
+    function muralRoleFromLinkedMemberDoc(tenantId) {
+      return exists(authUserDocPath()) && (
+        memberDocIdLinksAuthToMembroMural(tenantId, get(authUserDocPath()).data)
+        || cpf11MembroDocLinksAuthMural(tenantId, get(authUserDocPath()).data)
+      );
+    }
+    function deptLeaderRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny(deptLeaderRoleVariants());
+    }
+    function deptLeaderFromRolesArrays(tenantId) {
+      let rootRoles = exists(authUserDocPath()) && get(authUserDocPath()).data.roles is list
+        ? get(authUserDocPath()).data.roles : [];
+      let tenantRoles = exists(tenantUserDocPath(tenantId)) && get(tenantUserDocPath(tenantId)).data.roles is list
+        ? get(tenantUserDocPath(tenantId)).data.roles : [];
+      return deptLeaderRolesArrayMatches(rootRoles) || deptLeaderRolesArrayMatches(tenantRoles);
+    }
+    function financeDocReadBySubjectMember(tenantId) {
+      return isSignedIn()
+        && resource.data.get('memberDocId', '').size() > 0
+        && exists(membroDocPath(tenantId, resource.data.memberDocId))
+        && get(membroDocPath(tenantId, resource.data.memberDocId)).data.get('authUid', '') == request.auth.uid;
+    }
+    function permissionsListHas(d, moduleKey) {
+      let perms = d.get('permissions', null);
+      return perms is list && perms.hasAny([moduleKey]);
+    }
+    function hasTenantModulePermission(tenantId, moduleKey) {
+      return tokenHasModulePermission(moduleKey)
+        || (exists(tenantUserDocPath(tenantId)) && permissionsListHas(get(tenantUserDocPath(tenantId)).data, moduleKey))
+        || (exists(authUserDocPath()) && permissionsListHas(get(authUserDocPath()).data, moduleKey));
+    }
+    function hasTenantMuralEventosPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'eventos')
+        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao')
+        || hasTenantModulePermission(tenantId, 'mural_avisos_edicao');
+    }
+    function muralPermissionKeysMatch(perms) {
+      return perms is list && perms.hasAny(['eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao']);
+    }
+    function memberMembroRoleString(d) {
+      let r = d.get('role', '');
+      return r.size() > 0 ? r : (d.get('FUNCAO', '').size() > 0 ? d.get('FUNCAO', '') : d.get('funcao', ''));
+    }
+    function memberMembroDataAllowsMural(d) {
+      return muralSingleRoleAllowsMural(memberMembroRoleString(d))
+        || (d.get('roles', null) is list && muralRolesArrayMatches(d.get('roles', [])));
+    }
+    function hasTenantMembrosDirectoryEditPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'membros') || hasTenantModulePermission(tenantId, 'membros_edicao');
+    }
+    function canWriteTenant(tenantId) {
+      return canAccessTenant(tenantId) && (canManageChurch() || emailMatchesTenant(tenantId));
+    }
+    function membroPortariaRoleVariants() {
+      return ['membro', 'MEMBRO', 'Membro', 'visitante', 'VISITANTE', 'Visitante'];
+    }
+    function isMembroPortariaRole() {
+      let r = role();
+      return r.size() > 0 && membroPortariaRoleVariants().hasAny([r]);
+    }
+    function pastoralSecretariatRoleVariants() {
+      return ['PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
+        'SECRETARIO', 'secretario', 'SecretÃ¡rio', 'SECRETÃRIO', 'Secretario',
+        'PRESBITERO', 'presbitero', 'PRESBITERA', 'presbitera', 'Presbitero', 'Presbitera'];
+    }
+    function isPastoralOrSecretariatRole() {
+      let r = role();
+      return r.size() > 0 && pastoralSecretariatRoleVariants().hasAny([r]);
+    }
+    function canWriteCertificadosPainel(tenantId) {
+      return canAccessTenant(tenantId) && (
+        canWriteTenant(tenantId) || isPastoralOrSecretariatRole() || isTreasurer()
+        || hasTenantModulePermission(tenantId, 'certificados'));
+    }
+    function isEventosMuralEditorRole() {
+      let r = role();
+      return r.size() > 0 && (deptLeaderRoleVariants().hasAny([r]) || treasurerRoleVariants().hasAny([r]));
+    }
+    function isPastoralOrSecretariatMuralRole() {
+      let r = role();
+      return r.size() > 0 && (
+        pastorOnlyRoleVariants().hasAny([r])
+        || ['SECRETARIO', 'secretario', 'SecretÃ¡rio', 'SECRETÃRIO', 'Secretario', 'secretÃ¡ria', 'Secretaria'].hasAny([r])
+      );
+    }
+    function staffRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'GESTOR', 'gestor', 'Gestor', 'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar', 'ministerial', 'pastor_auxiliar_ministerial',
+        'SECRETARIO', 'secretario', 'SecretÃ¡rio', 'SECRETÃRIO', 'Secretario', 'secretÃ¡ria', 'Secretaria',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro', 'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ]);
+    }
+    function staffSingleRoleMatches(r) {
+      return r.size() > 0 && staffRolesArrayMatches([r]);
+    }
+    function staffRoleFromRolesArrays(tenantId) {
+      let rootRoles = exists(authUserDocPath()) && get(authUserDocPath()).data.roles is list
+        ? get(authUserDocPath()).data.roles : [];
+      let tenantRoles = exists(tenantUserDocPath(tenantId)) && get(tenantUserDocPath(tenantId)).data.roles is list
+        ? get(tenantUserDocPath(tenantId)).data.roles : [];
+      return staffRolesArrayMatches(rootRoles) || staffRolesArrayMatches(tenantRoles);
+    }
+    function staffMembroDataAllows(d) {
+      return staffSingleRoleMatches(memberMembroRoleString(d))
+        || (d.get('roles', null) is list && staffRolesArrayMatches(d.get('roles', [])));
+    }
+    function staffRoleFromMemberDoc(tenantId) {
+      let byUid = membroDocPath(tenantId, request.auth.uid);
+      return exists(byUid) && staffMembroDataAllows(get(byUid).data);
+    }
+    function staffRoleFromTenantUserDoc(tenantId) {
+      let p = tenantUserDocPath(tenantId);
+      return exists(p) && staffMembroDataAllows(get(p).data);
+    }
+    function staffRoleFromLinkedMemberDoc(tenantId) {
+      return exists(authUserDocPath()) && (
+        memberDocIdLinksAuthToMembroStaff(tenantId, get(authUserDocPath()).data)
+        || cpf11MembroDocLinksAuthStaff(tenantId, get(authUserDocPath()).data)
+      );
+    }
+    function isPlainMembroRole() {
+      let r = role();
+      return r.size() > 0 && membroPortariaRoleVariants().hasAny([r]);
+    }
+    function hasStaffDelegatedModuleWrite(tenantId) {
+      return canAccessTenant(tenantId) && !isPlainMembroRole() && (
+        hasTenantModulePermission(tenantId, 'eventos')
+        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao')
+        || hasTenantModulePermission(tenantId, 'mural_avisos_edicao')
+        || hasTenantModulePermission(tenantId, 'patrimonio')
+        || hasTenantModulePermission(tenantId, 'financeiro')
+        || hasTenantModulePermission(tenantId, 'fornecedores'));
+    }
+    function isChurchStaffWriter(tenantId) {
+      return isAdminPanel()
+        || canWriteTenant(tenantId)
+        || emailMatchesTenant(tenantId)
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatMuralRole())
+        || (canAccessTenant(tenantId) && isEventosMuralEditorRole())
+        || (emailMatchesTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatMuralRole() || isTreasurer() || isEventosMuralEditorRole()))
+        || staffRoleFromMemberDoc(tenantId)
+        || staffRoleFromLinkedMemberDoc(tenantId)
+        || staffRoleFromTenantUserDoc(tenantId)
+        || (canAccessTenant(tenantId) && staffRoleFromRolesArrays(tenantId))
+        || hasStaffDelegatedModuleWrite(tenantId);
+    }
+    function tenantUserRoleAllowsMural(tenantId) {
+      let p = tenantUserDocPath(tenantId);
+      let r = exists(p) ? get(p).data.get('role', '') : '';
+      return staffSingleRoleMatches(r);
+    }
+    function canWriteMuralFeed(tenantId) { return isChurchStaffWriter(tenantId); }
+    function canWriteMuralFeedAllMembers(tenantId) {
+      return isMaster() || canAccessTenant(tenantId) || memberLinkedToTenant(tenantId);
+    }
+    function canAccessCartasTenant(tenantId) {
+      return isMaster() || canAccessTenant(tenantId) || memberLinkedToTenant(tenantId) || emailMatchesTenant(tenantId);
+    }
+    function canReadFinanceTenant(tenantId) {
+      return isMaster() || canAccessTenant(tenantId) || memberLinkedToTenant(tenantId) || emailMatchesTenant(tenantId);
+    }
+    function staffTenantBindingFast(tenantId) {
+      return tokenTenantMatches(tenantId) || userDocMatchesTenant(tenantId) || bpcClusterMatches(tenantId)
+        || emailMatchesTenant(tenantId) || exists(tenantUserDocPath(tenantId));
+    }
+    function canReadMembrosDirectoryTenant(tenantId) {
+      return isMaster() || isChurchStaffWriter(tenantId) || canAccessTenant(tenantId)
+        || memberLinkedToTenant(tenantId) || emailMatchesTenant(tenantId)
+        || (isSignedIn() && staffSingleRoleMatches(role()) && staffTenantBindingFast(tenantId))
+        || staffRoleFromRolesArrays(tenantId) || staffRoleFromTenantUserDoc(tenantId)
+        || staffRoleFromMemberDoc(tenantId) || staffRoleFromLinkedMemberDoc(tenantId);
+    }
+    function canAccessPatrimonioTenant(tenantId) {
+      return isMaster() || isChurchStaffWriter(tenantId) || emailMatchesTenant(tenantId)
+        || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatRole() || isPastoralOrSecretariatMuralRole() || isTreasurer() || hasTenantModulePermission(tenantId, 'patrimonio')))
+        || (isSignedIn() && staffSingleRoleMatches(role()) && staffTenantBindingFast(tenantId))
+        || staffRoleFromRolesArrays(tenantId) || staffRoleFromTenantUserDoc(tenantId)
+        || staffRoleFromMemberDoc(tenantId) || staffRoleFromLinkedMemberDoc(tenantId);
+    }
+    function canAccessFornecedoresTenant(tenantId) {
+      return isMaster() || isChurchStaffWriter(tenantId) || emailMatchesTenant(tenantId)
+        || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatRole() || isPastoralOrSecretariatMuralRole() || isTreasurer() || hasTenantModulePermission(tenantId, 'fornecedores')))
+        || (isSignedIn() && staffSingleRoleMatches(role()) && staffTenantBindingFast(tenantId))
+        || staffRoleFromRolesArrays(tenantId) || staffRoleFromTenantUserDoc(tenantId)
+        || staffRoleFromMemberDoc(tenantId) || staffRoleFromLinkedMemberDoc(tenantId);
+    }
+    function canAccessAprovacoesTenant(tenantId) {
+      return isMaster() || isChurchStaffWriter(tenantId) || emailMatchesTenant(tenantId)
+        || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatRole() || isPastoralOrSecretariatMuralRole() || isTreasurer() || hasTenantModulePermission(tenantId, 'membros') || hasTenantModulePermission(tenantId, 'membros_edicao')))
+        || (isSignedIn() && staffSingleRoleMatches(role()) && staffTenantBindingFast(tenantId))
+        || staffRoleFromRolesArrays(tenantId) || staffRoleFromTenantUserDoc(tenantId)
+        || staffRoleFromMemberDoc(tenantId) || staffRoleFromLinkedMemberDoc(tenantId);
+    }
+    function deptLeaderFromMembroData(d) {
+      return (d.get('FUNCOES', null) is list && deptLeaderRolesArrayMatches(d.get('FUNCOES', [])))
+        || (d.get('roles', null) is list && deptLeaderRolesArrayMatches(d.get('roles', [])))
+        || (memberMembroRoleString(d).size() > 0 && deptLeaderRolesArrayMatches([memberMembroRoleString(d)]));
+    }
+    function deptLeaderFromMemberDoc(tenantId) {
+      let byUid = membroDocPath(tenantId, request.auth.uid);
+      return exists(byUid) && deptLeaderFromMembroData(get(byUid).data);
+    }
+    function canAccessPedidosOracaoTenant(tenantId) {
+      return isMaster() || isChurchStaffWriter(tenantId) || emailMatchesTenant(tenantId)
+        || deptLeaderFromRolesArrays(tenantId) || deptLeaderFromMemberDoc(tenantId)
+        || (isSignedIn() && isDepartmentLeaderRole() && (staffTenantBindingFast(tenantId) || canAccessTenant(tenantId)))
+        || (canAccessTenant(tenantId) && (canManageChurch() || isPastoralOrSecretariatRole() || isPastoralOrSecretariatMuralRole() || isTreasurer()))
+        || (isSignedIn() && staffSingleRoleMatches(role()) && staffTenantBindingFast(tenantId))
+        || staffRoleFromRolesArrays(tenantId) || staffRoleFromTenantUserDoc(tenantId)
+        || staffRoleFromMemberDoc(tenantId) || staffRoleFromLinkedMemberDoc(tenantId);
+    }
+    function pedidoOracaoCreatingAsAuthor() {
+      return isSignedIn() && request.resource.data.get('autorUid', '') == request.auth.uid;
+    }
+    function pedidoOracaoAuthorOwnsResource() {
+      return isSignedIn() && resource.data.get('autorUid', '') == request.auth.uid;
+    }
+    function chatTenantMemberFast(tenantId) {
+      return isSignedIn() && (
+        isMaster() || sameChurch(tenantId) || tokenTenantMatches(tenantId)
+        || emailMatchesTenant(tenantId)
+        || exists(tenantUserDocPath(tenantId))
+        || exists(membroDocPath(tenantId, request.auth.uid))
+        || memberLinkedToTenant(tenantId)
+      );
+    }
+    function muralPostPublishFinalizeAllowed(tenantId) {
+      return canWriteMuralFeedAllMembers(tenantId)
+        && resource.data.get('publishState', '') == 'uploading'
+        && request.resource.data.get('publishState', '') in ['published', 'failed']
+        && resource.data.get('createdByUid', request.auth.uid) == request.auth.uid;
+    }
+    function canWriteTenantIfSignedIn(tenantId) { return isSignedIn(); }
+    function canReadTenantIfSignedIn(tenantId) { return isSignedIn(); }

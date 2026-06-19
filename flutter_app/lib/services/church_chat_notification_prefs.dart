@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'church_chat_member_prefs.dart';
 import 'fcm_service.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Preferências de push do chat da igreja — alinhado a [users/{uid}.pushChat] e FCM `gypush_*_chat`.
@@ -49,7 +50,7 @@ class ChurchChatNotificationPrefs {
     if (u != null) {
       try {
         final doc =
-            await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
+            await firebaseDefaultFirestore.collection('users').doc(u.uid).get();
         final d = doc.data();
         if (d != null && d['pushChat'] is bool) {
           pushChat = d['pushChat'] as bool;
@@ -84,7 +85,7 @@ class ChurchChatNotificationPrefs {
     final u = FirebaseAuth.instance.currentUser;
     if (u != null) {
       try {
-        await FirebaseFirestore.instance.collection('users').doc(u.uid).set(
+        await firebaseDefaultFirestore.collection('users').doc(u.uid).set(
           {'pushChat': enabled},
           SetOptions(merge: true),
         );
@@ -213,7 +214,7 @@ class ChurchChatNotificationPrefs {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        final doc = await FirebaseFirestore.instance
+        final doc = await firebaseDefaultFirestore
             .collection('users')
             .doc(user.uid)
             .get();
@@ -248,7 +249,7 @@ class ChurchChatNotificationPrefs {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
+        await firebaseDefaultFirestore.collection('users').doc(user.uid).set(
           {_firestoreAlertModeField: norm},
           SetOptions(merge: true),
         );

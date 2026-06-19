@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -205,18 +206,37 @@ abstract final class EcoFireResilientPublish {
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> corePayload,
     required bool isNewDoc,
-    required List<Uint8List> newImages,
-    required int startSlot,
+    Map<int, Uint8List> uploadsBySlot = const {},
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+    List<Uint8List> newImages = const [],
+    int startSlot = 0,
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
   }) async {
     final tid = churchId.trim();
     final iid = itemId.trim();
-    if (newImages.isNotEmpty) {
+    final queuedImages = uploadsBySlot.isNotEmpty
+        ? (uploadsBySlot.keys.toList()..sort())
+            .map((s) => uploadsBySlot[s]!)
+            .toList(growable: false)
+        : newImages;
+    final queuedStartSlot = uploadsBySlot.isNotEmpty
+        ? uploadsBySlot.keys.reduce((a, b) => a < b ? a : b)
+        : startSlot;
+    final queuedExistingUrls = indexedSlotUrls.length >=
+            PatrimonioPhotoFields.maxPhotos
+        ? indexedSlotUrls
+        : existingUrls;
+    final queuedExistingPaths = indexedSlotPaths.length >=
+            PatrimonioPhotoFields.maxPhotos
+        ? indexedSlotPaths
+        : existingPaths;
+    if (queuedImages.isNotEmpty) {
       await MuralPostPendingMediaCache.put(
         tenantId: tid,
         postId: 'patrimonio_$iid',
-        images: newImages,
+        images: queuedImages,
       );
     }
     await ModuleMediaOutboxService.registerPatrimonio(
@@ -224,9 +244,9 @@ abstract final class EcoFireResilientPublish {
       itemId: iid,
       corePayload: corePayload,
       isNewDoc: isNewDoc,
-      startSlot: startSlot,
-      existingPaths: existingPaths,
-      existingUrls: existingUrls,
+      startSlot: queuedStartSlot,
+      existingPaths: queuedExistingPaths,
+      existingUrls: queuedExistingUrls,
     );
     final localPayload = Map<String, dynamic>.from(corePayload);
     localPayload['ativo'] = true;

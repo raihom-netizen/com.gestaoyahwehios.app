@@ -41,39 +41,22 @@ abstract final class ChurchOperationalPaths {
     final s = seed.trim();
     if (s.isEmpty) return s;
 
-    if (!forceRefresh) {
-      final ctx = ChurchContextService.currentChurchId;
-      if (ctx != null && ctx.isNotEmpty) {
-        final canon = ChurchPanelTenant.resolve(ctx);
-        if (s == canon ||
-            s == ctx ||
-            s == ChurchContextService.seedId ||
-            _resolvedMemory[_cacheKey(s, userUid)] == canon) {
-          return canon;
-        }
-      }
+    if (forceRefresh) {
+      invalidateResolved(s, userUid: userUid);
+    }
+
+    // Resolução síncrona — sessão bound + mapa BPC/slug (Web = Android = iOS).
+    final op = ChurchRepository.churchId(s);
+    if (op.isNotEmpty) {
+      rememberResolved(s, op, userUid: userUid);
+      return op;
     }
 
     final key = _cacheKey(s, userUid);
-    if (forceRefresh) {
-      _resolveInflight.remove(key);
-      _resolvedMemory.remove(key);
-    }
     final mem = _resolvedMemory[key];
     if (mem != null && mem.isNotEmpty) return mem;
 
-    final inflight = _resolveInflight[key];
-    if (inflight != null) return inflight;
-
-    final future = _resolveOperational(s, userUid: userUid);
-    _resolveInflight[key] = future;
-    try {
-      final op = await future;
-      if (op.isNotEmpty) _resolvedMemory[key] = op;
-      return op;
-    } finally {
-      _resolveInflight.remove(key);
-    }
+    return s;
   }
 
   static Future<String> _resolveOperational(
@@ -111,14 +94,13 @@ abstract final class ChurchOperationalPaths {
   }
 
   static String syncEffectiveChurchId(String seedOrOperational) {
-    final mapped = ChurchPanelTenant.resolve(seedOrOperational);
+    final mapped = ChurchRepository.churchId(seedOrOperational);
     if (mapped.isNotEmpty) return mapped;
-    final mem = _resolvedMemory[_cacheKey(seedOrOperational.trim(), _currentUid)];
-    if (mem != null && mem.isNotEmpty) {
-      return ChurchPanelTenant.resolve(mem);
-    }
-    return mapped;
+    return ChurchPanelTenant.resolve(seedOrOperational);
   }
+
+  /// Alias síncrono — preferir em caminhos quentes (chat, preload, Storage).
+  static String syncResolve(String seed) => syncEffectiveChurchId(seed);
 
   static DocumentReference<Map<String, dynamic>> churchDoc(String operationalId) =>
       ChurchRepository.churchDoc(syncEffectiveChurchId(operationalId));

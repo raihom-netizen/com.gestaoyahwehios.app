@@ -3,9 +3,11 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
@@ -56,6 +58,12 @@ abstract final class EventoPublishService {
           await FirebaseBootstrapService.ensureStorageAlwaysLinked(
             refreshAuthToken: true,
           );
+        }
+        await AppFinalizeBootstrap.ensureSessionForPublish(
+          logLabel: withMedia ? '${logLabel}_media' : logLabel,
+        );
+        if (withMedia) {
+          await ensureFirebaseReadyForMediaUpload();
         }
         await EcoFirePublishBootstrap.ensureHard(
           logLabel: withMedia ? '${logLabel}_media' : logLabel,

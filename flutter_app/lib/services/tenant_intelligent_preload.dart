@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
@@ -18,7 +19,7 @@ abstract final class TenantIntelligentPreload {
 
   /// Após Dashboard visível — contadores + prefetch completo (Hive + Firestore cache).
   static void scheduleAfterDashboard(String tenantIdRaw) {
-    final tid = tenantIdRaw.trim();
+    final tid = ChurchRepository.churchId(tenantIdRaw.trim());
     if (tid.isEmpty) return;
     unawaited(_runDashboardOnly(tid));
     ChurchPanelModulePrefetchService.scheduleFullPrefetch(tid);
@@ -29,7 +30,7 @@ abstract final class TenantIntelligentPreload {
 
   /// Ao abrir um módulo do menu — garante aquecimento daquele módulo.
   static void scheduleModuleForShellIndex(String tenantIdRaw, int shellIndex) {
-    final tid = tenantIdRaw.trim();
+    final tid = ChurchRepository.churchId(tenantIdRaw.trim());
     if (tid.isEmpty) return;
     final module = _moduleForShellIndex(shellIndex);
     if (module != null) {

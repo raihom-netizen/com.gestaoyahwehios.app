@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -82,7 +83,7 @@ abstract final class ChurchChatStorageRetentionService {
     if (tid.isEmpty) return 0;
     final cutoff = DateTime.now().subtract(const Duration(days: retentionDays));
     final cutoffTs = Timestamp.fromDate(cutoff);
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final op = await ChurchOperationalPaths.resolveCached(tid.trim());
     final chatsSnap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('chats')

@@ -30,9 +30,8 @@ import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
@@ -479,8 +478,8 @@ class MemberProfilePhotoUpdateService {
       Future.wait(
         tenantIds.map((tid) async {
           try {
-            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-            await                 ChurchOperationalPaths.churchDoc(op)
+            final churchId = ChurchRepository.churchId(tid.trim());
+            await ChurchUiCollections.churchDoc(churchId)
                 .collection('chat_peer_profiles')
                 .doc(authUid)
                 .set(peerPayload, SetOptions(merge: true));

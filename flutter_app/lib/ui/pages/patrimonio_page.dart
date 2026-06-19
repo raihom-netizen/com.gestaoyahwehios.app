@@ -7905,12 +7905,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _codigo;
   late String _categoria, _status;
   DateTime? _dataAquisicao, _proximaManutencao;
-  final List<String> _existingUrls = [];
-  final List<Uint8List> _newImages = [];
-  final List<String> _newNames = [];
+  late final List<String> _slotUrls;
+  late final List<String> _slotPaths;
+  late final List<Uint8List?> _slotPending;
+  late final List<String> _slotPendingNames;
   late List<String> _categoriasOpcoes;
   late final DocumentReference<Map<String, dynamic>> _itemRef;
-  bool _itemStubEnsured = false;
   bool _saving = false;
   bool _mediaPicking = false;
   int _preparingPhotoCount = 0;
@@ -7985,9 +7985,20 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     if (data['proximaManutencao'] is Timestamp) {
       _proximaManutencao = (data['proximaManutencao'] as Timestamp).toDate();
     }
-    final urls = _fotoUrlsFromData(data);
-    _existingUrls.addAll(
-        urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
+    _slotUrls = List<String>.filled(_maxFotosPorItem, '');
+    _slotPaths = List<String>.filled(_maxFotosPorItem, '');
+    _slotPending = List<Uint8List?>.filled(_maxFotosPorItem, null);
+    _slotPendingNames = List<String>.filled(_maxFotosPorItem, '');
+    final urls = PatrimonioPhotoFields.urlsFromData(data);
+    final paths = PatrimonioPhotoFields.pathsFromData(data);
+    for (var i = 0; i < _maxFotosPorItem; i++) {
+      if (i < urls.length) {
+        _slotUrls[i] = sanitizeImageUrl(urls[i]);
+      }
+      if (i < paths.length) {
+        _slotPaths[i] = paths[i].trim();
+      }
+    }
     unawaited(_maybeRepairStuckPhotos(data));
     unawaited(ImmediateMediaWarm.warmPatrimonio());
     unawaited(
@@ -8000,7 +8011,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
   /// Repara docs presos (`uploading`) quando Storage já tem galeria_01…04.
   Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
-    if (_existingUrls.isNotEmpty) return;
+    if (_slotUrls.any((u) => u.isNotEmpty)) return;
     final state = (data['photoUploadState'] ?? '').toString().trim();
     if (state != 'uploading' && state != 'pending_sync') return;
     try {
@@ -8011,14 +8022,19 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
       if (!mounted) return;
       final snap = await _itemRef.get();
-      final repaired = _fotoUrlsFromData(snap.data() ?? {});
-      if (repaired.isNotEmpty && mounted) {
+      final repairedUrls = PatrimonioPhotoFields.urlsFromData(snap.data() ?? {});
+      final repairedPaths = PatrimonioPhotoFields.pathsFromData(snap.data() ?? {});
+      if (repairedUrls.isNotEmpty && mounted) {
         setState(() {
-          _existingUrls
-            ..clear()
-            ..addAll(repaired.length > _maxFotosPorItem
-                ? repaired.sublist(0, _maxFotosPorItem)
-                : repaired);
+          for (var i = 0; i < _maxFotosPorItem; i++) {
+            _slotUrls[i] = i < repairedUrls.length
+                ? sanitizeImageUrl(repairedUrls[i])
+                : '';
+            _slotPaths[i] =
+                i < repairedPaths.length ? repairedPaths[i].trim() : '';
+            _slotPending[i] = null;
+            _slotPendingNames[i] = '';
+          }
         });
       }
     } catch (_) {}
@@ -8038,41 +8054,27 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     super.dispose();
   }
 
-  int get _fotoCountAtual => _existingUrls.length + _newImages.length;
+  int get _fotoCountAtual {
+    var n = 0;
+    for (var i = 0; i < _maxFotosPorItem; i++) {
+      if (_slotUrls[i].isNotEmpty || _slotPending[i] != null) n++;
+    }
+    return n;
+  }
+
   bool get _atingiuLimiteFotos => _fotoCountAtual >= _maxFotosPorItem;
 
-  /// Alinha [fotoStoragePaths] por índice às fotos existentes (preview no formulário).
-  String? _pathForExistingPreview(int idx) {
-    final paths = _existingStoragePaths();
-    if (idx >= paths.length) return null;
-    final t = paths[idx].trim();
-    return t.isNotEmpty ? t : null;
+  int? _firstEmptyPhotoSlot() {
+    for (var i = 0; i < _maxFotosPorItem; i++) {
+      if (_slotUrls[i].isEmpty && _slotPending[i] == null) return i;
+    }
+    return null;
   }
 
-  List<String> _existingStoragePaths() {
-    final data = widget.doc?.data();
-    final out = <String>[];
-    if (data != null) {
-      final raw = data['fotoStoragePaths'];
-      if (raw is List) {
-        for (final e in raw) {
-          final t = e?.toString().trim() ?? '';
-          if (t.isNotEmpty) out.add(t);
-        }
-      }
-    }
+  void _clearPhotoSlot(int idx) {
+    if (idx < 0 || idx >= _maxFotosPorItem) return;
     final tenantId = widget.col.parent?.id ?? '';
-    final itemId = _itemRef.id;
-    for (var i = out.length; i < _existingUrls.length; i++) {
-      out.add(ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, i));
-    }
-    return out;
-  }
-
-  void _removeExistingPhotoAt(int idx) {
-    if (idx < 0 || idx >= _existingUrls.length) return;
-    final tenantId = widget.col.parent?.id ?? '';
-    if (tenantId.isNotEmpty) {
+    if (tenantId.isNotEmpty && _slotUrls[idx].isNotEmpty) {
       unawaited(
         FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
           tenantId: tenantId,
@@ -8081,7 +8083,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         ),
       );
     }
-    setState(() => _existingUrls.removeAt(idx));
+    setState(() {
+      _slotUrls[idx] = '';
+      _slotPaths[idx] = '';
+      _slotPending[idx] = null;
+      _slotPendingNames[idx] = '';
+    });
   }
 
   Future<void> _cleanupUnusedPatrimonioSlots(
@@ -8344,8 +8351,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       }
       if (novosBytes.isEmpty || !mounted) return;
       setState(() {
-        _newImages.addAll(novosBytes);
-        _newNames.addAll(novosNomes);
+        for (var i = 0; i < novosBytes.length; i++) {
+          final slot = _firstEmptyPhotoSlot();
+          if (slot == null) break;
+          _slotPending[slot] = novosBytes[i];
+          _slotPendingNames[slot] = i < novosNomes.length
+              ? novosNomes[i]
+              : 'foto_${slot + 1}.jpg';
+        }
       });
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
@@ -8393,8 +8406,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final bytes = await SafeImageBytes.patrimonioFromPicker(file)
           .timeout(const Duration(seconds: 25));
       setState(() {
-        _newImages.add(bytes);
-        _newNames.add(file.name.isNotEmpty ? file.name : 'camera.jpg');
+        final slot = _firstEmptyPhotoSlot();
+        if (slot != null) {
+          _slotPending[slot] = bytes;
+          _slotPendingNames[slot] =
+              file.name.isNotEmpty ? file.name : 'camera.jpg';
+        }
       });
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
@@ -8443,7 +8460,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
       return;
     }
-    if (_newImages.isNotEmpty && !AppConnectivityService.instance.isOnline) {
+    if (_slotPending.any((b) => b != null) &&
+        !AppConnectivityService.instance.isOnline) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
@@ -8458,156 +8476,151 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     setState(() {
       _saving = true;
       _uploadProgress = 0;
-      _uploadProgressLabel = 'A preparar…';
+      _uploadProgressLabel = 'Salvando patrimônio e enviando fotos…';
     });
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     final wasNew = widget.doc == null;
+
+    Map<String, dynamic> buildCorePayload() {
+      final valor = parseBrCurrencyInput(_valor.text);
+      final vidaUtil = int.tryParse(_vidaUtil.text);
+      return <String, dynamic>{
+        'nome': _nome.text.trim(),
+        'descricao': _desc.text.trim(),
+        'categoria': _categoria,
+        'codigoPatrimonio': _codigo.text.trim(),
+        'valor': valor,
+        'vidaUtil': vidaUtil,
+        'dataAquisicao':
+            _dataAquisicao != null ? Timestamp.fromDate(_dataAquisicao!) : null,
+        'proximaManutencao': _proximaManutencao != null
+            ? Timestamp.fromDate(_proximaManutencao!)
+            : null,
+        'localizacao': _local.text.trim(),
+        'responsavel': _resp.text.trim(),
+        'numeroSerie': _serie.text.trim(),
+        'status': _status,
+        'observacoes': _obs.text.trim(),
+        'churchId': _churchIdForPublish,
+        'tenantId': _churchIdForPublish,
+        'ativo': true,
+      };
+    }
+
     try {
       YahwehFlowLog.patrimonioStart();
       final tenantId = _churchIdForPublish;
-      final itemRef = _itemRef;
-      final itemId = itemRef.id;
-      final isNewItem = widget.doc == null && !_itemStubEnsured;
-
-      final allUrls = List<String>.from(_existingUrls);
+      final itemId = _itemRef.id;
       final prev = widget.doc?.data();
-      final prevPaths = prev != null ? PatrimonioPhotoFields.pathsFromData(prev) : const <String>[];
-      final prevPathByUrl = <String, String>{};
-      if (prev != null) {
-        final pUrls = PatrimonioPhotoFields.urlsFromData(prev);
-        for (var i = 0; i < pUrls.length && i < prevPaths.length; i++) {
-          final ku = sanitizeImageUrl(pUrls[i]);
-          if (ku.isNotEmpty) {
-            prevPathByUrl[ku] = prevPaths[i];
-          }
+
+      final indexedSlotUrls = List<String>.from(_slotUrls);
+      final indexedSlotPaths = List<String>.from(_slotPaths);
+      final uploadsBySlot = <int, Uint8List>{};
+      for (var i = 0; i < _maxFotosPorItem; i++) {
+        final pending = _slotPending[i];
+        if (pending != null) {
+          uploadsBySlot[i] = pending;
         }
       }
 
-      final allPaths = <String>[];
-      for (var i = 0; i < allUrls.length; i++) {
-        final u = sanitizeImageUrl(allUrls[i]);
-        final p = prevPathByUrl[u];
-        if (p != null && p.isNotEmpty) {
-          allPaths.add(p);
-        } else {
-          allPaths.add(
-              ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, i));
+      if (uploadsBySlot.isEmpty && widget.doc != null && prev != null) {
+        final oldList = PatrimonioPhotoFields.urlsFromData(prev)
+            .map((e) => sanitizeImageUrl(e))
+            .where((e) => e.isNotEmpty)
+            .toList();
+        final oldSet = oldList.toSet();
+        final newSet = indexedSlotUrls
+            .map((e) => sanitizeImageUrl(e))
+            .where((e) => e.isNotEmpty)
+            .toSet();
+        await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+            oldSet.difference(newSet));
+        final oldFirst = oldList.isEmpty ? '' : oldList.first;
+        final newUrls = indexedSlotUrls
+            .map((e) => sanitizeImageUrl(e))
+            .where((e) => e.isNotEmpty)
+            .toList();
+        final newFirst = newUrls.isEmpty ? '' : newUrls.first;
+        if (oldFirst.isNotEmpty && oldFirst != newFirst) {
+          await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+            FirebaseStorageCleanupService.urlsFromVariantMap(
+                prev['imageVariants']),
+          );
+          await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+            FirebaseStorageCleanupService.urlsFromVariantMap(
+                prev['fotoVariants']),
+          );
         }
       }
 
-      final startSlot = allUrls.length;
-      final vagas = (_maxFotosPorItem - startSlot).clamp(0, _maxFotosPorItem);
-      final nBatch = _newImages.length < vagas ? _newImages.length : vagas;
-      final valor = parseBrCurrencyInput(_valor.text);
-      final vidaUtil = int.tryParse(_vidaUtil.text);
-
-      Map<String, dynamic> buildCorePayload() {
-        return <String, dynamic>{
-          'nome': _nome.text.trim(),
-          'descricao': _desc.text.trim(),
-          'categoria': _categoria,
-          'codigoPatrimonio': _codigo.text.trim(),
-          'valor': valor,
-          'vidaUtil': vidaUtil,
-          'dataAquisicao':
-              _dataAquisicao != null ? Timestamp.fromDate(_dataAquisicao!) : null,
-          'proximaManutencao': _proximaManutencao != null
-              ? Timestamp.fromDate(_proximaManutencao!)
-              : null,
-          'localizacao': _local.text.trim(),
-          'responsavel': _resp.text.trim(),
-          'numeroSerie': _serie.text.trim(),
-          'status': _status,
-          'observacoes': _obs.text.trim(),
-          'churchId': tenantId,
-          'tenantId': tenantId,
-          'ativo': true,
-        };
-      }
-
-      final optimisticPayload = buildCorePayload();
-      PatrimonioPhotoFields.applyToPayload(
-        optimisticPayload,
-        allUrls,
-        allPaths,
+      await PatrimonioSaveService.save(
+        churchIdHint: tenantId,
+        itemId: itemId,
+        corePayload: buildCorePayload(),
+        isNewDoc: widget.doc == null,
+        uploadsBySlot: uploadsBySlot,
+        indexedSlotUrls: indexedSlotUrls,
+        indexedSlotPaths: indexedSlotPaths,
+        onProgress: (p, label) {
+          if (!mounted) return;
+          setState(() {
+            _uploadProgress = p;
+            _uploadProgressLabel = label;
+          });
+        },
       );
 
-      _itemStubEnsured = true;
-      if (!mounted) return;
       YahwehFlowLog.patrimonioSuccess();
+      if (!mounted) return;
+
+      final savedPayload = buildCorePayload();
+      PatrimonioPhotoFields.applyIndexedSlots(
+        savedPayload,
+        indexedSlotUrls,
+        indexedSlotPaths,
+      );
+
       navigator.pop(<String, dynamic>{
         'ok': true,
         'itemId': itemId,
-        'payload': optimisticPayload,
+        'payload': savedPayload,
       });
       messenger.showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          wasNew
-              ? 'Bem cadastrado — sincronizando fotos e dados…'
-              : 'Patrimônio atualizado — sincronizando…',
+          wasNew ? 'Patrimônio cadastrado.' : 'Patrimônio atualizado.',
         ),
       );
 
-      unawaited(() async {
-        try {
-          if (nBatch == 0 && widget.doc != null && prev != null) {
-            final oldList = _fotoUrlsFromData(prev)
-                .map((e) => sanitizeImageUrl(e))
-                .where((e) => e.isNotEmpty)
-                .toList();
-            final oldSet = oldList.toSet();
-            final newSet = allUrls
-                .map((e) => sanitizeImageUrl(e))
-                .where((e) => e.isNotEmpty)
-                .toSet();
-            await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-                oldSet.difference(newSet));
-            final oldFirst = oldList.isEmpty ? '' : oldList.first;
-            final newFirst =
-                allUrls.isEmpty ? '' : sanitizeImageUrl(allUrls.first);
-            if (oldFirst.isNotEmpty && oldFirst != newFirst) {
-              await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-                FirebaseStorageCleanupService.urlsFromVariantMap(
-                    prev['imageVariants']),
-              );
-              await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-                FirebaseStorageCleanupService.urlsFromVariantMap(
-                    prev['fotoVariants']),
-              );
-            }
-          }
-
-          await PatrimonioSaveService.save(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: buildCorePayload(),
-            isNewDoc: isNewItem,
-            newImages: nBatch > 0
-                ? List<Uint8List>.from(_newImages.take(nBatch))
-                : const [],
-            startSlot: startSlot,
-            existingPaths: allPaths,
-            existingUrls: allUrls,
-          );
-
-          if (nBatch == 0) {
-            YahwehFlowLog.patrimonioFirestoreOk();
-            unawaited(
-                _cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
-          }
-          unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
-        } catch (e, st) {
-          if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
-            unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
-            return;
-          }
-          YahwehCatchLog.log(e, st, tag: 'patrimonio_save_bg');
-        }
-      }());
+      unawaited(_cleanupUnusedPatrimonioSlots(
+        tenantId,
+        itemId,
+        indexedSlotPaths.where((p) => p.trim().isNotEmpty).toList(),
+      ));
+      unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
+      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+        final offlinePayload = buildCorePayload();
+        PatrimonioPhotoFields.applyIndexedSlots(
+          offlinePayload,
+          _slotUrls,
+          _slotPaths,
+        );
+        navigator.pop(<String, dynamic>{
+          'ok': true,
+          'itemId': _itemRef.id,
+          'payload': offlinePayload,
+        });
+        messenger.showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Patrimônio guardado — fotos sincronizam em segundo plano.',
+          ),
+        );
+        unawaited(ChurchPatrimonioLoadService.invalidate(_churchIdForPublish));
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(formatFirebaseErrorForUser(e))),
       );
@@ -8705,8 +8718,35 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     }
 
     final linhas = <Widget>[];
-    for (var i = 0; i < _existingUrls.length; i++) {
-      final idx = i;
+    for (var slot = 0; slot < _maxFotosPorItem; slot++) {
+      final pending = _slotPending[slot];
+      if (pending != null) {
+        final nome = _slotPendingNames[slot].isNotEmpty
+            ? _slotPendingNames[slot]
+            : 'Nova imagem ${slot + 1}';
+        linhas.add(
+          rowTile(
+            thumb: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 52,
+                height: 52,
+                child: Image.memory(
+                  pending,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+            title: nome,
+            subtitle:
+                '${_formatBytesPat(pending.length)} · será enviado ao salvar',
+            onRemove: () => _clearPhotoSlot(slot),
+          ),
+        );
+        continue;
+      }
+      if (_slotUrls[slot].isEmpty) continue;
       linhas.add(
         rowTile(
           thumb: ClipRRect(
@@ -8715,11 +8755,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               width: 52,
               height: 52,
               child: FotoPatrimonioWidget(
-                key: ValueKey('pat_row_ex_$idx${_existingUrls[idx]}'),
-                storagePath: _pathForExistingPreview(idx),
-                candidateUrls: _existingUrls[idx].isNotEmpty
-                    ? [_existingUrls[idx]]
-                    : <String>[],
+                key: ValueKey('pat_row_ex_$slot${_slotUrls[slot]}'),
+                storagePath: _slotPaths[slot].isNotEmpty
+                    ? _slotPaths[slot]
+                    : ChurchStorageLayout.patrimonioPhotoPath(
+                        widget.col.parent?.id ?? '',
+                        _itemRef.id,
+                        slot,
+                      ),
+                candidateUrls: [_slotUrls[slot]],
                 fit: BoxFit.cover,
                 width: 52,
                 height: 52,
@@ -8749,39 +8793,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
             ),
           ),
-          title: 'Foto ${i + 1}',
+          title: 'Foto ${slot + 1}',
           subtitle: 'image/jpeg · inventário',
-          onRemove: () => _removeExistingPhotoAt(idx),
-        ),
-      );
-    }
-    for (var i = 0; i < _newImages.length; i++) {
-      final idx = i;
-      final nome =
-          idx < _newNames.length && _newNames[idx].isNotEmpty
-              ? _newNames[idx]
-              : 'Nova imagem ${i + 1}';
-      linhas.add(
-        rowTile(
-          thumb: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: Image.memory(
-                _newImages[idx],
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-              ),
-            ),
-          ),
-          title: nome,
-          subtitle:
-              '${_formatBytesPat(_newImages[idx].length)} · será enviado ao salvar',
-          onRemove: () => setState(() {
-            _newImages.removeAt(idx);
-            _newNames.removeAt(idx);
-          }),
+          onRemove: () => _clearPhotoSlot(slot),
         ),
       );
     }
@@ -9024,7 +9038,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                     child: CircularProgressIndicator(
                         strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.check_rounded, color: Colors.white),
-            label: Text(_saving ? 'Salvando...' : 'Salvar',
+            label: Text(_saving ? 'Salvando patrimônio…' : 'Salvar',
                 style: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.w700)),
           ),
@@ -9316,7 +9330,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 Text(
                   _uploadProgressLabel.isNotEmpty
                       ? _uploadProgressLabel
-                      : 'A gravar patrimônio…',
+                      : 'Salvando patrimônio e enviando fotos…',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey.shade800,
@@ -9338,7 +9352,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                         : const Icon(Icons.save_rounded),
                     label: Text(
                         _saving
-                            ? 'Salvando…'
+                            ? 'Salvando patrimônio…'
                             : (isEditing
                                 ? 'Atualizar Patrimônio'
                                 : 'Cadastrar Patrimônio'),
