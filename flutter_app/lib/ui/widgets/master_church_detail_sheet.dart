@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -89,7 +90,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     });
     return FirestoreWebGuard.runWithWebRecovery(() async {
       try {
-        final snap = await FirebaseFirestore.instance
+        final snap = await firebaseDefaultFirestore
             .collection('auditoria')
             .where('tenantId', isEqualTo: widget.tenantId)
             .orderBy('data', descending: true)
@@ -98,7 +99,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         return snap.docs;
       } catch (e, st) {
         debugPrint('MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st');
-        final snap = await FirebaseFirestore.instance
+        final snap = await firebaseDefaultFirestore
             .collection('auditoria')
             .limit(24)
             .get();
@@ -225,8 +226,8 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
 
   Future<void> _audit(String action, String details) async {
     try {
-      final u = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance.collection('auditoria').add({
+      final u = firebaseDefaultAuth.currentUser;
+      await firebaseDefaultFirestore.collection('auditoria').add({
         'acao': action,
         'resource': 'master_church_detail',
         'tenantId': widget.tenantId,

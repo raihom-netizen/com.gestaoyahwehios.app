@@ -131,7 +131,7 @@ abstract final class PanelProgramacaoLoader {
       await ensureFirebaseReadyForPanelRead().catchError((_) {});
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded().catchError((_) {});
       try {
-        await FirebaseFirestore.instance.enableNetwork();
+        await firebaseDefaultFirestore.enableNetwork();
       } catch (_) {}
       List<Map<String, dynamic>> items = const [];
       try {

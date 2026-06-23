@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -45,6 +45,7 @@ abstract final class ChurchEventosLoadService {
 
   static const int kDefaultFeedLimit = PanelFeedPostValidator.kPanelFeedPageSize;
   static const int kGalleryLimit = 250;
+  static const String _legacyEventsCollectionEn = 'events';
 
   static final Map<
       String,
@@ -143,6 +144,29 @@ abstract final class ChurchEventosLoadService {
       out.add(d);
       if (out.length >= cap) break;
     }
+    if (out.isNotEmpty) return out;
+    // Fallback legado: quando o validador está mais rígido que os docs antigos,
+    // mantém eventos sem `ativo/publicado=false` explícito para não esvaziar feed.
+    return _filterPublishedLegacySafe(docs, max: cap);
+  }
+
+  static bool _isLegacyPublishedVisible(Map<String, dynamic> data) {
+    if (data['ativo'] == false) return false;
+    if (data['publicado'] == false) return false;
+    return true;
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterPublishedLegacySafe(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    int? max,
+  }) {
+    final cap = max ?? docs.length;
+    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final d in docs) {
+      if (!_isLegacyPublishedVisible(d.data())) continue;
+      out.add(d);
+      if (out.length >= cap) break;
+    }
     return out;
   }
 
@@ -233,7 +257,9 @@ abstract final class ChurchEventosLoadService {
             );
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('EVENTOS loadFeed hive cache failed: $e');
+      }
 
       try {
         final cacheSnap = await ChurchUiCollections.eventos(churchId)
@@ -256,7 +282,9 @@ abstract final class ChurchEventosLoadService {
             fromCache: true,
           );
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('EVENTOS loadFeed firestore cache failed: $e');
+      }
     }
 
     Object? lastError;
@@ -268,7 +296,10 @@ abstract final class ChurchEventosLoadService {
         forceServer: forceServer,
       );
       if (docs.isNotEmpty) {
-        final filtered = _filterRenderableFeed(docs, churchId, max: limit);
+        var filtered = _filterRenderableFeed(docs, churchId, max: limit);
+        if (filtered.isEmpty) {
+          filtered = _filterPublishedLegacySafe(docs, max: limit);
+        }
         _putRam(ramKey, filtered);
         unawaited(_persistHive(churchId, filtered));
         return ChurchEventosLoadResult(
@@ -342,15 +373,16 @@ abstract final class ChurchEventosLoadService {
     if (churchId.isEmpty) return const [];
 
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((e) {
+        debugPrint('EVENTOS categories ensurePanelReadReady failed: $e');
+      });
     }
 
     final cacheKey = '${churchId}_event_categories';
 
     if (!kIsWeb) {
       try {
-        final cacheSnap = await ChurchUiCollections.churchDoc(churchId)
-            .collection('event_categories')
+        final cacheSnap = await ChurchUiCollections.eventCategories(churchId)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
@@ -361,7 +393,9 @@ abstract final class ChurchEventosLoadService {
                 .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
           return list;
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('EVENTOS categories cache read failed: $e');
+      }
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> read() =>
@@ -431,13 +465,19 @@ abstract final class ChurchEventosLoadService {
           maxAttempts: kIsWeb ? 4 : 3,
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
-        final filtered = ChurchModuleFirestoreListRead.filterPublishedFeedRecords(
+        final strict =
+            ChurchModuleFirestoreListRead.filterPublishedFeedRecords(
           plainSnap.docs,
         );
+        final filtered = strict.isNotEmpty
+            ? strict
+            : _filterPublishedLegacySafe(plainSnap.docs, max: limit);
         if (filtered.isNotEmpty) {
           return MergedFirestoreQuerySnapshot(_sortByStartAt(filtered));
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('EVENTOS _loadFirestoreFeed plain-first failed: $e');
+      }
 
       try {
         return await FirestoreReadResilience.getQuery(
@@ -472,7 +512,14 @@ abstract final class ChurchEventosLoadService {
           ).timeout(const Duration(seconds: 14))
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
-    return _sortByStartAt(snap.docs);
+    final sorted = _sortByStartAt(snap.docs);
+    if (sorted.isNotEmpty) return sorted;
+    return _loadLegacyEventsEn(
+      churchId: churchId,
+      limit: limit,
+      cacheKey: '${cacheKey}_legacy_en',
+      forceServer: forceServer,
+    );
   }
 
   static Future<void> _persistHive(
@@ -764,8 +811,70 @@ abstract final class ChurchEventosLoadService {
       try {
         return await plainLoad();
       } catch (_) {}
+      return _loadLegacyEventsEn(
+        churchId: churchId,
+        limit: limit,
+        cacheKey: '${cacheKey}_legacy_en',
+        forceServer: forceServer,
+      );
     }
     return docs;
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadLegacyEventsEn({
+    required String churchId,
+    required int limit,
+    required String cacheKey,
+    required bool forceServer,
+  }) async {
+    final legacyCol =
+        ChurchUiCollections.churchDoc(churchId).collection(_legacyEventsCollectionEn);
+    Query<Map<String, dynamic>> plain() => legacyCol.limit(limit);
+    Query<Map<String, dynamic>> byStart() =>
+        legacyCol.orderBy('startAt', descending: true).limit(limit);
+
+    if (!forceServer) {
+      try {
+        final cacheSnap = await plain()
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+        if (cacheSnap.docs.isNotEmpty) {
+          return _sortByStartAt(cacheSnap.docs);
+        }
+      } catch (e) {
+        debugPrint('EVENTOS legacy-events cache read failed: $e');
+      }
+    }
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readServer() async {
+      try {
+        final snap = await FirestoreReadResilience.getQuery(
+          byStart(),
+          cacheKey: '${cacheKey}_start',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (snap.docs.isNotEmpty) return _sortByStartAt(snap.docs);
+      } catch (e) {
+        debugPrint('EVENTOS legacy-events orderBy(startAt) failed: $e');
+      }
+      final plainSnap = await FirestoreReadResilience.getQuery(
+        plain(),
+        cacheKey: '${cacheKey}_plain',
+        maxAttempts: kIsWeb ? 4 : 3,
+        attemptTimeout: ChurchPanelReadTimeouts.attempt,
+      );
+      return _sortByStartAt(plainSnap.docs);
+    }
+
+    if (kIsWeb) {
+      return FirestoreWebGuard.runWithWebRecovery(
+        readServer,
+        maxAttempts: 4,
+      ).timeout(const Duration(seconds: 14));
+    }
+    return readServer().timeout(ChurchPanelReadTimeouts.warmCap);
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(String key) {

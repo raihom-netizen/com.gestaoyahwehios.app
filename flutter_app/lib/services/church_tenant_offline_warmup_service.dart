@@ -160,7 +160,7 @@ class ChurchTenantOfflineWarmupService {
           safe('escala_templates', () => ChurchTenantResilientReads.escalaTemplates(tenantId)),
           safe('escalas', () => ChurchTenantResilientReads.escalasRecent(tenantId)),
           safe('users_tenant', () async {
-            await FirebaseFirestore.instance
+            await firebaseDefaultFirestore
                 .collection('users')
                 .where(Filter.or(
                   Filter('tenantId', isEqualTo: tenantId),

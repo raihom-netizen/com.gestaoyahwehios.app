@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -22,7 +23,7 @@ class AdminMarketingCanaisMasterCard extends StatefulWidget {
 
 class _AdminMarketingCanaisMasterCardState
     extends State<AdminMarketingCanaisMasterCard> {
-  final _ref = FirebaseFirestore.instance
+  final _ref = firebaseDefaultFirestore
       .doc(MarketingOfficialConfig.firestoreDocPath);
 
   final _contactCtrl = TextEditingController();

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
@@ -33,7 +34,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
     });
     try {
       final snap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance.collection('suggestions').limit(200),
+        firebaseDefaultFirestore.collection('suggestions').limit(200),
         cacheKey: 'master_suggestions',
       );
       final list = snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>().toList();
@@ -136,7 +137,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
     );
     if (resposta == null || resposta.isEmpty) return;
     try {
-      await FirebaseFirestore.instance.collection('suggestions').doc(docId).update({
+      await firebaseDefaultFirestore.collection('suggestions').doc(docId).update({
         'response': resposta,
         'respondedAt': FieldValue.serverTimestamp(),
         'status': 'respondido',

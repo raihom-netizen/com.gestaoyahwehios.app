@@ -251,7 +251,7 @@ abstract final class AppSessionStability {
 
     try {
       final snap = await FirestoreReadResilience.getDocument(
-        FirebaseFirestore.instance.collection('users').doc(user.uid),
+        firebaseDefaultFirestore.collection('users').doc(user.uid),
         cacheKey: 'master_users_${user.uid}',
         maxAttempts: 3,
       );
@@ -270,7 +270,7 @@ abstract final class AppSessionStability {
       return 1;
     } on TimeoutException {
       try {
-        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
+        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp).httpsCallable('getAdminCheck');
         final res = await fn
             .call<Map<String, dynamic>>()
             .timeout(const Duration(seconds: 10));
@@ -286,7 +286,7 @@ abstract final class AppSessionStability {
     } catch (_) {
       try {
         final snap = await FirestoreReadResilience.getDocument(
-          FirebaseFirestore.instance.collection('usuarios').doc(user.uid),
+          firebaseDefaultFirestore.collection('usuarios').doc(user.uid),
           cacheKey: 'master_usuarios_${user.uid}',
         );
         final nivel = (snap.data()?['nivel'] ?? '').toString().toLowerCase();
@@ -296,7 +296,7 @@ abstract final class AppSessionStability {
         }
       } catch (_) {}
       try {
-        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
+        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp).httpsCallable('getAdminCheck');
         final res = await fn
             .call<Map<String, dynamic>>()
             .timeout(const Duration(seconds: 10));

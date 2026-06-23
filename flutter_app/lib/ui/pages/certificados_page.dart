@@ -73,6 +73,7 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 // ─── Templates de Certificados ──────────────────────────────────────────────
@@ -354,9 +355,15 @@ class _CertificadosPageState extends State<CertificadosPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
   bool _membersSyncing = false;
+  String? _membersLoadSoftError;
+  String? _operationalTenantId;
 
   String get _effectiveTenantId =>
-      ChurchPanelTenant.resolve(widget.tenantId.trim());
+      ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId.trim(),
+      );
 
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
       ChurchUiCollections.config(_effectiveTenantId).doc('certificados');
@@ -366,11 +373,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final result = await ChurchCertificadosLoadService.load(
       seedTenantId: _effectiveTenantId,
     );
+    _membersLoadSoftError = result.softError;
+    if (result.churchId.trim().isNotEmpty) {
+      _operationalTenantId = result.churchId.trim();
+    }
     return result.docs;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
     final docs = await _fetchAllMemberDocs();
+    if (docs.isEmpty && (_membersLoadSoftError ?? '').trim().isNotEmpty) {
+      throw StateError(_membersLoadSoftError!.trim());
+    }
     final tid = _effectiveTenantId;
     if (tid.isNotEmpty && docs.isNotEmpty) {
       ChurchCertificadosLoadService.putRam(tid, docs);
@@ -391,6 +405,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         _CertificadosMembersRamCache.put(tid, docs);
       }
       setState(() {
+        _membersLoadSoftError = null;
         _seedMemberDocs = docs;
         _membersFuture = Future.value(_CertMembersListSnapshot(docs));
         _membersSyncing = false;
@@ -421,6 +436,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           _CertificadosMembersRamCache.put(_effectiveTenantId, docs);
         }
         setState(() {
+          _membersLoadSoftError = result.softError;
           _seedMemberDocs = docs;
           _membersFuture = Future.value(_CertMembersListSnapshot(docs));
         });
@@ -433,6 +449,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   @override
   void initState() {
     super.initState();
+    _operationalTenantId = ChurchRepository.churchId(widget.tenantId.trim());
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded());
     final hint = _effectiveTenantId;
     final ram = ChurchCertificadosLoadService.peekRam(hint) ??
@@ -503,16 +520,32 @@ class _CertificadosPageState extends State<CertificadosPage> {
           debugPrint('Certificados _loadCertConfig ensurePanelReadReady: $e\n$st');
         });
       }
-      Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
-          _certConfigDoc.get(const GetOptions(source: Source.serverAndCache));
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              read,
-              maxAttempts: 4,
-            ).timeout(const Duration(seconds: 14))
-          : await read();
+      final op = _effectiveTenantId;
+      Map<String, dynamic>? cfg;
+      try {
+        final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
+          op,
+          'certificados',
+        );
+        if (hit != null) {
+          _operationalTenantId = hit.docId;
+          cfg = Map<String, dynamic>.from(hit.data);
+        }
+      } catch (e, st) {
+        debugPrint('Certificados _loadCertConfig direct_read: $e\n$st');
+      }
+      if (cfg == null) {
+        Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
+            _certConfigDoc.get(const GetOptions(source: Source.serverAndCache));
+        final snap = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                read,
+                maxAttempts: 4,
+              ).timeout(const Duration(seconds: 14))
+            : await read();
+        cfg = snap.data();
+      }
       if (mounted) {
-        final cfg = snap.data();
         setState(() {
           _certConfig = cfg;
           _signatureMode =
@@ -532,6 +565,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Future<void> _loadTenant() async {
     try {
       final op = _effectiveTenantId;
+      if (op.isEmpty) return;
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
           debugPrint('Certificados _loadTenant ensurePanelReadReady: $e\n$st');
@@ -547,7 +581,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
             ).timeout(const Duration(seconds: 14))
           : await read();
       if (mounted) {
-        setState(() => _tenantData = snap.data());
+        setState(() {
+          _operationalTenantId = op;
+          _tenantData = snap.data();
+        });
       }
     } catch (e, st) {
       debugPrint('Certificados _loadTenant: $e\n$st');
@@ -865,6 +902,19 @@ class _CertificadosPageState extends State<CertificadosPage> {
         }
         final allDocs = snap.data?.docs ?? _seedMemberDocs;
         if (allDocs.isEmpty) {
+          final softErr = (_membersLoadSoftError ?? '').trim();
+          if (softErr.isNotEmpty) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: false,
+                isSyncing: _membersSyncing,
+                errorTitle: 'Falha ao carregar membros do módulo Certificados',
+                error: softErr,
+                onRetry: _refreshMembers,
+              ),
+            );
+          }
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,

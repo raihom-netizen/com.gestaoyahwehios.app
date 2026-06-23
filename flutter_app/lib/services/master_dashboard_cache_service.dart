@@ -222,7 +222,7 @@ abstract final class MasterDashboardCacheService {
   }
 
   static DocumentReference<Map<String, dynamic>> get _firestoreRef =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('config')
           .doc('master_dashboard_summary');
 
@@ -438,7 +438,7 @@ abstract final class MasterDashboardCacheService {
       if (c != null) return c;
     }
 
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     var igrejas = 0;
     var usuarios = 0;
     var membrosTotal = 0;

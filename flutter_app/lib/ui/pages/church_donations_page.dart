@@ -2,7 +2,6 @@ import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -28,6 +27,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -88,6 +88,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _paymentId;
   String? _checkoutEmbedUrl;
   String? _erro;
+  bool _mercadoPagoReady = false;
+  Map<String, dynamic> _mercadoPagoConfig = const {};
   static final Set<String> _mpClusterSyncAttempted = <String>{};
   int _donationLoadRetryGen = 0;
 
@@ -101,7 +103,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   void initState() {
     super.initState();
     _tabCtrl = TabController(length: 2, vsync: this);
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     _nomeCtrl.text = u?.displayName ?? '';
     _emailCtrl.text = u?.email ?? '';
     final churchId = ChurchPanelTenant.resolve(widget.tenantId.trim());
@@ -133,6 +135,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     if (!mounted) return;
     setState(() {
       _operationalTenantId = result.churchId;
+      _mercadoPagoReady = result.mercadoPagoReady;
+      _mercadoPagoConfig = Map<String, dynamic>.from(result.mercadoPagoConfig);
       _contas = result.contas;
       if (result.contas.isNotEmpty) {
         _contaId ??= result.contas.first.id;
@@ -214,7 +218,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     }
 
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final fn =
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable(
         'syncChurchMercadoPagoFromCluster',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
@@ -235,7 +240,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final tid = _effectiveTenantId;
     if (tid.isEmpty) return;
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final callable =
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable(
         'ensureChurchTreasuryAccountPresets',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
@@ -250,7 +256,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   }
 
   Future<void> _bindMemberForDonation() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     final tid = _effectiveTenantId;
     if (tid.isEmpty) return;
@@ -360,6 +366,16 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   }
 
   Future<void> _gerarPix() async {
+    if (!_mercadoPagoReady) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Integração Mercado Pago não configurada nesta igreja. Vá em Configurações → Pagamentos e doações.',
+          ),
+        ),
+      );
+      return;
+    }
     final v = parseBrCurrencyInput(_valorCtrl.text);
     if (v < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -382,7 +398,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _erro = null;
     });
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final callable =
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable('createChurchDonationPix');
       final res = await callable
           .call(<String, dynamic>{
@@ -438,6 +455,16 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   }
 
   Future<void> _abrirCheckoutCartao() async {
+    if (!_mercadoPagoReady) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Integração Mercado Pago não configurada nesta igreja. Vá em Configurações → Pagamentos e doações.',
+          ),
+        ),
+      );
+      return;
+    }
     final v = parseBrCurrencyInput(_valorCtrl.text);
     if (v < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -458,7 +485,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _erro = null;
     });
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final callable =
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable('createChurchDonationPreference');
       final res = await callable
           .call(<String, dynamic>{
@@ -764,6 +792,65 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   bool _seeAllDonationHistory() =>
       AppPermissions.canSeeAllChurchDonationHistory(widget.role);
 
+  Widget _buildMercadoPagoIntegrationStatusCard() {
+    final mode = (_mercadoPagoConfig['mode'] ?? '').toString().trim();
+    final publicKey = (_mercadoPagoConfig['publicKey'] ?? '').toString().trim();
+    final clientId = (_mercadoPagoConfig['clientId'] ?? '').toString().trim();
+    final webhook =
+        (_mercadoPagoConfig['notificationWebhookUrl'] ?? '').toString().trim();
+    final statusText = _mercadoPagoReady ? 'Integração ativa' : 'Integração pendente';
+    final statusColor =
+        _mercadoPagoReady ? const Color(0xFF16A34A) : const Color(0xFFD97706);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.link_rounded, size: 18, color: statusColor),
+              const SizedBox(width: 6),
+              Text(
+                '$statusText — config/mercado_pago',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                  color: statusColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Path: igrejas/$_effectiveTenantId/config/mercado_pago',
+            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Modo: ${mode.isEmpty ? 'não definido' : mode}',
+            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+          ),
+          Text(
+            'Public Key: ${publicKey.isEmpty ? 'não definida' : 'configurada'} | Client ID: ${clientId.isEmpty ? 'não definido' : 'configurado'}',
+            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+          ),
+          if (webhook.isNotEmpty)
+            Text(
+              'Webhook: configurado',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Apple 3.2.2(iv): sem coleta de doação no binário iOS — só Safari → site.
@@ -931,6 +1018,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
               },
             ),
             const SizedBox(height: 18),
+            _buildMercadoPagoIntegrationStatusCard(),
             DonationKindSelectorGrid(
               value: _donationKind,
               accentColor: primary,
@@ -1022,7 +1110,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                 ),
                 child: Text(
                   'É necessária uma conta Mercado Pago (código bancário 323) em Financeiro → Contas, '
-                  'ou em Configurações → criar conta Mercado Pago na tesouraria. Outros bancos não entram nesta integração.',
+                  'com integração ativa em config/mercado_pago. '
+                  'Ou em Configurações → criar conta Mercado Pago na tesouraria. '
+                  'Outros bancos não entram nesta integração.',
                   style: TextStyle(
                       color: Colors.orange.shade900,
                       fontSize: 13,
@@ -1129,7 +1219,10 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
               color: Colors.transparent,
               elevation: 0,
               child: InkWell(
-                onTap: (_gerando || _loadingContas || _contas.isEmpty)
+                onTap: (_gerando ||
+                        _loadingContas ||
+                        _contas.isEmpty ||
+                        !_mercadoPagoReady)
                     ? null
                     : _onPrimaryAction,
                 borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),

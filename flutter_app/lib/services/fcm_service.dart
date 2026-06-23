@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -137,7 +138,7 @@ class FcmService {
     Future<void> persistToken(String token) async {
       if (token.isEmpty) return;
       try {
-        await FirebaseFirestore.instance
+        await firebaseDefaultFirestore
             .collection('users')
             .doc(uid)
             .collection('fcmTokens')
@@ -335,7 +336,7 @@ class FcmService {
 
     try {
       final doc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(uid).get();
       final d = doc.data();
       if (d != null) {
         if (d['pushAvisos'] is bool) pushAvisos = d['pushAvisos'] as bool;

@@ -103,6 +103,7 @@ abstract final class ChurchDepartmentsLoadService {
       cacheKey: key,
       limit: kLimit,
       forceServer: forceServer,
+      legacyFallbackSubcollections: const ['departments'],
       sortDocs: (list) {
         final sorted =
             List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(list)

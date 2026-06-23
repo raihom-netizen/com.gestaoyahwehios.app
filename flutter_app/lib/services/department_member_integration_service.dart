@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -135,7 +136,7 @@ class DepartmentMemberIntegrationService {
     const maxOps = 450;
     final diffOps = 1 + 2 * removed.length + 2 * added.length;
     if (diffOps <= maxOps) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       applyMemberAndDiff(batch);
       await batch.commit();
     } else {
@@ -144,12 +145,12 @@ class DepartmentMemberIntegrationService {
       final addList = added.toList();
       var ri = 0;
       var ai = 0;
-      var batch = FirebaseFirestore.instance.batch();
+      var batch = firebaseDefaultFirestore.batch();
       var count = 0;
 
       Future<void> commitBatch() async {
         await batch.commit();
-        batch = FirebaseFirestore.instance.batch();
+        batch = firebaseDefaultFirestore.batch();
         count = 0;
       }
 
@@ -231,7 +232,7 @@ class DepartmentMemberIntegrationService {
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
 
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     batch.set(
       _memberRef(tid, mid),
       {
@@ -268,7 +269,7 @@ class DepartmentMemberIntegrationService {
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     batch.delete(_linkedRef(tid, did, mid));
     batch.set(
       _deptRef(tid, did),
@@ -297,7 +298,7 @@ class DepartmentMemberIntegrationService {
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     batch.set(
       _linkedRef(tid, did, mid),
       _linkedMemberSnapshot(mid, memberData),
@@ -326,7 +327,7 @@ class DepartmentMemberIntegrationService {
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
 
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     batch.set(
       _memberRef(tid, mid),
       {
@@ -438,7 +439,7 @@ class DepartmentMemberIntegrationService {
       }
       if (!changed) continue;
 
-      batch ??= FirebaseFirestore.instance.batch();
+      batch ??= firebaseDefaultFirestore.batch();
       batch!.update(esc.reference, {
         'memberCpfs': newCpfs,
         'memberNames': newNames,
@@ -556,14 +557,14 @@ class DepartmentMemberIntegrationService {
         .doc(departmentId.trim())
         .collection('membros_vinculados');
     final snap = await col.limit(500).get();
-    var batch = FirebaseFirestore.instance.batch();
+    var batch = firebaseDefaultFirestore.batch();
     var n = 0;
     for (final d in snap.docs) {
       batch.delete(d.reference);
       n++;
       if (n >= 450) {
         await batch.commit();
-        batch = FirebaseFirestore.instance.batch();
+        batch = firebaseDefaultFirestore.batch();
         n = 0;
       }
     }

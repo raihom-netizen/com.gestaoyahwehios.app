@@ -1674,7 +1674,8 @@ class _ChurchPublicTenantResolved {
 Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
   String slugClean,
 ) {
-  return PublicChurchSiteBootstrap.watchTenantBySlug(slugClean).map(
+  final normalized = PublicChurchSiteBootstrap.normalizeSlugInput(slugClean);
+  return PublicChurchSiteBootstrap.watchTenantBySlug(normalized).map(
         (resolved) => resolved == null
             ? null
             : _ChurchPublicTenantResolved(
@@ -1966,7 +1967,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final slugClean = slug.trim().isEmpty ? 'minha-igreja' : slug.trim();
+    final normalizedSlug = PublicChurchSiteBootstrap.normalizeSlugInput(slug);
+    final slugClean = normalizedSlug.isEmpty ? 'minha-igreja' : normalizedSlug;
 
     return Scaffold(
       body: Container(
@@ -4842,7 +4844,7 @@ class _ChurchTenantFallback extends StatelessWidget {
       future: _loadTenant(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return _ChurchPublicFirstPaintShell(churchLabel: prettyName);
         }
         final tenantDoc = snap.data;
         if (tenantDoc == null || !tenantDoc.exists) {

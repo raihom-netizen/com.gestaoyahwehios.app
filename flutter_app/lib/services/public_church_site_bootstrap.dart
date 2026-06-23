@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/data/yahweh_data_repository.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Bootstrap único — site público + cadastro membro (Web = Android = iOS).
@@ -16,6 +17,9 @@ abstract final class PublicChurchSiteBootstrap {
 
   static FirebaseFunctions get _functions =>
       FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
+
+  static String normalizeSlugInput(String raw) =>
+      PublicChurchSlugResolver.normalizePublicSlugInput(raw);
 
   /// Prepara visita pública: auth mídia + Firestore web (só web).
   static Future<void> prepareVisit() async {
@@ -28,7 +32,7 @@ abstract final class PublicChurchSiteBootstrap {
 
   /// Slug → igreja: emite rápido (índice) e depois perfil completo; `null` se não encontrado.
   static Stream<PublicChurchResolved?> watchTenantBySlug(String rawSlug) async* {
-    final slug = rawSlug.trim();
+    final slug = normalizeSlugInput(rawSlug);
     if (slug.isEmpty) {
       yield null;
       return;
@@ -37,15 +41,49 @@ abstract final class PublicChurchSiteBootstrap {
     // Não bloquear first paint do site público.
     unawaited(prepareVisit());
 
-    final fast = await PublicChurchSlugResolver.resolveFast(slug);
+    PublicChurchResolved? fast;
+    try {
+      fast = await PublicChurchSlugResolver.resolveFast(slug).timeout(
+        const Duration(seconds: 6),
+      );
+    } catch (_) {
+      fast = null;
+    }
     if (fast != null) {
       warmCaches(fast.churchId);
       yield fast;
     }
 
+    if (fast == null) {
+      try {
+        final resolvedChurchId =
+            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slug)
+                .timeout(const Duration(seconds: 6));
+        if (resolvedChurchId != null && resolvedChurchId.isNotEmpty) {
+          final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(
+            resolvedChurchId,
+          ).timeout(const Duration(seconds: 6));
+          if (hit != null && hit.data.isNotEmpty) {
+            final direct = PublicChurchResolved(
+              churchId: hit.docId,
+              profile: hit.data,
+              slugKey: slug,
+              fromIndexOnly: false,
+            );
+            warmCaches(direct.churchId);
+            yield direct;
+            fast = direct;
+          }
+        }
+      } catch (_) {}
+    }
+
     final full = await PublicChurchSlugResolver.resolveEnrich(
       slug,
       seed: fast,
+    ).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () => fast,
     );
     if (full != null) {
       warmCaches(full.churchId);
@@ -63,7 +101,7 @@ abstract final class PublicChurchSiteBootstrap {
     // Cadastro público abre imediatamente; warmup segue em paralelo.
     unawaited(prepareVisit());
 
-    final slugTrim = slug?.trim() ?? '';
+    final slugTrim = normalizeSlugInput(slug ?? '');
     final tenantHint = tenantIdHint?.trim() ?? '';
 
     if (slugTrim.isNotEmpty) {

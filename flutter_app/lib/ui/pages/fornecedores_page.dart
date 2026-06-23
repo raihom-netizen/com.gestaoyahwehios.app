@@ -230,8 +230,7 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   if (kIsWeb) {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
-  final col = ChurchUiCollections.churchDoc(churchId)
-      .collection('fornecedor_compromissos');
+  final col = ChurchUiCollections.fornecedorCompromissos(churchId);
   final f = (fornecedorIdFilter ?? '').trim();
 
   final cached = _CompromissosRamCache.peek(
@@ -2544,8 +2543,8 @@ class _FornecedoresCompromissosListaTabState
 
   String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
-      .collection('fornecedor_compromissos');
+  CollectionReference<Map<String, dynamic>> get _compCol =>
+      ChurchUiCollections.fornecedorCompromissos(_tenantId);
 
   @override
   void initState() {
@@ -3156,8 +3155,8 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
 
   String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
-      .collection('fornecedor_compromissos');
+  CollectionReference<Map<String, dynamic>> get _compCol =>
+      ChurchUiCollections.fornecedorCompromissos(_tenantId);
 
   @override
   void initState() {
@@ -4689,8 +4688,8 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>       ChurchUiCollections.financeiro(widget.tenantId);
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(widget.tenantId)
-      .collection('fornecedor_compromissos');
+  CollectionReference<Map<String, dynamic>> get _compCol =>
+      ChurchUiCollections.fornecedorCompromissos(widget.tenantId);
 
   Future<void> _novaComTipo(String presetTipo) async {
     final doc = await _fornecedorRef.get();

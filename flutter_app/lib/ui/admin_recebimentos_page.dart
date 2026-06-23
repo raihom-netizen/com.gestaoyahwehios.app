@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Recebimentos de licenças — sales (Mercado Pago) + status por tenant. Super Premium, responsivo.
 class AdminRecebimentosPage extends StatelessWidget {
@@ -94,7 +95,7 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
     });
     try {
       final List<Map<String, dynamic>> list = [];
-      final salesSnap = await FirebaseFirestore.instance
+      final salesSnap = await firebaseDefaultFirestore
           .collection('sales')
           .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
           .get();
@@ -109,7 +110,7 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
         }
         list.add(data);
       }
-      final mpSnap = await FirebaseFirestore.instance
+      final mpSnap = await firebaseDefaultFirestore
           .collection('mp_payments')
           .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
           .get();
@@ -328,7 +329,7 @@ class _SalesList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: firebaseDefaultFirestore
           .collection('sales')
           .orderBy('createdAt', descending: true)
           .limit(80)
@@ -453,7 +454,8 @@ class _LicensesSummary extends StatelessWidget {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final minTouch = ThemeCleanPremium.minTouchTarget;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').limit(150).watchSafe(),
+      stream:
+          firebaseDefaultFirestore.collection('igrejas').limit(150).watchSafe(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();

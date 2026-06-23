@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -59,8 +58,8 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 part 'admin_igrejas_tab.dart';
 
@@ -212,7 +211,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   /// Verifica se o usuário tem claim ADMIN. Nunca lança — em timeout/erro retorna false por segurança.
   Future<bool> _isAdmin() async {
     try {
-      final u = FirebaseAuth.instance.currentUser;
+      final u = firebaseDefaultAuth.currentUser;
       if (u == null) return false;
       IdTokenResult token;
       try {
@@ -254,9 +253,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
 
   Future<void> _loadMasterRbac() async {
     try {
-      final u = FirebaseAuth.instance.currentUser;
+      final u = firebaseDefaultAuth.currentUser;
       if (u == null) return;
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       final usersDoc = await db.collection('users').doc(u.uid).get();
       final usuariosDoc = await db.collection('usuarios').doc(u.uid).get();
       final usersData = usersDoc.data() ?? <String, dynamic>{};
@@ -343,7 +342,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       resource: 'admin_panel',
       details: 'Logout por inatividade',
     );
-    await FirebaseAuth.instance.signOut();
+    await firebaseDefaultAuth.signOut();
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -358,12 +357,12 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     String? details,
   }) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = firebaseDefaultAuth.currentUser;
       final token = await user?.getIdTokenResult();
       final igrejaId =
           (token?.claims?['igrejaId'] ?? token?.claims?['tenantId'] ?? '')
               .toString();
-      await FirebaseFirestore.instance.collection('auditoria').add({
+      await firebaseDefaultFirestore.collection('auditoria').add({
         'acao': action,
         'resource': resource,
         'details': (details ?? '').trim(),
@@ -385,8 +384,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     String severity = "medium",
   }) async {
     try {
-      final callable =
-          FirebaseFunctions.instance.httpsCallable("reportSecurityEvent");
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp)
+          .httpsCallable("reportSecurityEvent");
       await callable.call({
         "event": event,
         "resource": resource,
@@ -442,8 +441,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     if (key == null) return;
 
     try {
-      final callable =
-          FirebaseFunctions.instance.httpsCallable('bootstrapAdmin');
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp)
+          .httpsCallable('bootstrapAdmin');
       final res = await callable.call({'setupKey': key.trim()});
       final ok =
           (res.data is Map && (res.data['ok'] == true)) || res.data == true;
@@ -461,7 +460,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         resource: 'admin_panel',
         details: 'Elevação de privilégio concluída',
       );
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       if (!context.mounted) return;
       // Na web, recarrega a página para garantir que o novo token (claim ADMIN) seja usado
       VersionService.reloadWeb();
@@ -532,7 +531,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                   const SizedBox(height: 16),
                   FilledButton.icon(
                     onPressed: () async {
-                      await FirebaseAuth.instance.signOut();
+                      await firebaseDefaultAuth.signOut();
                       if (!context.mounted) return;
                       Navigator.pushNamedAndRemoveUntil(
                           context, '/', (_) => false);
@@ -1059,7 +1058,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                             resource: 'admin_panel',
                             details: 'Logout manual (mobile)',
                           );
-                          await FirebaseAuth.instance.signOut();
+                          await firebaseDefaultAuth.signOut();
                           if (!context.mounted) return;
                           Navigator.pushNamedAndRemoveUntil(
                               context, '/', (_) => false);
@@ -1116,7 +1115,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                                         resource: 'admin_panel',
                                         details: 'Logout manual (desktop)',
                                       );
-                                      await FirebaseAuth.instance.signOut();
+                                      await firebaseDefaultAuth.signOut();
                                       if (!mounted) return;
                                       Navigator.pushNamedAndRemoveUntil(
                                           context, '/', (_) => false);
@@ -1235,7 +1234,7 @@ class _AdminHeader extends StatelessWidget {
     _marketingCachedAt = now;
     _marketingCacheFuture = FirestoreWebGuard.runWithWebRecovery(
       () async {
-        final snap = await FirebaseFirestore.instance
+        final snap = await firebaseDefaultFirestore
             .doc(MarketingOfficialConfig.firestoreDocPath)
             .get(const GetOptions(source: Source.serverAndCache));
         return snap.data();
@@ -1246,7 +1245,7 @@ class _AdminHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     final fullName = user?.displayName ?? user?.email ?? 'Admin';
     final shortName = fullName.contains(' ')
         ? fullName.split(RegExp(r'\s+')).first.trim()

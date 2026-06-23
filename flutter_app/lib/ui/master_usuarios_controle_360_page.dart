@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
@@ -97,7 +98,7 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       QuerySnapshot<Map<String, dynamic>> usersSnap;
       try {
         usersSnap = await MasterAdminFirestore.query(
-          FirebaseFirestore.instance
+          firebaseDefaultFirestore
               .collection('users')
               .orderBy('lastClientPlatformAt', descending: true)
               .limit(_usersQueryLimit),
@@ -105,7 +106,7 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
         );
       } catch (_) {
         usersSnap = await MasterAdminFirestore.query(
-          FirebaseFirestore.instance
+          firebaseDefaultFirestore
               .collection('users')
               .limit(_usersQueryLimit),
           cacheKey: 'master_users_360_fallback',
@@ -256,7 +257,10 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       return;
     }
     try {
-      await FirebaseFunctions.instanceFor(region: 'us-central1')
+      await FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      )
           .httpsCallable('masterRelinkMembroAuthUid')
           .call({
         'tenantId': tid,

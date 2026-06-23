@@ -5,8 +5,6 @@ import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -45,6 +43,8 @@ abstract final class ChurchFinanceLoadService {
   ChurchFinanceLoadService._();
 
   static const String kHiveContas = 'finance_contas';
+  static const String kHiveFinanceLogs = 'finance_logs';
+  static const String kHiveFinanceMpNotifications = 'finance_mp_notifications';
   static const int kDefaultLancamentosLimit = 30;
 
   static final Map<
@@ -60,6 +60,18 @@ abstract final class ChurchFinanceLoadService {
         List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
         DateTime at,
       })> _ramContas = {};
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ramFinanceLogs = {};
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ramFinanceMpNotifications = {};
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
@@ -68,6 +80,10 @@ abstract final class ChurchFinanceLoadService {
 
   static String cacheKeyContas(String churchId) =>
       '${churchId.trim()}_finance_contas';
+  static String cacheKeyFinanceLogs(String churchId, int limit) =>
+      '${churchId.trim()}_finance_logs_$limit';
+  static String cacheKeyFinanceMpNotifications(String churchId, int limit) =>
+      '${churchId.trim()}_finance_mp_notifications_$limit';
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekLancamentosRam(
     String seedTenantId, {
@@ -166,6 +182,8 @@ abstract final class ChurchFinanceLoadService {
         sortDocs: _sortFinanceDocs,
         orderByField: 'createdAt',
         orderDescending: true,
+        queryLabel: 'finance',
+        legacyFallbackSubcollection: 'financeiro',
       );
 
   static Future<ChurchFinanceLoadResult> loadContas({
@@ -177,7 +195,7 @@ abstract final class ChurchFinanceLoadService {
       _load(
         seedTenantId: seedTenantId,
         hiveModule: kHiveContas,
-        cacheKeyFn: (_, __) => cacheKeyContas(_resolve(seedTenantId)),
+        cacheKeyFn: (churchId, limit) => cacheKeyContas(churchId),
         ramMap: _ramContas,
         limit: limit,
         forceRefresh: forceRefresh,
@@ -189,6 +207,57 @@ abstract final class ChurchFinanceLoadService {
         plainQuery: (col, capped) => col.limit(capped),
         orderByField: 'nome',
         orderDescending: false,
+        queryLabel: 'contas',
+      );
+
+  static Future<ChurchFinanceLoadResult> loadFinanceLogs({
+    required String seedTenantId,
+    int limit = 120,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) =>
+      _load(
+        seedTenantId: seedTenantId,
+        hiveModule: kHiveFinanceLogs,
+        cacheKeyFn: cacheKeyFinanceLogs,
+        ramMap: _ramFinanceLogs,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+        collectionLabel: 'finance_logs',
+        firestorePath: (id) => 'igrejas/$id/finance_logs',
+        col: (id) => ChurchUiCollections.financeLogs(id),
+        orderedQuery: (col, capped) =>
+            col.orderBy('criadoEm', descending: true).limit(capped),
+        plainQuery: (col, capped) => col.limit(capped),
+        orderByField: 'criadoEm',
+        orderDescending: true,
+        queryLabel: 'finance_logs',
+      );
+
+  static Future<ChurchFinanceLoadResult> loadFinanceMpNotifications({
+    required String seedTenantId,
+    int limit = 120,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) =>
+      _load(
+        seedTenantId: seedTenantId,
+        hiveModule: kHiveFinanceMpNotifications,
+        cacheKeyFn: cacheKeyFinanceMpNotifications,
+        ramMap: _ramFinanceMpNotifications,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+        collectionLabel: 'finance_mp_notifications',
+        firestorePath: (id) => 'igrejas/$id/finance_mp_notifications',
+        col: (id) => ChurchUiCollections.financeMpNotifications(id),
+        orderedQuery: (col, capped) =>
+            col.orderBy('createdAt', descending: true).limit(capped),
+        plainQuery: (col, capped) => col.limit(capped),
+        orderByField: 'createdAt',
+        orderDescending: true,
+        queryLabel: 'finance_mp_notifications',
       );
 
   static Future<ChurchFinanceLoadResult> _load({
@@ -220,6 +289,8 @@ abstract final class ChurchFinanceLoadService {
     )? sortDocs,
     String orderByField = 'createdAt',
     bool orderDescending = true,
+    String queryLabel = 'finance',
+    String? legacyFallbackSubcollection,
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
@@ -324,6 +395,8 @@ abstract final class ChurchFinanceLoadService {
         sortDocs: sortDocs,
         orderByField: orderByField,
         orderDescending: orderDescending,
+        queryLabel: queryLabel,
+        legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
@@ -349,6 +422,8 @@ abstract final class ChurchFinanceLoadService {
         sortDocs: sortDocs,
         orderByField: orderByField,
         orderDescending: orderDescending,
+        queryLabel: queryLabel,
+        legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
@@ -359,7 +434,7 @@ abstract final class ChurchFinanceLoadService {
         collectionPath: firestorePath(churchId),
       );
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     try {
@@ -382,7 +457,7 @@ abstract final class ChurchFinanceLoadService {
         );
       }
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -495,6 +570,8 @@ abstract final class ChurchFinanceLoadService {
     )? sortDocs,
     String orderByField = 'createdAt',
     bool orderDescending = true,
+    String queryLabel = 'finance',
+    String? legacyFallbackSubcollection,
   }) async {
     try {
       final docs = await _loadFirestore(
@@ -508,6 +585,8 @@ abstract final class ChurchFinanceLoadService {
         sortDocs: sortDocs,
         orderByField: orderByField,
         orderDescending: orderDescending,
+        queryLabel: queryLabel,
+        legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
       _putRam(ramMap, ramKey, docs);
       await _persistHive(churchId, hiveModule, docs);
@@ -546,8 +625,10 @@ abstract final class ChurchFinanceLoadService {
     )? sortDocs,
     String orderByField = 'createdAt',
     bool orderDescending = true,
+    String queryLabel = 'finance',
+    String? legacyFallbackSubcollection,
   }) async {
-    final capped = FirebasePerformanceLimits.capListLimit('finance', limit);
+    final capped = FirebasePerformanceLimits.capListLimit(queryLabel, limit);
     final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: reference,
       cacheKey: cacheKey,
@@ -559,12 +640,13 @@ abstract final class ChurchFinanceLoadService {
     );
     if (docs.isNotEmpty) return docs;
 
-    final legacyRef =
-        ChurchUiCollections.churchDoc(churchId).collection('financeiro');
+    final legacySub = (legacyFallbackSubcollection ?? '').trim();
+    if (legacySub.isEmpty) return docs;
+    final legacyRef = ChurchUiCollections.churchDoc(churchId).collection(legacySub);
     if (legacyRef.path == reference.path) return docs;
     return ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: legacyRef,
-      cacheKey: '${cacheKey}_legacy_financeiro',
+      cacheKey: '${cacheKey}_legacy_$legacySub',
       limit: capped,
       forceServer: forceServer,
       orderByField: 'createdAt',
@@ -578,8 +660,14 @@ abstract final class ChurchFinanceLoadService {
     if (churchId.isEmpty) return;
     _ramLancamentos.removeWhere((k, _) => k.startsWith(churchId));
     _ramContas.remove(cacheKeyContas(churchId));
+    _ramFinanceLogs.removeWhere((k, _) => k.startsWith('${churchId}_finance_logs_'));
+    _ramFinanceMpNotifications.removeWhere(
+      (k, _) => k.startsWith('${churchId}_finance_mp_notifications_'),
+    );
     await TenantModuleHiveCache.clearModule(churchId, TenantModuleKeys.financeiro);
     await TenantModuleHiveCache.clearModule(churchId, ChurchDataPaths.financeiro);
     await TenantModuleHiveCache.clearModule(churchId, kHiveContas);
+    await TenantModuleHiveCache.clearModule(churchId, kHiveFinanceLogs);
+    await TenantModuleHiveCache.clearModule(churchId, kHiveFinanceMpNotifications);
   }
 }

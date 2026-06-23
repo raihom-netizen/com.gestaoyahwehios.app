@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/multi_tenant_diagnostic_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -79,7 +79,7 @@ class _AdminMultiTenantDiagnosticPageState
   @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     final allOk = _checks.isNotEmpty &&
         _checks.every((c) => c.status == MultiTenantCheckStatus.ok);
 

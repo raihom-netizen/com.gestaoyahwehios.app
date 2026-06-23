@@ -68,6 +68,7 @@ abstract final class ChurchModuleFirestoreListRead {
     required String cacheKey,
     required int limit,
     bool forceServer = false,
+    List<String> legacyFallbackSubcollections = const [],
     String? orderByField,
     bool orderDescending = false,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
@@ -89,68 +90,95 @@ abstract final class ChurchModuleFirestoreListRead {
       return c.orderBy(field, descending: orderDescending).limit(limit);
     }
 
-    if (!forceServer) {
-      try {
-        final plainCache = await plain(reference)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 3));
-        if (plainCache.docs.isNotEmpty) {
-          return _finalize(plainCache.docs, sortDocs);
-        }
-      } catch (_) {}
-
-      final oq = ordered(reference);
-      if (oq != null) {
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> tryRead(
+      CollectionReference<Map<String, dynamic>> ref,
+      String keyBase,
+    ) async {
+      if (!forceServer) {
         try {
-          final cacheSnap = await oq
+          final plainCache = await plain(ref)
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 3));
-          if (cacheSnap.docs.isNotEmpty) {
-            return _finalize(cacheSnap.docs, sortDocs);
+          if (plainCache.docs.isNotEmpty) {
+            return _finalize(plainCache.docs, sortDocs);
           }
         } catch (_) {}
-      }
-    }
 
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      try {
-        final plainSnap = await FirestoreReadResilience.getQuery(
-          plain(reference),
-          cacheKey: '${cacheKey}_plain',
+        final oq = ordered(ref);
+        if (oq != null) {
+          try {
+            final cacheSnap = await oq
+                .get(const GetOptions(source: Source.cache))
+                .timeout(const Duration(seconds: 3));
+            if (cacheSnap.docs.isNotEmpty) {
+              return _finalize(cacheSnap.docs, sortDocs);
+            }
+          } catch (_) {}
+        }
+      }
+
+      Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+        try {
+          final plainSnap = await FirestoreReadResilience.getQuery(
+            plain(ref),
+            cacheKey: '${keyBase}_plain',
+            maxAttempts: kIsWeb ? 4 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+          if (plainSnap.docs.isNotEmpty) return plainSnap;
+        } catch (_) {}
+
+        final oq = ordered(ref);
+        if (oq != null) {
+          try {
+            return await FirestoreReadResilience.getQuery(
+              oq,
+              cacheKey: keyBase,
+              maxAttempts: kIsWeb ? 5 : 3,
+              attemptTimeout: ChurchPanelReadTimeouts.attempt,
+            );
+          } catch (_) {}
+        }
+
+        return FirestoreReadResilience.getQuery(
+          plain(ref),
+          cacheKey: '${keyBase}_plain_retry',
           maxAttempts: kIsWeb ? 4 : 3,
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
-        if (plainSnap.docs.isNotEmpty) return plainSnap;
-      } catch (_) {}
-
-      final oq = ordered(reference);
-      if (oq != null) {
-        try {
-          return await FirestoreReadResilience.getQuery(
-            oq,
-            cacheKey: cacheKey,
-            maxAttempts: kIsWeb ? 5 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-        } catch (_) {}
       }
 
-      return FirestoreReadResilience.getQuery(
-        plain(reference),
-        cacheKey: '${cacheKey}_plain_retry',
-        maxAttempts: kIsWeb ? 4 : 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              readServer,
+              maxAttempts: 3,
+            ).timeout(const Duration(seconds: 18))
+          : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+      return _finalize(snap.docs, sortDocs);
     }
 
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 3,
-          ).timeout(const Duration(seconds: 18))
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+    final primaryDocs = await tryRead(reference, cacheKey);
+    if (primaryDocs.isNotEmpty || legacyFallbackSubcollections.isEmpty) {
+      return primaryDocs;
+    }
 
-    return _finalize(snap.docs, sortDocs);
+    final parts = reference.path.split('/');
+    if (parts.length < 4 || parts[0] != 'igrejas') {
+      return primaryDocs;
+    }
+    final churchId = parts[1];
+    final currentSub = parts[2];
+    for (final rawSub in legacyFallbackSubcollections) {
+      final sub = rawSub.trim();
+      if (sub.isEmpty || sub == currentSub) continue;
+      final legacyRef = reference.firestore
+          .collection('igrejas')
+          .doc(churchId)
+          .collection(sub);
+      final docs = await tryRead(legacyRef, '${cacheKey}_legacy_$sub');
+      if (docs.isNotEmpty) return docs;
+    }
+    return primaryDocs;
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _finalize(

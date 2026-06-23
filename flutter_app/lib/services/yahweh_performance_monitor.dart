@@ -78,7 +78,7 @@ abstract final class YahwehPerformanceMonitor {
     try {
       final uid = firebaseDefaultAuth.currentUser?.uid;
       if (uid == null) return;
-      await FirebaseFirestore.instance.collection('performanceLogs').add({
+      await firebaseDefaultFirestore.collection('performanceLogs').add({
         'screen': screen,
         'loadTime': loadMs,
         'device': defaultTargetPlatform.name,

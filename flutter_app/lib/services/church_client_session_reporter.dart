@@ -23,7 +23,7 @@ void reportChurchClientSessionToUserDoc() {
         p = defaultTargetPlatform.name;
     }
   }
-  FirebaseFirestore.instance.collection('users').doc(u.uid).set(
+  firebaseDefaultFirestore.collection('users').doc(u.uid).set(
     {
       'lastClientPlatform': p,
       'lastClientPlatformAt': FieldValue.serverTimestamp(),

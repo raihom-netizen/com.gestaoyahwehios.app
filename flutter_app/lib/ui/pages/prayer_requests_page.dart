@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -262,20 +263,54 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     'Outro': Color(0xFF424242),
   };
 
-  User? get _currentUser => FirebaseAuth.instance.currentUser;
+  User? get _currentUser => firebaseDefaultAuth.currentUser;
+
+  bool _readLegacyBool(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      if (!data.containsKey(key)) continue;
+      final raw = data[key];
+      if (raw is bool) return raw;
+      final parsed = raw?.toString().trim().toLowerCase();
+      if (parsed == null || parsed.isEmpty) continue;
+      if (parsed == 'true' || parsed == '1' || parsed == 'sim') return true;
+      if (parsed == 'false' || parsed == '0' || parsed == 'nao') return false;
+    }
+    return false;
+  }
+
+  bool _isPublicPrayer(Map<String, dynamic> data) {
+    if (_readLegacyBool(data, const ['publico', 'public', 'isPublic', 'is_public'])) {
+      return true;
+    }
+    if (_readLegacyBool(data, const ['somenteLideres', 'leadersOnly', 'private'])) {
+      return false;
+    }
+    final emails = data['destinatariosEmails'];
+    if (emails is List && emails.isNotEmpty) return false;
+    // Compatibilidade legada: sem campo de visibilidade => público.
+    return !data.containsKey('publico') &&
+        !data.containsKey('public') &&
+        !data.containsKey('isPublic') &&
+        !data.containsKey('is_public');
+  }
 
   bool get _isLeader {
     final r = widget.role.toLowerCase();
     return r == 'adm' ||
         r == 'admin' ||
+        r == 'administrador' ||
         r == 'gestor' ||
         r == 'master' ||
         r == 'pastor' ||
-        r == 'lider';
+        r == 'pastora' ||
+        r == 'lider' ||
+        r == 'líder' ||
+        r == 'lideranca' ||
+        r == 'tesoureiro';
   }
 
   bool _canSee(Map<String, dynamic> data) {
-    if (data['publico'] == true) return true;
+    if (_isPublicPrayer(data)) return true;
     if (_isLeader) return true;
     if (data['autorUid'] == _currentUser?.uid) return true;
     final emails = data['destinatariosEmails'];
@@ -2336,7 +2371,7 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
       return;
     }
 
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (!_isEdit && user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Faça login para enviar.')),

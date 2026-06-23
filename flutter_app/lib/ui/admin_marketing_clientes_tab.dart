@@ -11,13 +11,14 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
-    FirebaseFirestore.instance
+    firebaseDefaultFirestore
         .collection(MarketingStorageLayout.firestoreCollection)
         .doc(MarketingStorageLayout.firestoreMarketingClientesDocId);
 
@@ -438,7 +439,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 (ref?['fotoPath'] ?? '').toString().trim();
                             if (oldPath.isNotEmpty && oldPath != photoPath) {
                               try {
-                                await FirebaseStorage.instance
+                                await firebaseDefaultStorage
                                     .ref(oldPath)
                                     .delete();
                               } catch (_) {}
@@ -446,14 +447,14 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 final parent = oldPath.substring(
                                     0, oldPath.length - '/capa.jpg'.length);
                                 try {
-                                  await FirebaseStorage.instance
+                                  await firebaseDefaultStorage
                                       .ref('$parent/thumb_capa.jpg')
                                       .delete();
                                 } catch (_) {}
                               }
                             }
                             final storageRef =
-                                FirebaseStorage.instance.ref(photoPath);
+                                firebaseDefaultStorage.ref(photoPath);
                             final task = storageRef.putData(
                               pendingBytes!,
                               SettableMetadata(
@@ -596,12 +597,12 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       final path = (item['fotoPath'] as String?)?.trim();
       if (path != null && path.isNotEmpty) {
         try {
-          await FirebaseStorage.instance.ref(path).delete();
+          await firebaseDefaultStorage.ref(path).delete();
         } catch (_) {}
         if (path.endsWith('/capa.jpg')) {
           final parent = path.substring(0, path.length - '/capa.jpg'.length);
           try {
-            await FirebaseStorage.instance.ref('$parent/thumb_capa.jpg').delete();
+            await firebaseDefaultStorage.ref('$parent/thumb_capa.jpg').delete();
           } catch (_) {}
         }
       } else {
@@ -612,10 +613,10 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
           final p =
               ChurchStorageLayout.marketingClienteShowcaseCapaPath(tenant);
           try {
-            await FirebaseStorage.instance.ref(p).delete();
+            await firebaseDefaultStorage.ref(p).delete();
           } catch (_) {}
           try {
-            await FirebaseStorage.instance
+            await firebaseDefaultStorage
                 .ref(
                     '${p.substring(0, p.length - '/capa.jpg'.length)}/thumb_capa.jpg')
                 .delete();
@@ -625,10 +626,10 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
           if (id.isNotEmpty) {
             final leg = MarketingStorageLayout.legacyClienteShowcasePhotoPath(id);
             try {
-              await FirebaseStorage.instance.ref(leg).delete();
+              await firebaseDefaultStorage.ref(leg).delete();
             } catch (_) {}
             try {
-              await FirebaseStorage.instance
+              await firebaseDefaultStorage
                   .ref(
                       '${leg.substring(0, leg.length - '/capa.jpg'.length)}/thumb_capa.jpg')
                   .delete();

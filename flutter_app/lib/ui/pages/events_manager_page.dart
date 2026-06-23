@@ -200,7 +200,7 @@ abstract final class _EventosNoticiasRamCache {
   static const Duration _ttl = Duration(minutes: 20);
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
+    final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty) return null;
     final hit = _byTenant[key];
     if (hit == null) return null;
@@ -215,14 +215,14 @@ abstract final class _EventosNoticiasRamCache {
     String tenantId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final key = tenantId.trim();
+    final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty || docs.isEmpty) return;
     _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
   }
 }
 
 String _eventosNoticiasMemKey(String tenantId, int limit) =>
-    '${tenantId.trim()}_noticias_start_$limit';
+    '${ChurchRepository.churchId(tenantId).trim()}_noticias_start_$limit';
 
 /// Cache RAM — modelos de culto fixo.
 abstract final class _EventTemplatesRamCache {
@@ -238,7 +238,7 @@ abstract final class _EventTemplatesRamCache {
   static const Duration _ttl = Duration(minutes: 20);
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
+    final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty) return null;
     final hit = _byTenant[key];
     if (hit == null) return null;
@@ -253,14 +253,14 @@ abstract final class _EventTemplatesRamCache {
     String tenantId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final key = tenantId.trim();
+    final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty || docs.isEmpty) return;
     _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
   }
 }
 
 String _eventTemplatesMemKey(String tenantId) =>
-    '${tenantId.trim()}_event_templates_all';
+    '${ChurchRepository.churchId(tenantId).trim()}_event_templates_all';
 
 /// Garante núcleo Firebase antes de qualquer leitura/gravação do módulo Eventos.
 Future<bool> _awaitEventosFirebasePanelReady() async {
@@ -287,7 +287,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   String? _firestoreTenantId;
   bool _firebaseReady = FirebaseBootstrapService.isReady();
   String? _firebaseInitError;
-  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
+  String get _tid => ChurchRepository.churchId(
+        (_firestoreTenantId ?? widget.tenantId).trim(),
+      );
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
   final GlobalKey<_GalleryArchiveTabState> _galleryTabKey =
@@ -3321,14 +3323,16 @@ class _FeedTabState extends State<_FeedTab> {
   final Set<String> _selectedEventIds = <String>{};
 
   Query<Map<String, dynamic>> _eventsBaseQuery({bool filtered = true}) {
-    final col = ChurchUiCollections.eventos(widget.tenantId.trim());
+    final col = ChurchUiCollections.eventos(
+      ChurchRepository.churchId(widget.tenantId),
+    );
     if (!filtered) {
       return col.orderBy('startAt', descending: true);
     }
-    return col
-        .where('ativo', isEqualTo: true)
-        .where('publicado', isEqualTo: true)
-        .orderBy('startAt', descending: true);
+    // Legacy-safe: alguns eventos antigos não possuem flags explícitas
+    // `ativo/publicado`. O filtro final de visibilidade já é aplicado
+    // em `_applyFilters`, então aqui priorizamos não "sumir" com dados.
+    return col.orderBy('startAt', descending: true);
   }
 
   @override

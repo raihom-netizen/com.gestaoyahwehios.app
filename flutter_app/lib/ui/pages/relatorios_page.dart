@@ -59,8 +59,15 @@ abstract final class _RelatoriosMembersDataCache {
 
   static const Duration _ttl = Duration(minutes: 20);
 
+  static String _canonicalTenantId(String seed) {
+    final raw = seed.trim();
+    if (raw.isEmpty) return '';
+    final resolved = ChurchRepository.churchId(raw);
+    return resolved.isNotEmpty ? resolved : raw;
+  }
+
   static List<Map<String, dynamic>>? peek(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = _canonicalTenantId(tenantId);
     if (tid.isEmpty) return null;
     final hit = _ram[tid];
     if (hit == null) return null;
@@ -75,7 +82,7 @@ abstract final class _RelatoriosMembersDataCache {
     String tenantId, {
     int limit = 800,
   }) async {
-    final tid = tenantId.trim();
+    final tid = _canonicalTenantId(tenantId);
     if (tid.isEmpty) return const [];
 
     final cached = peek(tid);
@@ -115,8 +122,17 @@ abstract final class _RelatoriosMembersDataCache {
 
 /// Branding PDF com timeout — evita «Gerando...» infinito se logo/Storage falhar.
 Future<ReportPdfBranding> _loadReportPdfBrandingFast(String tenantId) async {
+  final tid = ChurchRepository.churchId(tenantId.trim());
+  final effectiveTid = tid.isNotEmpty ? tid : tenantId.trim();
+  if (effectiveTid.isEmpty) {
+    return ReportPdfBranding(
+      churchName: '',
+      logoBytes: null,
+      accent: ReportPdfBranding.defaultAccent,
+    );
+  }
   try {
-    return await loadReportPdfBranding(tenantId)
+    return await loadReportPdfBranding(effectiveTid)
         .timeout(const Duration(seconds: 12));
   } catch (_) {
     return ReportPdfBranding(
@@ -128,7 +144,8 @@ Future<ReportPdfBranding> _loadReportPdfBrandingFast(String tenantId) async {
 }
 
 void _prewarmRelatoriosData(String tenantId) {
-  final tid = tenantId.trim();
+  final resolved = ChurchRepository.churchId(tenantId.trim());
+  final tid = resolved.isNotEmpty ? resolved : tenantId.trim();
   if (tid.isEmpty) return;
   unawaited(_RelatoriosMembersDataCache.fetch(tid));
   unawaited(_loadReportPdfBrandingFast(tid));
@@ -594,7 +611,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   Future<void> _loadDepartamentos() async {
     try {
       final snap =
-          await ChurchTenantResilientReads.departamentos(widget.tenantId);
+          await ChurchTenantResilientReads.departamentos(_effectiveTenantId);
       if (mounted) {
         setState(() {
           _departamentos = snap.docs
@@ -773,7 +790,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     try {
       final prep = await Future.wait<dynamic>([
         _fetchMembers(),
-        _loadReportPdfBrandingFast(widget.tenantId),
+        _loadReportPdfBrandingFast(_effectiveTenantId),
       ]);
       var list = prep[0] as List<Map<String, dynamic>>;
       final branding = prep[1] as ReportPdfBranding;
@@ -995,7 +1012,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
         setState(() => _operationalTenantId = op);
       }),
     );
-    final cached = _RelatoriosMembersDataCache.peek(widget.tenantId);
+    final cached = _RelatoriosMembersDataCache.peek(_effectiveTenantId);
     if (cached != null && cached.isNotEmpty) {
       _todosMembros = cached;
       _loadingMembros = false;
@@ -1012,7 +1029,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
     }
     try {
       final all =
-          await _RelatoriosMembersDataCache.fetch(widget.tenantId, limit: 800);
+          await _RelatoriosMembersDataCache.fetch(_effectiveTenantId, limit: 800);
       if (mounted) {
         setState(() {
           _todosMembros = all;
@@ -1132,7 +1149,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   : _filtro == 4
                       ? 'Aniversariantes — Ano'
                       : 'Aniversariantes — Período';
-      final branding = await _loadReportPdfBrandingFast(widget.tenantId);
+      final branding = await _loadReportPdfBrandingFast(_effectiveTenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(

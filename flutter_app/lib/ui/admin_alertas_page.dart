@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -28,7 +29,7 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
     setState(() { _loading = true; _error = null; });
     try {
       final snap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance
+        firebaseDefaultFirestore
             .collection('alertas')
             .orderBy('data', descending: true)
             .limit(200),
@@ -55,12 +56,14 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
     final id = alerta['id'] as String?;
     if (id == null || id.isEmpty) return;
     try {
-      await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+      await MasterAdminFirestore.write(() => firebaseDefaultFirestore
           .collection('alertas')
           .doc(id)
           .update({'lido': true}));
       if (mounted) _load();
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminAlertas _marcarComoLido: $e\n$st');
+    }
   }
 
   @override

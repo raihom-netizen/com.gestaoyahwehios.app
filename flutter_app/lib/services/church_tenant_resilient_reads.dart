@@ -321,6 +321,15 @@ abstract final class ChurchTenantResilientReads {
               cacheKey: _key(tenantId, 'noticias_start_$limit'),
             );
           } catch (_) {
+            try {
+              return await FirestoreReadResilience.getQuery(
+                church
+                    .collection('events')
+                    .orderBy('startAt', descending: true)
+                    .limit(limit),
+                cacheKey: _key(tenantId, 'noticias_start_events_en_$limit'),
+              );
+            } catch (_) {}
             final plain = await FirestoreReadResilience.getQuery(
               church.collection('eventos').limit(limit),
               cacheKey: _key(tenantId, 'noticias_plain_$limit'),

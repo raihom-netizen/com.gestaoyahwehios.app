@@ -182,8 +182,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         cacheKey: 'config_global_announcement',
       );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
-      final email =
-          (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
       await _audit.add({
         'message': msg,
         'title': _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
@@ -268,8 +267,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         cacheKey: 'config_global_announcement',
       );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
-      final email =
-          (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
       await _audit.add({
         'message': '',
         'validUntil': null,
@@ -348,8 +346,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         cacheKey: 'config_global_announcement',
       );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
-      final email =
-          (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
       await _audit.add({
         'message': (snap.data()?['message'] ?? '').toString(),
         'validUntil': Timestamp.fromDate(date),

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -27,7 +28,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
   int _tab = 0;
 
   bool get _isSuper {
-    final email = FirebaseAuth.instance.currentUser?.email?.toLowerCase() ?? '';
+    final email = firebaseDefaultAuth.currentUser?.email?.toLowerCase() ?? '';
     // ✅ seu e-mail master
     return email == 'raihom@gmail.com';
   }
@@ -73,13 +74,13 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _plans =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('config')
           .doc('plans')
           .collection('items');
 
   DocumentReference<Map<String, dynamic>> get _memberCardCfg =>
-      FirebaseFirestore.instance.doc('config/memberCard');
+      firebaseDefaultFirestore.doc('config/memberCard');
 
   Future<void> _editMemberCardConfig(Map<String, dynamic> data) async {
     final titleCtrl = TextEditingController(
@@ -161,7 +162,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
   }
 
   Future<void> _seedDefaultPlans() async {
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
 
     void up(String id, Map<String, dynamic> data) {
       batch.set(_plans.doc(id), data, SetOptions(merge: true));
@@ -524,7 +525,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
               );
 
               if (trialEnds != null) {
-                final subQs = await FirebaseFirestore.instance
+                final subQs = await firebaseDefaultFirestore
                     .collection('subscriptions')
                     .where('igrejaId', isEqualTo: d.id)
                     .orderBy('createdAt', descending: true)
@@ -538,7 +539,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                   'updatedAt': FieldValue.serverTimestamp(),
                 };
                 if (subQs.docs.isEmpty) {
-                  await FirebaseFirestore.instance
+                  await firebaseDefaultFirestore
                       .collection('subscriptions')
                       .add({
                     ...payload,
@@ -562,7 +563,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Painel Master')),
@@ -899,7 +900,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
                             return StreamBuilder<
                                 QuerySnapshot<Map<String, dynamic>>>(
-                              stream: FirebaseFirestore.instance
+                              stream: firebaseDefaultFirestore
                                   .collection('igrejas')
                                   .limit(YahwehPerformanceV4.masterChurchesListLimit)
                                   .watchSafe(),
@@ -1113,7 +1114,7 @@ class _SalesSummary extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
+          stream: firebaseDefaultFirestore
               .collection('igrejas')
               .limit(YahwehPerformanceV4.masterChurchesListLimit)
               .watchSafe(),

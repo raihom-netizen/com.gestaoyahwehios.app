@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/offline/firestore_last_write_wins.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -287,9 +288,9 @@ abstract final class TenantOfflineWrite {
         payload: {'writes': encoded},
       );
       if (!kIsWeb) {
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = firebaseDefaultFirestore.batch();
         for (final w in writes) {
-          final ref = FirebaseFirestore.instance.doc(w.path);
+          final ref = firebaseDefaultFirestore.doc(w.path);
           final data = FirestoreWriteGuard.stripHeavyFields(w.data);
           final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
             merge: w.merge,
@@ -308,9 +309,9 @@ abstract final class TenantOfflineWrite {
       return;
     }
 
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     for (final w in writes) {
-      final ref = FirebaseFirestore.instance.doc(w.path);
+      final ref = firebaseDefaultFirestore.doc(w.path);
       final data = FirestoreWriteGuard.stripHeavyFields(w.data);
       final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
         merge: w.merge,

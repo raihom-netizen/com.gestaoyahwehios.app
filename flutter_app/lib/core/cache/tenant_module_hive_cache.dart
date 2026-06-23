@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_incremental_sync.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
@@ -122,7 +123,7 @@ abstract final class TenantModuleHiveCache {
       final id = (row['id'] ?? '').toString();
       final dataRaw = row['data'];
       if (path.isEmpty || dataRaw is! Map) continue;
-      final ref = FirebaseFirestore.instance.doc(path);
+      final ref = firebaseDefaultFirestore.doc(path);
       out.add(
         _HiveMapQueryDocumentSnapshot(
           reference: ref,

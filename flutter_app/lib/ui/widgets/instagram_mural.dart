@@ -620,16 +620,24 @@ class InstagramMuralState extends State<InstagramMural> {
     if (!filtered) {
       return _avisos.orderBy('createdAt', descending: true);
     }
-    return _avisos
-        .where('ativo', isEqualTo: true)
-        .where('publicado', isEqualTo: true)
-        .orderBy('createdAt', descending: true);
+    // Legacy-safe: alguns avisos antigos não têm `ativo/publicado`.
+    // Fazemos filtro de visibilidade no cliente (_docVisibleInFeed) para evitar feed vazio.
+    return _avisos.orderBy('createdAt', descending: true);
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterFeedDocs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) =>
-      ChurchModuleFirestoreListRead.filterPublishedFeedRecords(docs);
+  ) {
+    final strict = ChurchModuleFirestoreListRead.filterPublishedFeedRecords(docs);
+    if (strict.isNotEmpty) return strict;
+    // Fallback legado: mantém docs sem flags explícitas, mas exclui `false` explícito.
+    return docs.where((d) {
+      final data = d.data();
+      if (data['ativo'] == false) return false;
+      if (data['publicado'] == false) return false;
+      return true;
+    }).toList();
+  }
 
   Future<void> _startFeedLiveSync() async {
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;

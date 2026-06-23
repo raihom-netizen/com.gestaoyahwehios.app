@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -131,7 +132,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
     setState(() => _marketingGalleryStorageRefreshToken++);
   }
 
-  DocumentReference<Map<String, dynamic>> get _docRef => FirebaseFirestore.instance
+DocumentReference<Map<String, dynamic>> get _docRef => firebaseDefaultFirestore
       .collection(MarketingStorageLayout.firestoreCollection)
       .doc(MarketingStorageLayout.firestoreGalleryDocId);
 
@@ -392,7 +393,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
     });
     StreamSubscription<TaskSnapshot>? sub;
     try {
-      final ref = FirebaseStorage.instance.ref(storagePath);
+      final ref = firebaseDefaultStorage.ref(storagePath);
       final task = ref.putData(
         bytes,
         SettableMetadata(
@@ -564,7 +565,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } else {
-        await FirebaseFirestore.instance.runTransaction((txn) async {
+        await firebaseDefaultFirestore.runTransaction((txn) async {
           final snap = await txn.get(_docRef);
           if (!snap.exists) throw StateError('GALLERY_DOC_MISSING');
           final fresh = _parseItems(snap.data());
@@ -622,8 +623,10 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
 
     if (deleteFile && path.isNotEmpty) {
       try {
-        await FirebaseStorage.instance.ref(path).delete();
-      } catch (_) {}
+        await firebaseDefaultStorage.ref(path).delete();
+      } catch (e, st) {
+        debugPrint('AdminDivulgacao _removeItem storage delete: $e\n$st');
+      }
       _bumpMarketingGalleryStorageRefresh();
     }
     if (!mounted) return;
@@ -754,7 +757,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
     if (deleteFile) {
       for (final p in removeNorm) {
         try {
-          await FirebaseStorage.instance.ref(p).delete();
+          await firebaseDefaultStorage.ref(p).delete();
           storageOk++;
         } catch (e) {
           storageFail++;

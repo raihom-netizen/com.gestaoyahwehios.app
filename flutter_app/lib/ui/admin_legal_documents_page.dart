@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/legal_document_models.dart';
 import 'package:gestao_yahweh/services/legal_documents_defaults.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
@@ -179,7 +180,7 @@ class _AdminLegalDocumentsPageState extends State<AdminLegalDocumentsPage>
       );
       return;
     }
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Faça login como administrador.')),

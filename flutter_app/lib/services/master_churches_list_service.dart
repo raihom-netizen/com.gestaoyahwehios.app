@@ -37,7 +37,7 @@ abstract final class MasterChurchesListService {
   static const Duration _memTtl = Duration(minutes: 10);
 
   static DocumentReference<Map<String, dynamic>> get _indexRef =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('config')
           .doc('master_churches_index');
 
@@ -198,7 +198,7 @@ abstract final class MasterChurchesListService {
     bool forceServer = false,
   }) async {
     return FirestoreWebGuard.runWithWebRecovery(() async {
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       QuerySnapshot<Map<String, dynamic>> snap;
       try {
         snap = await db

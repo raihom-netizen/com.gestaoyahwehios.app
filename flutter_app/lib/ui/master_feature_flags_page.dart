@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -40,7 +40,7 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
     setState(() => _loading = true);
     try {
       final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance.doc(_docPath).get(),
+        () => firebaseDefaultFirestore.doc(_docPath).get(),
       );
       final data = snap.data();
       if (data != null) {
@@ -61,10 +61,10 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
         allowHardReconnect: true,
       );
       await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance.doc(_docPath).set({
+        () => firebaseDefaultFirestore.doc(_docPath).set({
           ..._flags,
           'updatedAt': FieldValue.serverTimestamp(),
-          'updatedBy': FirebaseAuth.instance.currentUser?.email,
+          'updatedBy': firebaseDefaultAuth.currentUser?.email,
         }, SetOptions(merge: true)),
       );
       if (mounted) {

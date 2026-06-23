@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
@@ -265,6 +267,13 @@ abstract final class ChurchFeedLinearPublishService {
       payload: payload,
       isNewDoc: isNewDoc,
     );
+    if (isEvento) {
+      await _mirrorEventoToLegacyEventsCollection(
+        churchId: churchId,
+        docId: docId,
+        payload: payload,
+      );
+    }
 
     if (isEvento) {
       await EventosPublishVerificationService.verifyDocumentExists(docRef);
@@ -341,6 +350,23 @@ abstract final class ChurchFeedLinearPublishService {
     return [
       ...AvisosPublishVerificationService.storagePathsFromUrls(deduped),
     ];
+  }
+
+  static Future<void> _mirrorEventoToLegacyEventsCollection({
+    required String churchId,
+    required String docId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      await firebaseDefaultFirestore
+          .collection(ChurchDataPaths.rootCollection)
+          .doc(churchId)
+          .collection(ChurchDataPaths.legacyEventosEn)
+          .doc(docId)
+          .set(Map<String, dynamic>.from(payload), SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('EVENTOS mirror legacy events failed: $e');
+    }
   }
 
   static double _aspectRatioFromPayload(Map<String, dynamic> payload) {

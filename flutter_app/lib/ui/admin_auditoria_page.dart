@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -31,14 +32,14 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = firebaseDefaultAuth.currentUser;
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final token = await user?.getIdTokenResult(false);
       final role = (token?.claims?['role'] ?? '').toString().toUpperCase();
       final igrejaId = (token?.claims?['igrejaId'] ?? '').toString().trim();
       final isMaster = role == 'MASTER' || role == 'ADMIN' || role == 'ADM';
 
-      Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+      Query<Map<String, dynamic>> q = firebaseDefaultFirestore
           .collection('auditoria')
           .orderBy('data', descending: true)
           .limit(YahwehPerformanceV4.masterAuditLogLimit);

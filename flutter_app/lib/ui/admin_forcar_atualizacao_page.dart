@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/installed_app_build.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
@@ -64,7 +65,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
     });
     try {
       final doc = await FirestoreReadResilience.getDocument(
-        FirebaseFirestore.instance.doc(_path),
+        firebaseDefaultFirestore.doc(_path),
         cacheKey: 'config_appVersion',
       );
       final data = doc.data();
@@ -187,7 +188,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
       }
       await FirestoreWebGuard.prepareForCriticalWrite();
       await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance
+        () => firebaseDefaultFirestore
             .doc(_path)
             .set(payload, SetOptions(merge: true)),
       );

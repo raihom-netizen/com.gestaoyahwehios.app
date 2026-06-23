@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 /// OAuth 2.0 **Web client** do projeto Firebase (`google-services.json` →
@@ -87,7 +88,7 @@ Future<UserCredential> firebaseCredentialFromGoogleAccount(
       message: 'Google não retornou token de identificação.',
     );
   }
-  return FirebaseAuth.instance.signInWithCredential(
+  return firebaseDefaultAuth.signInWithCredential(
     GoogleAuthProvider.credential(idToken: idTok),
   );
 }

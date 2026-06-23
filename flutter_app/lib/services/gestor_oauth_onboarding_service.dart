@@ -32,7 +32,7 @@ class GestorOAuthOnboardingService {
     if (user == null) return;
 
     final doc =
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        await firebaseDefaultFirestore.collection('users').doc(user.uid).get();
     final data = doc.data();
     final igrejaId =
         (data?['igrejaId'] ?? data?['tenantId'] ?? '').toString().trim();
@@ -61,7 +61,7 @@ class GestorOAuthOnboardingService {
       Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false);
     } else {
       if (IosPaymentsGate.hideOrganizationSignup) {
-        await FirebaseAuth.instance.signOut();
+        await firebaseDefaultAuth.signOut();
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -177,7 +177,7 @@ class GestorOAuthOnboardingService {
       idToken: idToken,
       rawNonce: rawNonce,
     );
-    return FirebaseAuth.instance.signInWithCredential(oauthCredential);
+    return firebaseDefaultAuth.signInWithCredential(oauthCredential);
   }
 }
 

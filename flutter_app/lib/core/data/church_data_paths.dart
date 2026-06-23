@@ -14,8 +14,14 @@ abstract final class ChurchDataPaths {
   static const String avisos = 'avisos';
   static const String chats = 'chats';
   static const String patrimonio = 'patrimonio';
+  static const String patrimonioInventarioHistorico =
+      'patrimonio_inventario_historico';
   /// Coleção real no Firestore (módulo «financeiro»).
   static const String financeiro = 'finance';
+  /// Log canônico de alterações no módulo financeiro.
+  static const String financeLogs = 'finance_logs';
+  /// Notificações de pagamento Mercado Pago espelhadas no tenant.
+  static const String financeMpNotifications = 'finance_mp_notifications';
   static const String fornecedores = 'fornecedores';
   static const String escalas = 'escalas';
   static const String escalaTemplates = 'escala_templates';
@@ -39,9 +45,13 @@ abstract final class ChurchDataPaths {
   static const String transferencias = 'cartas_historico';
   /// Modelos/favoritos de cartas — `cartas_modelos`.
   static const String cartasModelos = 'cartas_modelos';
+  /// Agenda de compromissos dos fornecedores/prestadores.
+  static const String fornecedorCompromissos = 'fornecedor_compromissos';
 
   /// Legado — leitura só até migração CF concluir.
   static const String legacyEventosNoticias = 'noticias';
+  /// Legado/en-US — alguns tenants antigos armazenaram eventos em `events`.
+  static const String legacyEventosEn = 'events';
 
   static const String dashboardCache = '_dashboard_cache';
   static const String config = 'config';
@@ -75,7 +85,10 @@ abstract final class ChurchDataPaths {
     avisos,
     chats,
     patrimonio,
+    patrimonioInventarioHistorico,
     financeiro,
+    financeLogs,
+    financeMpNotifications,
     fornecedores,
     escalas,
     escalaTemplates,
@@ -91,5 +104,6 @@ abstract final class ChurchDataPaths {
     pedidosOracao,
     transferencias,
     cartasModelos,
+    fornecedorCompromissos,
   ];
 }

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -48,7 +49,7 @@ class _AdminSuportePageState extends State<AdminSuportePage> {
     try {
       // Sem orderBy no servidor: evita índice composto + reduz bugs do listener/cache no Firestore Web (SDK 11.x).
       final snap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance.collection('suporte').limit(200),
+        firebaseDefaultFirestore.collection('suporte').limit(200),
         cacheKey: 'master_suporte',
       );
 
@@ -91,7 +92,7 @@ class _AdminSuportePageState extends State<AdminSuportePage> {
     );
     if (resposta != null && resposta.isNotEmpty) {
       try {
-        await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+      await MasterAdminFirestore.write(() => firebaseDefaultFirestore
             .collection('suporte')
             .doc(id)
             .update({

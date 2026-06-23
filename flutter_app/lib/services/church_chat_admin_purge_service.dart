@@ -16,7 +16,7 @@ abstract final class ChurchChatAdminPurgeService {
     if (tid.isEmpty) {
       throw StateError('Igreja inválida.');
     }
-    final fn = FirebaseFunctions.instance.httpsCallable(
+    final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp).httpsCallable(
       'purgeChurchChatMessagesAdmin',
       options: HttpsCallableOptions(timeout: const Duration(minutes: 9)),
     );

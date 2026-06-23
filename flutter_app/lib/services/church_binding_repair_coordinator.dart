@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -45,7 +46,7 @@ class ChurchBindingRepairCoordinator {
       final fromClaims = _tenantFromClaims(token.claims ?? {});
       if (fromClaims.isEmpty) return false;
 
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('users')
           .doc(user.uid)
           .get();

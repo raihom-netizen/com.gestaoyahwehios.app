@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -118,6 +117,10 @@ abstract final class ChurchFornecedoresLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    if (docs.isEmpty) {
+      _ram.remove(key);
+      return;
+    }
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
@@ -177,6 +180,9 @@ abstract final class ChurchFornecedoresLoadService {
 
       final ramHit = _peekRam(churchId, limit);
       if (ramHit != null) {
+        if (ramHit.isEmpty) {
+          _ram.remove(ramKey);
+        } else {
         unawaited(_refreshInBackground(
           churchId: churchId,
           ramKey: ramKey,
@@ -190,6 +196,7 @@ abstract final class ChurchFornecedoresLoadService {
           collectionPath: path,
           fromCache: true,
         );
+        }
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -273,7 +280,7 @@ abstract final class ChurchFornecedoresLoadService {
         collectionPath: path,
       );
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     try {
@@ -295,7 +302,7 @@ abstract final class ChurchFornecedoresLoadService {
         );
       }
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -384,6 +391,7 @@ abstract final class ChurchFornecedoresLoadService {
         cacheKey: cacheKey,
         limit: limit,
         forceServer: forceServer,
+        legacyFallbackSubcollections: const ['suppliers'],
         orderByField: 'nome',
         sortDocs: _sortByNome,
       );

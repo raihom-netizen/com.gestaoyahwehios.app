@@ -111,6 +111,7 @@ abstract final class ChurchCargosLoadService {
       cacheKey: key,
       limit: kLimit,
       forceServer: forceServer,
+      legacyFallbackSubcollections: const ['roles'],
       orderByField: 'order',
       orderDescending: false,
       sortDocs: _sortDocs,

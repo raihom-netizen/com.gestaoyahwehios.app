@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Código de membro sequencial **por igreja** (cartão CNH, QR, relatórios).
@@ -62,7 +63,7 @@ abstract final class MemberCodigoService {
     if (tid.isEmpty) {
       throw ArgumentError('tenantId vazio');
     }
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final cfgRef = _configRef(tid);
     final yearNow = DateTime.now().year;
 

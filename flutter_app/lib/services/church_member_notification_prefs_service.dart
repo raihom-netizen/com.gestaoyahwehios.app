@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -131,7 +132,7 @@ abstract final class ChurchMemberNotificationPrefsService {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final userSnap = await firestoreDocumentGetReliable(
-        FirebaseFirestore.instance.collection('users').doc(uid.trim()),
+        firebaseDefaultFirestore.collection('users').doc(uid.trim()),
       ).timeout(const Duration(seconds: 6));
       var out = fromLegacyUserDoc(userSnap.data());
 
@@ -172,7 +173,7 @@ abstract final class ChurchMemberNotificationPrefsService {
     await sp.setBool('notif_fornecedor', prefs.receberFinanceiroTempo);
 
     final payload = prefs.toLegacyUserFields();
-    await FirebaseFirestore.instance
+    await firebaseDefaultFirestore
         .collection('users')
         .doc(uid.trim())
         .set(payload, SetOptions(merge: true));

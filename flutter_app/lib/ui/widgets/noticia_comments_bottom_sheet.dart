@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -56,7 +55,7 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
     if (texto.isEmpty) return;
     setState(() => _sending = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      final user = firebaseDefaultAuth.currentUser;
       String authorName = user?.displayName ?? '';
       String authorPhoto = user?.photoURL ?? '';
       if (authorName.isEmpty && user != null) {

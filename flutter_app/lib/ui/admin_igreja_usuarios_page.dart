@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart';
@@ -49,7 +50,7 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
     try {
       final tenantId = await ChurchOperationalPaths.resolve(widget.tenantId);
       final allIds = await ChurchOperationalPaths.clusterDocIds(tenantId);
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       final seen = <String>{};
       final list = <_MemberRow>[];
 
@@ -65,21 +66,29 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
           final membrosSnap =
               await ChurchTenantResilientReads.membrosRecent(tid, limit: 2500);
           for (final d in membrosSnap.docs) addDoc(d);
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('AdminIgrejaUsuarios membrosRecent($tid): $e\n$st');
+        }
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
           final usersInIgreja = await ChurchUiCollections.churchDoc(tid).collection('users').get();
           for (final d in usersInIgreja.docs) addDoc(d);
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('AdminIgrejaUsuarios igreja/users($tid): $e\n$st');
+        }
         // users (raiz) com tenantId/igrejaId apontando para esta igreja
         try {
           final usersT = await db.collection('users').where('tenantId', isEqualTo: tid).get();
           for (final d in usersT.docs) addDoc(d);
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('AdminIgrejaUsuarios users tenantId($tid): $e\n$st');
+        }
         try {
           final usersI = await db.collection('users').where('igrejaId', isEqualTo: tid).get();
           for (final d in usersI.docs) addDoc(d);
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('AdminIgrejaUsuarios users igrejaId($tid): $e\n$st');
+        }
       }
 
       list.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
@@ -87,7 +96,8 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         _members = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AdminIgrejaUsuarios _load: $e\n$st');
       setState(() {
         _members = [];
         _loading = false;

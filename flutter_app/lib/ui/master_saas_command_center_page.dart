@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/saas_plan_limits.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -132,8 +133,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
 
   Future<void> _audit(String action, String details) async {
     try {
-      final u = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance.collection('auditoria').add({
+      final u = firebaseDefaultAuth.currentUser;
+      await firebaseDefaultFirestore.collection('auditoria').add({
         'acao': action,
         'resource': 'master_saas_command',
         'details': details,
@@ -863,7 +864,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   }
 
   Future<_MasterBizSnapshot> _loadBizSnapshot() async {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final now = DateTime.now();
     final start30 = now.subtract(const Duration(days: 30));
     final start90 = now.subtract(const Duration(days: 90));

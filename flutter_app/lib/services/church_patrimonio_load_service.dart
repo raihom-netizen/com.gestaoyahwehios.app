@@ -6,7 +6,6 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -46,6 +45,7 @@ abstract final class ChurchPatrimonioLoadService {
 
   static const int kDefaultListLimit = 20;
   static const int kDefaultAllLimit = 800;
+  static const int kDefaultInventarioHistoricoLimit = 120;
 
   static final Map<
       String,
@@ -53,6 +53,12 @@ abstract final class ChurchPatrimonioLoadService {
         List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
         DateTime at,
       })> _ram = {};
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ramInventarioHistorico = {};
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
@@ -62,6 +68,9 @@ abstract final class ChurchPatrimonioLoadService {
 
   static String cacheKey(String churchId, int limit) =>
       '${churchId.trim()}_patrimonio_$limit';
+
+  static String inventarioHistoricoCacheKey(String churchId, int limit) =>
+      '${churchId.trim()}_patrimonio_inventario_historico_$limit';
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
@@ -205,11 +214,70 @@ abstract final class ChurchPatrimonioLoadService {
         forceServer: forceServer,
       );
 
+  static Future<ChurchPatrimonioLoadResult> loadInventarioHistorico({
+    required String seedTenantId,
+    int limit = kDefaultInventarioHistoricoLimit,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) =>
+      _loadCollectionInternal(
+        seedTenantId: seedTenantId,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+        collectionLabel: 'patrimonio_inventario_historico',
+        collectionPathBuilder: (id) =>
+            'igrejas/$id/patrimonio_inventario_historico',
+        referenceBuilder: (id) => ChurchUiCollections.patrimonioInventarioHistorico(id),
+        cacheKeyBuilder: inventarioHistoricoCacheKey,
+        ramMap: _ramInventarioHistorico,
+        hiveModule: TenantModuleKeys.patrimonio,
+        queryOrderBy: 'createdAt',
+        sortDocs: _sortByCreatedAtDesc,
+      );
+
   static Future<ChurchPatrimonioLoadResult> _loadInternal({
     required String seedTenantId,
     required int limit,
     required bool forceRefresh,
     required bool forceServer,
+  }) =>
+      _loadCollectionInternal(
+        seedTenantId: seedTenantId,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+        collectionLabel: 'patrimonio',
+        collectionPathBuilder: (id) => 'igrejas/$id/patrimonio',
+        referenceBuilder: (id) => ChurchUiCollections.patrimonio(id),
+        cacheKeyBuilder: cacheKey,
+        ramMap: _ram,
+        hiveModule: TenantModuleKeys.patrimonio,
+        queryOrderBy: 'nome',
+        sortDocs: _sortByNome,
+      );
+
+  static Future<ChurchPatrimonioLoadResult> _loadCollectionInternal({
+    required String seedTenantId,
+    required int limit,
+    required bool forceRefresh,
+    required bool forceServer,
+    required String collectionLabel,
+    required String Function(String churchId) collectionPathBuilder,
+    required CollectionReference<Map<String, dynamic>> Function(String churchId)
+        referenceBuilder,
+    required String Function(String churchId, int limit) cacheKeyBuilder,
+    required Map<
+        String,
+        ({
+          List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+          DateTime at,
+        })> ramMap,
+    required String hiveModule,
+    required String queryOrderBy,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) sortDocs,
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
@@ -222,21 +290,30 @@ abstract final class ChurchPatrimonioLoadService {
       );
     }
 
-    final path = 'igrejas/$churchId/patrimonio';
-    final ramKey = cacheKey(churchId, limit);
-    final reference = ChurchUiCollections.patrimonio(churchId);
-    final capped = FirebasePerformanceLimits.capListLimit('patrimonio', limit);
+    final path = collectionPathBuilder(churchId);
+    final ramKey = cacheKeyBuilder(churchId, limit);
+    final reference = referenceBuilder(churchId);
+    final capped = FirebasePerformanceLimits.capListLimit(collectionLabel, limit);
 
     if (!forceRefresh && !forceServer) {
-      final anyRam = peekRamAny(churchId);
+      final anyRam = _peekAnyRam(
+        churchId: churchId,
+        collectionLabel: collectionLabel,
+        ramMap: ramMap,
+      );
       if (anyRam != null && anyRam.isNotEmpty) {
-        final docs = _sortByNome(anyRam);
-        _putRam(ramKey, docs);
+        final docs = sortDocs(anyRam);
+        _putRamInMap(ramMap, ramKey, docs);
         unawaited(_refreshInBackground(
           churchId: churchId,
           ramKey: ramKey,
           limit: capped,
           reference: reference,
+          ramMap: ramMap,
+          hiveModule: hiveModule,
+          collectionLabel: collectionLabel,
+          queryOrderBy: queryOrderBy,
+          sortDocs: sortDocs,
         ));
         return ChurchPatrimonioLoadResult(
           churchId: churchId,
@@ -247,13 +324,18 @@ abstract final class ChurchPatrimonioLoadService {
         );
       }
 
-      final ramHit = _peekRam(churchId, limit);
+      final ramHit = _peekRamInMap(ramMap, cacheKeyBuilder(churchId, limit));
       if (ramHit != null && ramHit.isNotEmpty) {
         unawaited(_refreshInBackground(
           churchId: churchId,
           ramKey: ramKey,
           limit: capped,
           reference: reference,
+          ramMap: ramMap,
+          hiveModule: hiveModule,
+          collectionLabel: collectionLabel,
+          queryOrderBy: queryOrderBy,
+          sortDocs: sortDocs,
         ));
         return ChurchPatrimonioLoadResult(
           churchId: churchId,
@@ -263,13 +345,13 @@ abstract final class ChurchPatrimonioLoadService {
           fromCache: true,
         );
       } else if (ramHit != null && ramHit.isEmpty) {
-        _ram.remove(ramKey);
+        ramMap.remove(ramKey);
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null) {
-        final docs = _sortByNome(mem.docs);
-        _putRam(ramKey, docs);
+        final docs = sortDocs(mem.docs);
+        _putRamInMap(ramMap, ramKey, docs);
         return ChurchPatrimonioLoadResult(
           churchId: churchId,
           docs: docs,
@@ -282,19 +364,23 @@ abstract final class ChurchPatrimonioLoadService {
       try {
         final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
-          TenantModuleKeys.patrimonio,
+          hiveModule,
         ).timeout(const Duration(seconds: 3));
         if (updatedAt != null) {
-          final hive =
-              await TenantModuleHiveCache.readDocs(churchId, TenantModuleKeys.patrimonio);
-          var docs = _sortByNome(TenantModuleHiveCache.toQueryDocuments(hive));
+          final hive = await TenantModuleHiveCache.readDocs(churchId, hiveModule);
+          var docs = sortDocs(TenantModuleHiveCache.toQueryDocuments(hive));
           if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
-            _putRam(ramKey, docs);
+            _putRamInMap(ramMap, ramKey, docs);
             unawaited(_refreshInBackground(
               churchId: churchId,
               ramKey: ramKey,
               limit: capped,
               reference: reference,
+              ramMap: ramMap,
+              hiveModule: hiveModule,
+              collectionLabel: collectionLabel,
+              queryOrderBy: queryOrderBy,
+              sortDocs: sortDocs,
             ));
             return ChurchPatrimonioLoadResult(
               churchId: churchId,
@@ -315,9 +401,12 @@ abstract final class ChurchPatrimonioLoadService {
         cacheKey: ramKey,
         forceServer: forceServer,
         limit: capped,
+        collectionLabel: collectionLabel,
+        queryOrderBy: queryOrderBy,
+        sortDocs: sortDocs,
       );
-      _putRam(ramKey, docs);
-      unawaited(_persistHive(churchId, docs));
+      _putRamInMap(ramMap, ramKey, docs);
+      unawaited(_persistHive(churchId, docs, hiveModule: hiveModule));
       return ChurchPatrimonioLoadResult(
         churchId: churchId,
         docs: docs,
@@ -334,9 +423,12 @@ abstract final class ChurchPatrimonioLoadService {
         cacheKey: '${ramKey}_retry',
         forceServer: true,
         limit: capped,
+        collectionLabel: collectionLabel,
+        queryOrderBy: queryOrderBy,
+        sortDocs: sortDocs,
       );
-      _putRam(ramKey, docs);
-      unawaited(_persistHive(churchId, docs));
+      _putRamInMap(ramMap, ramKey, docs);
+      unawaited(_persistHive(churchId, docs, hiveModule: hiveModule));
       return ChurchPatrimonioLoadResult(
         churchId: churchId,
         docs: docs,
@@ -344,37 +436,39 @@ abstract final class ChurchPatrimonioLoadService {
         collectionPath: path,
       );
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     try {
-      final repo = await ChurchRepository.patrimonio.listCacheFirst(
-        churchIdHint: churchId,
-        limit: capped,
-        firestoreCacheKey: ramKey,
-      );
-      if (repo.items.isNotEmpty || repo.error == null) {
-        var docs = repo.items;
-        docs = _sortByNome(docs);
-        _putRam(ramKey, docs);
-        return ChurchPatrimonioLoadResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: 'repository_cache_first',
-          collectionPath: path,
-          fromCache: repo.error == null && docs.isNotEmpty,
-          softError: repo.error,
+      if (collectionLabel == 'patrimonio') {
+        final repo = await ChurchRepository.patrimonio.listCacheFirst(
+          churchIdHint: churchId,
+          limit: capped,
+          firestoreCacheKey: ramKey,
         );
+        if (repo.items.isNotEmpty || repo.error == null) {
+          var docs = repo.items;
+          docs = sortDocs(docs);
+          _putRamInMap(ramMap, ramKey, docs);
+          return ChurchPatrimonioLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'repository_cache_first',
+            collectionPath: path,
+            fromCache: repo.error == null && docs.isNotEmpty,
+            softError: repo.error,
+          );
+        }
       }
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
     if (mem != null) {
       return ChurchPatrimonioLoadResult(
         churchId: churchId,
-        docs: _sortByNome(mem.docs),
+        docs: sortDocs(mem.docs),
         readSource: 'fallback_mem',
         collectionPath: path,
         fromCache: true,
@@ -382,7 +476,12 @@ abstract final class ChurchPatrimonioLoadService {
       );
     }
 
-    final ramFallback = peekRamAny(churchId) ?? _peekRam(churchId, limit);
+    final ramFallback = _peekAnyRam(
+          churchId: churchId,
+          collectionLabel: collectionLabel,
+          ramMap: ramMap,
+        ) ??
+        _peekRamInMap(ramMap, cacheKeyBuilder(churchId, limit));
     if (ramFallback != null) {
       return ChurchPatrimonioLoadResult(
         churchId: churchId,
@@ -418,6 +517,18 @@ abstract final class ChurchPatrimonioLoadService {
     required String ramKey,
     required int limit,
     required CollectionReference<Map<String, dynamic>> reference,
+    required Map<
+        String,
+        ({
+          List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+          DateTime at,
+        })> ramMap,
+    required String hiveModule,
+    required String collectionLabel,
+    required String queryOrderBy,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) sortDocs,
   }) async {
     try {
       final docs = await _loadFirestore(
@@ -425,9 +536,12 @@ abstract final class ChurchPatrimonioLoadService {
         cacheKey: ramKey,
         forceServer: false,
         limit: limit,
+        collectionLabel: collectionLabel,
+        queryOrderBy: queryOrderBy,
+        sortDocs: sortDocs,
       );
-      _putRam(ramKey, docs);
-      await _persistHive(churchId, docs);
+      _putRamInMap(ramMap, ramKey, docs);
+      await _persistHive(churchId, docs, hiveModule: hiveModule);
     } catch (_) {}
   }
 
@@ -493,11 +607,12 @@ abstract final class ChurchPatrimonioLoadService {
   static Future<void> _persistHive(
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    {required String hiveModule}
   ) async {
     try {
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
-        TenantModuleKeys.patrimonio,
+        hiveModule,
         MergedFirestoreQuerySnapshot(docs),
       );
     } catch (_) {}
@@ -509,20 +624,84 @@ abstract final class ChurchPatrimonioLoadService {
     required String cacheKey,
     required bool forceServer,
     required int limit,
+    required String collectionLabel,
+    required String queryOrderBy,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) sortDocs,
   }) =>
       ChurchModuleFirestoreListRead.queryPlainFirst(
         reference: reference,
         cacheKey: cacheKey,
         limit: limit,
         forceServer: forceServer,
-        orderByField: 'nome',
-        sortDocs: _sortByNome,
+        legacyFallbackSubcollections: const ['assets'],
+        orderByField: queryOrderBy,
+        sortDocs: sortDocs,
       );
+
+  static void _putRamInMap(
+    Map<String, ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})>
+        map,
+    String key,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    map[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRamInMap(
+    Map<String, ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})>
+        map,
+    String key,
+  ) {
+    final hit = map[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ramTtl) {
+      map.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekAnyRam({
+    required String churchId,
+    required String collectionLabel,
+    required Map<String, ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})>
+        ramMap,
+  }) {
+    if (churchId.isEmpty) return null;
+    final prefix = '${churchId}_${collectionLabel}_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    for (final e in ramMap.entries) {
+      if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
+      if (best == null || e.value.docs.length > best.length) {
+        best = e.value.docs;
+      }
+    }
+    return best;
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByCreatedAtDesc(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
+    DateTime readDate(Map<String, dynamic> data) {
+      final raw = data['createdAt'] ?? data['timestamp'] ?? data['date'];
+      if (raw is Timestamp) return raw.toDate();
+      if (raw is DateTime) return raw;
+      if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    sorted.sort((a, b) => readDate(b.data()).compareTo(readDate(a.data())));
+    return sorted;
+  }
 
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith(churchId));
+    _ramInventarioHistorico.removeWhere((k, _) => k.startsWith(churchId));
     await TenantModuleHiveCache.clearModule(
       churchId,
       TenantModuleKeys.patrimonio,

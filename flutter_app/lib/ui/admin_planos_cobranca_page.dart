@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -28,20 +29,20 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final planosSnap = await FirebaseFirestore.instance
+      final planosSnap = await firebaseDefaultFirestore
           .collection('planos')
           .limit(_kPlanosLimit)
           .get();
       QuerySnapshot<Map<String, dynamic>> recSnap;
       try {
-        recSnap = await FirebaseFirestore.instance
+        recSnap = await firebaseDefaultFirestore
             .collection('pagamentos')
             .orderBy('data', descending: true)
             .limit(_kPagamentosLimit)
             .get();
       } catch (e, st) {
         debugPrint('_load pagamentos orderBy(data) fallback: $e\n$st');
-        recSnap = await FirebaseFirestore.instance
+        recSnap = await firebaseDefaultFirestore
             .collection('pagamentos')
             .limit(_kPagamentosLimit)
             .get();
@@ -198,7 +199,8 @@ class _EditarPlanoDialogState extends State<_EditarPlanoDialog> {
   }
 
   Future<void> _salvar() async {
-    final ref = FirebaseFirestore.instance.collection('planos').doc(widget.plano['id']);
+    final ref =
+        firebaseDefaultFirestore.collection('planos').doc(widget.plano['id']);
     await ref.update({
       'nome': _nome.text.trim(),
       'preco': double.tryParse(_preco.text.trim()) ?? 0,

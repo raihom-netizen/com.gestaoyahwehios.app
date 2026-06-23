@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Dashboard SaaS Super Premium: KPIs, gráficos de novas igrejas, usuários, recebimentos PIX/cartão, vencimentos e acessos.
@@ -193,7 +194,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   }
 
   Future<void> _loadDashboardData() async {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     int usersCount = 0;
     int tenantsCount = 0;
     double receitaPag = 0;

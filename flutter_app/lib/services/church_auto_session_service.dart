@@ -126,7 +126,7 @@ class ChurchAutoSessionService {
     if (uid == null || uid.isEmpty) return '';
     try {
       final doc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(uid).get();
       final data = doc.data();
       return (data?['igrejaId'] ?? data?['tenantId'] ?? '').toString().trim();
     } catch (_) {

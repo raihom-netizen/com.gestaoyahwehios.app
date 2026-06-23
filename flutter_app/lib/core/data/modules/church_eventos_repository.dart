@@ -25,6 +25,25 @@ final class ChurchEventosRepository extends ChurchModuleRepositoryBase {
     final id = churchId(churchIdHint);
     if (id.isEmpty) return primary;
     try {
+      final legacyEn = await ChurchFirestoreAccess.listOnce(
+        module: 'Eventos-legacy-en',
+        churchId: id,
+        subcollectionName: ChurchDataPaths.legacyEventosEn,
+        limit: limit,
+        cacheKey: 'data_${id}_legacy_events_$limit',
+      );
+      if (legacyEn.docs.isNotEmpty) {
+        return churchDataListFromSnapshot(
+          churchId: id,
+          collectionPath: ChurchFirestoreAccess.collectionPath(
+            id,
+            ChurchDataPaths.legacyEventosEn,
+          ),
+          snap: legacyEn,
+        );
+      }
+    } catch (_) {}
+    try {
       final legacy = await ChurchFirestoreAccess.listOnce(
         module: 'Eventos-legado',
         churchId: id,

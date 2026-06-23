@@ -526,13 +526,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final tid = resolvedId.trim().isNotEmpty ? resolvedId.trim() : widget.tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      final loaded = await ChurchRepository.loadByChurchId(tid).timeout(
-        const Duration(seconds: 12),
-      );
+      final loaded = await ChurchCadastroLoadService.load(
+        seedTenantId: tid,
+        forceRefresh: true,
+      ).timeout(const Duration(seconds: 12));
       if (!mounted || loaded.data.isEmpty) return;
+      _cadastroSoftSyncWarning = loaded.softError;
       final slim = ChurchCadastroLoadService.sliceCadastroFormFields(loaded.data);
       _hydrateFormFromFirestoreDoc(loaded.churchId, slim);
-    } catch (_) {}
+      unawaited(ChurchCadastroLoadService.persistAfterLoad(loaded));
+    } catch (e, st) {
+      debugPrint('IgrejaCadastro _refreshIgrejaDocOnce falhou: $e\n$st');
+    }
   }
 
   /// Antes de `.set()` na web: cancela watch local e estabiliza sessão Firestore.

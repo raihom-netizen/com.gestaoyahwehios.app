@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
@@ -42,8 +41,19 @@ abstract final class ChurchUiCollections {
   static CollectionReference<Map<String, dynamic>> financeiro([String? h]) =>
       ref(ChurchDataPaths.financeiro, churchIdHint: h);
 
+  static CollectionReference<Map<String, dynamic>> financeLogs([String? h]) =>
+      ref(ChurchDataPaths.financeLogs, churchIdHint: h);
+
+  static CollectionReference<Map<String, dynamic>> financeMpNotifications(
+          [String? h]) =>
+      ref(ChurchDataPaths.financeMpNotifications, churchIdHint: h);
+
   static CollectionReference<Map<String, dynamic>> fornecedores([String? h]) =>
       ref(ChurchDataPaths.fornecedores, churchIdHint: h);
+
+  static CollectionReference<Map<String, dynamic>> fornecedorCompromissos(
+          [String? h]) =>
+      ref(ChurchDataPaths.fornecedorCompromissos, churchIdHint: h);
 
   static CollectionReference<Map<String, dynamic>> escalas([String? h]) =>
       ref(ChurchDataPaths.escalas, churchIdHint: h);
@@ -108,7 +118,7 @@ abstract final class ChurchUiCollections {
       ref('event_categories', churchIdHint: h);
 
   static CollectionReference<Map<String, dynamic>> patrimonioInventarioHistorico([String? h]) =>
-      ref('patrimonio_inventario_historico', churchIdHint: h);
+      ref(ChurchDataPaths.patrimonioInventarioHistorico, churchIdHint: h);
 
   static CollectionReference<Map<String, dynamic>> usersIndex([String? h]) =>
       ref('usersIndex', churchIdHint: h);

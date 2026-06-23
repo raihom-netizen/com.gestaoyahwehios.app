@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
@@ -15,9 +16,7 @@ Future<void> logFinanceiroAuditoria({
   await ensureFirebaseReadyForPublishUpload();
   final u = firebaseDefaultAuth.currentUser;
   final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  await       ChurchOperationalPaths.churchDoc(op)
-      .collection('finance_logs')
-      .add({
+  await ChurchUiCollections.financeLogs(op).add({
     'acao': acao,
     'lancamentoId': lancamentoId,
     'uid': u?.uid,
@@ -29,7 +28,7 @@ Future<void> logFinanceiroAuditoria({
     tenantId: tenantId,
     module: OfflineModules.financeiro,
     action: acao,
-    docPath: 'igrejas/$tenantId/finance/$lancamentoId',
+    docPath: 'igrejas/$op/finance/$lancamentoId',
     docId: lancamentoId,
     before: dadosAntes,
   );

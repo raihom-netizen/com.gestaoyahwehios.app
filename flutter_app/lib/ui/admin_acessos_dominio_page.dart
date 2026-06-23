@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -144,7 +145,7 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
 
       try {
         final configSnap = await FirestoreReadResilience.getDocument(
-          FirebaseFirestore.instance.doc('config/analytics'),
+          firebaseDefaultFirestore.doc('config/analytics'),
           cacheKey: 'config_analytics',
         );
         if (configSnap.exists) {
@@ -163,11 +164,13 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
             }
           }
         }
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('AdminAcessosDominio config/analytics fallback: $e\n$st');
+      }
 
       try {
         final colSnap = await FirestoreReadResilience.getQuery(
-          FirebaseFirestore.instance
+          firebaseDefaultFirestore
               .collection('analytics')
               .doc('domain')
               .collection('daily_hits')
@@ -187,7 +190,9 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
             addFromAccessKey(date, hits);
           }
         }
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('AdminAcessosDominio daily_hits fallback: $e\n$st');
+      }
 
       List<MapEntry<String, int>> limitSortedList(Map<String, int> map, int max) {
         final list = map.entries.map((e) => MapEntry(e.key, e.value)).toList()

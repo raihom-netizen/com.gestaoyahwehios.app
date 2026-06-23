@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/smart_trash_service.dart';
 import 'package:gestao_yahweh/core/offline/firebase_remote_repository.dart';
@@ -104,7 +105,7 @@ abstract final class OfflineFirestoreExecutor {
   static Future<void> _handleBatchWrite(SyncTask task) async {
     final raw = task.payload['writes'];
     if (raw is! List || raw.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     for (final item in raw) {
       if (item is! Map) continue;
       final path = (item['path'] ?? '').toString();

@@ -205,7 +205,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   Future<List<_BenchmarkTenant>> _loadBenchmark(
     List<MasterChurchListItem> items,
   ) async {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final now = DateTime.now();
     final last30 = Timestamp.fromDate(now.subtract(const Duration(days: 30)));
     final out = <_BenchmarkTenant>[];

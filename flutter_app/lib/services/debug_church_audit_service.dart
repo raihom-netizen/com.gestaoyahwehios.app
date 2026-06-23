@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
@@ -625,7 +626,7 @@ abstract final class DebugChurchAuditService {
     if (!platformKeys.contains(platform)) {
       throw StateError('Plataforma inválida para prova: $platform');
     }
-    await FirebaseFirestore.instance
+    await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(snap.churchId)
         .collection('_debug_platform_audit')
@@ -643,7 +644,7 @@ abstract final class DebugChurchAuditService {
     for (final key in platformKeys) {
       out[key] = null;
     }
-    final col = await FirebaseFirestore.instance
+    final col = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(churchId)
         .collection('_debug_platform_audit')

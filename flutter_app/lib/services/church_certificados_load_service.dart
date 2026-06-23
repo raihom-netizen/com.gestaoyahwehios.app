@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -145,6 +146,52 @@ abstract final class ChurchCertificadosLoadService {
         .toList();
   }
 
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadMembrosCollection(
+    String churchId,
+  ) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final cacheKey = '${churchId}_certificados_membros_$kAllMembersLimit';
+    Future<QuerySnapshot<Map<String, dynamic>>> read() =>
+        FirestoreReadResilience.getQuery(
+          ChurchUiCollections.membros(churchId).limit(kAllMembersLimit),
+          cacheKey: cacheKey,
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: kIsWeb
+              ? const Duration(seconds: 18)
+              : const Duration(seconds: 12),
+        );
+
+    final snap = kIsWeb
+        ? await FirestoreWebGuard.runWithWebRecovery(
+            read,
+            maxAttempts: 4,
+          ).timeout(ChurchPanelReadTimeouts.queryCap)
+        : await read().timeout(ChurchPanelReadTimeouts.queryCap);
+    if (snap.docs.isNotEmpty) return snap.docs;
+
+    Future<QuerySnapshot<Map<String, dynamic>>> readLegacyMembers() =>
+        FirestoreReadResilience.getQuery(
+          ChurchUiCollections.churchDoc(churchId)
+              .collection('members')
+              .limit(kAllMembersLimit),
+          cacheKey: '${cacheKey}_legacy_members',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: kIsWeb
+              ? const Duration(seconds: 18)
+              : const Duration(seconds: 12),
+        );
+    final legacySnap = kIsWeb
+        ? await FirestoreWebGuard.runWithWebRecovery(
+            readLegacyMembers,
+            maxAttempts: 4,
+          ).timeout(ChurchPanelReadTimeouts.queryCap)
+        : await readLegacyMembers().timeout(ChurchPanelReadTimeouts.queryCap);
+    return legacySnap.docs;
+  }
+
   static Future<ChurchCertificadosLoadResult> load({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -173,25 +220,19 @@ abstract final class ChurchCertificadosLoadService {
     Object? lastError;
 
     try {
-      final dir = await MembersDirectorySnapshotService.readOnce(churchId);
-      if (dir.hasEntries) {
-        final docs = _sortByNome(_fromDirectory(dir));
-        putRam(churchId, docs);
-        unawaited(
-          MembersDirectorySnapshotService.warmFromCallableIfStale(churchId),
-        );
+      final docs = await _loadMembrosCollection(churchId);
+      if (docs.isNotEmpty) {
+        final sorted = _sortByNome(docs);
+        putRam(churchId, sorted);
         return ChurchCertificadosLoadResult(
           churchId: churchId,
-          docs: docs,
-          readSource: 'members_directory',
+          docs: sorted,
+          readSource: 'membros_collection',
         );
       }
-    } catch (e) {
+    } catch (e, st) {
       lastError = e;
-    }
-
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      debugPrint('ChurchCertificadosLoadService membros_collection: $e\n$st');
     }
 
     try {
@@ -211,8 +252,28 @@ abstract final class ChurchCertificadosLoadService {
           readSource: 'direct_list',
         );
       }
-    } catch (e) {
+    } catch (e, st) {
       lastError ??= e;
+      debugPrint('ChurchCertificadosLoadService direct_list: $e\n$st');
+    }
+
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(churchId);
+      if (dir.hasEntries) {
+        final docs = _sortByNome(_fromDirectory(dir));
+        putRam(churchId, docs);
+        unawaited(
+          MembersDirectorySnapshotService.warmFromCallableIfStale(churchId),
+        );
+        return ChurchCertificadosLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'members_directory',
+        );
+      }
+    } catch (e, st) {
+      lastError ??= e;
+      debugPrint('ChurchCertificadosLoadService members_directory: $e\n$st');
     }
 
     try {
@@ -229,8 +290,9 @@ abstract final class ChurchCertificadosLoadService {
           readSource: 'membros_recent',
         );
       }
-    } catch (e) {
+    } catch (e, st) {
       lastError ??= e;
+      debugPrint('ChurchCertificadosLoadService membros_recent: $e\n$st');
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(

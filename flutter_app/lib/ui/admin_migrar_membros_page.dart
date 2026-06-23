@@ -1,6 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -48,8 +49,11 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
       _errorMessage = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('migrateMembersFull');
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('migrateMembersFull');
       final params = <String, dynamic>{};
       if (targetSlug != null && targetSlug.trim().isNotEmpty) {
         params['targetSlug'] = targetSlug.trim();
@@ -128,8 +132,11 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
       _errorMessage = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('syncMembersFromUsers');
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('syncMembersFromUsers');
       final params = <String, dynamic>{};
       if (targetSlug != null && targetSlug.trim().isNotEmpty) {
         params['targetSlug'] = targetSlug.trim();
@@ -208,9 +215,11 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
       _storageErrorMessage = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('migrateStorageConsolidated');
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('migrateStorageConsolidated');
       final res = await _callWithTimeoutAndRetry(
         () => callable.call<Map<String, dynamic>>({
           'execute': execute,

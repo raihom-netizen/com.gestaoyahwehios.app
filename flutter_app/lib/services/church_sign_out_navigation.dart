@@ -121,7 +121,7 @@ abstract final class ChurchSignOutNavigation {
       await AuthProfileCacheService.instance.clear(uid);
     }
     BiometricService.clearSessionBiometricUnlock();
-    await FirebaseAuth.instance.signOut();
+    await firebaseDefaultAuth.signOut();
 
     if (!kIsWeb) {
       await redirectAfterSignOut();

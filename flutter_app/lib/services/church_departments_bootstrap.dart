@@ -68,7 +68,7 @@ class ChurchDepartmentsBootstrap {
       snap = await col.get(GetOptions(source: Source.server));
       if (snap.docs.isNotEmpty) return false;
       final now = Timestamp.now();
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final t in kDepartmentWelcomeKit) {
         batch.set(col.doc(t.docId), t.toFirestoreMap(now));
       }
@@ -107,7 +107,7 @@ class ChurchDepartmentsBootstrap {
       for (var i = 0; i < toCreate.length; i += maxBatch) {
         final end = min(i + maxBatch, toCreate.length);
         final chunk = toCreate.sublist(i, end);
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = firebaseDefaultFirestore.batch();
         for (final e in chunk) {
           final key = e['key'] as String;
           final label = e['label'] as String;
@@ -169,7 +169,7 @@ class ChurchDepartmentsBootstrap {
       final snap = await col.get(const GetOptions(source: Source.server));
       final now = Timestamp.now();
       var patched = 0;
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final d in snap.docs) {
         final key = d.id;
         final preset = presetByKey[key];

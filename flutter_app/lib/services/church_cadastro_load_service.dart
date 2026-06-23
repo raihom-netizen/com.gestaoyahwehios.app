@@ -122,6 +122,22 @@ abstract final class ChurchCadastroLoadService {
     return _hasIdentityField(data);
   }
 
+  static Map<String, dynamic> _bestCadastroPayload({
+    Map<String, dynamic>? primary,
+    Map<String, dynamic>? secondary,
+  }) {
+    final p = sliceCadastroFormFields(primary ?? const {});
+    final s = sliceCadastroFormFields(secondary ?? const {});
+    if (p.isEmpty) return s;
+    if (s.isEmpty) return p;
+    final pScore = _profileScore(p);
+    final sScore = _profileScore(s);
+    if (sScore > pScore) return s;
+    if (pScore > sScore) return p;
+    if (_hasIdentityField(s) && !_hasIdentityField(p)) return s;
+    return p;
+  }
+
   static Future<({String docId, Map<String, dynamic> data})?> _readCadastroDocOnce(
     String churchId,
   ) async {
@@ -254,15 +270,19 @@ abstract final class ChurchCadastroLoadService {
     Object? loadError;
 
     // Doc único — getDoc cache-first (sem snapshots); timeout curto para não travar a UI.
+    Map<String, dynamic> directData = const {};
     try {
+      String? directDocId;
       final direct = await _readCadastroDocOnce(churchId);
-      if (direct != null &&
-          direct.data.isNotEmpty &&
-          _hasMinimalCadastroFields(direct.data)) {
+      if (direct != null && direct.data.isNotEmpty) {
+        directDocId = direct.docId;
+        directData = Map<String, dynamic>.from(direct.data);
+      }
+      if (directData.isNotEmpty && _hasMinimalCadastroFields(directData)) {
         return _resultFromData(
           seed: seed,
-          churchId: direct.docId,
-          data: ChurchTenantFields.stamp(direct.docId, direct.data),
+          churchId: directDocId ?? churchId,
+          data: ChurchTenantFields.stamp(directDocId ?? churchId, directData),
           readSource: 'direct_read',
         );
       }
@@ -283,10 +303,14 @@ abstract final class ChurchCadastroLoadService {
       ).timeout(_networkTimeout);
 
       if (loaded.data.isNotEmpty) {
+        final merged = _bestCadastroPayload(
+          primary: loaded.data,
+          secondary: directData,
+        );
         return _resultFromData(
           seed: seed,
           churchId: loaded.churchId,
-          data: ChurchTenantFields.stamp(loaded.churchId, loaded.data),
+          data: ChurchTenantFields.stamp(loaded.churchId, merged),
           readSource: loaded.readSource,
         );
       }
@@ -299,12 +323,38 @@ abstract final class ChurchCadastroLoadService {
     }
 
     try {
+      final richest =
+          await TenantResolverService.richestChurchProfileForCadastro(
+        churchId,
+        preferServer: kIsWeb,
+      );
+      final best = _bestCadastroPayload(
+        primary: richest,
+        secondary: directData,
+      );
+      if (best.isNotEmpty) {
+        return _resultFromData(
+          seed: seed,
+          churchId: churchId,
+          data: ChurchTenantFields.stamp(churchId, best),
+          readSource: 'richest_cluster',
+        );
+      }
+    } catch (e) {
+      loadError ??= e;
+    }
+
+    try {
       final direct = await _readCadastroDocOnce(churchId);
       if (direct != null && direct.data.isNotEmpty) {
+        final best = _bestCadastroPayload(
+          primary: direct.data,
+          secondary: directData,
+        );
         return _resultFromData(
           seed: seed,
           churchId: direct.docId,
-          data: ChurchTenantFields.stamp(direct.docId, direct.data),
+          data: ChurchTenantFields.stamp(direct.docId, best),
           readSource: 'direct_read',
         );
       }

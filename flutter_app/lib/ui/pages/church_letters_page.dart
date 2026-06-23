@@ -3,19 +3,18 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
@@ -101,6 +100,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
   int _membersQueryLimit = 600;
+  String? _membersLoadSoftError;
   Future<ReportPdfBranding>? _brandingFuture;
   ReportPdfBranding? _brandingReady;
   final Map<String, Uint8List?> _signatureBytesCache = <String, Uint8List?>{};
@@ -417,31 +417,17 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return const [];
-
-    try {
-      final dir = await MembersDirectorySnapshotService.readOnce(tid);
-      if (dir.hasEntries) {
-        final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        for (final e in dir.entries) {
-          if (out.length >= _membersQueryLimit) break;
-          out.add(_LettersCachedMemberQueryDoc(
-            id: e.memberDocId,
-            data: e.toMemberDataMap(),
-          ));
-        }
-        if (out.isNotEmpty) {
-          unawaited(
-              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
-          return out;
-        }
-      }
-    } catch (_) {}
-
-    final snap = await ChurchTenantResilientReads.membrosRecent(
-      tid,
-      limit: _membersQueryLimit,
+    final result = await ChurchCertificadosLoadService.load(
+      seedTenantId: tid,
+      forceRefresh: _membersSyncing,
     );
-    return snap.docs;
+    _membersLoadSoftError = result.softError;
+    if (result.churchId.trim().isNotEmpty &&
+        result.churchId.trim() != _effectiveTenantId) {
+      _effectiveTenantId = result.churchId.trim();
+    }
+    if (result.docs.length <= _membersQueryLimit) return result.docs;
+    return result.docs.take(_membersQueryLimit).toList();
   }
 
   Future<void> _openChurchLettersFast() async {
@@ -455,14 +441,21 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       if (!mounted || docs.isEmpty) return;
       _ChurchLettersMembersRamCache.put(tid, docs);
       setState(() {
+        _membersLoadSoftError = null;
         _seedMemberDocs = docs;
         _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
         _applyDefaultSignerFromLoadedMembers(docs);
         _syncSelectedMembersCache();
         _membersSyncing = false;
       });
-    } catch (_) {
-      if (mounted) setState(() => _membersSyncing = false);
+    } catch (e, st) {
+      debugPrint('ChurchLetters _openChurchLettersFast: $e\n$st');
+      if (mounted) {
+        setState(() {
+          _membersLoadSoftError = e.toString();
+          _membersSyncing = false;
+        });
+      }
     }
   }
 
@@ -476,13 +469,32 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint('ChurchLetters _bootstrap ensurePanelReadReady: $e\n$st');
+        });
       }
-      final cfg = await FirestoreWebGuard.runWithWebRecovery(
-        () => _configRef.get(const GetOptions(source: Source.serverAndCache)),
-        maxAttempts: 4,
-      );
-      final c = cfg.data() ?? {};
+      Map<String, dynamic> c = const {};
+      try {
+        final direct = await IgrejaDirectFirestoreReads.readIgrejaConfig(
+          churchId,
+          'cartas',
+        );
+        if (direct != null && direct.data.isNotEmpty) {
+          c = Map<String, dynamic>.from(direct.data);
+          if (direct.docId.trim().isNotEmpty) {
+            _effectiveTenantId = direct.docId.trim();
+          }
+        }
+      } catch (e, st) {
+        debugPrint('ChurchLetters _bootstrap direct config/cartas: $e\n$st');
+      }
+      if (c.isEmpty) {
+        final cfg = await FirestoreWebGuard.runWithWebRecovery(
+          () => _configRef.get(const GetOptions(source: Source.serverAndCache)),
+          maxAttempts: 4,
+        );
+        c = cfg.data() ?? {};
+      }
       final a = (c['modeloApresentacao'] ?? '').toString().trim();
       final t = (c['modeloTransferencia'] ?? '').toString().trim();
       final g = (c['modeloAgradecimento'] ?? '').toString().trim();
@@ -509,7 +521,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           ),
         );
       }
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('ChurchLetters _bootstrap config/cartas: $e\n$st');
       if (mounted) {
         setState(() {
           _tplApresentacaoCtrl.text =
@@ -671,6 +684,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
     final docs = await _fetchMemberDocs();
+    if (docs.isEmpty && (_membersLoadSoftError ?? '').trim().isNotEmpty) {
+      throw StateError(_membersLoadSoftError!.trim());
+    }
     final tid = _effectiveTenantId.isNotEmpty
         ? _effectiveTenantId
         : widget.tenantId.trim();
@@ -699,12 +715,19 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         final snap = await _loadMembers();
         if (!mounted) return;
         setState(() {
+          _membersLoadSoftError = null;
           _seedMemberDocs = snap.docs;
           _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
           _membersSyncing = false;
         });
-      } catch (_) {
-        if (mounted) setState(() => _membersSyncing = false);
+      } catch (e, st) {
+        debugPrint('ChurchLetters _refreshMembers: $e\n$st');
+        if (mounted) {
+          setState(() {
+            _membersLoadSoftError = e.toString();
+            _membersSyncing = false;
+          });
+        }
       }
     }());
   }

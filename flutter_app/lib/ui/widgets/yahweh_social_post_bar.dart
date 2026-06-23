@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -53,7 +52,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
       .doc(widget.postId);
 
   Future<({String name, String photo})> _memberDisplay() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) return (name: 'Membro', photo: '');
     var name = user.displayName?.trim() ?? '';
     var photo = user.photoURL?.trim() ?? '';
@@ -84,7 +83,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   }
 
   Future<void> _toggleLike(Map<String, dynamic> data, bool currentlyLiked) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +128,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   }
 
   Future<void> _toggleRsvp(Map<String, dynamic> data, bool current) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -203,7 +202,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   }
 
   Future<void> _openComments() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -405,7 +404,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
       stream: _postRef.watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? {};
-        final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+        final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
         final merged = NoticiaSocialService.mergedLikeUids(data);
         final serverLiked = uid.isNotEmpty && merged.contains(uid);
         final liked = _optLiked ?? serverLiked;

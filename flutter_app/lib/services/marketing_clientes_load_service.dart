@@ -16,7 +16,7 @@ abstract final class MarketingClientesLoadService {
   MarketingClientesLoadService._();
 
   static DocumentReference<Map<String, dynamic>> get docRef =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection(MarketingStorageLayout.firestoreCollection)
           .doc(MarketingStorageLayout.firestoreMarketingClientesDocId);
 

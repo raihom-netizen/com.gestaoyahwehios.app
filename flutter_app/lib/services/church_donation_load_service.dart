@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -18,6 +17,7 @@ class ChurchDonationLoadResult {
     required this.churchId,
     required this.contas,
     required this.mercadoPagoReady,
+    required this.mercadoPagoConfig,
     required this.readSource,
     this.softError,
   });
@@ -25,6 +25,7 @@ class ChurchDonationLoadResult {
   final String churchId;
   final List<DonationMpConta> contas;
   final bool mercadoPagoReady;
+  final Map<String, dynamic> mercadoPagoConfig;
   final String readSource;
   final String? softError;
 }
@@ -38,6 +39,8 @@ abstract final class ChurchDonationLoadService {
   static final Map<String, ({List<DonationMpConta> contas, DateTime at})>
       _contasRam = {};
   static final Map<String, ({bool ready, DateTime at})> _configRam = {};
+  static final Map<String, ({Map<String, dynamic> data, DateTime at})>
+      _configDocRam = {};
 
   static const Duration _ramTtl = Duration(minutes: 25);
 
@@ -78,6 +81,27 @@ abstract final class ChurchDonationLoadService {
     final key = churchId.trim();
     if (key.isEmpty) return;
     _configRam[key] = (ready: ready, at: DateTime.now());
+  }
+
+  static Map<String, dynamic>? peekConfigDocRam(String churchId) {
+    final key = churchId.trim();
+    if (key.isEmpty) return null;
+    final hit = _configDocRam[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ramTtl) {
+      _configDocRam.remove(key);
+      return null;
+    }
+    return Map<String, dynamic>.from(hit.data);
+  }
+
+  static void putConfigDocRam(String churchId, Map<String, dynamic> data) {
+    final key = churchId.trim();
+    if (key.isEmpty) return;
+    _configDocRam[key] = (
+      data: Map<String, dynamic>.from(data),
+      at: DateTime.now(),
+    );
   }
 
   static bool isMercadoPagoTreasuryAccount(Map<String, dynamic> data) {
@@ -144,15 +168,36 @@ abstract final class ChurchDonationLoadService {
     }
 
     try {
-      final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
-        id,
-        'mercado_pago',
-      ).timeout(Duration(seconds: kIsWeb ? 45 : 20));
-      final ready = hit != null && mercadoPagoConfigReady(hit.data);
+      final cfg = await loadMercadoPagoConfig(churchId);
+      final ready = mercadoPagoConfigReady(cfg);
       putConfigReadyRam(id, ready);
       return ready;
     } catch (_) {
       return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> loadMercadoPagoConfig(String churchId) async {
+    final id = ChurchRepository.churchId(churchId);
+    if (id.isEmpty) return const {};
+
+    final ram = peekConfigDocRam(id);
+    if (ram != null) return ram;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    try {
+      final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
+        id,
+        'mercado_pago',
+      ).timeout(Duration(seconds: kIsWeb ? 45 : 20));
+      final data = hit?.data ?? const <String, dynamic>{};
+      putConfigDocRam(id, data);
+      return data;
+    } catch (_) {
+      return const {};
     }
   }
 
@@ -283,6 +328,7 @@ abstract final class ChurchDonationLoadService {
         churchId: '',
         contas: [],
         mercadoPagoReady: false,
+        mercadoPagoConfig: {},
         readSource: 'empty_id',
         softError: 'Igreja não identificada.',
       );
@@ -300,7 +346,7 @@ abstract final class ChurchDonationLoadService {
       }
     }
 
-    final configFuture = loadMercadoPagoConfigReady(churchId);
+    final configFuture = loadMercadoPagoConfig(churchId);
 
     if (contas.isEmpty) {
       try {
@@ -315,7 +361,10 @@ abstract final class ChurchDonationLoadService {
       }
     }
 
-    final mpReady = await configFuture;
+    final mpConfig = await configFuture;
+    final mpReady = mercadoPagoConfigReady(mpConfig);
+    putConfigDocRam(churchId, mpConfig);
+    putConfigReadyRam(churchId, mpReady);
 
     String? softError;
     if (contas.isEmpty && contasError != null) {
@@ -328,6 +377,7 @@ abstract final class ChurchDonationLoadService {
       churchId: churchId,
       contas: contas,
       mercadoPagoReady: mpReady,
+      mercadoPagoConfig: mpConfig,
       readSource: readSource,
       softError: softError,
     );

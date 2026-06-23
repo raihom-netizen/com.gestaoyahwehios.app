@@ -130,7 +130,7 @@ class ChurchFuncoesControleService {
     final tid = await resolveEffectiveTenantId(tenantId);
     final col = collection(tid);
     final existing = await col.get();
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     for (final d in existing.docs) {
       batch.delete(d.reference);
     }

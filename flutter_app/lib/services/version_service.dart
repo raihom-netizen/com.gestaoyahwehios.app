@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/installed_app_build.dart';
 
 import 'version_service_stub.dart' if (dart.library.html) 'version_service_web.dart' as _reload;
@@ -213,7 +214,7 @@ class VersionService {
   /// Leitura pública para funcionar antes do login.
   Future<VersionResult> check() async {
     try {
-      final doc = await FirebaseFirestore.instance.doc(_configPath).get();
+      final doc = await firebaseDefaultFirestore.doc(_configPath).get();
       if (!doc.exists || doc.data() == null) return const VersionResult();
 
       final data = doc.data()!;

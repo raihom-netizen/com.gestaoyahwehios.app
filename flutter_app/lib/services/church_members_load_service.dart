@@ -383,6 +383,7 @@ abstract final class ChurchMembersLoadService {
           cacheKey: cacheKey,
           limit: limit,
           forceServer: forceServer,
+          legacyFallbackSubcollections: const ['members'],
           orderByField: 'updatedAt',
           sortDocs: _sortByName,
         ),

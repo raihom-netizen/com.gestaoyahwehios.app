@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
@@ -44,7 +45,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
       final merged = <String, Map<String, dynamic>>{};
 
       final usuSnap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance
+        firebaseDefaultFirestore
             .collection('usuarios')
             .limit(YahwehPerformanceV4.masterAdminUsersLimit),
         cacheKey: 'master_usuarios_admin',
@@ -58,7 +59,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
 
       try {
         final admSnap = await MasterAdminFirestore.query(
-          FirebaseFirestore.instance
+          firebaseDefaultFirestore
               .collection('admins')
               .limit(YahwehPerformanceV4.masterCacheAlertsLimit),
           cacheKey: 'master_admins_docs',
@@ -70,7 +71,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
           var email = '';
           try {
             final u = await MasterAdminFirestore.document(
-              FirebaseFirestore.instance.collection('users').doc(uid),
+              firebaseDefaultFirestore.collection('users').doc(uid),
               cacheKey: 'master_user_$uid',
               source: Source.server,
             );
@@ -79,7 +80,9 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
               nome = (ud['displayName'] ?? ud['nome'] ?? ud['name'] ?? nome).toString();
               email = (ud['email'] ?? '').toString();
             }
-          } catch (_) {}
+          } catch (e, st) {
+            debugPrint('AdminMultiAdmin users/$uid lookup: $e\n$st');
+          }
           merged[uid] = {
             'id': uid,
             'nome': nome,
@@ -88,7 +91,9 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
             'viaAdminsDoc': true,
           };
         }
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('AdminMultiAdmin admins docs fallback: $e\n$st');
+      }
 
       final list = merged.values.toList()
         ..sort((a, b) {
@@ -130,7 +135,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
     if (email == null || email.isEmpty) return;
     try {
       final snap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance
+        firebaseDefaultFirestore
             .collection('usuarios')
             .where('email', isEqualTo: email),
         cacheKey: 'master_usuario_email_$email',
@@ -190,7 +195,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
       final email = (admin['email'] ?? '').toString();
       if (email.isEmpty) return;
       final snap = await MasterAdminFirestore.query(
-        FirebaseFirestore.instance
+        firebaseDefaultFirestore
             .collection('usuarios')
             .where('email', isEqualTo: email),
         cacheKey: 'master_usuario_email_$email',

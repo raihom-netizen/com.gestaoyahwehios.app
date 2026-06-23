@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -41,7 +42,7 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
     try {
       // Server-first evita estados inconsistentes do cache/listeners no Firestore web (SDK 11.x).
       final snap = await MasterAdminFirestore.document(
-        FirebaseFirestore.instance.collection('config').doc('sistema'),
+        firebaseDefaultFirestore.collection('config').doc('sistema'),
         cacheKey: 'master_config_sistema',
         source: Source.server,
       );
@@ -71,7 +72,7 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
   Future<void> _salvar() async {
     setState(() => _loading = true);
     try {
-      await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+      await MasterAdminFirestore.write(() => firebaseDefaultFirestore
           .collection('config')
           .doc('sistema')
           .set({

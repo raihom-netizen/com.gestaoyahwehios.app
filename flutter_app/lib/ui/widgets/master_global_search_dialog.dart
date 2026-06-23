@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 
@@ -62,13 +63,13 @@ class _MasterGlobalSearchDialogState extends State<MasterGlobalSearchDialog> {
       while (out.length < 24) {
         QuerySnapshot<Map<String, dynamic>> snap;
         try {
-          snap = await FirebaseFirestore.instance
+          snap = await firebaseDefaultFirestore
               .collection('igrejas')
               .orderBy('nome')
               .limit(scanLimit)
               .get();
         } catch (_) {
-          snap = await FirebaseFirestore.instance
+          snap = await firebaseDefaultFirestore
               .collection('igrejas')
               .limit(scanLimit)
               .get();

@@ -34,6 +34,40 @@ abstract final class PublicChurchSlugResolver {
   static final Map<String, _RamEntry> _ram = {};
   static const Duration _ramTtl = Duration(minutes: 20);
 
+  /// Normaliza entradas vindas de URL/path (`/igreja/{slug}`, URL completa,
+  /// slug simples) para a chave de slug público.
+  static String normalizePublicSlugInput(String raw) {
+    var input = raw.trim();
+    if (input.isEmpty) return '';
+    try {
+      input = Uri.decodeComponent(input);
+    } catch (_) {}
+    input = input.replaceAll('\\', '/');
+    if (input.startsWith('http://') || input.startsWith('https://')) {
+      final uri = Uri.tryParse(input);
+      if (uri != null && uri.pathSegments.isNotEmpty) {
+        input = uri.pathSegments.join('/');
+      }
+    }
+    input = input.split('?').first.split('#').first.trim();
+    final segments = input
+        .split('/')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (segments.isNotEmpty) {
+      final idxIgreja = segments.lastIndexWhere(
+        (s) => s.toLowerCase() == 'igreja',
+      );
+      if (idxIgreja >= 0 && idxIgreja + 1 < segments.length) {
+        input = segments[idxIgreja + 1];
+      } else {
+        input = segments.last;
+      }
+    }
+    return normalizeSlugKey(input);
+  }
+
   static String normalizeSlugKey(String raw) {
     var s = raw.trim().toLowerCase();
     s = s.replaceAll(RegExp(r'[\s_]+'), '-');
