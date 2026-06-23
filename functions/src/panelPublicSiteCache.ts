@@ -91,3 +91,59 @@ export async function recomputePanelPublicSiteCache(tenantId: string): Promise<v
 
   await mirrorPublicSitePanelCache(tid);
 }
+
+async function resolvePublicChurchIdFromInput(raw: unknown): Promise<string> {
+  const db = admin.firestore();
+  const seed = String(raw || "").trim();
+  if (!seed) return "";
+
+  // 1) Doc id direto.
+  try {
+    const direct = await db.collection("igrejas").doc(seed).get();
+    if (direct.exists) return seed;
+  } catch (_) {}
+
+  // 2) Índice público por slug.
+  const slug = seed.toLowerCase().replace(/[\s_]+/g, "-");
+  if (slug) {
+    try {
+      const idx = await db.collection("public_church_slugs").doc(slug).get();
+      const churchId = String(idx.data()?.churchId || "").trim();
+      if (churchId) return churchId;
+    } catch (_) {}
+  }
+
+  // 3) Fallback por campo slug no doc da igreja.
+  try {
+    const q = await db
+      .collection("igrejas")
+      .where("slug", "==", slug || seed)
+      .limit(1)
+      .get();
+    if (!q.empty) return q.docs[0].id;
+  } catch (_) {}
+
+  return "";
+}
+
+/**
+ * Warmup explícito do site público/cadastro público:
+ * - feed público cacheado
+ * - prefetch de mídia
+ * - snapshot `_panel_cache/public_site`
+ * - índice `public_church_slugs`
+ */
+export const warmPublicSiteAndSignupCache = functions
+  .region("southamerica-east1")
+  .runWith({ memory: "256MB", timeoutSeconds: 60 })
+  .https.onCall(async (data) => {
+    const churchId = await resolvePublicChurchIdFromInput(
+      data?.churchId ?? data?.slug ?? data?.tenantId
+    );
+    if (!churchId) {
+      return { ok: false, reason: "church-not-found" };
+    }
+
+    await recomputePanelPublicSiteCache(churchId);
+    return { ok: true, churchId };
+  });

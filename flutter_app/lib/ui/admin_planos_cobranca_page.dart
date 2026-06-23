@@ -39,7 +39,8 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
             .orderBy('data', descending: true)
             .limit(_kPagamentosLimit)
             .get();
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('_load pagamentos orderBy(data) fallback: $e\n$st');
         recSnap = await FirebaseFirestore.instance
             .collection('pagamentos')
             .limit(_kPagamentosLimit)
@@ -55,7 +56,9 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
         if (db == null) return -1;
         return db.toString().compareTo(da.toString());
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_load admin_planos_cobranca_page: $e\n$st');
+    }
     setState(() => _loading = false);
   }
 

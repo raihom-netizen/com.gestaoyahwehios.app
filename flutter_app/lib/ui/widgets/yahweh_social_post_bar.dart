@@ -60,7 +60,9 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     if (name.isEmpty) {
       try {
         if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+            debugPrint('SocialPostBar _memberDisplay ensurePanelReadReady: $e\n$st');
+          });
         }
         Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
             firebaseDefaultFirestore.collection('users').doc(user.uid).get();

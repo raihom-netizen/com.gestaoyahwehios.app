@@ -159,8 +159,23 @@ class TenantResolverService {
 
   /// Legado BPC / slug público → doc canónico (sem `church_aliases`).
   static String? mapLegacySeedToCanonical(String raw) {
-    final t = raw.trim();
+    var t = raw.trim();
     if (t.isEmpty) return null;
+    // Algumas contas/sessões antigas persistiram tenant no formato
+    // `id_igreja_...`; o doc real sempre é `igreja_...`.
+    if (t.startsWith('id_') && t.length > 3) {
+      final tail = t.substring(3).trim();
+      if (tail.startsWith('igreja_')) {
+        t = tail;
+      } else if (kBpcLegacyTenantIds.contains(tail)) {
+        t = tail;
+      } else {
+        final slugTail = _publicSlugToCanonicalDocId[tail];
+        if (slugTail != null && slugTail.isNotEmpty) {
+          t = tail;
+        }
+      }
+    }
     if (t == kBpcCanonicalIgrejaDocId) return kBpcCanonicalIgrejaDocId;
     if (kBpcLegacyTenantIds.contains(t)) return kBpcCanonicalIgrejaDocId;
     final slugHit = _publicSlugToCanonicalDocId[t];

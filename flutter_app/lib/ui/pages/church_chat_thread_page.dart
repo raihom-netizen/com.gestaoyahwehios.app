@@ -265,7 +265,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _bindChatFirestoreStreams(resolved);
       }
       return resolved;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('_awaitOperationalTenantId fallback: $e\n$st');
       return widget.tenantId.trim();
     }
   }
@@ -286,8 +287,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         threadId: widget.threadId,
       ),
     );
-    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
-    unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
+    unawaited(
+      ensureFirebaseReadyForChatSend().catchError((e, st) {
+        debugPrint('initState warm ensureFirebaseReadyForChatSend: $e\n$st');
+      }),
+    );
+    unawaited(
+      ChurchChatFastSendService.warmSendPipeline().catchError((e, st) {
+        debugPrint('initState warm warmSendPipeline: $e\n$st');
+      }),
+    );
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -339,7 +348,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _bindChatFirestoreStreams(tid);
         unawaited(_primeRecentMessagesFromCacheOrServer());
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_initChatThreadTenantAndStreams: $e\n$st');
+    }
     if (!mounted) return;
     if (widget.isDepartment &&
         widget.departmentId != null &&
@@ -398,7 +409,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _bootstrapThreadUploads() async {
     try {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForChatWrite().catchError((e, st) {
+        debugPrint('_bootstrapThreadUploads prepareForChatWrite: $e\n$st');
+      });
       await ChurchChatMediaOutboxService.resumeForThread(
         tenantId: _tid,
         threadId: widget.threadId,
@@ -417,7 +430,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           maxAge: Duration.zero,
         );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_bootstrapThreadUploads: $e\n$st');
+    }
   }
 
   @override
@@ -480,7 +495,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _latestRecentDocs = cached;
         _messagesStreamReady = true;
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_hydrateMessagesFromLocalCache: $e\n$st');
+    }
   }
 
   /// Controle Total: `.get()` com cache/retry — não culpa a rede do utilizador.
@@ -489,7 +506,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _messagesPrimeInFlight = true;
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint(
+            '_primeRecentMessagesFromCacheOrServer ensurePanelReadReady: $e\n$st',
+          );
+        });
       }
       const rounds = 4;
       for (var round = 0; round < rounds; round++) {
@@ -514,7 +535,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             _messagesStreamReady = true;
           });
           return;
-        } catch (_) {
+        } catch (e, st) {
+          debugPrint(
+            '_primeRecentMessagesFromCacheOrServer round=$round: $e\n$st',
+          );
           if (round < rounds - 1) {
             await Future<void>.delayed(
               Duration(milliseconds: 180 + round * 220),
@@ -631,7 +655,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         }
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('_loadOlderHistory: $e\n$st');
       if (mounted) setState(() => _loadingMoreHistory = false);
     }
   }
@@ -1599,7 +1624,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _showAttachmentSheet() async {
-    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
+    unawaited(
+      FeedPostMediaUpload.warmAuthToken().catchError((e, st) {
+        debugPrint('_showAttachmentSheet warmAuthToken: $e\n$st');
+      }),
+    );
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1715,13 +1744,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   void _warmChatFirebaseForPicker() {
-    unawaited(_ensureChatFirebaseReadyForMedia().catchError((_) {}));
-    unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));
-    unawaited(ImmediateMediaWarm.warmFeed().catchError((_) {}));
+    unawaited(
+      _ensureChatFirebaseReadyForMedia().catchError((e, st) {
+        debugPrint('_warmChatFirebaseForPicker ensure media ready: $e\n$st');
+        return false;
+      }),
+    );
+    unawaited(
+      FirestoreWebGuard.prepareForChatWrite().catchError((e, st) {
+        debugPrint('_warmChatFirebaseForPicker prepareForChatWrite: $e\n$st');
+      }),
+    );
+    unawaited(
+      ImmediateMediaWarm.warmFeed().catchError((e, st) {
+        debugPrint('_warmChatFirebaseForPicker warmFeed: $e\n$st');
+      }),
+    );
     unawaited(
       FastMediaPublishBootstrap.warmForChatSend()
           .timeout(const Duration(seconds: 3))
-          .catchError((_) {}),
+          .catchError((e, st) {
+            debugPrint(
+              '_warmChatFirebaseForPicker warmForChatSend timeout/warm: $e\n$st',
+            );
+          }),
     );
   }
 
@@ -1741,7 +1787,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
         await ensureFirebaseCore(requireAuth: true);
         return true;
-      } on Object {
+      } on Object catch (e, st) {
+        debugPrint('_ensureChatFirebaseReadyForMedia recover no-app: $e\n$st');
         return false;
       }
     }
@@ -2024,7 +2071,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         loaded.values,
       );
       setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('_loadSenderProfilesForUids: $e\n$st');
+    }
   }
 
   void _scheduleEnsureSenderProfilesForDocs(
@@ -2106,7 +2155,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         if (i < 0) return;
         _pendingOutbound[i].previewBytes = Uint8List.fromList(b);
         if (mounted) setState(() {});
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('_warmPendingImagePreview: $e\n$st');
+      }
     }());
   }
 
@@ -2261,7 +2312,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           quality: 62,
         );
         if (mounted) setState(() {});
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('_bytesForPendingUpload preview from path: $e\n$st');
+      }
     }
 
     if (kIsWeb) return null;
@@ -3189,7 +3242,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (_voiceStartFuture != null) {
       try {
         await _voiceStartFuture!.timeout(const Duration(seconds: 8));
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('_finishVoiceRecording wait _voiceStartFuture: $e\n$st');
+      }
     }
 
     final recordedMs = _voiceElapsed.inMilliseconds;

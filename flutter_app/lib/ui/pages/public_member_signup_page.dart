@@ -1395,20 +1395,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      final label = (widget.slug ?? widget.tenantId ?? 'Igreja').trim();
-      return Scaffold(
-        backgroundColor: Colors.transparent,
-        body: ChurchPublicSiteScaffoldBackground(
-          child: ChurchPublicSitePremiumLoader(
-            churchLabel: label.isNotEmpty ? label : 'Igreja',
-            subtitle: 'A preparar cadastro de membro…',
-          ),
-        ),
-      );
-    }
-
-    if (_tenantId == null) {
+    if (_tenantId == null && !_loading) {
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: ChurchPublicSiteScaffoldBackground(
@@ -1450,17 +1437,25 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildPublicChurchHeader(loading: false),
+          _buildPublicChurchHeader(loading: _loading),
           Expanded(
             child: Padding(
               padding: ThemeCleanPremium.pagePadding(context),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 500),
-                  child: Form(
+                  child: AbsorbPointer(
+                    absorbing: _loading || _saving,
+                    child: Opacity(
+                      opacity: _loading ? 0.72 : 1,
+                      child: Form(
                     key: _formKey,
                     child: ListView(
                       children: [
+                    if (_loading) ...[
+                    const LinearProgressIndicator(minHeight: 3),
+                    const SizedBox(height: 12),
+                    ],
                     MemberSignupWizardProgress(step: _signupStep),
                     const SizedBox(height: 18),
                     if (_signupStep == 0) ...[
@@ -1941,9 +1936,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                  ],
-                ),
-              ),
+                      ],
+                    ),
+                  ),
+                    ),
+                  ),
             ),
           ),
         ),

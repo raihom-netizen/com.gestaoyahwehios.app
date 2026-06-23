@@ -62,7 +62,11 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
       if (authorName.isEmpty && user != null) {
         try {
           if (kIsWeb) {
-            await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+            await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+              debugPrint(
+                'CommentsSheet _send ensurePanelReadReady: $e\n$st',
+              );
+            });
           }
           Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
               firebaseDefaultFirestore.collection('users').doc(user.uid).get();

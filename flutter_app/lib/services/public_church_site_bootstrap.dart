@@ -1,7 +1,9 @@
 import 'dart:async' show unawaited;
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/data/yahweh_data_repository.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
@@ -11,6 +13,9 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 /// Bootstrap único — site público + cadastro membro (Web = Android = iOS).
 abstract final class PublicChurchSiteBootstrap {
   PublicChurchSiteBootstrap._();
+
+  static FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   /// Prepara visita pública: auth mídia + Firestore web (só web).
   static Future<void> prepareVisit() async {
@@ -29,7 +34,8 @@ abstract final class PublicChurchSiteBootstrap {
       return;
     }
 
-    await prepareVisit();
+    // Não bloquear first paint do site público.
+    unawaited(prepareVisit());
 
     final fast = await PublicChurchSlugResolver.resolveFast(slug);
     if (fast != null) {
@@ -54,7 +60,8 @@ abstract final class PublicChurchSiteBootstrap {
     String? slug,
     String? tenantIdHint,
   }) async {
-    await prepareVisit();
+    // Cadastro público abre imediatamente; warmup segue em paralelo.
+    unawaited(prepareVisit());
 
     final slugTrim = slug?.trim() ?? '';
     final tenantHint = tenantIdHint?.trim() ?? '';
@@ -102,5 +109,14 @@ abstract final class PublicChurchSiteBootstrap {
         refreshServerCacheInBackground: true,
       ),
     );
+    // Warmup server-side do cache público/cadastro (best effort).
+    unawaited(() async {
+      try {
+        final call = _functions.httpsCallable('warmPublicSiteAndSignupCache');
+        await call.call(<String, dynamic>{'churchId': id}).timeout(
+          const Duration(seconds: 6),
+        );
+      } catch (_) {}
+    }());
   }
 }

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -27,12 +27,11 @@ class MpCheckoutEmbed extends StatefulWidget {
 
 class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
   WebViewController? _controller;
-  var _ready = false;
 
-  static bool _supportsEmbeddedWebView(BuildContext context) {
+  static bool _supportsEmbeddedWebView() {
     if (kIsWeb) return false;
     if (IosPaymentsGate.preferExternalMercadoPagoCheckout) return false;
-    final platform = Theme.of(context).platform;
+    final platform = defaultTargetPlatform;
     return platform == TargetPlatform.android ||
         platform == TargetPlatform.macOS;
   }
@@ -75,34 +74,27 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!_supportsEmbeddedWebView(context)) return;
-      final c = WebViewController()
-        ..setJavaScriptMode(JavaScriptMode.unrestricted)
-        ..setNavigationDelegate(
-          NavigationDelegate(
-            onNavigationRequest: (NavigationRequest request) {
-              if (_isReturnOrAppUrl(request.url)) {
-                widget.onLikelyFinished?.call(request.url);
-                return NavigationDecision.prevent;
-              }
-              return NavigationDecision.navigate;
-            },
-            onUrlChange: (UrlChange change) {
-              final u = change.url;
-              if (u != null && _isReturnOrAppUrl(u)) {
-                widget.onLikelyFinished?.call(u);
-              }
-            },
-          ),
-        )
-        ..loadRequest(Uri.parse(widget.checkoutUrl));
-      setState(() {
-        _controller = c;
-        _ready = true;
-      });
-    });
+    if (!_supportsEmbeddedWebView()) return;
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            if (_isReturnOrAppUrl(request.url)) {
+              widget.onLikelyFinished?.call(request.url);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+          onUrlChange: (UrlChange change) {
+            final u = change.url;
+            if (u != null && _isReturnOrAppUrl(u)) {
+              widget.onLikelyFinished?.call(u);
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.checkoutUrl));
   }
 
   @override
@@ -119,27 +111,13 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_supportsEmbeddedWebView(context)) {
+    if (!_supportsEmbeddedWebView()) {
       return _ExternalCheckoutPrompt(
         onOpen: _openExternal,
         checkoutUrl: widget.checkoutUrl,
       );
     }
-    if (!_ready || _controller == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Carregando checkout seguro…'),
-            ],
-          ),
-        ),
-      );
-    }
+    if (_controller == null) return const SizedBox.shrink();
     return WebViewWidget(controller: _controller!);
   }
 }

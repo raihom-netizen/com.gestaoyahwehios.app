@@ -3,6 +3,7 @@ import 'dart:async' show Stream, StreamSubscription, unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:skeletonizer/skeletonizer.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -1683,6 +1684,77 @@ Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
       );
 }
 
+/// First paint sem tela de bloqueio: mostra shell do site imediatamente.
+class _ChurchPublicFirstPaintShell extends StatelessWidget {
+  final String churchLabel;
+
+  const _ChurchPublicFirstPaintShell({required this.churchLabel});
+
+  @override
+  Widget build(BuildContext context) {
+    return ChurchPublicSiteScaffoldBackground(
+      child: SafeArea(
+        child: Padding(
+          padding: ThemeCleanPremium.pagePadding(context),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.86),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        churchLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: Skeletonizer(
+                  enabled: true,
+                  child: ListView(
+                    children: List.generate(
+                      5,
+                      (_) => Container(
+                        height: 120,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
 class _ChurchPublicLogoWarmup extends StatefulWidget {
   final String tenantId;
@@ -1911,11 +1983,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
               );
             }
             if (!snap.hasData) {
-              return ChurchPublicSiteScaffoldBackground(
-                child: ChurchPublicSitePremiumLoader(
-                  churchLabel: _prettyName(slugClean),
-                  subtitle: 'A carregar o site da igreja…',
-                ),
+              return _ChurchPublicFirstPaintShell(
+                churchLabel: _prettyName(slugClean),
               );
             }
             final tenant = snap.data;
