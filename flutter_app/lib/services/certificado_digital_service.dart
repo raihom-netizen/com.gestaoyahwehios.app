@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 
@@ -19,7 +19,7 @@ class CertificadoDigitalService {
     final tid = tenantId.trim();
     if (tid.isEmpty || uid.isEmpty) return null;
     final col = MemberDocumentResolve.membrosCol(
-      FirebaseFirestore.instance,
+      firebaseDefaultFirestore,
       tid,
     );
     try {
@@ -39,7 +39,7 @@ class CertificadoDigitalService {
     if (uid == null || uid.isEmpty) return null;
     try {
       final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(uid).get();
       final ud = userDoc.data();
       var n = (ud?['certificadoDigitalFileName'] ?? '').toString().trim();
       if (n.isNotEmpty) return n;
@@ -65,7 +65,7 @@ class CertificadoDigitalService {
     if (uid == null || uid.isEmpty) return null;
     try {
       final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(uid).get();
       final data = userDoc.data();
       var p = (data?['certificadoDigitalStoragePath'] ?? '').toString().trim();
       if (p.isNotEmpty) return p;
@@ -92,7 +92,7 @@ class CertificadoDigitalService {
     final p = storagePath.trim();
     if (p.isEmpty) return null;
     try {
-      final ref = FirebaseStorage.instance.ref(p);
+      final ref = firebaseDefaultStorage.ref(p);
       final data = await ref.getData(6 * 1024 * 1024);
       return data;
     } catch (e, st) {
@@ -109,7 +109,7 @@ class CertificadoDigitalService {
   }) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) throw StateError('UsuÃ¡rio nÃ£o autenticado');
-    final tid = tenantId.trim();
+    final tid = ChurchRepository.churchId(tenantId.trim());
     if (tid.isEmpty) throw StateError('Igreja invÃ¡lida');
     if (bytes.isEmpty) throw StateError('Arquivo vazio');
     final safeName = originalFileName.replaceAll(RegExp(r'[^\w.\-]'), '_');
@@ -126,7 +126,7 @@ class CertificadoDigitalService {
       'certificadoDigitalUpdatedAt': FieldValue.serverTimestamp(),
       'certificadoDigitalTenantId': tid,
     };
-    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+    await firebaseDefaultFirestore.collection('users').doc(uid).set(
           payload,
           SetOptions(merge: true),
         );
@@ -149,7 +149,7 @@ class CertificadoDigitalService {
       'certificadoDigitalUpdatedAt': FieldValue.delete(),
       'certificadoDigitalTenantId': FieldValue.delete(),
     };
-    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    final userRef = firebaseDefaultFirestore.collection('users').doc(uid);
     Map<String, dynamic>? userData;
     try {
       userData = (await userRef.get()).data();

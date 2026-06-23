@@ -1,5 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
@@ -32,12 +31,12 @@ bool carteirinhaPainelStaffRole(String roleLower) {
 Future<bool> carteirinhaUserTenantMatchesQr({
   required String qrTenantId,
 }) async {
-  final user = FirebaseAuth.instance.currentUser;
+  final user = firebaseDefaultAuth.currentUser;
   if (user == null) return false;
   final raw = qrTenantId.trim();
   if (raw.isEmpty) return false;
   try {
-    final doc = await FirebaseFirestore.instance
+    final doc = await firebaseDefaultFirestore
         .collection('users')
         .doc(user.uid)
         .get();

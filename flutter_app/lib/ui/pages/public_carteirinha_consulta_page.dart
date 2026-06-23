@@ -1,6 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/carteirinha_staff_redirect.dart';
 import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/services/carteirinha_validacao_service.dart';
@@ -49,13 +48,13 @@ class _PublicCarteirinhaConsultaPageState
   }
 
   Future<void> _tryStaffRedirect() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) return;
     final tid = widget.tenantId.trim();
     final mid = widget.memberId.trim();
     if (tid.isEmpty || mid.isEmpty) return;
     try {
-      final doc = await FirebaseFirestore.instance
+      final doc = await firebaseDefaultFirestore
           .collection('users')
           .doc(user.uid)
           .get();

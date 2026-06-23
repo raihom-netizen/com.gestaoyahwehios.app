@@ -1,12 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -235,7 +234,7 @@ Future<Uint8List?> _fetchCertificateTemplateBackgroundBytes({
       ChurchStorageLayout.certificateTemplateBackgroundPaths(tid, stem);
   final chunks = await Future.wait(
     paths.map(
-      (path) => FirebaseStorage.instance
+      (path) => firebaseDefaultStorage
           .ref(path)
           .getData(4 * 1024 * 1024)
           .timeout(const Duration(seconds: 5), onTimeout: () => null)
@@ -275,7 +274,7 @@ Future<Uint8List?> _fetchInstitutionalPastorSignatureBytes(
   final paths = ChurchStorageLayout.pastorSignatureConfigPaths(tid);
   final chunks = await Future.wait(
     paths.map(
-      (path) => FirebaseStorage.instance
+      (path) => firebaseDefaultStorage
           .ref(path)
           .getData(2 * 1024 * 1024)
           .timeout(const Duration(seconds: 5), onTimeout: () => null)
@@ -348,7 +347,7 @@ Future<void> _primeCertPdfWebStorageAuth() async {
   _certPdfWebStorageAuthPrimed = true;
   await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
   try {
-    await FirebaseAuth.instance.currentUser?.getIdToken();
+    await firebaseDefaultAuth.currentUser?.getIdToken();
   } catch (_) {}
 }
 
@@ -442,7 +441,7 @@ Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
   final rawTrim = rawUrl.trim();
   if (rawTrim.toLowerCase().startsWith('gs://')) {
     try {
-      final refGs = FirebaseStorage.instance.refFromURL(rawTrim);
+      final refGs = firebaseDefaultStorage.refFromURL(rawTrim);
       final b = await refGs
           .getData(8 * 1024 * 1024)
           .timeout(logoTimeout, onTimeout: () => null);
@@ -458,7 +457,7 @@ Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
         !rawTrim.toLowerCase().startsWith('gs://');
     if (looksStoragePath) {
       try {
-        final byPath = await FirebaseStorage.instance
+        final byPath = await firebaseDefaultStorage
             .ref(rawTrim)
             .getData(12 * 1024 * 1024)
             .timeout(logoTimeout, onTimeout: () => null);
@@ -485,7 +484,7 @@ Future<Uint8List?> _fetchLogoBytesHighRes(String rawUrl) async {
     try {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       try {
-        await FirebaseAuth.instance.currentUser?.getIdToken();
+        await firebaseDefaultAuth.currentUser?.getIdToken();
       } catch (_) {}
       final refreshed = await freshFirebaseStorageDisplayUrl(u)
           .timeout(logoTimeout, onTimeout: () => u);
@@ -529,7 +528,7 @@ Future<Uint8List?> _tryChurchLogoBytesDirectFromStorage(
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await firebaseDefaultAuth.currentUser?.getIdToken();
     } catch (_) {}
   }
   Map<String, dynamic>? tenantHint;
@@ -544,7 +543,7 @@ Future<Uint8List?> _tryChurchLogoBytesDirectFromStorage(
   if (paths.isEmpty) return null;
   final chunks = await Future.wait(
     paths.map(
-      (p) => FirebaseStorage.instance
+      (p) => firebaseDefaultStorage
           .ref(p)
           .getData(12 * 1024 * 1024)
           .timeout(const Duration(seconds: 4), onTimeout: () => null)
@@ -609,7 +608,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
     Future<Uint8List?> tryBytesFromStorageRef() async {
       if (raw.toLowerCase().startsWith('gs://')) {
         try {
-          final refGs = FirebaseStorage.instance.refFromURL(raw);
+          final refGs = firebaseDefaultStorage.refFromURL(raw);
           final b = await refGs
               .getData(2 * 1024 * 1024)
               .timeout(const Duration(seconds: 6), onTimeout: () => null);
@@ -626,7 +625,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
               path.toLowerCase().contains('_assinatura'));
       if (!pathLooksStorage) return null;
       try {
-        final b = await FirebaseStorage.instance
+        final b = await firebaseDefaultStorage
             .ref(path)
             .getData(2 * 1024 * 1024)
             .timeout(const Duration(seconds: 6), onTimeout: () => null);

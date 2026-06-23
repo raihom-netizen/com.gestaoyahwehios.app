@@ -40,6 +40,61 @@ class TenantResolverService {
     'brasilparacristo': kBpcCanonicalIgrejaDocId,
   };
 
+  static bool _looksLikeChurchDocId(String value) {
+    final v = value.trim();
+    if (v.isEmpty) return false;
+    return RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(v);
+  }
+
+  static String? _extractChurchIdFromPathLikeSeed(String raw) {
+    final seed = raw.trim();
+    if (seed.isEmpty) return null;
+
+    String normalize(String s) =>
+        s.replaceAll('\\', '/').replaceAll(RegExp(r'/+'), '/').trim();
+
+    String? fromSegments(String source) {
+      final clean = normalize(source);
+      final parts = clean
+          .split('/')
+          .map((p) => Uri.decodeComponent(p).trim())
+          .where((p) => p.isNotEmpty)
+          .toList();
+      for (var i = 0; i < parts.length - 1; i++) {
+        final seg = parts[i].toLowerCase();
+        if (seg == 'igrejas') {
+          final id = parts[i + 1].trim();
+          if (id.isNotEmpty) return id;
+        }
+      }
+      return null;
+    }
+
+    final direct = fromSegments(seed);
+    if (direct != null && direct.isNotEmpty) return direct;
+
+    final lower = seed.toLowerCase();
+    if (lower.contains('/documents/igrejas/')) {
+      final idx = lower.indexOf('/documents/igrejas/');
+      if (idx >= 0) {
+        final tail = seed.substring(idx + '/documents/'.length);
+        final fromDocPath = fromSegments(tail);
+        if (fromDocPath != null && fromDocPath.isNotEmpty) return fromDocPath;
+      }
+    }
+
+    if (lower.startsWith('gs://')) {
+      final slash = seed.indexOf('/', 5);
+      if (slash > 0 && slash + 1 < seed.length) {
+        final afterBucket = seed.substring(slash + 1);
+        final fromGs = fromSegments(afterBucket);
+        if (fromGs != null && fromGs.isNotEmpty) return fromGs;
+      }
+    }
+
+    return null;
+  }
+
   /// ID operacional do cluster ancorado (Storage + subcoleções).
   static String? _anchoredCanonicalOperationalId(Set<String> candidates) {
     for (final entry in _anchoredChurchClusters.entries) {
@@ -161,6 +216,10 @@ class TenantResolverService {
   static String? mapLegacySeedToCanonical(String raw) {
     var t = raw.trim();
     if (t.isEmpty) return null;
+    final fromPath = _extractChurchIdFromPathLikeSeed(t);
+    if (fromPath != null && fromPath.isNotEmpty) {
+      t = fromPath;
+    }
     // Algumas contas/sessões antigas persistiram tenant no formato
     // `id_igreja_...`; o doc real sempre é `igreja_...`.
     if (t.startsWith('id_') && t.length > 3) {
@@ -180,6 +239,7 @@ class TenantResolverService {
     if (kBpcLegacyTenantIds.contains(t)) return kBpcCanonicalIgrejaDocId;
     final slugHit = _publicSlugToCanonicalDocId[t];
     if (slugHit != null && slugHit.isNotEmpty) return slugHit;
+    if (_looksLikeChurchDocId(t)) return t;
     return _anchoredCanonicalOperationalId({t});
   }
 
