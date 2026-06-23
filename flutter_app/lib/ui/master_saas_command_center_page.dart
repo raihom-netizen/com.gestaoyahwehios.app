@@ -26,6 +26,10 @@ class MasterSaasCommandCenterPage extends StatefulWidget {
 
 class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPage>
     with SingleTickerProviderStateMixin {
+  static const int _kChurchesSampleLimit = 80;
+  static const int _kSalesSampleLimit = 1200;
+  static const int _kSubsSampleLimit = 900;
+
   late TabController _tab;
   final _searchCtrl = TextEditingController();
   static const String _all = '__all__';
@@ -137,7 +141,9 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
         'uid': u?.uid,
         'data': FieldValue.serverTimestamp(),
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterSaasCommand _audit: $e\n$st');
+    }
   }
 
   String _ufOf(Map<String, dynamic> m) =>
@@ -190,7 +196,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
       final n = agg.count ?? 0;
       _memberCountCache[tenantId] = n;
       return n;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('MasterSaasCommand _loadMemberCount: $e\n$st');
       return 0;
     }
   }
@@ -878,18 +885,26 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
     }
 
     try {
-      final churches = await db.collection('igrejas').get();
-      totalChurches = churches.docs.length;
-      for (final d in churches.docs.take(60)) {
+      final churchesAgg = await db.collection('igrejas').count().get();
+      totalChurches = churchesAgg.count ?? 0;
+      final churches = await db
+          .collection('igrejas')
+          .limit(_kChurchesSampleLimit)
+          .get();
+      for (final d in churches.docs) {
         try {
           final c = await ChurchUiCollections.membros(d.id).count().get();
           membersSum += c.count ?? 0;
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('MasterSaasCommand _buildBizSnapshot members count: $e\n$st');
+        }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterSaasCommand _buildBizSnapshot igrejas: $e\n$st');
+    }
 
     try {
-      final sales = await db.collection('sales').get();
+      final sales = await db.collection('sales').limit(_kSalesSampleLimit).get();
       for (final d in sales.docs) {
         if (!countableSale(d.data())) continue;
         final dt = parseDyn(d.data()['paidAt'] ?? d.data()['createdAt'] ?? d.data()['date']);
@@ -902,10 +917,15 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           byMonth[key] = (byMonth[key] ?? 0) + val;
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterSaasCommand _buildBizSnapshot sales: $e\n$st');
+    }
 
     try {
-      final subs = await db.collection('subscriptions').get();
+      final subs = await db
+          .collection('subscriptions')
+          .limit(_kSubsSampleLimit)
+          .get();
       final bad = {'cancelled', 'canceled', 'inactive', 'expired'};
       for (final d in subs.docs) {
         final st = (d.data()['status'] ?? '').toString().toLowerCase();
@@ -918,7 +938,9 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
         );
         if (u != null && u.isAfter(start90)) churn90++;
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterSaasCommand _buildBizSnapshot subscriptions: $e\n$st');
+    }
 
     final last6 = <MapEntry<String, double>>[];
     for (var i = 5; i >= 0; i--) {

@@ -1831,7 +1831,18 @@ class _ChurchPublicPageInner extends StatelessWidget {
   });
 
   String _prettyName(String s) {
-    final clean = s.replaceAll(RegExp(r'[^a-zA-Z0-9\-\s_]'), '');
+    var raw = s.trim();
+    try {
+      raw = Uri.decodeComponent(raw);
+    } catch (_) {}
+    raw = raw
+        .replaceAll(RegExp(r'%2[fF]'), '/')
+        .replaceAll(RegExp(r'%3[fF]'), '?')
+        .replaceAll(RegExp(r'%26'), '&')
+        .replaceAll(RegExp(r'\?.*$'), '')
+        .replaceAll(RegExp(r'utm_[a-z_]+=.*$', caseSensitive: false), '')
+        .trim();
+    final clean = raw.replaceAll(RegExp(r'[^a-zA-Z0-9\-\s_]'), '');
     final parts = clean
         .replaceAll('_', '-')
         .split('-')
@@ -2585,7 +2596,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                             return;
                                           }
                                           Navigator.pushNamed(
-                                              context, '/planos');
+                                              context, '/atualizar-plano');
                                         },
                                         onDeveloperWhatsApp: () {
                                           logChurchPublic(
@@ -5631,7 +5642,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                       mode: LaunchMode.externalApplication));
                   return;
                 }
-                Navigator.pushNamed(context, '/planos');
+                Navigator.pushNamed(context, '/atualizar-plano');
               },
               onDeveloperWhatsApp: () {
                 logChurchPublicLocal('footer_dev_whatsapp');

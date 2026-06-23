@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_pdf_capture_leaf.dart';
 import 'package:screenshot/screenshot.dart';

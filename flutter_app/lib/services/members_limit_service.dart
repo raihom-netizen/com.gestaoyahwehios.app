@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -77,7 +78,7 @@ class MembersLimitResult {
 
 /// Serviço para verificar limite de membros por plano e exibir avisos/bloqueio.
 class MembersLimitService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = firebaseDefaultFirestore;
 
   /// Obtém o limite do plano pelo id (planos oficiais).
   static int getPlanLimit(String planId) {

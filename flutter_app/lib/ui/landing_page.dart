@@ -109,19 +109,30 @@ class _LandingPageState extends State<LandingPage> {
             height: ThemeCleanPremium.minTouchTarget,
             child: FilledButton(
               onPressed: () {
+                Navigator.pushNamed(context, '/atualizar-plano');
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.primary,
+              ),
+              child: const Text('Abrir checkout de licença'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: ThemeCleanPremium.minTouchTarget,
+            child: OutlinedButton(
+              onPressed: () {
                 if (IosPaymentsGate.hideOrganizationSignup) {
                   unawaited(IosPaymentsGate.openOrganizationSignupExternally());
                 } else {
                   Navigator.pushNamed(context, '/signup');
                 }
               },
-              style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.primary,
-              ),
               child: Text(
                 IosPaymentsGate.hideOrganizationSignup
                     ? 'Cadastrar no site'
-                    : 'Iniciar teste grátis',
+                    : 'Criar conta da igreja',
               ),
             ),
           ),
@@ -202,7 +213,7 @@ class _LandingPageState extends State<LandingPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Planos Gestão YAHWEH',
+                          'Checkout Gestão YAHWEH',
                           style: TextStyle(
                               fontSize: 30,
                               fontWeight: FontWeight.w900,
@@ -210,7 +221,9 @@ class _LandingPageState extends State<LandingPage> {
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'Simples, completo e do seu jeito.\nEscolha o plano ideal conforme a quantidade de membros da sua igreja.',
+                          'Plano e pagamento em fluxo direto.\n'
+                          'Android e Web finalizam dentro do próprio app/site; '
+                          'iPhone segue para Safari conforme regra Apple.',
                           style: TextStyle(
                               fontSize: 14, color: Color(0xFFEAF2FF), height: 1.3),
                         ),

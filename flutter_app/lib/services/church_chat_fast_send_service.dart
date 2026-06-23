@@ -3,7 +3,6 @@ import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 

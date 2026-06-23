@@ -39,11 +39,6 @@ class TrialExpiredPage extends StatelessWidget {
                   text: 'Escolher plano',
                   icon: Icons.workspace_premium,
                   onPressed: () {
-                    if (IosPaymentsGate.isAndroidNative) {
-                      IosPaymentsGate.openUpgradePlansExternally(
-                          source: 'trial_expired_page');
-                      return;
-                    }
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const RenewPlanPage()),
                     );

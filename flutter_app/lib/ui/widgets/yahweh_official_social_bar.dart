@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -61,7 +62,7 @@ class YahwehOfficialSocialChannelsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: firebaseDefaultFirestore
           .doc(MarketingOfficialConfig.firestoreDocPath)
           .watchSafe(),
       builder: (context, snap) {

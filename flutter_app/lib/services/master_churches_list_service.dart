@@ -1,7 +1,8 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -29,7 +30,7 @@ abstract final class MasterChurchesListService {
   MasterChurchesListService._();
 
   static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
   static List<MasterChurchListItem>? _memCache;
   static DateTime? _memCachedAt;
@@ -40,10 +41,10 @@ abstract final class MasterChurchesListService {
           .collection('config')
           .doc('master_churches_index');
 
-  /// Contagem instantânea para badge do header (sem await).
+  /// Contagem instantÃ¢nea para badge do header (sem await).
   static int peekCount() => _memCache?.length ?? 0;
 
-  /// Lista em RAM — outras telas master reutilizam sem novo round-trip.
+  /// Lista em RAM â€” outras telas master reutilizam sem novo round-trip.
   static List<MasterChurchListItem>? peekMemory() => _memCache;
 
   static void invalidateMemory() {
@@ -160,7 +161,7 @@ abstract final class MasterChurchesListService {
     return const [];
   }
 
-  /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
+  /// Ãndice â†’ callable â†’ query directa (servidor). MemÃ³ria compartilhada entre telas.
   static Future<List<MasterChurchListItem>> loadFast({bool force = false}) async {
     await MasterAdminFirestore.ensureReady();
     if (force) invalidateMemory();
@@ -172,7 +173,7 @@ abstract final class MasterChurchesListService {
       return _memCache!;
     }
 
-    // Após licença/bloqueio: ler documentos reais (índice pode estar defasado).
+    // ApÃ³s licenÃ§a/bloqueio: ler documentos reais (Ã­ndice pode estar defasado).
     if (force) {
       final direct = await _loadDirectFallback(forceServer: true);
       if (direct.isNotEmpty) return direct;
@@ -232,3 +233,4 @@ abstract final class MasterChurchesListService {
     });
   }
 }
+

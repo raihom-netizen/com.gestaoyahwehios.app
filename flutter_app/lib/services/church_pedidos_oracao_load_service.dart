@@ -15,7 +15,6 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga pedidos de oração — `igrejas/{churchId}/pedidosOracao`.
 class ChurchPedidosOracaoLoadResult {

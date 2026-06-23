@@ -1,18 +1,18 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 class BiometricService {
   static const _prefEnabled = 'biometric_enabled';
   static const _prefAsked = 'biometric_asked';
 
-  /// Após login na tela de login com biometria do aparelho, evita pedir digital de novo ao abrir o painel.
+  /// ApÃ³s login na tela de login com biometria do aparelho, evita pedir digital de novo ao abrir o painel.
   static bool _skipNextDashboardBiometricLock = false;
 
-  /// Desbloqueio válido até logout ou fecho do app — evita pedir digital ao voltar do picker/câmera.
+  /// Desbloqueio vÃ¡lido atÃ© logout ou fecho do app â€” evita pedir digital ao voltar do picker/cÃ¢mera.
   static bool _sessionBiometricUnlocked = false;
 
   static void markBiometricVerifiedForNextPainelEntry() {
@@ -122,7 +122,7 @@ class BiometricService {
     }
   }
 
-  /// Indica se o login rápido por biometria pode ser usado (credenciais salvas + biometria disponível).
+  /// Indica se o login rÃ¡pido por biometria pode ser usado (credenciais salvas + biometria disponÃ­vel).
   Future<bool> canUseQuickBiometricLogin() async {
     if (kIsWeb) return false;
     final prefs = await SharedPreferences.getInstance();
@@ -136,7 +136,7 @@ class BiometricService {
     await prefs.setBool(_prefEnabled, false);
   }
 
-  /// Sensor digital / Face ID utilizável (Android e iOS).
+  /// Sensor digital / Face ID utilizÃ¡vel (Android e iOS).
   Future<bool> isDeviceBiometricCapable() async {
     if (kIsWeb) return false;
     try {
@@ -148,10 +148,10 @@ class BiometricService {
     }
   }
 
-  /// Dispositivo com digital/Face ID — desbloqueio ao abrir o painel (sessão activa).
+  /// Dispositivo com digital/Face ID â€” desbloqueio ao abrir o painel (sessÃ£o activa).
   Future<bool> shouldRequireBiometricUnlock() async {
     if (kIsWeb) return false;
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return false;
     if (await isEnabled()) return true;
     if (await isDeviceBiometricCapable()) {
@@ -161,8 +161,8 @@ class BiometricService {
     return false;
   }
 
-  /// Após login bem-sucedido no app nativo — activa digital/Face ID sem segundo diálogo
-  /// (o utilizador pode desactivar em Configurações).
+  /// ApÃ³s login bem-sucedido no app nativo â€” activa digital/Face ID sem segundo diÃ¡logo
+  /// (o utilizador pode desactivar em ConfiguraÃ§Ãµes).
   Future<void> enableForReturningUserAfterLogin() async {
     if (kIsWeb) return;
     try {
@@ -173,7 +173,7 @@ class BiometricService {
     } catch (_) {}
   }
 
-  /// Liga o desbloqueio após o usuário confirmar na prompt nativa (mesma regra da tela de login).
+  /// Liga o desbloqueio apÃ³s o usuÃ¡rio confirmar na prompt nativa (mesma regra da tela de login).
   Future<bool> enableUnlockWithBiometrics() async {
     if (kIsWeb) return false;
     final ok = await authenticate();
@@ -184,3 +184,4 @@ class BiometricService {
     return true;
   }
 }
+

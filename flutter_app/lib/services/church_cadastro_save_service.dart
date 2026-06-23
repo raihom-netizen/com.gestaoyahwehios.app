@@ -1,7 +1,7 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Gravação blindada do doc raiz `igrejas/{churchId}` — Cadastro da Igreja.
+/// GravaÃ§Ã£o blindada do doc raiz `igrejas/{churchId}` â€” Cadastro da Igreja.
 ///
 /// Web: cancela watches, [prepareForCriticalWrite] + [runFirestorePublishWithRecovery]
 /// para evitar INTERNAL ASSERTION (Firestore JS 12.x + listeners do IndexedStack).
@@ -28,7 +28,7 @@ abstract final class ChurchCadastroSaveService {
     }
   }
 
-  /// Persiste perfil da igreja — merge no doc raiz.
+  /// Persiste perfil da igreja â€” merge no doc raiz.
   static Future<void> saveChurchProfile({
     required String churchId,
     required Map<String, dynamic> data,
@@ -36,7 +36,7 @@ abstract final class ChurchCadastroSaveService {
   }) async {
     final cid = churchId.trim();
     if (cid.isEmpty) {
-      throw StateError('Igreja não identificada para salvar.');
+      throw StateError('Igreja nÃ£o identificada para salvar.');
     }
 
     await prepareForSave();
@@ -65,7 +65,7 @@ abstract final class ChurchCadastroSaveService {
 
     TenantResolverService.invalidateRegistrationContextCache(
       seedId: seedTenantId ?? cid,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
+      userUid: firebaseDefaultAuth.currentUser?.uid,
     );
     TenantResolverService.invalidateAliasCache();
 
@@ -79,3 +79,4 @@ abstract final class ChurchCadastroSaveService {
     ChurchContextService.bindChurchData(churchId: cid, data: payload);
   }
 }
+

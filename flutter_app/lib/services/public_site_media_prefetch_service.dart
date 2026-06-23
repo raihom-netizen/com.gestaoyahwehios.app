@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -8,10 +8,11 @@ import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, preloadNetworkImages, sanitizeImageUrl;
 
-/// Cache `_performance_cache/public_feed` — logo + URLs de mídia já resolvidas no servidor.
+/// Cache `_performance_cache/public_feed` â€” logo + URLs de mÃ­dia jÃ¡ resolvidas no servidor.
 abstract final class PublicSiteMediaPrefetchService {
   PublicSiteMediaPrefetchService._();
 
@@ -46,7 +47,7 @@ abstract final class PublicSiteMediaPrefetchService {
     return DateTime.now().difference(updatedAt.toDate()) > _staleAfter;
   }
 
-  /// Sementeia logo no cache RAM e pré-carrega imagens (web/iOS/Android).
+  /// Sementeia logo no cache RAM e prÃ©-carrega imagens (web/iOS/Android).
   static Future<void> applyAndPreload(
     BuildContext context,
     String tenantId, {
@@ -109,7 +110,7 @@ abstract final class PublicSiteMediaPrefetchService {
     await preloadNetworkImages(context, urls, maxItems: 40);
   }
 
-  /// Callable para visitante anónimo (após [PublicSiteMediaAuth]).
+  /// Callable para visitante anÃ³nimo (apÃ³s [PublicSiteMediaAuth]).
   static Future<void> warmFromCallableIfStale(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
@@ -121,7 +122,7 @@ abstract final class PublicSiteMediaPrefetchService {
 
     try {
       await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
           .httpsCallable(
         'warmPublicSiteFeedCache',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
@@ -136,7 +137,7 @@ abstract final class PublicSiteMediaPrefetchService {
     }
   }
 
-  /// Abertura do site: aquece servidor em background + pré-carrega quando há cache.
+  /// Abertura do site: aquece servidor em background + prÃ©-carrega quando hÃ¡ cache.
   static void scheduleOnPublicSiteOpen(
     BuildContext context,
     String tenantId, {
@@ -157,3 +158,4 @@ abstract final class PublicSiteMediaPrefetchService {
     }());
   }
 }
+

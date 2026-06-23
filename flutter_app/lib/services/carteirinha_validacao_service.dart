@@ -1,4 +1,5 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Resultado da validação pública da credencial (via Cloud Function com Admin SDK).
 class CarteirinhaValidacaoResultado {
@@ -45,7 +46,8 @@ class CarteirinhaValidacaoResultado {
 class CarteirinhaValidacaoService {
   CarteirinhaValidacaoService._();
 
-  static final FirebaseFunctions _fn = FirebaseFunctions.instanceFor(region: 'us-central1');
+  static FirebaseFunctions get _fn =>
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static Future<CarteirinhaValidacaoResultado> consultar({
     required String tenantId,
@@ -66,6 +68,7 @@ class CarteirinhaValidacaoService {
     }
 
     try {
+      await ensureFirebaseReadyForPanelRead();
       final callable = _fn.httpsCallable('validateCarteirinhaPublic');
       final res = await callable.call({
         'tenantId': tid,

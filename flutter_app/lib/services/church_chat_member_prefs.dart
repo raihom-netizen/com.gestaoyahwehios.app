@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -16,7 +16,7 @@ String _normalizeChatAlertMode(String raw) {
   return 'sound';
 }
 
-/// Preferências por utilizador na igreja: favoritos, silenciar conversa, bloquear contacto (DM),
+/// PreferÃªncias por utilizador na igreja: favoritos, silenciar conversa, bloquear contacto (DM),
 /// modo de alerta por DM / grupo, por **departamento**, por **pessoa (DM)** e por **conversa** (`threadNotifModes`).
 /// Firestore: `igrejas/{tenantId}/chat_member_prefs/{uid}`.
 class ChurchChatMemberPrefsModel {
@@ -30,16 +30,16 @@ class ChurchChatMemberPrefsModel {
   /// `null` = herdar o modo global.
   final String? groupNotificationStyle;
 
-  /// `threadId` → `sound` | `vibrate` | `silent` (prioridade máxima por conversa).
+  /// `threadId` â†’ `sound` | `vibrate` | `silent` (prioridade mÃ¡xima por conversa).
   final Map<String, String> threadNotifModes;
 
-  /// `departmentId` → modo para **todos** os grupos desse departamento (antes do estilo global de grupo).
+  /// `departmentId` â†’ modo para **todos** os grupos desse departamento (antes do estilo global de grupo).
   final Map<String, String> departmentAlertModes;
 
-  /// `peerUid` → modo para **todas** as DMs com essa pessoa (antes do estilo global de DM).
+  /// `peerUid` â†’ modo para **todas** as DMs com essa pessoa (antes do estilo global de DM).
   final Map<String, String> dmPeerAlertModes;
 
-  /// DM oculta da lista «Conversas» (só para este utilizador; não apaga o thread).
+  /// DM oculta da lista Â«ConversasÂ» (sÃ³ para este utilizador; nÃ£o apaga o thread).
   final List<String> hiddenDmThreadIds;
 
   /// Conversas fixadas no topo (estilo WhatsApp).
@@ -48,10 +48,10 @@ class ChurchChatMemberPrefsModel {
   /// Conversas arquivadas (fora da lista principal).
   final List<String> archivedThreadIds;
 
-  /// Ordem preferida dos grupos (ids de `departamentos/{id}`). Vazio = ordem alfabética.
+  /// Ordem preferida dos grupos (ids de `departamentos/{id}`). Vazio = ordem alfabÃ©tica.
   final List<String> departmentGroupOrderIds;
 
-  /// Mensagens favoritas por conversa (`threadId` → ids de mensagem).
+  /// Mensagens favoritas por conversa (`threadId` â†’ ids de mensagem).
   final Map<String, List<String>> starredMessageIdsByThread;
 
   const ChurchChatMemberPrefsModel({
@@ -98,19 +98,19 @@ class ChurchChatMemberPrefsModel {
 class ChurchChatMemberPrefs {
   ChurchChatMemberPrefs._();
 
-  /// Máximo de conversas favoritas (grupos + DM) por utilizador.
+  /// MÃ¡ximo de conversas favoritas (grupos + DM) por utilizador.
   static const int maxFavoriteThreads = 5;
 
-  /// Máximo de conversas com alerta personalizado (mapa `threadNotifModes`).
+  /// MÃ¡ximo de conversas com alerta personalizado (mapa `threadNotifModes`).
   static const int maxThreadNotifOverrides = 30;
 
-  /// Máximo de departamentos com modo próprio (`departmentAlertModes`).
+  /// MÃ¡ximo de departamentos com modo prÃ³prio (`departmentAlertModes`).
   static const int maxDepartmentAlertModes = 40;
 
-  /// Máximo de contactos DM com modo próprio (`dmPeerAlertModes`).
+  /// MÃ¡ximo de contactos DM com modo prÃ³prio (`dmPeerAlertModes`).
   static const int maxDmPeerAlertModes = 40;
 
-  /// Máximo de DMs ocultas na lista (evita documento gigante).
+  /// MÃ¡ximo de DMs ocultas na lista (evita documento gigante).
   static const int maxHiddenDmThreads = 80;
 
   /// Conversas fixadas no topo.
@@ -122,7 +122,7 @@ class ChurchChatMemberPrefs {
   /// Ordem personalizada dos grupos na aba Chat (ids de departamento).
   static const int maxDepartmentGroupOrderIds = 80;
 
-  /// Mensagens favoritas por conversa (estilo WhatsApp «mensagem importante»).
+  /// Mensagens favoritas por conversa (estilo WhatsApp Â«mensagem importanteÂ»).
   static const int maxStarredMessagesPerThread = 30;
 
   static const int maxStarredMessagesTotal = 120;
@@ -136,10 +136,10 @@ class ChurchChatMemberPrefs {
         .doc(uid);
   }
 
-  /// Nunca [Stream.empty] — alguns [StreamBuilder] ficavam sem snapshot útil (área cinza).
+  /// Nunca [Stream.empty] â€” alguns [StreamBuilder] ficavam sem snapshot Ãºtil (Ã¡rea cinza).
   static Stream<DocumentSnapshot<Map<String, dynamic>>> watch(
       String tenantId) async* {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       return;
     }
@@ -202,15 +202,15 @@ class ChurchChatMemberPrefs {
   }
 
   static Future<ChurchChatMemberPrefsModel> load(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return const ChurchChatMemberPrefsModel();
     final snap = await docRef(tenantId, uid).get();
     return parse(snap);
   }
 
-  /// Leitura com recuperação Web (painel) — evita prefs vazias por falha transitória do SDK.
+  /// Leitura com recuperaÃ§Ã£o Web (painel) â€” evita prefs vazias por falha transitÃ³ria do SDK.
   static Future<ChurchChatMemberPrefsModel> loadResilient(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       return const ChurchChatMemberPrefsModel();
     }
@@ -224,15 +224,15 @@ class ChurchChatMemberPrefs {
     return parse(snap);
   }
 
-  /// Remove favorito: sempre `true`. Adicionar: `false` se já existirem [maxFavoriteThreads] favoritos.
-  /// Favoritar mensagem nesta conversa (só visível para si).
+  /// Remove favorito: sempre `true`. Adicionar: `false` se jÃ¡ existirem [maxFavoriteThreads] favoritos.
+  /// Favoritar mensagem nesta conversa (sÃ³ visÃ­vel para si).
   static Future<bool> setMessageStarred({
     required String tenantId,
     required String threadId,
     required String messageId,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return false;
     final tid = threadId.trim();
     final mid = messageId.trim();
@@ -303,7 +303,7 @@ class ChurchChatMemberPrefs {
     required String threadId,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     if (value) {
       final cur = await load(tenantId);
       final ids = cur.favoriteThreadIds.toSet();
@@ -328,7 +328,7 @@ class ChurchChatMemberPrefs {
     required String threadId,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     await docRef(tenantId, uid).set(
       {
         'mutedThreadIds': value
@@ -345,7 +345,7 @@ class ChurchChatMemberPrefs {
     required String peerUid,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     await docRef(tenantId, uid).set(
       {
         'blockedPeerUids': value
@@ -357,13 +357,13 @@ class ChurchChatMemberPrefs {
     );
   }
 
-  /// Oculta ou repõe uma conversa direta na lista (não apaga mensagens nem o thread).
+  /// Oculta ou repÃµe uma conversa direta na lista (nÃ£o apaga mensagens nem o thread).
   static Future<bool> setHiddenDmThread({
     required String tenantId,
     required String threadId,
     required bool hide,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final tid = threadId.trim();
     if (tid.isEmpty || !_canHideDmThreadId(tid)) return false;
     if (hide) {
@@ -385,12 +385,12 @@ class ChurchChatMemberPrefs {
     return true;
   }
 
-  /// Oculta várias conversas diretas de uma vez (modo seleção no hub).
+  /// Oculta vÃ¡rias conversas diretas de uma vez (modo seleÃ§Ã£o no hub).
   static Future<({int hidden, bool hitLimit})> hideDmThreadsBatch({
     required String tenantId,
     required Iterable<String> threadIds,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final ids = threadIds
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty && _canHideDmThreadId(e))
@@ -425,7 +425,7 @@ class ChurchChatMemberPrefs {
     return threadId.startsWith('dm_') || !threadId.contains('/');
   }
 
-  /// Nova mensagem num DM oculto — volta a aparecer em «Conversas».
+  /// Nova mensagem num DM oculto â€” volta a aparecer em Â«ConversasÂ».
   static Future<void> revealDmThreadOnOutbound({
     required String tenantId,
     required String threadId,
@@ -445,7 +445,7 @@ class ChurchChatMemberPrefs {
     required String threadId,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final tid = threadId.trim();
     if (tid.isEmpty) return false;
     if (value) {
@@ -472,7 +472,7 @@ class ChurchChatMemberPrefs {
     required String threadId,
     required bool value,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final tid = threadId.trim();
     if (tid.isEmpty) return false;
     if (value) {
@@ -499,7 +499,7 @@ class ChurchChatMemberPrefs {
     required String tenantId,
     required String? mode,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
       await docRef(tenantId, uid).set(
         {
@@ -523,7 +523,7 @@ class ChurchChatMemberPrefs {
     required String tenantId,
     required String? mode,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
       await docRef(tenantId, uid).set(
         {
@@ -543,13 +543,13 @@ class ChurchChatMemberPrefs {
     );
   }
 
-  /// `mode == null` remove a entrada. `false` se o mapa já está no limite.
+  /// `mode == null` remove a entrada. `false` se o mapa jÃ¡ estÃ¡ no limite.
   static Future<bool> setThreadNotificationOverride({
     required String tenantId,
     required String threadId,
     required String? mode,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final cur = await load(tenantId);
     final map = Map<String, String>.from(cur.threadNotifModes);
     if (mode == null) {
@@ -571,13 +571,13 @@ class ChurchChatMemberPrefs {
     return true;
   }
 
-  /// `mode == null` remove a entrada. `false` se o mapa já está no limite.
+  /// `mode == null` remove a entrada. `false` se o mapa jÃ¡ estÃ¡ no limite.
   static Future<bool> setDepartmentAlertMode({
     required String tenantId,
     required String departmentId,
     required String? mode,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final id = departmentId.trim();
     if (id.isEmpty) return false;
     final cur = await load(tenantId);
@@ -606,7 +606,7 @@ class ChurchChatMemberPrefs {
     required String peerUid,
     required String? mode,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final pid = peerUid.trim();
     if (pid.isEmpty || pid == uid) return false;
     final cur = await load(tenantId);
@@ -629,12 +629,12 @@ class ChurchChatMemberPrefs {
     return true;
   }
 
-  /// Grava a ordem dos grupos (aba Grupos). Lista vazia remove preferência (volta ao A–Z).
+  /// Grava a ordem dos grupos (aba Grupos). Lista vazia remove preferÃªncia (volta ao Aâ€“Z).
   static Future<void> setDepartmentGroupOrder({
     required String tenantId,
     required List<String> departmentIdsInOrder,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final cleaned = departmentIdsInOrder
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)
@@ -649,9 +649,9 @@ class ChurchChatMemberPrefs {
     );
   }
 
-  /// Volta à ordenação alfabética na aba Grupos.
+  /// Volta Ã  ordenaÃ§Ã£o alfabÃ©tica na aba Grupos.
   static Future<void> clearDepartmentGroupOrder(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     await docRef(tenantId, uid).set(
       {
         'departmentGroupOrderIds': FieldValue.delete(),
@@ -661,13 +661,13 @@ class ChurchChatMemberPrefs {
     );
   }
 
-  /// DM: não enviar se bloqueou o interlocutor.
+  /// DM: nÃ£o enviar se bloqueou o interlocutor.
   static Future<bool> canSendToDmThread({
     required String tenantId,
     required String threadId,
   }) async {
     if (!threadId.startsWith('dm_')) return true;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
     final thread = await ChurchOperationalPaths.churchDoc(op)
@@ -685,3 +685,4 @@ class ChurchChatMemberPrefs {
     return !prefs.isBlockedPeer(peer);
   }
 }
+

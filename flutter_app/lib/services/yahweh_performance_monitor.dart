@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:gestao_yahweh/core/system_health/production_module_traces.dart';
@@ -9,7 +8,8 @@ import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dar
 import 'package:gestao_yahweh/services/yahweh_observability.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
-/// Medidor interno de tempo de ecrã (debug + amostra em `performanceLogs`).
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+/// Medidor interno de tempo de ecrÃ£ (debug + amostra em `performanceLogs`).
 abstract final class YahwehPerformanceMonitor {
   YahwehPerformanceMonitor._();
 
@@ -44,7 +44,7 @@ abstract final class YahwehPerformanceMonitor {
     }
   }
 
-  /// Após primeiro frame pintado.
+  /// ApÃ³s primeiro frame pintado.
   static void markScreenReadyAfterFirstFrame(
     String screen, {
     bool reportToFirestore = false,
@@ -76,7 +76,7 @@ abstract final class YahwehPerformanceMonitor {
     required int loadMs,
   }) async {
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final uid = firebaseDefaultAuth.currentUser?.uid;
       if (uid == null) return;
       await FirebaseFirestore.instance.collection('performanceLogs').add({
         'screen': screen,
@@ -101,3 +101,4 @@ abstract final class YahwehPerformanceMonitor {
     }
   }
 }
+

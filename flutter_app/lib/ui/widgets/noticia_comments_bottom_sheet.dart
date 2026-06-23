@@ -1,9 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show SafeCircleAvatarImage;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Comentários de um post em `igrejas/{tenant}/noticias/{id}/comentarios`.
 void showNoticiaCommentsBottomSheet(
@@ -57,17 +61,25 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
       String authorPhoto = user?.photoURL ?? '';
       if (authorName.isEmpty && user != null) {
         try {
-          final uDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .get();
+          if (kIsWeb) {
+            await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+          }
+          Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
+              firebaseDefaultFirestore.collection('users').doc(user.uid).get();
+          final uDoc = kIsWeb
+              ? await FirestoreWebGuard.runWithWebRecovery(
+                  readUser,
+                  maxAttempts: 4,
+                ).timeout(ChurchPanelReadTimeouts.queryCap)
+              : await readUser().timeout(ChurchPanelReadTimeouts.queryCap);
           authorName =
               (uDoc.data()?['nome'] ?? uDoc.data()?['name'] ?? 'Membro')
                   .toString();
           authorPhoto =
               (uDoc.data()?['fotoUrl'] ?? uDoc.data()?['photoUrl'] ?? '')
                   .toString();
-        } catch (_) {
+        } catch (e, st) {
+          debugPrint('CommentsSheet _send load user: $e\n$st');
           authorName = 'Membro';
         }
       }
@@ -87,7 +99,9 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
             SetOptions(merge: true),
           );
         }
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('CommentsSheet _send increment commentsCount: $e\n$st');
+      }
       _ctrl.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -144,7 +158,10 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
           Divider(height: 1, color: Colors.grey.shade200),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: widget.commentsRef.watchSafe(),
+              stream: widget.commentsRef
+                  .orderBy('createdAt', descending: true)
+                  .limit(120)
+                  .watchSafe(),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Center(
@@ -336,7 +353,11 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
                                         SetOptions(merge: true),
                                       );
                                     }
-                                  } catch (_) {}
+                                  } catch (e, st) {
+                                    debugPrint(
+                                      'CommentsSheet delete decrement commentsCount: $e\n$st',
+                                    );
+                                  }
                                 }
                               },
                               tooltip: 'Excluir comentário',

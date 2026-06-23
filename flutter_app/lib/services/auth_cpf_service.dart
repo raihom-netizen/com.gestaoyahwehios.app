@@ -1,11 +1,13 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 class AuthCpfService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth _auth = firebaseDefaultAuth;
   /// Mesma região das functions (resolveCpfToEmail, etc.)
-  FirebaseFunctions get _functions => FirebaseFunctions.instanceFor(region: 'us-central1');
+  FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   /// E-mail sintético quando o membro só tem CPF (igual ao backend).
   static String syntheticEmailForCpf(String cpfDigits11) =>

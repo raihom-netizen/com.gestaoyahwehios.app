@@ -1,14 +1,12 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
-import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -19,16 +17,16 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Mantém login do painel «automático» nas próximas aberturas (web + Android):
-/// rota salva, Google silencioso, cache de perfil e pré-carga de dados.
+/// MantÃ©m login do painel Â«automÃ¡ticoÂ» nas prÃ³ximas aberturas (web + Android):
+/// rota salva, Google silencioso, cache de perfil e prÃ©-carga de dados.
 class ChurchAutoSessionService {
   ChurchAutoSessionService._();
 
   static const kAutoPainelPrefsKey = kAutoPainelLogin;
 
-  /// Chamado após login bem-sucedido no painel (`/painel`).
+  /// Chamado apÃ³s login bem-sucedido no painel (`/painel`).
   static Future<void> persistAfterSuccessfulPainelLogin() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;
 
     final prefs = await SharedPreferences.getInstance();
@@ -52,17 +50,17 @@ class ChurchAutoSessionService {
   }
 
   static Future<bool> isAutoPainelEnabled() async {
-    if (FirebaseAuth.instance.currentUser == null) return false;
+    if (firebaseDefaultAuth.currentUser == null) return false;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(kAutoPainelPrefsKey) == true) return true;
-    // Utilizadores que já abriam o painel antes desta flag existir.
+    // Utilizadores que jÃ¡ abriam o painel antes desta flag existir.
     final last = (prefs.getString('last_route') ?? '').trim();
     return last == '/painel' || last.startsWith('/painel/');
   }
 
-  /// Sessão Firebase persistida — garante reabertura directa no painel (estilo apps bancários).
+  /// SessÃ£o Firebase persistida â€” garante reabertura directa no painel (estilo apps bancÃ¡rios).
   static Future<void> ensureAutoPainelFlagForPersistedSession() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;
     if (await isAutoPainelEnabled()) return;
     await persistAfterSuccessfulPainelLogin();
@@ -78,7 +76,7 @@ class ChurchAutoSessionService {
 
   /// Resolve `igrejaId` do utilizador e aquece caches (painel, membros, Firestore).
   static Future<void> preheatPanelCaches({String? tenantIdHint}) async {
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (firebaseDefaultAuth.currentUser == null) return;
 
     var tid = (tenantIdHint ?? '').trim();
     if (tid.isEmpty) {
@@ -115,16 +113,16 @@ class ChurchAutoSessionService {
     );
   }
 
-  /// Delega ao coordenador — uma onda de callable por tenant/sessão.
+  /// Delega ao coordenador â€” uma onda de callable por tenant/sessÃ£o.
   static Future<void> preheatPanelCachesCoordinated({String? tenantIdHint}) =>
       PanelPreheatCoordinator.preheatOnce(tenantIdHint: tenantIdHint);
 
-  /// Tenant da sessão atual — usado no pré-aquecimento do splash.
+  /// Tenant da sessÃ£o atual â€” usado no prÃ©-aquecimento do splash.
   static Future<String> resolveTenantIdForSession() =>
       _resolveTenantIdFromUserDoc();
 
   static Future<String> _resolveTenantIdFromUserDoc() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return '';
     try {
       final doc =
@@ -136,7 +134,7 @@ class ChurchAutoSessionService {
     }
   }
 
-  /// Android: restaura sessão Google sem UI (após login bem-sucedido anterior).
+  /// Android: restaura sessÃ£o Google sem UI (apÃ³s login bem-sucedido anterior).
   @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
   static Future<bool> trySilentGoogleRestore() async {
     return PersistentAuthSessionService.hasPersistedSession();
@@ -154,11 +152,11 @@ class ChurchAutoSessionService {
     return last == '/painel' || last.startsWith('/painel/');
   }
 
-  /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.
+  /// `main.dart`: antes de escolher rota inicial â€” evita ecrÃ£ Entrar com sessÃ£o Google/Apple no telemÃ³vel.
   static Future<bool> tryRestoreSessionOnColdStart() async =>
       PersistentAuthSessionService.warmColdStart();
 
-  /// `main.dart`: abrir direto o painel se já houve login com sucesso.
+  /// `main.dart`: abrir direto o painel se jÃ¡ houve login com sucesso.
   static Future<String?> painelRouteIfSessionRestored(String currentRoute) async {
     if (await LoginPreferences.isAccountSwitchPending()) return null;
     var user = await PersistentAuthSessionService.currentPersistedUser();
@@ -177,10 +175,11 @@ class ChurchAutoSessionService {
     return '/painel';
   }
 
-  /// Após restaurar OAuth no arranque: garante flag de auto-login do painel.
+  /// ApÃ³s restaurar OAuth no arranque: garante flag de auto-login do painel.
   static Future<void> markAutoPainelAfterOAuthRestore() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;
     await persistAfterSuccessfulPainelLogin();
   }
 }
+

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show ValueNotifier, debugPrint, kIsWeb;
 
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
@@ -11,7 +10,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_document_version_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Estado partilhado — abas «Painel de emissões» + «Histórico» (uma carga).
+/// Estado partilhado â€” abas Â«Painel de emissÃµesÂ» + Â«HistÃ³ricoÂ» (uma carga).
 class CertificadosHistoricoState {
   const CertificadosHistoricoState({
     this.docs = const [],
@@ -51,8 +50,8 @@ class CertificadosHistoricoState {
 
 /// Certificados emitidos: **dados completos** em `igrejas/{churchId}/certificados_emitidos/{id}`.
 ///
-/// Histórico leve (legado): `igrejas/{churchId}/certificados_historico/{id}`.
-/// Validação pública (QR): `igrejas/{churchId}/certificados_protocol_index/{id}`.
+/// HistÃ³rico leve (legado): `igrejas/{churchId}/certificados_historico/{id}`.
+/// ValidaÃ§Ã£o pÃºblica (QR): `igrejas/{churchId}/certificados_protocol_index/{id}`.
 class CertificateEmitidoService {
   CertificateEmitidoService._();
 
@@ -219,7 +218,7 @@ class CertificateEmitidoService {
     }, maxAttempts: 4);
   }
 
-  /// Histórico no painel — `igrejas/{churchId}/certificados_emitidos` (+ fallback histórico).
+  /// HistÃ³rico no painel â€” `igrejas/{churchId}/certificados_emitidos` (+ fallback histÃ³rico).
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadHistorico(
     String tenantHint, {
     int limit = kHistoricoPageSize,
@@ -303,7 +302,7 @@ class CertificateEmitidoService {
     return const [];
   }
 
-  /// Atualiza o estado partilhado das abas Painel/Histórico.
+  /// Atualiza o estado partilhado das abas Painel/HistÃ³rico.
   static Future<void> refreshHistoricoPanel(
     String tenantHint, {
     bool forceRefresh = false,
@@ -312,7 +311,7 @@ class CertificateEmitidoService {
     final churchId = _churchId(tenantHint);
     if (churchId.isEmpty) {
       historicoNotifier(tenantHint).value = const CertificadosHistoricoState(
-        error: 'Igreja não identificada.',
+        error: 'Igreja nÃ£o identificada.',
       );
       return;
     }
@@ -389,14 +388,14 @@ class CertificateEmitidoService {
       throw ArgumentError('tenantId vazio');
     }
     final op = _churchId(tid);
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) {
-      throw StateError('Utilizador não autenticado');
+      throw StateError('Utilizador nÃ£o autenticado');
     }
     final id = (certificadoId ?? '').trim();
     final certificadoIdResolved =
         id.isNotEmpty ? id : generateCertificateProtocolId();
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    final email = firebaseDefaultAuth.currentUser?.email ?? '';
 
     final fp = ChurchDocumentVersionService.fingerprintFromMap(snapshot);
     final existing = snapshot[ChurchDocumentVersionService.pdfPathField];
@@ -438,7 +437,7 @@ class CertificateEmitidoService {
     return certificadoIdResolved;
   }
 
-  /// Várias emissões num único batch (ex.: PDF único em lote).
+  /// VÃ¡rias emissÃµes num Ãºnico batch (ex.: PDF Ãºnico em lote).
   static Future<List<String>> registerEmissaoBatch({
     required String tenantId,
     required List<Map<String, dynamic>> snapshots,
@@ -447,12 +446,12 @@ class CertificateEmitidoService {
     final tid = tenantId.trim();
     if (tid.isEmpty) throw ArgumentError('tenantId vazio');
     final op = _churchId(tid);
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (uid.isEmpty) throw StateError('Utilizador não autenticado');
-    final email = FirebaseAuth.instance.currentUser?.email ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    if (uid.isEmpty) throw StateError('Utilizador nÃ£o autenticado');
+    final email = firebaseDefaultAuth.currentUser?.email ?? '';
     if (snapshots.isEmpty) return [];
 
-    /// Firestore limita 500 operações por batch; cada emissão = 2 sets.
+    /// Firestore limita 500 operaÃ§Ãµes por batch; cada emissÃ£o = 2 sets.
     const chunkSize = 200;
     final ids = <String>[];
     for (var offset = 0; offset < snapshots.length; offset += chunkSize) {
@@ -491,7 +490,7 @@ class CertificateEmitidoService {
     return ids;
   }
 
-  /// Leitura pública (validação QR): índice → documento na igreja; fallback raiz legado.
+  /// Leitura pÃºblica (validaÃ§Ã£o QR): Ã­ndice â†’ documento na igreja; fallback raiz legado.
   static Future<DocumentSnapshot<Map<String, dynamic>>> getPublic(
     String certificadoId,
   ) async {
@@ -539,7 +538,7 @@ class CertificateEmitidoService {
     return firebaseDefaultFirestore.collection('certificados_emitidos').doc(id).get();
   }
 
-  /// Reemissão no painel: leitura directa em `igrejas/{churchId}/certificados_emitidos`.
+  /// ReemissÃ£o no painel: leitura directa em `igrejas/{churchId}/certificados_emitidos`.
   static Future<DocumentSnapshot<Map<String, dynamic>>> getForTenant(
     String tenantId,
     String certificadoId,
@@ -558,3 +557,4 @@ class CertificateEmitidoService {
     return getPublic(id);
   }
 }
+

@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 class AttendancePage extends StatefulWidget {
   final String tenantId;
@@ -31,6 +35,23 @@ class _AttendancePageState extends State<AttendancePage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _chartFuture;
   late Future<QuerySnapshot<Map<String, dynamic>>> _cultosListFuture;
 
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId.trim());
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _safeReadQuery(
+    Query<Map<String, dynamic>> query,
+  ) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+        debugPrint('Attendance _safeReadQuery ensurePanelReadReady: $e\n$st');
+      });
+      return FirestoreWebGuard.runWithWebRecovery(
+        () => query.get(),
+        maxAttempts: 4,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+    }
+    return query.get().timeout(ChurchPanelReadTimeouts.queryCap);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -42,14 +63,17 @@ class _AttendancePageState extends State<AttendancePage> {
     final mesInicio = DateTime(now.year, now.month);
     final mesFim = DateTime(now.year, now.month + 1);
     setState(() {
-      _resumoFuture = _cultos
-          .where('data', isGreaterThanOrEqualTo: Timestamp.fromDate(mesInicio))
-          .where('data', isLessThan: Timestamp.fromDate(mesFim))
-          .get();
-      _chartFuture = _cultos.orderBy('data', descending: true).limit(8).get();
+      _resumoFuture = _safeReadQuery(
+        _cultos
+            .where('data', isGreaterThanOrEqualTo: Timestamp.fromDate(mesInicio))
+            .where('data', isLessThan: Timestamp.fromDate(mesFim)),
+      );
+      _chartFuture = _safeReadQuery(
+        _cultos.orderBy('data', descending: true).limit(8),
+      );
       Query<Map<String, dynamic>> q = _cultos.orderBy('data', descending: true);
       if (_tipoFiltro != 'Todos') q = q.where('tipo', isEqualTo: _tipoFiltro);
-      _cultosListFuture = q.get();
+      _cultosListFuture = _safeReadQuery(q);
     });
   }
 
@@ -59,11 +83,11 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-                ChurchUiCollections.churchDoc(widget.tenantId)
+      ChurchUiCollections.churchDoc(_tenantId)
           .collection('cultos');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchUiCollections.membros(widget.tenantId);
+      ChurchUiCollections.membros(_tenantId);
 
   // ─── Build ──────────────────────────────────────────────────────────────────
   @override
@@ -989,6 +1013,25 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   String _search = '';
   Timer? _searchDebounce;
 
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId.trim());
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _safeReadQuery(
+    Query<Map<String, dynamic>> query,
+  ) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+        debugPrint(
+          'Attendance _PresencaSheet._safeReadQuery ensurePanelReadReady: $e\n$st',
+        );
+      });
+      return FirestoreWebGuard.runWithWebRecovery(
+        () => query.get(),
+        maxAttempts: 4,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+    }
+    return query.get().timeout(ChurchPanelReadTimeouts.queryCap);
+  }
+
   @override
   void dispose() {
     _searchDebounce?.cancel();
@@ -1001,13 +1044,13 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   int _totalMembers = 0;
 
   CollectionReference<Map<String, dynamic>> get _presencasRef =>
-                ChurchUiCollections.churchDoc(widget.tenantId)
+      ChurchUiCollections.churchDoc(_tenantId)
           .collection('cultos')
           .doc(widget.cultoId)
           .collection('presencas');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchUiCollections.membros(widget.tenantId);
+      ChurchUiCollections.membros(_tenantId);
 
   @override
   void initState() {
@@ -1016,8 +1059,10 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   }
 
   Future<void> _loadData() async {
-    final membersSnap = await _members.orderBy('NOME_COMPLETO').get();
-    final presSnap = await _presencasRef.get();
+    final membersSnap = await _safeReadQuery(
+      _members.orderBy('NOME_COMPLETO'),
+    );
+    final presSnap = await _safeReadQuery(_presencasRef);
 
     final presMap = <String, bool>{};
     for (final p in presSnap.docs) {
@@ -1056,8 +1101,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
 
   Future<void> _saveAll() async {
     setState(() => _saving = true);
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = _presencasRef.firestore.batch();
 
     for (final entry in _presencas.entries) {
       final docRef = _presencasRef.doc(entry.key);

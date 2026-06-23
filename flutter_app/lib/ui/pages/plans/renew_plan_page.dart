@@ -535,8 +535,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           'Após o pagamento, a licença anual da igreja é renovada automaticamente.';
     }
     if (defaultTargetPlatform == TargetPlatform.android) {
-      return 'Ao confirmar, o checkout do Mercado Pago abre no app. '
-          'Quando o pagamento for aprovado, a licença anual é liberada em instantes.';
+      return 'Ao confirmar, o checkout seguro do Mercado Pago abre no próprio app '
+          '(pré-visualização direta). Quando o pagamento for aprovado, a licença '
+          'é liberada em instantes.';
     }
     return 'Revise os dados e confirme para abrir o checkout seguro do Mercado Pago.';
   }
@@ -1309,8 +1310,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                                     'o PIX fica nesta página. Anual no cartão: até 6x.'
                                 : 'Selecione plano e ciclo. Anual no cartão em até 6x; '
                                     'após confirmar, o checkout abre nesta página.')
-                            : 'Selecione plano e ciclo. Anual no cartão em até 6x; '
-                                'a licença renova automaticamente após o pagamento.')
+                            : 'Selecione plano e ciclo. Android abre prévia de checkout '
+                                'direto no app; anual no cartão em até 6x.')
                         : (kIsWeb || defaultTargetPlatform == TargetPlatform.android)
                             ? 'Todos os módulos inclusos. Anual: PIX à vista ou cartão em até 6x '
                                 '(confirme antes de pagar). A licença atualiza após aprovação.'

@@ -1,11 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class UserRepository {
   UserRepository({
     FirebaseFirestore? firestore,
     required this.tenantId,
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+  }) : _db = firestore ?? firebaseDefaultFirestore;
 
   final FirebaseFirestore _db;
   final String tenantId;

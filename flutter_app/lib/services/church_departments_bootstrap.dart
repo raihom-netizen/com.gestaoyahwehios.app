@@ -1,17 +1,18 @@
 import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/department_template.dart';
 import 'package:gestao_yahweh/services/church_departments_presets_data.dart';
 
-/// Presets padrão — preenche docs faltantes em `igrejas/{id}/departamentos`.
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+
+/// Presets padrÃ£o â€” preenche docs faltantes em `igrejas/{id}/departamentos`.
 class ChurchDepartmentsBootstrap {
   ChurchDepartmentsBootstrap._();
 
-  /// Uma entrada por rótulo (evita Crianças/Louvor duplicados por keys legadas em inglês).
+  /// Uma entrada por rÃ³tulo (evita CrianÃ§as/Louvor duplicados por keys legadas em inglÃªs).
   static const _legacyKeys = {'kids', 'men', 'women', 'welcome', 'youth', 'worship', 'prayer'};
 
   static List<Map<String, dynamic>> get _presetsSorted {
@@ -38,18 +39,18 @@ class ChurchDepartmentsBootstrap {
     return list;
   }
 
-  /// Quantidade de presets únicos (por nome) usada nas mensagens da UI.
+  /// Quantidade de presets Ãºnicos (por nome) usada nas mensagens da UI.
   static int get uniquePresetCount => _presetsSorted.length;
 
   /// Itens do kit de boas-vindas (11 departamentos base).
   static int get welcomeKitCount => kDepartmentWelcomeKit.length;
 
-  /// Lista ordenada para exibir sugestões na UI quando o Firestore ainda está vazio.
+  /// Lista ordenada para exibir sugestÃµes na UI quando o Firestore ainda estÃ¡ vazio.
   static List<Map<String, dynamic>> get presetsSorted =>
       List<Map<String, dynamic>>.unmodifiable(_presetsSorted);
 
-  /// Cria só o [kDepartmentWelcomeKit] quando a subcoleção está **completamente vazia**.
-  /// Não substitui o catálogo completo ([ensureMissingPresetDocuments]).
+  /// Cria sÃ³ o [kDepartmentWelcomeKit] quando a subcoleÃ§Ã£o estÃ¡ **completamente vazia**.
+  /// NÃ£o substitui o catÃ¡logo completo ([ensureMissingPresetDocuments]).
   static Future<bool> ensureWelcomeKitDocuments(
     CollectionReference<Map<String, dynamic>> col, {
     bool refreshToken = false,
@@ -58,10 +59,10 @@ class ChurchDepartmentsBootstrap {
     try {
       if (refreshToken) {
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          await firebaseDefaultAuth.currentUser?.getIdToken(true);
         } catch (_) {}
       }
-      // Cache primeiro (abertura do módulo); confirma no servidor só se parecer vazio.
+      // Cache primeiro (abertura do mÃ³dulo); confirma no servidor sÃ³ se parecer vazio.
       var snap = await col.get(GetOptions(source: Source.serverAndCache));
       if (snap.docs.isNotEmpty) return false;
       snap = await col.get(GetOptions(source: Source.server));
@@ -82,8 +83,8 @@ class ChurchDepartmentsBootstrap {
     return false;
   }
 
-  /// Cria documentos de preset cujo [id] ainda não existe.
-  /// [onError] — ex.: exibir SnackBar quando [permission-denied] (regras Firestore desatualizadas ou papel sem escrita).
+  /// Cria documentos de preset cujo [id] ainda nÃ£o existe.
+  /// [onError] â€” ex.: exibir SnackBar quando [permission-denied] (regras Firestore desatualizadas ou papel sem escrita).
   static Future<bool> ensureMissingPresetDocuments(
     CollectionReference<Map<String, dynamic>> col, {
     bool refreshToken = false,
@@ -91,7 +92,7 @@ class ChurchDepartmentsBootstrap {
   }) async {
     try {
       if (refreshToken) {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        await firebaseDefaultAuth.currentUser?.getIdToken(true);
       }
       final snap = await col.get(GetOptions(source: Source.server));
       final existingIds = snap.docs.map((d) => d.id).toSet();
@@ -151,15 +152,15 @@ class ChurchDepartmentsBootstrap {
     return false;
   }
 
-  /// Docs criados só com id (ex.: [ens_professores]) sem [name]/[iconKey]: completa a partir do preset.
-  /// Merge — não apaga campos já preenchidos pelo gestor.
+  /// Docs criados sÃ³ com id (ex.: [ens_professores]) sem [name]/[iconKey]: completa a partir do preset.
+  /// Merge â€” nÃ£o apaga campos jÃ¡ preenchidos pelo gestor.
   static Future<int> backfillPresetMetadataWhereMissing(
     CollectionReference<Map<String, dynamic>> col, {
     bool refreshToken = false,
   }) async {
     try {
       if (refreshToken) {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        await firebaseDefaultAuth.currentUser?.getIdToken(true);
       }
       final presetByKey = <String, Map<String, dynamic>>{};
       for (final e in _presetsSorted) {
@@ -214,3 +215,4 @@ class ChurchDepartmentsBootstrap {
     return 0;
   }
 }
+

@@ -1,14 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 
-/// Upload do certificado (.p12 / .pfx) para o Storage **restrito** e referência no perfil do usuário logado.
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+/// Upload do certificado (.p12 / .pfx) para o Storage **restrito** e referÃªncia no perfil do usuÃ¡rio logado.
 ///
-/// **Segurança:** não gravar senha do certificado no Firestore. Use [FlutterSecureStorage] apenas no dispositivo
-/// se o gestor optar por “lembrar PIN” (opcional na UI).
+/// **SeguranÃ§a:** nÃ£o gravar senha do certificado no Firestore. Use [FlutterSecureStorage] apenas no dispositivo
+/// se o gestor optar por â€œlembrar PINâ€ (opcional na UI).
 class CertificadoDigitalService {
   CertificadoDigitalService._();
 
@@ -35,7 +35,7 @@ class CertificadoDigitalService {
 
   /// Nome do ficheiro .p12 exibido na UI (prioriza [users], depois [membros]).
   static Future<String?> certificateFileNameForCurrentUser() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return null;
     try {
       final userDoc =
@@ -61,7 +61,7 @@ class CertificadoDigitalService {
   }
 
   static Future<String?> storagePathForCurrentUser() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return null;
     try {
       final userDoc =
@@ -101,16 +101,16 @@ class CertificadoDigitalService {
     }
   }
 
-  /// Faz upload e grava metadados em `users/{uid}` (o próprio usuário pode atualizar).
+  /// Faz upload e grava metadados em `users/{uid}` (o prÃ³prio usuÃ¡rio pode atualizar).
   static Future<void> uploadPfxForCurrentUser({
     required String tenantId,
     required Uint8List bytes,
     required String originalFileName,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null || uid.isEmpty) throw StateError('Usuário não autenticado');
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    if (uid == null || uid.isEmpty) throw StateError('UsuÃ¡rio nÃ£o autenticado');
     final tid = tenantId.trim();
-    if (tid.isEmpty) throw StateError('Igreja inválida');
+    if (tid.isEmpty) throw StateError('Igreja invÃ¡lida');
     if (bytes.isEmpty) throw StateError('Arquivo vazio');
     final safeName = originalFileName.replaceAll(RegExp(r'[^\w.\-]'), '_');
     final path = 'igrejas/$tid/certificados_gestor/${uid}_${DateTime.now().millisecondsSinceEpoch}.p12';
@@ -141,7 +141,7 @@ class CertificadoDigitalService {
   }
 
   static Future<void> removeCertificateReferenceForCurrentUser() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return;
     final deletes = <String, dynamic>{
       'certificadoDigitalStoragePath': FieldValue.delete(),
@@ -172,3 +172,4 @@ class CertificadoDigitalService {
     }
   }
 }
+

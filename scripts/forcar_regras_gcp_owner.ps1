@@ -18,6 +18,24 @@ $ProjectId = 'gestaoyahweh-21e23'
 
 Write-Host '=== Forcar regras GCP (Owner + certificado raiz) ===' -ForegroundColor Cyan
 
+function Initialize-FirebaseTokenFromFile {
+    param([string] $RepoRoot)
+    if ($env:FIREBASE_TOKEN -and $env:FIREBASE_TOKEN.Trim().Length -gt 20) {
+        return $true
+    }
+    $tokenFile = Join-Path $RepoRoot '.firebase-ci-token'
+    if (-not (Test-Path $tokenFile)) { return $false }
+    try {
+        $token = (Get-Content $tokenFile -Raw).Trim()
+        if ($token.Length -gt 20) {
+            $env:FIREBASE_TOKEN = $token
+            Write-Host 'FIREBASE_TOKEN carregado de .firebase-ci-token (fallback CLI).' -ForegroundColor DarkGray
+            return $true
+        }
+    } catch {}
+    return $false
+}
+
 . (Join-Path $RepoRoot 'scripts\ensure_gestao_yahweh_toolchain_path.ps1')
 . (Join-Path $RepoRoot 'scripts\ensure_google_cloud_auth.ps1')
 
@@ -116,6 +134,23 @@ if ($rulesOk -and $idxOk) {
 
 if (-not $rulesOk) {
     Write-Host 'Firestore rules ainda pendentes (503 API Google). Watchdog em background...' -ForegroundColor Yellow
+    Write-Host 'Tentando fallback via Firebase CLI (estilo Controle Total)...' -ForegroundColor Yellow
+    $hasCiToken = Initialize-FirebaseTokenFromFile -RepoRoot $RepoRoot
+    & (Join-Path $RepoRoot 'scripts\deploy_firebase_rules.ps1') -UseCliRules -ForcePublish -MaxAttempts 6
+    $cliExit = $LASTEXITCODE
+    if ($cliExit -eq 0) {
+        Write-Host 'Fallback CLI concluiu regras com sucesso.' -ForegroundColor Green
+        if ($idxOk) {
+            Write-Host '=== REGRAS + INDICES PUBLICADOS (fallback CLI rules) ===' -ForegroundColor Green
+        } else {
+            Write-Host '=== REGRAS PUBLICADAS (indices pendentes) ===' -ForegroundColor Yellow
+        }
+        Write-Host "Console: https://console.firebase.google.com/project/$ProjectId/overview" -ForegroundColor DarkGray
+        exit 0
+    }
+    if (-not $hasCiToken) {
+        Write-Host 'Dica: crie .firebase-ci-token na raiz (firebase login:ci) para fallback CLI sem login interativo.' -ForegroundColor DarkYellow
+    }
     & (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1') -StartBackground
 }
 Write-Host 'Parcial — repita quando API estavel ou execute setup_google_cloud_automatico.ps1 (Owner login).' -ForegroundColor DarkYellow

@@ -264,21 +264,13 @@ abstract final class FinanceComprovantePublishService {
     }
   }
 
+  /// Path canónico único: `igrejas/{churchId}/financeiro/YYYY_MM/{lancamentoId}.{ext}`.
   static String comprovantePathFor({
     required String tenantId,
     required String lancamentoId,
     DateTime? referenceDate,
     String ext = 'jpg',
-    String? transactionType,
   }) {
-    if (transactionType != null && transactionType.trim().isNotEmpty) {
-      return ChurchStorageLayout.financeComprovantePathByTipo(
-        tenantId: tenantId,
-        lancamentoId: lancamentoId,
-        tipo: transactionType,
-        ext: ext,
-      );
-    }
     return ChurchStorageLayout.financeComprovantePath(
       tenantId: tenantId,
       lancamentoId: lancamentoId,
@@ -345,6 +337,25 @@ abstract final class FinanceComprovantePublishService {
         referenceDate: referenceDate,
         ext: 'png',
       ),
+      // Legado por tipo (somente limpeza retrocompatível).
+      ChurchStorageLayout.financeComprovantePathByTipo(
+        tenantId: tenantId,
+        lancamentoId: lancamentoId,
+        tipo: 'receita',
+        ext: ext ?? 'jpg',
+      ),
+      ChurchStorageLayout.financeComprovantePathByTipo(
+        tenantId: tenantId,
+        lancamentoId: lancamentoId,
+        tipo: 'despesa',
+        ext: ext ?? 'jpg',
+      ),
+      ChurchStorageLayout.financeComprovantePathByTipo(
+        tenantId: tenantId,
+        lancamentoId: lancamentoId,
+        tipo: 'transferencia',
+        ext: ext ?? 'jpg',
+      ),
       ChurchStorageLayout.financeComprovantePathLegacy(
         tenantId: tenantId,
         lancamentoId: lancamentoId,
@@ -372,7 +383,6 @@ abstract final class FinanceComprovantePublishService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
-    String? transactionType,
   }) async {
     return FirebaseBootstrapService.runGuarded(
       () => _uploadComprovanteStorageCore(
@@ -385,7 +395,6 @@ abstract final class FinanceComprovantePublishService {
         previousStoragePath: previousStoragePath,
         previousDownloadUrl: previousDownloadUrl,
         onProgress: onProgress,
-        transactionType: transactionType,
       ),
       debugLabel: 'finance_comprovante_storage',
       requireAuth: true,
@@ -402,7 +411,6 @@ abstract final class FinanceComprovantePublishService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
-    String? transactionType,
   }) async {
     await _ensureReady();
     final churchId = ChurchRepository.churchId(tenantId.trim());
@@ -438,7 +446,6 @@ abstract final class FinanceComprovantePublishService {
       lancamentoId: lancamentoId,
       referenceDate: referenceDate,
       ext: ext,
-      transactionType: transactionType,
     );
 
     final contentType = ext == 'pdf'

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -12,6 +11,7 @@ import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 enum ChurchNotificationSource { tenant, inbox, live }
 
 /// Item unificado da central (push FCM + `notificacoes` + painel ao vivo).
@@ -101,7 +101,7 @@ abstract final class ChurchNotificationCenter {
         r == 'secretario' ||
         r == 'secretaria' ||
         r == 'lider' ||
-        r == 'líder';
+        r == 'lÃ­der';
   }
 
   static String moduleForType(String type) {
@@ -209,8 +209,8 @@ abstract final class ChurchNotificationCenter {
             source: ChurchNotificationSource.live,
             type: 'novo_membro',
             title: panel.pendingMembersCount == 1
-                ? '1 membro aguardando aprovação'
-                : '${panel.pendingMembersCount} membros aguardando aprovação',
+                ? '1 membro aguardando aprovaÃ§Ã£o'
+                : '${panel.pendingMembersCount} membros aguardando aprovaÃ§Ã£o',
             body: 'Cadastros pendentes no painel.',
             createdAt: now,
             isRead: true,
@@ -225,9 +225,9 @@ abstract final class ChurchNotificationCenter {
             source: ChurchNotificationSource.live,
             type: 'pedido_oracao',
             title: panel.openPrayerRequestsCount == 1
-                ? '1 pedido de oração aberto'
-                : '${panel.openPrayerRequestsCount} pedidos de oração abertos',
-            body: 'A igreja aguarda intercessão pastoral.',
+                ? '1 pedido de oraÃ§Ã£o aberto'
+                : '${panel.openPrayerRequestsCount} pedidos de oraÃ§Ã£o abertos',
+            body: 'A igreja aguarda intercessÃ£o pastoral.',
             createdAt: now,
             isRead: true,
             shellIndex: ChurchShellIndices.pedidosOracao,
@@ -266,10 +266,10 @@ abstract final class ChurchNotificationCenter {
             id: 'live_evt_${raw['id'] ?? title}',
             source: ChurchNotificationSource.live,
             type: 'novo_evento',
-            title: title.isEmpty ? 'Próximo evento' : title,
+            title: title.isEmpty ? 'PrÃ³ximo evento' : title,
             body: start == null
                 ? 'Confira a agenda da igreja.'
-                : DateFormat('dd/MM · HH:mm', 'pt_BR').format(start),
+                : DateFormat('dd/MM Â· HH:mm', 'pt_BR').format(start),
             createdAt: start ?? now,
             isRead: true,
             shellIndex: kChurchShellIndexEvents,
@@ -288,7 +288,7 @@ abstract final class ChurchNotificationCenter {
           id: 't_${d.id}',
           source: ChurchNotificationSource.tenant,
           type: type.isEmpty ? 'generico' : type,
-          title: (m['title'] ?? 'Notificação').toString(),
+          title: (m['title'] ?? 'NotificaÃ§Ã£o').toString(),
           body: (m['body'] ?? '').toString(),
           createdAt: created,
           isRead: read,
@@ -305,7 +305,7 @@ abstract final class ChurchNotificationCenter {
           id: 'p_${d.id}',
           source: ChurchNotificationSource.inbox,
           type: type.isEmpty ? 'generico' : type,
-          title: (m['title'] ?? 'Notificação').toString(),
+          title: (m['title'] ?? 'NotificaÃ§Ã£o').toString(),
           body: (m['body'] ?? '').toString(),
           createdAt: _ts(m['createdAt']),
           isRead: m['read'] == true,
@@ -414,7 +414,7 @@ class _ChurchNotificationFeedScopeState extends State<ChurchNotificationFeedScop
   }
 
   Future<void> _bootstrap() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     _lastSeen = await ChurchNotificationSeenPrefs.lastSeenAt(
       widget.tenantId,
       uid,
@@ -473,7 +473,7 @@ class _ChurchNotificationFeedScopeState extends State<ChurchNotificationFeedScop
       setState(() => _panel = p);
     });
 
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
       _inboxSub = InternalNotificationInboxService.watch(uid, limit: 60)
           .listen((snap) {
@@ -548,7 +548,7 @@ class _ChurchNotificationFeedScopeState extends State<ChurchNotificationFeedScop
   }
 
   Future<void> refreshSeen() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     _lastSeen = await ChurchNotificationSeenPrefs.lastSeenAt(
       widget.tenantId,
       uid,
@@ -585,3 +585,4 @@ class _ChurchNotificationFeedInherited extends InheritedWidget {
 Future<void> refreshChurchNotificationSeen(BuildContext context) async {
   await _ChurchNotificationFeedInherited.of(context)?.refreshSeen();
 }
+

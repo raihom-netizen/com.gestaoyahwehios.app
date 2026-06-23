@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -11,7 +12,7 @@ class MigrateMembersToMembrosService {
   static const _prefKeyPrefix = 'migrate_members_to_membros_done_';
   static const int _batchSize = 100;
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = firebaseDefaultFirestore;
 
   /// Retorna true se a migração já foi executada para este tenant.
   Future<bool> hasMigrationDone(String tenantId) async {

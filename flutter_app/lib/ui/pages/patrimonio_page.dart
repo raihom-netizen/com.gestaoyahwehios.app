@@ -8664,6 +8664,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
     try {
       YahwehFlowLog.patrimonioStart();
+      await ensureFirebaseReadyForPublishUpload();
       final tenantId = _churchIdForPublish;
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();

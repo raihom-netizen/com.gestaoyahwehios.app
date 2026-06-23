@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 class GroupsPage extends StatefulWidget {
   final String tenantId;
@@ -22,6 +25,22 @@ class _GroupsPageState extends State<GroupsPage> {
   String _search = '';
   String _filter = 'Todos';
   Timer? _searchDebounce;
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId.trim());
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _safeReadQuery(
+    Query<Map<String, dynamic>> query,
+  ) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+        debugPrint('Groups _safeReadQuery ensurePanelReadReady: $e\n$st');
+      });
+      return FirestoreWebGuard.runWithWebRecovery(
+        () => query.get(),
+        maxAttempts: 4,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+    }
+    return query.get().timeout(ChurchPanelReadTimeouts.queryCap);
+  }
 
   @override
   void dispose() {
@@ -35,7 +54,7 @@ class _GroupsPageState extends State<GroupsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _gruposCol =>
-                ChurchUiCollections.churchDoc(widget.tenantId)
+      ChurchUiCollections.churchDoc(_tenantId)
           .collection('grupos');
 
   static const _diasSemana = [
@@ -65,14 +84,15 @@ class _GroupsPageState extends State<GroupsPage> {
     final now = DateTime.now();
     final start = DateTime(now.year, now.month);
     final end = DateTime(now.year, now.month + 1);
-    final gruposSnap = await _gruposCol.get();
+    final gruposSnap = await _safeReadQuery(_gruposCol);
     int total = 0;
     for (final g in gruposSnap.docs) {
-      final qs = await g.reference
-          .collection('encontros')
-          .where('data', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('data', isLessThan: Timestamp.fromDate(end))
-          .get();
+      final qs = await _safeReadQuery(
+        g.reference
+            .collection('encontros')
+            .where('data', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('data', isLessThan: Timestamp.fromDate(end)),
+      );
       total += qs.size;
     }
     return total;
@@ -1050,9 +1070,10 @@ class _GroupDetailPage extends StatefulWidget {
 class _GroupDetailPageState extends State<_GroupDetailPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtrl;
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId.trim());
 
   DocumentReference<Map<String, dynamic>> get _groupRef =>
-                ChurchUiCollections.churchDoc(widget.tenantId)
+      ChurchUiCollections.churchDoc(_tenantId)
           .collection('grupos')
           .doc(widget.groupDoc.id);
 

@@ -1,11 +1,11 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Diagnóstico de sessão — churchId, paths, tempos e último erro.
+/// DiagnÃ³stico de sessÃ£o â€” churchId, paths, tempos e Ãºltimo erro.
 class SystemDiagnosticSnapshot {
   const SystemDiagnosticSnapshot({
     required this.churchId,
@@ -69,7 +69,7 @@ abstract final class SystemDiagnosticService {
     required String seedTenantId,
     String? userUid,
   }) async {
-    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+    final uid = userUid ?? firebaseDefaultAuth.currentUser?.uid;
     final sw = Stopwatch()..start();
     String? lastError = ChurchContextService.lastError;
     var churchId = ChurchContextService.currentChurchId ?? '';
@@ -138,3 +138,4 @@ abstract final class SystemDiagnosticService {
     );
   }
 }
+

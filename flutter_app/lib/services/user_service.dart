@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 class UserService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = firebaseDefaultFirestore;
 
   Future<Map<String, dynamic>> ensureUserDoc({
     required String uid,

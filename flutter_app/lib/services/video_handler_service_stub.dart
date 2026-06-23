@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
@@ -35,11 +34,11 @@ class VideoHandlerService implements IVideoHandlerService {
       final sizeMb = (bytes.length / (1024 * 1024)).toStringAsFixed(1);
       final limitMb = (pickLimit / (1024 * 1024)).round();
       throw StateError(
-        'O vídeo pesa ${sizeMb}MB. Para manter a velocidade igual à Web, '
-        'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
+        'O vÃ­deo pesa ${sizeMb}MB. Para manter a velocidade igual Ã  Web, '
+        'selecione vÃ­deos de atÃ© ${limitMb}MB ou grave em qualidade menor.',
       );
     }
-    await FirebaseAuth.instance.currentUser?.getIdToken();
+    await firebaseDefaultAuth.currentUser?.getIdToken();
     final slot = videoSlotIndex.clamp(0, 1);
     await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
       tenantId: tenantId,
@@ -144,3 +143,4 @@ class VideoHandlerService implements IVideoHandlerService {
     );
   }
 }
+

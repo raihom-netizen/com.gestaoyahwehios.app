@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -13,13 +13,13 @@ import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
+/// Contato por chat da igreja ou WhatsApp â€” web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
 
-  static const String faleComigoDraft = 'Olá! Gostaria de falar com você.';
+  static const String faleComigoDraft = 'OlÃ¡! Gostaria de falar com vocÃª.';
 
-  /// Fecha dialog/sheet/ficha empilhada antes de ir ao módulo Chat (web painel).
+  /// Fecha dialog/sheet/ficha empilhada antes de ir ao mÃ³dulo Chat (web painel).
   static void _popPanelOverlayIfNeeded(BuildContext context) {
     if (!context.mounted) return;
     final route = ModalRoute.of(context);
@@ -48,7 +48,7 @@ abstract final class ChurchMemberContactChat {
     return null;
   }
 
-  /// Igual à ficha em [MembersPage] — `authUid` ou doc id em formato Firebase UID.
+  /// Igual Ã  ficha em [MembersPage] â€” `authUid` ou doc id em formato Firebase UID.
   static String? peerAuthUidFromMember(
     Map<String, dynamic> data, {
     String? memberDocId,
@@ -83,7 +83,7 @@ abstract final class ChurchMemberContactChat {
     return read();
   }
 
-  /// Resolve `authUid` do destinatário — doc directo `igrejas/{churchId}/membros`.
+  /// Resolve `authUid` do destinatÃ¡rio â€” doc directo `igrejas/{churchId}/membros`.
   static Future<
       ({
         Map<String, dynamic> data,
@@ -166,7 +166,7 @@ abstract final class ChurchMemberContactChat {
     return (data: data, memberDocId: docId, peerUid: peerFromData());
   }
 
-  /// Atalhos do painel / membros — não bloqueia o botão (Future em background).
+  /// Atalhos do painel / membros â€” nÃ£o bloqueia o botÃ£o (Future em background).
   static void openChatIgrejaUnawaited({
     required BuildContext context,
     required String tenantId,
@@ -212,7 +212,7 @@ abstract final class ChurchMemberContactChat {
     return v.toString().replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  /// Dígitos do telefone/WhatsApp na ficha do membro (≥10 dígitos).
+  /// DÃ­gitos do telefone/WhatsApp na ficha do membro (â‰¥10 dÃ­gitos).
   static String phoneDigitsFromMember(Map<String, dynamic> data) {
     const keys = [
       'TELEFONES',
@@ -246,7 +246,7 @@ abstract final class ChurchMemberContactChat {
     return '';
   }
 
-  /// Completa [memberData] com a ficha em Firestore quando o mapa leve não traz telefone.
+  /// Completa [memberData] com a ficha em Firestore quando o mapa leve nÃ£o traz telefone.
   static Future<Map<String, dynamic>> enrichMemberDataWithPhone({
     required String tenantId,
     required String memberDocId,
@@ -288,7 +288,7 @@ abstract final class ChurchMemberContactChat {
     String draftText = faleComigoDraft,
     bool popSheetBeforeNavigate = false,
   }) async {
-    final myUid = FirebaseAuth.instance.currentUser?.uid?.trim();
+    final myUid = firebaseDefaultAuth.currentUser?.uid?.trim();
     final messenger = ScaffoldMessenger.maybeOf(context);
 
     if (popSheetBeforeNavigate && context.mounted) {
@@ -317,7 +317,7 @@ abstract final class ChurchMemberContactChat {
     if (peerUid == null || peerUid.isEmpty) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Este membro ainda não tem conta no app (login). '
+          'Este membro ainda nÃ£o tem conta no app (login). '
           'Ative o acesso em Membros ou use o WhatsApp.',
         ),
       );
@@ -326,7 +326,7 @@ abstract final class ChurchMemberContactChat {
     if (peerUid == myUid) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Você não pode abrir chat consigo mesmo.',
+          'VocÃª nÃ£o pode abrir chat consigo mesmo.',
         ),
       );
       return;
@@ -335,7 +335,7 @@ abstract final class ChurchMemberContactChat {
     final titulo =
         displayName.trim().isEmpty ? 'Membro' : displayName.trim();
 
-    final titleA = FirebaseAuth.instance.currentUser?.displayName ?? 'Eu';
+    final titleA = firebaseDefaultAuth.currentUser?.displayName ?? 'Eu';
     final ensured = await ChurchChatService.ensureDmThreadResilient(
       tenantId: operationalTenant,
       uidA: myUid,
@@ -346,7 +346,7 @@ abstract final class ChurchMemberContactChat {
     if (!ensured) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'A sincronizar o chat — a conversa abre na mesma.',
+          'A sincronizar o chat â€” a conversa abre na mesma.',
         ),
       );
     }
@@ -395,9 +395,10 @@ abstract final class ChurchMemberContactChat {
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível abrir o WhatsApp. Verifique se o app está instalado.',
+          'NÃ£o foi possÃ­vel abrir o WhatsApp. Verifique se o app estÃ¡ instalado.',
         ),
       );
     }
   }
 }
+

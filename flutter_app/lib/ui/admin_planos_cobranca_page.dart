@@ -11,6 +11,9 @@ class AdminPlanosCobrancaPage extends StatefulWidget {
 }
 
 class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
+  static const int _kPlanosLimit = 120;
+  static const int _kPagamentosLimit = 400;
+
   bool _loading = false;
   List<Map<String, dynamic>> _planos = [];
   List<Map<String, dynamic>> _recebimentos = [];
@@ -25,12 +28,22 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final planosSnap = await FirebaseFirestore.instance.collection('planos').get();
+      final planosSnap = await FirebaseFirestore.instance
+          .collection('planos')
+          .limit(_kPlanosLimit)
+          .get();
       QuerySnapshot<Map<String, dynamic>> recSnap;
       try {
-        recSnap = await FirebaseFirestore.instance.collection('pagamentos').orderBy('data', descending: true).get();
+        recSnap = await FirebaseFirestore.instance
+            .collection('pagamentos')
+            .orderBy('data', descending: true)
+            .limit(_kPagamentosLimit)
+            .get();
       } catch (_) {
-        recSnap = await FirebaseFirestore.instance.collection('pagamentos').get();
+        recSnap = await FirebaseFirestore.instance
+            .collection('pagamentos')
+            .limit(_kPagamentosLimit)
+            .get();
       }
       _planos = planosSnap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
       _recebimentos = recSnap.docs.map((d) => d.data()).toList();

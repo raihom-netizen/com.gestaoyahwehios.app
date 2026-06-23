@@ -35,6 +35,63 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/igrejas/$(igrejaId));
     }
 
+    function tokenTenantMatches(igrejaId) {
+      return isSignedIn() && (
+        request.auth.token.igrejaId == igrejaId
+        || request.auth.token.tenantId == igrejaId
+        || request.auth.token.churchId == igrejaId
+        || request.auth.token.churchCanonicalId == igrejaId
+        || request.auth.token.canonicalTenantId == igrejaId
+      );
+    }
+
+    function tenantIdMatchesUserData(igrejaId, d) {
+      return d.get('igrejaId', '') == igrejaId
+        || d.get('tenantId', '') == igrejaId
+        || d.get('churchId', '') == igrejaId
+        || d.get('churchCanonicalId', '') == igrejaId
+        || d.get('canonicalTenantId', '') == igrejaId;
+    }
+
+    function storageUserDocMatchesTenant(igrejaId) {
+      return fsUser().exists && tenantIdMatchesUserData(igrejaId, fsUser().data);
+    }
+
+    function bpcCanonicalId() {
+      return 'igreja_o_brasil_para_cristo_jardim_goiano';
+    }
+
+    function isBpcLegacyTenantId(id) {
+      return id == 'brasilparacristo'
+        || id == 'brasilparacristo_sistema'
+        || id == 'iobpc-jardim-goiano'
+        || id == 'o-brasil-cristo-jardim-goiano';
+    }
+
+    function storageBoundTenantId() {
+      return fsUser().exists
+        ? (fsUser().data.get('igrejaId', '').size() > 0
+            ? fsUser().data.get('igrejaId', '')
+            : fsUser().data.get('tenantId', ''))
+        : '';
+    }
+
+    function storageBpcClusterMatches(igrejaId) {
+      let bound = storageBoundTenantId();
+      return isSignedIn() && (
+        (igrejaId == bpcCanonicalId() && (
+          isBpcLegacyTenantId(bound)
+          || isBpcLegacyTenantId(request.auth.token.igrejaId)
+          || isBpcLegacyTenantId(request.auth.token.tenantId)
+        ))
+        || (isBpcLegacyTenantId(igrejaId) && (
+          bound == bpcCanonicalId()
+          || request.auth.token.igrejaId == bpcCanonicalId()
+          || request.auth.token.tenantId == bpcCanonicalId()
+        ))
+      );
+    }
+
     function storageUserRole() {
       return isSignedIn() && fsUser().exists && fsUser().data.role is string
         ? fsUser().data.role : '';
@@ -143,14 +200,9 @@ service firebase.storage {
 
     function isChurchMember(igrejaId) {
       return isSignedIn() && (
-        (fsUser().exists && (
-          fsUser().data.igrejaId == igrejaId
-          || fsUser().data.tenantId == igrejaId
-          || fsUser().data.churchId == igrejaId
-        ))
-        || request.auth.token.igrejaId == igrejaId
-        || request.auth.token.tenantId == igrejaId
-        || request.auth.token.churchId == igrejaId
+        tokenTenantMatches(igrejaId)
+        || storageUserDocMatchesTenant(igrejaId)
+        || storageBpcClusterMatches(igrejaId)
         || fsMembro(igrejaId).exists
         || fsTenantUser(igrejaId).exists
         || storageGestorEmailMatches(igrejaId)

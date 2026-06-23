@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -1698,9 +1697,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       String? storagePath) async {
     final p = storagePath?.trim() ?? '';
     if (p.isEmpty) return;
-    try {
-      await firebaseDefaultStorage.ref(p).delete();
-    } catch (_) {}
+    await FirebaseStorageCleanupService.deleteByUrlPathOrGs(p);
     final lower = p.toLowerCase();
     if (lower.endsWith('.jpg') ||
         lower.endsWith('.jpeg') ||
@@ -1708,9 +1705,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final dot = p.lastIndexOf('.');
       final base = dot < 0 ? p : p.substring(0, dot);
       for (final suffix in <String>['_thumb.jpg', '_card.jpg', '_full.jpg']) {
-        try {
-          await firebaseDefaultStorage.ref('$base$suffix').delete();
-        } catch (_) {}
+        await FirebaseStorageCleanupService.deleteByUrlPathOrGs('$base$suffix');
       }
       // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
       final slash = p.lastIndexOf('/');
@@ -1718,11 +1713,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         final dir = p.substring(0, slash);
         final fileBase = p.substring(slash + 1, dot);
         if (fileBase.isNotEmpty) {
-          try {
-            await firebaseDefaultStorage
-                .ref('$dir/thumb_$fileBase.jpg')
-                .delete();
-          } catch (_) {}
+          await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
+            '$dir/thumb_$fileBase.jpg',
+          );
         }
       }
     }
@@ -1748,7 +1741,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     try {
       await ensureFirebaseReadyForPublishUpload();
-      await FirebaseAuth.instance.currentUser?.getIdToken(false);
       final resolvedId = await _resolveTenantIdForSave();
       final png =
           await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
@@ -1761,12 +1753,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
       // Mantém só a identidade canónica em PNG: remove legado `.jpg` no mesmo sítio.
-      try {
-        await firebaseDefaultStorage
-            .ref(
-                ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(resolvedId))
-            .delete();
-      } catch (_) {}
+      await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
+        ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(resolvedId),
+      );
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
       final upload = await MediaUploadService.uploadBytesDetailed(
@@ -1917,7 +1906,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final resolvedId = (_operationalTenantId ?? widget.tenantId).trim();
     if (resolvedId.isEmpty) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await ensureFirebaseReadyForPanelRead();
       final fresh = await ChurchBrandService.getLogoUrl(churchId: resolvedId);
       if (!mounted || fresh == null || fresh.isEmpty) return;
       setState(() {

@@ -1,8 +1,8 @@
-import 'package:cloud_functions/cloud_functions.dart';
+﻿import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
-/// Dispara migração Cloud Function: `noticias`→`eventos`, `chat_threads`→`chats`.
+/// Dispara migraÃ§Ã£o Cloud Function: `noticias`â†’`eventos`, `chat_threads`â†’`chats`.
 abstract final class ChurchFirestoreCollectionMigrationService {
   ChurchFirestoreCollectionMigrationService._();
 
@@ -15,7 +15,7 @@ abstract final class ChurchFirestoreCollectionMigrationService {
     _inFlight.add(tid);
     try {
       await ensureFirebaseInitialized();
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
           .httpsCallable(
         'migrateTenantFirestoreCollections',
         options: HttpsCallableOptions(timeout: const Duration(minutes: 9)),
@@ -25,7 +25,7 @@ abstract final class ChurchFirestoreCollectionMigrationService {
         'deleteSource': true,
       });
       if (kDebugMode) {
-        debugPrint('ChurchFirestoreCollectionMigration: $tid → ${res.data}');
+        debugPrint('ChurchFirestoreCollectionMigration: $tid â†’ ${res.data}');
       }
     } catch (e, st) {
       if (kDebugMode) {
@@ -36,3 +36,4 @@ abstract final class ChurchFirestoreCollectionMigrationService {
     }
   }
 }
+

@@ -3,7 +3,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
-import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';

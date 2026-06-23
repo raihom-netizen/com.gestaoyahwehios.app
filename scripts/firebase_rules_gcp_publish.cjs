@@ -131,7 +131,22 @@ function acquirePublishLock() {
   const lockPath = path.join(lockDir, 'firebase-rules-publish.lock');
   if (fs.existsSync(lockPath)) {
     const ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
-    if (ageMs < 45 * 60 * 1000) {
+    let canReuseLock = ageMs < 45 * 60 * 1000;
+    if (canReuseLock) {
+      try {
+        const lockRaw = fs.readFileSync(lockPath, 'utf8');
+        const pidLine = String(lockRaw || '').split(/\r?\n/)[0].trim();
+        const lockPid = Number.parseInt(pidLine, 10);
+        if (Number.isFinite(lockPid) && lockPid > 0) {
+          try {
+            process.kill(lockPid, 0);
+          } catch (_) {
+            canReuseLock = false;
+          }
+        }
+      } catch (_) {}
+    }
+    if (canReuseLock) {
       throw new Error(`Publicacao rules ja em curso (lock ${Math.round(ageMs / 1000)}s). Aguarde ou apague ${lockPath}`);
     }
     fs.unlinkSync(lockPath);

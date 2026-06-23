@@ -1,7 +1,8 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -16,7 +17,7 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 
-/// Signatário de carteirinha / certificado (pastor, gestor, etc.).
+/// SignatÃ¡rio de carteirinha / certificado (pastor, gestor, etc.).
 class MemberCardSignatory {
   const MemberCardSignatory({
     required this.memberId,
@@ -59,7 +60,7 @@ class MemberCardSignatory {
       };
 }
 
-/// Item leve para listas / pickers de emissão em lote.
+/// Item leve para listas / pickers de emissÃ£o em lote.
 class MemberCardListEntry {
   const MemberCardListEntry({
     required this.id,
@@ -74,7 +75,7 @@ class MemberCardListEntry {
   final String? photoUrl;
 }
 
-/// Leituras do módulo Cartão membro — `igrejas/{churchId}/membros` (padrão Membros).
+/// Leituras do mÃ³dulo CartÃ£o membro â€” `igrejas/{churchId}/membros` (padrÃ£o Membros).
 abstract final class MemberCardDirectoryService {
   MemberCardDirectoryService._();
 
@@ -110,7 +111,7 @@ abstract final class MemberCardDirectoryService {
     return out;
   }
 
-  /// `igrejas/{churchId}` — mesmo resolve que [members_page] / shell.
+  /// `igrejas/{churchId}` â€” mesmo resolve que [members_page] / shell.
   static String resolveChurchId(String tenantHint) {
     final resolved = ChurchPanelTenant.resolve(tenantHint.trim());
     final churchId = ChurchRepository.churchId(resolved);
@@ -161,7 +162,7 @@ abstract final class MemberCardDirectoryService {
     return snap;
   }
 
-  /// Firestore paginado — contorna teto de 50 do scan único (lista completa até [maxTotal]).
+  /// Firestore paginado â€” contorna teto de 50 do scan Ãºnico (lista completa atÃ© [maxTotal]).
   static Future<List<MemberCardListEntry>> _loadFromFirestorePaginated(
     String churchId,
     int maxTotal,
@@ -197,7 +198,7 @@ abstract final class MemberCardDirectoryService {
     return _docsToEntries(collected, maxTotal);
   }
 
-  /// Lista instantânea (RAM partilhada com Membros) — zero rede.
+  /// Lista instantÃ¢nea (RAM partilhada com Membros) â€” zero rede.
   static List<MemberCardListEntry>? peekMembersSync(
     String tenantId, {
     int limit = YahwehPerformanceV4.adminExportBatchLimit,
@@ -218,7 +219,7 @@ abstract final class MemberCardDirectoryService {
     return _docsToEntries(ram, effectiveLimit);
   }
 
-  /// Lista completa para emissão em lote — `_panel_cache/members_directory` (igual Membros).
+  /// Lista completa para emissÃ£o em lote â€” `_panel_cache/members_directory` (igual Membros).
   static Future<List<MemberCardListEntry>> loadMembers({
     required String tenantId,
     int limit = YahwehPerformanceV4.adminExportBatchLimit,
@@ -227,7 +228,7 @@ abstract final class MemberCardDirectoryService {
     final churchId = resolveChurchId(tenantId);
     if (churchId.isEmpty) {
       throw Exception(
-        'Igreja não identificada. Path esperado: igrejas/{churchId}/membros',
+        'Igreja nÃ£o identificada. Path esperado: igrejas/{churchId}/membros',
       );
     }
 
@@ -330,7 +331,7 @@ abstract final class MemberCardDirectoryService {
         .toList();
   }
 
-  /// Signatários — `igrejas/{churchId}/config/carteira_signatories` + CF opcional.
+  /// SignatÃ¡rios â€” `igrejas/{churchId}/config/carteira_signatories` + CF opcional.
   static Future<List<MemberCardSignatory>> loadSignatories(
     String tenantId, {
     bool forceRefresh = false,
@@ -352,7 +353,7 @@ abstract final class MemberCardDirectoryService {
     }
 
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
           .httpsCallable('refreshCarteiraSignatoriesIndex');
       final res = await fn
           .call<Map<dynamic, dynamic>>({'tenantId': churchId})
@@ -387,3 +388,4 @@ abstract final class MemberCardDirectoryService {
     } catch (_) {}
   }
 }
+

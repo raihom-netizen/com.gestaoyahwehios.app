@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -12,6 +14,7 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
@@ -45,6 +48,11 @@ class _LiderancaPageState extends State<LiderancaPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint('Lideranca _load ensurePanelReadReady: $e\n$st');
+        });
+      }
       final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
           ? ChurchRepository.churchId(widget.tenantId)
           : widget.tenantId.trim();
@@ -79,7 +87,7 @@ class _LiderancaPageState extends State<LiderancaPage> {
       final snap = await ChurchTenantResilientReads.membrosRecent(
         tid,
         limit: YahwehPerformanceV4.dashboardStatsSampleLimit,
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       final cargoMeta = await _loadCargoHierarchy(tid);
       final rows = <_LeaderRow>[];
       for (final d in snap.docs) {
@@ -129,7 +137,8 @@ class _LiderancaPageState extends State<LiderancaPage> {
         _usedPanelCache = false;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Lideranca _load: $e\n$st');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -183,8 +192,21 @@ class _LiderancaPageState extends State<LiderancaPage> {
     final map = <String, Map<String, dynamic>>{};
     try {
       final op = ChurchRepository.churchId(tid.trim());
-      final snap = await           ChurchUiCollections.cargos(op)
-          .get();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint(
+            'Lideranca _loadCargoHierarchy ensurePanelReadReady: $e\n$st',
+          );
+        });
+      }
+      Future<QuerySnapshot<Map<String, dynamic>>> read() =>
+          ChurchUiCollections.cargos(op).get();
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              read,
+              maxAttempts: 4,
+            ).timeout(ChurchPanelReadTimeouts.queryCap)
+          : await read().timeout(ChurchPanelReadTimeouts.queryCap);
       for (final d in snap.docs) {
         final data = d.data();
         final key = (data['key'] ?? d.id).toString().trim().toLowerCase();
@@ -200,7 +222,9 @@ class _LiderancaPageState extends State<LiderancaPage> {
           'hierarchy': rank,
         };
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Lideranca _loadCargoHierarchy: $e\n$st');
+    }
     return map;
   }
 

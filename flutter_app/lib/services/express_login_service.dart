@@ -1,4 +1,5 @@
-import 'package:firebase_auth/firebase_auth.dart';
+﻿import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
@@ -12,38 +13,38 @@ import 'app_google_sign_in.dart'
 import 'gestor_oauth_onboarding_service.dart';
 import 'login_preferences.dart';
 
-/// Login expresso (mesmo padrão do app Controle Total):
+/// Login expresso (mesmo padrÃ£o do app Controle Total):
 ///
-///   1. Tenta `Google.signInSilently()` — usa a sessão já guardada do
+///   1. Tenta `Google.signInSilently()` â€” usa a sessÃ£o jÃ¡ guardada do
 ///      Google Play Services / iCloud sem abrir UI.
-///   2. Em iPhone/iPad, se silencioso falhar, tenta «Entrar com a Apple»
-///      (compatível com a Diretriz 4.8 da App Store), salvo [skipApplePhase]
-///      (ex.: último login guardado foi Google — vai direto ao passo 3).
-///   3. Como último recurso abre o seletor Google nativo (com UI).
+///   2. Em iPhone/iPad, se silencioso falhar, tenta Â«Entrar com a AppleÂ»
+///      (compatÃ­vel com a Diretriz 4.8 da App Store), salvo [skipApplePhase]
+///      (ex.: Ãºltimo login guardado foi Google â€” vai direto ao passo 3).
+///   3. Como Ãºltimo recurso abre o seletor Google nativo (com UI).
 ///
-/// Em qualquer falha (rede / cancelamento / token vazio) retorna `null` —
+/// Em qualquer falha (rede / cancelamento / token vazio) retorna `null` â€”
 /// o chamador decide se mostra mensagem ou cai para o fluxo manual.
 ///
-/// Não depende de Firestore / Cloud Functions: a rota pós-login é decidida
+/// NÃ£o depende de Firestore / Cloud Functions: a rota pÃ³s-login Ã© decidida
 /// fora (por exemplo, `LoginPage._afterGoogleSignInSuccess`).
 class ExpressLoginService {
   ExpressLoginService._();
 
   /// Resultado da tentativa de login expresso.
   ///
-  /// [onBeforeNativeOAuthUi] é chamado **antes** de abrir UI nativa (Apple ou seletor
-  /// Google). Use para desligar spinners/overlays em Flutter — caso contrário a app
+  /// [onBeforeNativeOAuthUi] Ã© chamado **antes** de abrir UI nativa (Apple ou seletor
+  /// Google). Use para desligar spinners/overlays em Flutter â€” caso contrÃ¡rio a app
   /// pode ficar com barrier escuro por cima do picker do sistema.
-  /// **Não** chamar no arranque da app — só botões «Login expresso» / renovação.
-  /// Arranque: [PersistentAuthSessionService] + `FirebaseAuth.instance.currentUser`.
+  /// **NÃ£o** chamar no arranque da app â€” sÃ³ botÃµes Â«Login expressoÂ» / renovaÃ§Ã£o.
+  /// Arranque: [PersistentAuthSessionService] + `firebaseDefaultAuth.currentUser`.
   static Future<ExpressLoginResult> tryExpressLogin({
     bool allowFallbackToGoogleUi = true,
     void Function()? onBeforeNativeOAuthUi,
-    /// Quando `true`, não volta a chamar `signInSilently` (já executado na 1.ª fase
-    /// sem overlay — evita spinner na faixa antes da UI nativa).
+    /// Quando `true`, nÃ£o volta a chamar `signInSilently` (jÃ¡ executado na 1.Âª fase
+    /// sem overlay â€” evita spinner na faixa antes da UI nativa).
     bool skipSilentPhase = false,
-    /// Quando `true`, não abre Sign in with Apple no iOS entre o silencioso e o
-    /// Google com UI (ex.: último login bem-sucedido foi Google — evita Face ID
+    /// Quando `true`, nÃ£o abre Sign in with Apple no iOS entre o silencioso e o
+    /// Google com UI (ex.: Ãºltimo login bem-sucedido foi Google â€” evita Face ID
     /// + sheet Apple antes do seletor Google).
     bool skipApplePhase = false,
   }) async {
@@ -53,7 +54,7 @@ class ExpressLoginService {
       );
     }
 
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user != null) {
       return ExpressLoginResult._(
         kind: ExpressLoginKind.alreadySignedIn,
@@ -61,7 +62,7 @@ class ExpressLoginService {
       );
     }
 
-    if (!skipSilentPhase && FirebaseAuth.instance.currentUser == null) {
+    if (!skipSilentPhase && firebaseDefaultAuth.currentUser == null) {
       final silent = await _signInWithGoogleSilently();
       if (silent != null) {
         return ExpressLoginResult._(
@@ -117,9 +118,9 @@ class ExpressLoginService {
     }
   }
 
-  /// Só para o botão «Continuar com Google» — **não** chamar no arranque da app.
+  /// SÃ³ para o botÃ£o Â«Continuar com GoogleÂ» â€” **nÃ£o** chamar no arranque da app.
   static Future<UserCredential?> _signInWithGoogleSilently() async {
-    if (FirebaseAuth.instance.currentUser != null) return null;
+    if (firebaseDefaultAuth.currentUser != null) return null;
     try {
       final GoogleSignInAccount? account = await appGoogleSignInSilently();
       if (account == null) return null;
@@ -132,20 +133,20 @@ class ExpressLoginService {
     }
   }
 
-  /// Apenas Google silencioso — 1.ª fase do login expresso sem overlay na UI Flutter.
-  /// Interactivo / botão Google — nunca no cold start ([PersistentAuthSessionService]).
+  /// Apenas Google silencioso â€” 1.Âª fase do login expresso sem overlay na UI Flutter.
+  /// Interactivo / botÃ£o Google â€” nunca no cold start ([PersistentAuthSessionService]).
   static Future<UserCredential?> tryGoogleSilentOnly() async {
     if (kIsWeb) return null;
-    if (FirebaseAuth.instance.currentUser != null) return null;
+    if (firebaseDefaultAuth.currentUser != null) return null;
     return _signInWithGoogleSilently();
   }
 }
 
 enum ExpressLoginKind {
-  /// Já existia sessão Firebase ativa.
+  /// JÃ¡ existia sessÃ£o Firebase ativa.
   alreadySignedIn,
 
-  /// Login Google sem UI (sessão guardada).
+  /// Login Google sem UI (sessÃ£o guardada).
   googleSilent,
 
   /// Login com Apple (iPhone/iPad).
@@ -157,10 +158,10 @@ enum ExpressLoginKind {
   /// Utilizador cancelou em algum dos passos.
   cancelled,
 
-  /// Plataforma não suporta (ex.: web — usar [signInWithPopup]).
+  /// Plataforma nÃ£o suporta (ex.: web â€” usar [signInWithPopup]).
   unsupported,
 
-  /// Erro técnico (rede, token, configuração).
+  /// Erro tÃ©cnico (rede, token, configuraÃ§Ã£o).
   error,
 }
 
@@ -185,3 +186,4 @@ class ExpressLoginResult {
   bool get isUnsupported => kind == ExpressLoginKind.unsupported;
   bool get isError => kind == ExpressLoginKind.error;
 }
+

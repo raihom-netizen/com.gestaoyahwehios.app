@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -10,7 +11,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 class BillingLicenseService {
   BillingLicenseService();
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFirestore _db = firebaseDefaultFirestore;
 
   static const int licensePeriodDaysMonthly = 30;
   static const int licensePeriodDaysAnnual = 365;
@@ -248,7 +249,8 @@ class BillingLicenseService {
     }
 
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final callable =
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable('masterApplyTenantLicense');
       await callable.call(payload);
     } on FirebaseFunctionsException catch (e) {

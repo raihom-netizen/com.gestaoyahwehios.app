@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -84,7 +85,7 @@ class EffectivePlanConfig {
 /// deve usar [watchEffectivePlanConfigs] para refletir alterações sem novo deploy nem
 /// esperar cache. Serviços pontuais podem usar [getEffectivePlanConfigs] (leitura única).
 class PlanPriceService {
-  static final _firestore = FirebaseFirestore.instance;
+  static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
 
   static Map<String, EffectivePlanConfig> _mergeCatalogFromQuerySnap(
     QuerySnapshot<Map<String, dynamic>> snap,
@@ -99,7 +100,8 @@ class PlanPriceService {
 
   /// Emite o catálogo sempre que `config/plans/items` muda (Painel Master ou outro cliente).
   static Stream<Map<String, EffectivePlanConfig>> watchEffectivePlanConfigs() {
-    final q = _firestore
+    final firestore = _firestore;
+    final q = firestore
         .collection('config')
         .doc('plans')
         .collection('items');

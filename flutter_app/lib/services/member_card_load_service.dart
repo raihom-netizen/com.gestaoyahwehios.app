@@ -1,19 +1,19 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show churchTenantLogoUrl;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Pedido de carga da carteirinha digital (membro ou gestor com alvo explícito).
+/// Pedido de carga da carteirinha digital (membro ou gestor com alvo explÃ­cito).
 class MemberCardLoadRequest {
   const MemberCardLoadRequest({
     required this.churchIdHint,
@@ -30,7 +30,7 @@ class MemberCardLoadRequest {
   final bool restrictedMember;
 }
 
-/// Dados mínimos para pintar o cartão CNH (tenant + membro).
+/// Dados mÃ­nimos para pintar o cartÃ£o CNH (tenant + membro).
 class MemberCardLoadPayload {
   const MemberCardLoadPayload({
     required this.igrejaDocId,
@@ -45,7 +45,7 @@ class MemberCardLoadPayload {
   final Map<String, dynamic> tenant;
 }
 
-/// Cache-first + seed da lista — timeouts alinhados ao painel (90s web).
+/// Cache-first + seed da lista â€” timeouts alinhados ao painel (90s web).
 abstract final class MemberCardLoadService {
   MemberCardLoadService._();
 
@@ -73,7 +73,7 @@ abstract final class MemberCardLoadService {
       ]).timeout(
         _queryCap,
         onTimeout: () => throw TimeoutException(
-          'Tempo esgotado ao carregar a carteirinha. Verifique a conexão.',
+          'Tempo esgotado ao carregar a carteirinha. Verifique a conexÃ£o.',
         ),
       );
       final t = results[0];
@@ -217,7 +217,7 @@ abstract final class MemberCardLoadService {
     );
     final cpfDigits = (req.cpf ?? '').replaceAll(RegExp(r'\D'), '');
     final cpfArg = cpfDigits.length >= 11 ? cpfDigits : null;
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
 
     Future<DocumentSnapshot<Map<String, dynamic>>?> docById(String id) async {
       if (id.isEmpty) return null;
@@ -316,3 +316,4 @@ abstract final class MemberCardLoadService {
     return null;
   }
 }
+

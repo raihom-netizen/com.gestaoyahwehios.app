@@ -14,8 +14,6 @@ import 'package:gestao_yahweh/services/church_chat_firestore_map.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
-import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
-import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Serviço **único** de gravação Firestore + Storage por igreja (`igrejas/{churchId}/…`).

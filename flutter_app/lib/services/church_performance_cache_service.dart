@@ -1,16 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 
-/// Lê caches gerados pelas Cloud Functions (`_performance_cache`).
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+/// LÃª caches gerados pelas Cloud Functions (`_performance_cache`).
 ///
-/// Reduz consultas pesadas no site público e no painel (aniversariantes).
+/// Reduz consultas pesadas no site pÃºblico e no painel (aniversariantes).
 abstract final class ChurchPerformanceCacheService {
   ChurchPerformanceCacheService._();
   static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
   static DocumentReference<Map<String, dynamic>> _ref(
     String tenantId,
@@ -21,7 +21,7 @@ abstract final class ChurchPerformanceCacheService {
         .doc(docId);
   }
 
-  /// Feed público pré-montado (`generatePublicFeedCache` — a cada 10 min).
+  /// Feed pÃºblico prÃ©-montado (`generatePublicFeedCache` â€” a cada 10 min).
   static Future<List<Map<String, dynamic>>> readPublicFeedOnce(
     String tenantId,
   ) async {
@@ -42,7 +42,7 @@ abstract final class ChurchPerformanceCacheService {
     }
   }
 
-  /// Logo + lista de URLs para pré-carregamento (site público).
+  /// Logo + lista de URLs para prÃ©-carregamento (site pÃºblico).
   static Future<({String? churchLogoUrl, List<String> prefetchUrls})>
       readPublicFeedMediaMeta(String tenantId) async {
     const empty = (churchLogoUrl: null as String?, prefetchUrls: <String>[]);
@@ -77,7 +77,7 @@ abstract final class ChurchPerformanceCacheService {
     }
   }
 
-  /// Aniversariantes do mês (`generateBirthdayCache` — diário).
+  /// Aniversariantes do mÃªs (`generateBirthdayCache` â€” diÃ¡rio).
   static Future<List<Map<String, dynamic>>> readBirthdaysOnce(
     String tenantId,
   ) async {
@@ -118,7 +118,7 @@ abstract final class ChurchPerformanceCacheService {
     return DateTime.now().difference(updatedAt.toDate()) < _publicFeedStaleAfter;
   }
 
-  /// Força atualização do cache público no backend (site/painel).
+  /// ForÃ§a atualizaÃ§Ã£o do cache pÃºblico no backend (site/painel).
   static Future<void> warmPublicFeedCacheFromCallable(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
@@ -131,11 +131,11 @@ abstract final class ChurchPerformanceCacheService {
         'tenantId': tid,
       });
     } catch (_) {
-      // Não bloquear o fluxo principal de publicação por falha de warmup.
+      // NÃ£o bloquear o fluxo principal de publicaÃ§Ã£o por falha de warmup.
     }
   }
 
-  /// Chama callable só quando o cache público está ausente/velho.
+  /// Chama callable sÃ³ quando o cache pÃºblico estÃ¡ ausente/velho.
   static Future<void> warmPublicFeedCacheFromCallableIfStale(
     String tenantId,
   ) async {
@@ -153,3 +153,4 @@ abstract final class ChurchPerformanceCacheService {
     await warmPublicFeedCacheFromCallable(tid);
   }
 }
+

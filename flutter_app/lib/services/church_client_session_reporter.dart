@@ -1,12 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
-/// Grava em `users/{uid}` a última plataforma do cliente (web / android / ios …)
+/// Grava em `users/{uid}` a Ãºltima plataforma do cliente (web / android / ios â€¦)
 /// para o painel master (Controle 360).
 void reportChurchClientSessionToUserDoc() {
-  final u = FirebaseAuth.instance.currentUser;
+  final u = firebaseDefaultAuth.currentUser;
   if (u == null) return;
   final String p;
   if (kIsWeb) {
@@ -31,3 +31,4 @@ void reportChurchClientSessionToUserDoc() {
     SetOptions(merge: true),
   );
 }
+

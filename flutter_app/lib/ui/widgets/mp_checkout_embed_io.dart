@@ -32,7 +32,9 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
   static bool _supportsEmbeddedWebView(BuildContext context) {
     if (kIsWeb) return false;
     if (IosPaymentsGate.preferExternalMercadoPagoCheckout) return false;
-    return Theme.of(context).platform == TargetPlatform.macOS;
+    final platform = Theme.of(context).platform;
+    return platform == TargetPlatform.android ||
+        platform == TargetPlatform.macOS;
   }
 
   bool _isReturnOrAppUrl(String url) {

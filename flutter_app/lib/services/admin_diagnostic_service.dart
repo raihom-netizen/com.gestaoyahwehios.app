@@ -1,4 +1,3 @@
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';

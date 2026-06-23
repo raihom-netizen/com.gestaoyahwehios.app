@@ -125,6 +125,7 @@ abstract final class PatrimonioPublishService {
         await AppFinalizeBootstrap.ensureSessionForPublish(
           logLabel: 'patrimonio_publish',
         );
+        await ensureFirebaseReadyForPublishUpload();
         await ensureFirebaseReadyForMediaUpload();
         await EcoFirePublishBootstrap.ensureHard(logLabel: 'patrimonio_publish');
         bootstrapLast = null;

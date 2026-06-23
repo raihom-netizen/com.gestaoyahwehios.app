@@ -126,7 +126,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/aviso_publish_service.dart';
-import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
+import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
@@ -4764,7 +4764,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
           'tipo': 'image',
         };
-        await YahwehCentralEngineService.executeInstantSaveAviso(
+        await AvisoStrictPublishService.publish(
           docRef: docRef,
           tenantId: publishTenantId,
           corePayload: corePayload,
@@ -4863,7 +4863,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         saveLabel: 'A gravar aviso…',
         distributeLabel: 'A notificar e publicar no site…',
         action: (reportProgress) async {
-          await YahwehCentralEngineService.executeInstantSaveAviso(
+          await AvisoStrictPublishService.publish(
             docRef: docRef,
             tenantId: publishTenantId,
             corePayload: corePayload,

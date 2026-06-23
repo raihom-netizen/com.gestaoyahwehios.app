@@ -1,16 +1,17 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async';
 import 'dart:convert';
 
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
-/// Item da fila de ações do Command Center.
+/// Item da fila de aÃ§Ãµes do Command Center.
 class MasterActionItem {
   const MasterActionItem({
     required this.id,
@@ -77,7 +78,7 @@ class MasterDashboardSummary {
 
   final int igrejas;
   final int usuarios;
-  /// Soma de `membros` / `_panel_cache/members_directory` — cadastro real nas igrejas.
+  /// Soma de `membros` / `_panel_cache/members_directory` â€” cadastro real nas igrejas.
   final int membrosTotal;
   final double receita;
   final int alertas;
@@ -98,7 +99,7 @@ class MasterDashboardSummary {
   final List<MasterActionItem> actionQueue;
   final List<Map<String, dynamic>> expiringChurches;
 
-  /// KPI «Usuários» — preferir membros cadastrados quando disponível.
+  /// KPI Â«UsuÃ¡riosÂ» â€” preferir membros cadastrados quando disponÃ­vel.
   int get usuariosExibicao =>
       membrosTotal > usuarios ? membrosTotal : usuarios;
 
@@ -201,13 +202,13 @@ abstract final class MasterDashboardCacheService {
 
   static const _prefsKey = 'master_dashboard_summary_v2';
   static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
   static MasterDashboardSummary? _memSummary;
   static DateTime? _memSummaryAt;
   static const Duration _memTtl = Duration(minutes: 8);
 
-  /// KPIs em RAM — instantâneo ao abrir qualquer tela master (sem await).
+  /// KPIs em RAM â€” instantÃ¢neo ao abrir qualquer tela master (sem await).
   static MasterDashboardSummary? peekMemory() => _memSummary;
 
   static void _storeMem(MasterDashboardSummary s) {
@@ -252,7 +253,7 @@ abstract final class MasterDashboardCacheService {
     });
   }
 
-  /// Prefs locais — aceita cache stale (SWR / arranque instantâneo).
+  /// Prefs locais â€” aceita cache stale (SWR / arranque instantÃ¢neo).
   static Future<MasterDashboardSummary?> readAnyLocal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -314,7 +315,7 @@ abstract final class MasterDashboardCacheService {
     return summary;
   }
 
-  /// RAM → prefs (stale ok) → Firestore cache → null. Sem rede.
+  /// RAM â†’ prefs (stale ok) â†’ Firestore cache â†’ null. Sem rede.
   static Future<MasterDashboardSummary?> readCachedInstant() async {
     if (_memFresh() && _memSummary != null) {
       return _alignChurchCount(_memSummary!);
@@ -326,7 +327,7 @@ abstract final class MasterDashboardCacheService {
     return null;
   }
 
-  /// Atualiza em background (callable → fallback cliente) sem bloquear UI.
+  /// Atualiza em background (callable â†’ fallback cliente) sem bloquear UI.
   static void revalidateInBackground({
     void Function(MasterDashboardSummary summary)? onUpdated,
   }) {
@@ -389,7 +390,7 @@ abstract final class MasterDashboardCacheService {
     ).call({'tenantId': tid});
   }
 
-  /// Leitura rápida: cache instantâneo → Firestore fresco → callable → scan cliente.
+  /// Leitura rÃ¡pida: cache instantÃ¢neo â†’ Firestore fresco â†’ callable â†’ scan cliente.
   /// Alinha contagem de igrejas com [MasterChurchesListService] (badge vs KPI).
   static Future<MasterDashboardSummary> refresh({bool force = false}) async {
     if (!force) {
@@ -428,7 +429,7 @@ abstract final class MasterDashboardCacheService {
     return summary;
   }
 
-  /// Fallback quando callable indisponível (scan leve no cliente).
+  /// Fallback quando callable indisponÃ­vel (scan leve no cliente).
   static Future<MasterDashboardSummary> refreshClientFallback({
     bool force = false,
   }) async {
@@ -527,3 +528,4 @@ abstract final class MasterDashboardCacheService {
     return out;
   }
 }
+

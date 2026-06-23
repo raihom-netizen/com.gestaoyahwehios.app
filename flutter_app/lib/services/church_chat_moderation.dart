@@ -1,7 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 /// Quem pode **apagar para todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras).
 abstract final class ChurchChatModeration {
   ChurchChatModeration._();
@@ -34,7 +34,7 @@ abstract final class ChurchChatModeration {
         }.contains(normalized);
   }
 
-  /// Apagar mensagem de **outro** no grupo — pastoral/gestão ou líder deste departamento.
+  /// Apagar mensagem de **outro** no grupo â€” pastoral/gestÃ£o ou lÃ­der deste departamento.
   static bool canDeleteChatMessage({
     required String memberRole,
     required String memberCpfDigits,
@@ -57,7 +57,7 @@ abstract final class ChurchChatModeration {
     Map<String, dynamic>? departmentData,
   }) {
     if (!isDepartmentThread) return true;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     final n = ChurchRolePermissions.normalize(memberRole);
     if (_churchWideChatModerator(n)) return true;
@@ -77,8 +77,8 @@ abstract final class ChurchChatModeration {
   }
 
   /// Apagar para **todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras):
-  /// **DM** — qualquer participante pode apagar qualquer mensagem (estilo «limpar conversa»).
-  /// **Grupo** — o autor apaga a própria; moderadores (pastor/gestor/ADM/líder depto) apagam as dos outros.
+  /// **DM** â€” qualquer participante pode apagar qualquer mensagem (estilo Â«limpar conversaÂ»).
+  /// **Grupo** â€” o autor apaga a prÃ³pria; moderadores (pastor/gestor/ADM/lÃ­der depto) apagam as dos outros.
   static bool canDeleteMessageForEveryone({
     required String senderUid,
     required bool isDepartmentThread,
@@ -86,7 +86,7 @@ abstract final class ChurchChatModeration {
     required String memberCpfDigits,
     Map<String, dynamic>? departmentData,
   }) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     if (!isDepartmentThread) return true;
     if (senderUid == uid) return true;
@@ -98,7 +98,7 @@ abstract final class ChurchChatModeration {
     );
   }
 
-  /// Excluir **grupo** de departamento (thread + histórico) — moderadores do grupo.
+  /// Excluir **grupo** de departamento (thread + histÃ³rico) â€” moderadores do grupo.
   static bool canDeleteGroupConversation(
     String memberRole, {
     Map<String, dynamic>? departmentData,
@@ -112,3 +112,4 @@ abstract final class ChurchChatModeration {
     );
   }
 }
+

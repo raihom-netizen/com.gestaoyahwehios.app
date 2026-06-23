@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -19,11 +19,11 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
 
-/// Sessão e retoma estáveis em **toda** a app (web, Android, iOS) — padrão Controle Total.
+/// SessÃ£o e retoma estÃ¡veis em **toda** a app (web, Android, iOS) â€” padrÃ£o Controle Total.
 ///
-/// - Não desloga ao trocar de aba / voltar do background (só «Sair» explícito).
+/// - NÃ£o desloga ao trocar de aba / voltar do background (sÃ³ Â«SairÂ» explÃ­cito).
 /// - Renova token Firebase sem `reconnect()` pesado.
-/// - Cache de acesso master e utilizador «sticky» para evitar tela branca.
+/// - Cache de acesso master e utilizador Â«stickyÂ» para evitar tela branca.
 abstract final class AppSessionStability {
   AppSessionStability._();
 
@@ -44,7 +44,7 @@ abstract final class AppSessionStability {
   static void bindGlobal(WidgetsBindingObserver observer) {
     if (_bound) return;
     _bound = true;
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     if (u != null && !u.isAnonymous) _stickyUser = u;
     if (kIsWeb) {
       registerWebResumeRepaint(onGlobalResume);
@@ -61,7 +61,7 @@ abstract final class AppSessionStability {
     _resumeListeners.remove(listener);
   }
 
-  /// Pulso periódico — mantém sessão e Firestore activos (web/Android/iOS).
+  /// Pulso periÃ³dico â€” mantÃ©m sessÃ£o e Firestore activos (web/Android/iOS).
   static void bindSessionKeepalive() {
     if (_keepaliveBound) return;
     _keepaliveBound = true;
@@ -72,7 +72,7 @@ abstract final class AppSessionStability {
   }
 
   static Future<void> _runSoftKeepalive() async {
-    final u = FirebaseAuth.instance.currentUser ?? _stickyUser;
+    final u = firebaseDefaultAuth.currentUser ?? _stickyUser;
     if (u == null || u.isAnonymous) return;
     rememberUser(u);
     try {
@@ -82,7 +82,7 @@ abstract final class AppSessionStability {
       } else {
         await firebaseDefaultFirestore.enableNetwork().catchError((_) {});
       }
-      // Mantém Storage ligado — evita core/no-app ao publicar após background.
+      // MantÃ©m Storage ligado â€” evita core/no-app ao publicar apÃ³s background.
       await FirebaseBootstrapService.ensureStorageAlwaysLinked(
         refreshAuthToken: false,
       ).catchError((_) {});
@@ -94,12 +94,12 @@ abstract final class AppSessionStability {
     }
   }
 
-  /// Volta da rede (modo avião / Wi‑Fi) — recuperação completa sem throttle de resume.
+  /// Volta da rede (modo aviÃ£o / Wiâ€‘Fi) â€” recuperaÃ§Ã£o completa sem throttle de resume.
   static void onConnectivityRestored() => onGlobalResume(force: true);
 
   /// Chamado ao voltar do background / foco na aba (web + mobile).
   static void onGlobalResume({bool force = false}) {
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     if (u != null && !u.isAnonymous) {
       _stickyUser = u;
     }
@@ -131,12 +131,12 @@ abstract final class AppSessionStability {
     }
   }
 
-  /// Limpa utilizador «sticky» após falha de restauração (evita AuthGate preso).
+  /// Limpa utilizador Â«stickyÂ» apÃ³s falha de restauraÃ§Ã£o (evita AuthGate preso).
   static void clearStickyUser() {
     _stickyUser = null;
   }
 
-  /// Utilizador efetivo para [StreamBuilder] de auth — evita logout fantasma.
+  /// Utilizador efetivo para [StreamBuilder] de auth â€” evita logout fantasma.
   static User? effectiveAuthUser(
     User? streamUser, {
     ConnectionState connectionState = ConnectionState.active,
@@ -145,12 +145,12 @@ abstract final class AppSessionStability {
       _stickyUser = streamUser;
       return streamUser;
     }
-    final sync = FirebaseAuth.instance.currentUser;
+    final sync = firebaseDefaultAuth.currentUser;
     if (sync != null && !sync.isAnonymous) {
       _stickyUser = sync;
       return sync;
     }
-    // Só durante «waiting» — em «active» sem Firebase o sticky causa tela branca no AuthGate.
+    // SÃ³ durante Â«waitingÂ» â€” em Â«activeÂ» sem Firebase o sticky causa tela branca no AuthGate.
     final sticky = _stickyUser;
     if (sticky != null &&
         !sticky.isAnonymous &&
@@ -172,12 +172,12 @@ abstract final class AppSessionStability {
     return PersistentAuthSessionService.currentPersistedUser();
   }
 
-  // ─── Painel Master (/admin) ─────────────────────────────────────────────
+  // â”€â”€â”€ Painel Master (/admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   /// 0 = sem login, 1 = logado sem ADM, 2 = ADM/master.
   static int? peekCachedMasterAccessLevel() {
     final uid =
-        (FirebaseAuth.instance.currentUser?.uid ?? _stickyUser?.uid ?? '')
+        (firebaseDefaultAuth.currentUser?.uid ?? _stickyUser?.uid ?? '')
             .trim();
     if (uid.isEmpty) return null;
     if (_cachedMasterUid == uid &&
@@ -209,14 +209,14 @@ abstract final class AppSessionStability {
 
   static void markAdminPanelVerified() => _adminPanelVerified = true;
 
-  /// Verificação de acesso master — cache + claims + Firestore resiliente.
+  /// VerificaÃ§Ã£o de acesso master â€” cache + claims + Firestore resiliente.
   static Future<int> resolveMasterAccessLevel({bool forceRefresh = false}) async {
     if (!forceRefresh) {
       final peek = peekCachedMasterAccessLevel();
       if (peek != null) return peek;
     }
 
-    final user = FirebaseAuth.instance.currentUser ?? _stickyUser;
+    final user = firebaseDefaultAuth.currentUser ?? _stickyUser;
     if (user == null || user.isAnonymous) {
       cacheMasterAccessLevel(0, '');
       return 0;
@@ -325,10 +325,11 @@ abstract final class AppSessionStability {
     return token.claims?['admin'] == true;
   }
 
-  /// Verificação rápida para [AdminPanelPage] — não repõe spinner se já validou.
+  /// VerificaÃ§Ã£o rÃ¡pida para [AdminPanelPage] â€” nÃ£o repÃµe spinner se jÃ¡ validou.
   static Future<bool> resolveIsMasterAdmin({bool forceRefresh = false}) async {
     if (!forceRefresh && _adminPanelVerified) return true;
     final level = await resolveMasterAccessLevel(forceRefresh: forceRefresh);
     return level >= 2;
   }
 }
+

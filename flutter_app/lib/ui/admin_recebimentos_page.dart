@@ -132,7 +132,7 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
         _loading = false;
         _loadError = isPermissionDenied
             ? 'Sem permissão. Faça login como administrador e publique as regras do Firestore (firebase deploy --only firestore:rules).'
-            : null;
+            : 'Falha ao carregar recebimentos. Atualize para tentar novamente.';
       });
     }
   }

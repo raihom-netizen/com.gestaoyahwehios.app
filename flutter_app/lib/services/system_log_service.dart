@@ -1,9 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
-/// Logs centralizados multi-tenant (`system_logs`) — Regra 9.
+/// Logs centralizados multi-tenant (`system_logs`) â€” Regra 9.
 abstract final class SystemLogService {
   SystemLogService._();
 
@@ -19,7 +18,7 @@ abstract final class SystemLogService {
     Map<String, dynamic>? extra,
     String severity = 'error',
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     final uid = user?.uid ?? '';
     final payload = <String, dynamic>{
       'module': module.trim(),
@@ -68,3 +67,4 @@ abstract final class SystemLogService {
         extra: const {'kind': 'tenant_access_denied'},
       );
 }
+

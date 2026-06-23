@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-/// Garante documento mínimo em `igrejas/{tenantId}/membros/{authUid}` para o gestor —
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+/// Garante documento mÃ­nimo em `igrejas/{tenantId}/membros/{authUid}` para o gestor â€”
 /// nome (displayName ou e-mail) e e-mail; foto e demais dados em **Membros**.
 class GestorMembroStubService {
   GestorMembroStubService._();
@@ -11,7 +11,7 @@ class GestorMembroStubService {
     required String tenantId,
     required String role,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) return;
     final rl = role.toLowerCase();
     if (rl != 'gestor' && rl != 'adm' && rl != 'admin' && rl != 'master') {
@@ -80,3 +80,4 @@ class GestorMembroStubService {
     }, SetOptions(merge: true));
   }
 }
+

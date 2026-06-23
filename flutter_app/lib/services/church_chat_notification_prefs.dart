@@ -1,5 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -46,7 +45,7 @@ class ChurchChatNotificationPrefs {
   /// Mesma prioridade que [FcmService.syncPreferencePushTopics]: Firestore, senão SharedPreferences.
   static Future<bool> isChatPushEnabled() async {
     var pushChat = true;
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     if (u != null) {
       try {
         final doc =
@@ -82,7 +81,7 @@ class ChurchChatNotificationPrefs {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(sharedPrefsKey, enabled);
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     if (u != null) {
       try {
         await firebaseDefaultFirestore.collection('users').doc(u.uid).set(
@@ -116,7 +115,7 @@ class ChurchChatNotificationPrefs {
     final threadId = (msg.data['threadId'] ?? '').toString().trim();
     if (tenantId.isEmpty || threadId.isEmpty) return global;
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return global;
 
     var threadType =
@@ -211,7 +210,7 @@ class ChurchChatNotificationPrefs {
 
   static Future<String> getChatAlertMode() async {
     var mode = alertModeSound;
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user != null) {
       try {
         final doc = await firebaseDefaultFirestore
@@ -246,7 +245,7 @@ class ChurchChatNotificationPrefs {
     final norm = normalizeAlertMode(mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(sharedPrefsAlertModeKey, norm);
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user != null) {
       try {
         await firebaseDefaultFirestore.collection('users').doc(user.uid).set(
@@ -270,3 +269,4 @@ class ChurchChatNotificationPrefs {
     await HapticFeedback.lightImpact();
   }
 }
+

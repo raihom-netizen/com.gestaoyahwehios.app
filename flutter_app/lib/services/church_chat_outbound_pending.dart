@@ -19,6 +19,7 @@ class ChurchChatOutboundPending {
     this.albumIndex = 0,
     this.albumCount = 1,
     this.voiceDurationMs,
+    this.byteSize,
   }) : createdAt = DateTime.now();
 
   final String localId;
@@ -37,6 +38,8 @@ class ChurchChatOutboundPending {
   final int albumCount;
   /// Duração da gravação de voz (ms) — exibição estilo WhatsApp.
   final int? voiceDurationMs;
+  /// Tamanho do ficheiro local (bytes), quando disponível.
+  final int? byteSize;
   final DateTime createdAt;
 
   double progress = 0;

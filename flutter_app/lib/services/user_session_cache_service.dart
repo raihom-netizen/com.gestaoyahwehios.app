@@ -1,12 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_document_memory_cache.dart';
 
 /// Cache do utilizador logado (`users/{uid}`) — evita leituras repetidas no painel.
 abstract final class UserSessionCacheService {
   UserSessionCacheService._();
 
-  static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+  static String? get _uid => firebaseDefaultAuth.currentUser?.uid;
 
   static String _path(String uid) => 'users/$uid';
 
@@ -21,7 +20,7 @@ abstract final class UserSessionCacheService {
       documentPath: path,
       ttl: const Duration(minutes: 10),
       fetcher: () async {
-        final snap = await FirebaseFirestore.instance.doc(path).get();
+        final snap = await firebaseDefaultFirestore.doc(path).get();
         if (!snap.exists) return null;
         return snap.data();
       },

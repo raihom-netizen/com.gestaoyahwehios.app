@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 class SubscriptionStatus {
   final String status; // TRIAL / ACTIVE / BLOCKED
@@ -17,8 +17,8 @@ class SubscriptionStatus {
 }
 
 class SubscriptionService {
-  final _db = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
+  final _db = firebaseDefaultFirestore;
+  final _auth = firebaseDefaultAuth;
 
   Future<String?> _igrejaIdFromClaims() async {
     final user = _auth.currentUser;

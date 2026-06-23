@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:intl/intl.dart';
 
-/// Integrações do chat com o ecossistema da igreja (pastoral, escalas, etc.).
+/// IntegraÃ§Ãµes do chat com o ecossistema da igreja (pastoral, escalas, etc.).
 abstract final class ChurchChatChurchFeatures {
   ChurchChatChurchFeatures._();
 
@@ -18,7 +18,7 @@ abstract final class ChurchChatChurchFeatures {
     final text = message.trim();
     if (text.isEmpty || departmentId.trim().isEmpty) return false;
     try {
-      final me = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+      final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
       await ChurchChatService.ensureDepartmentThread(
         tenantId: tenantId,
         departmentId: departmentId,
@@ -28,7 +28,7 @@ abstract final class ChurchChatChurchFeatures {
       );
       final threadId = ChurchChatService.deptThreadId(departmentId);
       final sender = ChurchChatService.senderDisplayNameForNewMessage();
-      final body = '📢 Mensagem pastoral\n$text';
+      final body = 'ðŸ“¢ Mensagem pastoral\n$text';
       final ok = await ChurchChatService.sendTextMessage(
         tenantId: tenantId,
         threadId: threadId,
@@ -56,7 +56,7 @@ abstract final class ChurchChatChurchFeatures {
     }
   }
 
-  /// Transmissão nos grupos `dept_*` (paralelo limitado).
+  /// TransmissÃ£o nos grupos `dept_*` (paralelo limitado).
   static Future<int> postBroadcastToDepartmentThreads({
     required String tenantId,
     required String title,
@@ -81,7 +81,7 @@ abstract final class ChurchChatChurchFeatures {
     return ok;
   }
 
-  /// Aviso automático no grupo quando uma escala é criada/gerada.
+  /// Aviso automÃ¡tico no grupo quando uma escala Ã© criada/gerada.
   static Future<void> notifyDepartmentEscalaCreated({
     required String tenantId,
     required String departmentId,
@@ -92,7 +92,7 @@ abstract final class ChurchChatChurchFeatures {
   }) async {
     if (departmentId.trim().isEmpty) return;
     try {
-      final me = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+      final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
       await ChurchChatService.ensureDepartmentThread(
         tenantId: tenantId,
         departmentId: departmentId,
@@ -104,12 +104,12 @@ abstract final class ChurchChatChurchFeatures {
       final dateFmt = DateFormat('dd/MM/yyyy', 'pt_BR');
       final hour = (timeLabel ?? '').trim();
       final whenLine = hour.isNotEmpty
-          ? '${dateFmt.format(when)} às $hour'
+          ? '${dateFmt.format(when)} Ã s $hour'
           : dateFmt.format(when);
       final sender =
-          FirebaseAuth.instance.currentUser?.displayName?.trim() ?? 'Escalas';
+          firebaseDefaultAuth.currentUser?.displayName?.trim() ?? 'Escalas';
       final text =
-          '📅 Nova escala — $escalaTitle\n$whenLine\nConfirme a sua presença no módulo Escalas.';
+          'ðŸ“… Nova escala â€” $escalaTitle\n$whenLine\nConfirme a sua presenÃ§a no mÃ³dulo Escalas.';
       await ChurchChatService.sendTextMessage(
         tenantId: tenantId,
         threadId: threadId,
@@ -134,3 +134,4 @@ abstract final class ChurchChatChurchFeatures {
     }
   }
 }
+

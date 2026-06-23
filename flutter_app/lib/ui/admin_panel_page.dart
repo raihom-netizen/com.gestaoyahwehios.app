@@ -222,7 +222,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             );
       } on TimeoutException {
         rethrow;
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('AdminPanel _isAdmin refresh token: $e\n$st');
         token = await u.getIdTokenResult(true).timeout(
               const Duration(seconds: 12),
               onTimeout: () => throw TimeoutException('Verificação de admin'),
@@ -245,7 +246,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       return role == 'ADMIN' || role == 'ADM' || role == 'MASTER';
     } on TimeoutException {
       return false;
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AdminPanel _isAdmin falhou: $e\n$st');
       return false;
     }
   }
@@ -279,7 +281,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         _masterRole = role;
         _masterPermissions = permissions;
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminPanel _loadMasterRbac: $e\n$st');
+    }
   }
 
   bool _canAccessMasterItem(AdminMenuItem item) {
@@ -368,7 +372,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         'igrejaId': igrejaId,
         'data': FieldValue.serverTimestamp(),
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AdminPanel _writeAuditLog: $e\n$st');
       // Auditoria nunca deve quebrar o fluxo principal.
     }
   }
@@ -388,7 +393,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         "details": (details ?? "").trim(),
         "severity": severity,
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AdminPanel _reportSecurityEvent: $e\n$st');
       // Evento de segurança não deve quebrar navegação.
     }
   }
@@ -1537,10 +1543,17 @@ class _AdminStatsCardState extends State<_AdminStatsCard> {
         _igrejas = churches.isNotEmpty ? churches.length : summary.igrejas;
         _receita = summary.receita;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('AdminPanel _AdminStatsCard._refresh: $e\n$st');
       if (!mounted) return;
       final cached = MasterChurchesListService.peekCount();
-      if (cached > 0) setState(() => _igrejas = cached);
+      final summary = MasterDashboardCacheService.peekMemory();
+      if (cached > 0 || summary != null) {
+        setState(() {
+          if (cached > 0) _igrejas = cached;
+          if (summary != null) _receita = summary.receita;
+        });
+      }
     }
   }
 

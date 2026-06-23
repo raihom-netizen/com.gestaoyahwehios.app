@@ -1,8 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 Map<String, dynamic> _asStringKeyMap(dynamic raw) {
   if (raw is Map) {
     return Map<String, dynamic>.from(raw.map((k, v) => MapEntry(k.toString(), v)));
@@ -10,7 +11,7 @@ Map<String, dynamic> _asStringKeyMap(dynamic raw) {
   return <String, dynamic>{};
 }
 
-/// Troca de escala entre membros (convite → aceite → escala atualizada + aviso ao líder).
+/// Troca de escala entre membros (convite â†’ aceite â†’ escala atualizada + aviso ao lÃ­der).
 class ScheduleSwapCandidate {
   final String cpf;
   final String nome;
@@ -22,8 +23,8 @@ abstract final class ScheduleSwapService {
 
   static String _normCpf(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
-  /// Membros do departamento livres no [escalaDay] para o horário [escalaTime]
-  /// (sem outra escala sobreposta, sem indisponibilidade no calendário, fora da escala atual).
+  /// Membros do departamento livres no [escalaDay] para o horÃ¡rio [escalaTime]
+  /// (sem outra escala sobreposta, sem indisponibilidade no calendÃ¡rio, fora da escala atual).
   static Future<List<ScheduleSwapCandidate>> filterFreeCandidates({
     required String tenantId,
     required String departmentId,
@@ -52,7 +53,7 @@ abstract final class ScheduleSwapService {
       return [];
     }
 
-    /// normCpf -> true se está ocupado em alguma escala com horário sobreposto a [escalaTime].
+    /// normCpf -> true se estÃ¡ ocupado em alguma escala com horÃ¡rio sobreposto a [escalaTime].
     final busyNorm = <String, bool>{};
 
     for (final doc in daySnap.docs) {
@@ -95,13 +96,13 @@ abstract final class ScheduleSwapService {
     return out;
   }
 
-  /// Aceitar ou recusar convite de troca (Cloud Function aplica a troca e notifica líderes).
+  /// Aceitar ou recusar convite de troca (Cloud Function aplica a troca e notifica lÃ­deres).
   static Future<Map<String, dynamic>> respondSwap({
     required String tenantId,
     required String trocaId,
     required bool accept,
   }) async {
-    final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+    final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
         .httpsCallable('respondScheduleSwap');
     final res = await fn.call(<String, dynamic>{
       'tenantId': tenantId,
@@ -111,3 +112,4 @@ abstract final class ScheduleSwapService {
     return _asStringKeyMap(res.data);
   }
 }
+

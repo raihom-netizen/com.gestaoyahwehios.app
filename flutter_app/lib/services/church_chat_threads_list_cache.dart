@@ -1,11 +1,11 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Snapshot leve de `chat_threads` para abrir a lista «Conversas» sem skeleton.
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+/// Snapshot leve de `chat_threads` para abrir a lista Â«ConversasÂ» sem skeleton.
 abstract final class ChurchChatThreadsListCache {
   ChurchChatThreadsListCache._();
 
@@ -42,7 +42,7 @@ abstract final class ChurchChatThreadsListCache {
     String tenantId,
     QuerySnapshot<Map<String, dynamic>> snap,
   ) async {
-    final uid = (FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final uid = (firebaseDefaultAuth.currentUser?.uid ?? '').trim();
     final tid = tenantId.trim();
     if (uid.isEmpty || tid.isEmpty || snap.docs.isEmpty) return;
 
@@ -63,7 +63,7 @@ abstract final class ChurchChatThreadsListCache {
     String tenantId, {
     String? uid,
   }) async {
-    final u = (uid ?? FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final u = (uid ?? firebaseDefaultAuth.currentUser?.uid ?? '').trim();
     final tid = tenantId.trim();
     if (u.isEmpty || tid.isEmpty) return null;
     try {
@@ -93,7 +93,7 @@ abstract final class ChurchChatThreadsListCache {
   }
 }
 
-/// Documento só-leitura reconstruído do disco (lista estável ao abrir o hub).
+/// Documento sÃ³-leitura reconstruÃ­do do disco (lista estÃ¡vel ao abrir o hub).
 // ignore: subtype_of_sealed_class
 class _CachedChatThreadDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
   _CachedChatThreadDoc({required this.id, required Map<String, dynamic> data})
@@ -132,3 +132,4 @@ class _CachedSnapshotMetadata implements SnapshotMetadata {
   @override
   bool get isFromCache => true;
 }
+

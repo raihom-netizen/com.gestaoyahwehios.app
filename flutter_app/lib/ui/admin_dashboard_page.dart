@@ -32,6 +32,11 @@ class AdminDashboardPage extends StatefulWidget {
 }
 
 class _AdminDashboardPageState extends State<AdminDashboardPage> {
+  static const int _kUsersSampleLimit = 400;
+  static const int _kTenantsSampleLimit = 300;
+  static const int _kPagamentosSampleLimit = 600;
+  static const int _kSalesSampleLimit = 1000;
+
   bool _loading = MasterDashboardCacheService.peekMemory() == null;
   bool _revalidating = false;
   int _usuarios = 0;
@@ -215,8 +220,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
 
     try {
-      final usersSnap = await db.collection('users').get();
-      usersCount += usersSnap.size;
+      final usersAgg = await db.collection('users').count().get();
+      usersCount += usersAgg.count ?? 0;
+      final usersSnap =
+          await db.collection('users').limit(_kUsersSampleLimit).get();
       for (final d in usersSnap.docs) {
         final dt = _parseDate(d.data()['createdAt'] ?? d.data()['created_at']);
         if (dt != null) {
@@ -224,14 +231,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           if (byMonthUsuarios.containsKey(key)) byMonthUsuarios[key] = (byMonthUsuarios[key] ?? 0) + 1;
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco users: $e\n$st');
+    }
     try {
-      final usuariosSnap = await db.collection('usuarios').get();
-      usersCount += usuariosSnap.size;
-    } catch (_) {}
+      final usuariosAgg = await db.collection('usuarios').count().get();
+      usersCount += usuariosAgg.count ?? 0;
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco usuarios: $e\n$st');
+    }
     try {
-      final tenantsSnap = await db.collection('igrejas').get();
-      tenantsCount = tenantsSnap.size;
+      final tenantsAgg = await db.collection('igrejas').count().get();
+      tenantsCount = tenantsAgg.count ?? 0;
+      final tenantsSnap =
+          await db.collection('igrejas').limit(_kTenantsSampleLimit).get();
       for (final d in tenantsSnap.docs) {
         final data = d.data();
         final lic = data['license'] as Map?;
@@ -252,13 +265,21 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       }
       proximosVenc.sort((a, b) => (a['dataVencimento'] as DateTime).compareTo(b['dataVencimento'] as DateTime));
       if (proximosVenc.length > 10) proximosVenc.removeRange(10, proximosVenc.length);
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco igrejas: $e\n$st');
+    }
     try {
-      final pagSnap = await db.collection('pagamentos').get();
+      final pagSnap = await db
+          .collection('pagamentos')
+          .limit(_kPagamentosSampleLimit)
+          .get();
       receitaPag = pagSnap.docs.fold(0.0, (a, b) => a + (double.tryParse(b.data()['valor']?.toString() ?? '') ?? 0));
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco pagamentos: $e\n$st');
+    }
     try {
-      final salesSnap = await db.collection('sales').get();
+      final salesSnap =
+          await db.collection('sales').limit(_kSalesSampleLimit).get();
       salesDocs = salesSnap.docs.where((d) {
         final status = (d.data()['status'] ?? '').toString();
         return _isRevenueStatusCountable(status);
@@ -272,15 +293,25 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         else if (method.contains('card') || method.contains('credit') || method.contains('cartão')) receitaCartao += val;
         else receitaCartao += val;
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco sales: $e\n$st');
+    }
     try {
       final alertasAgg = await db.collection('alertas').count().get();
       alertasCount = alertasAgg.count ?? 0;
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco alertas: $e\n$st');
+    }
     try {
-      final subSnap = await db.collection('subscriptions').where('status', isEqualTo: 'active').get();
-      subsAtivas = subSnap.size;
-    } catch (_) {}
+      final subAgg = await db
+          .collection('subscriptions')
+          .where('status', isEqualTo: 'active')
+          .count()
+          .get();
+      subsAtivas = subAgg.count ?? 0;
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco subscriptions: $e\n$st');
+    }
     try {
       final analyticsSnap = await db
           .collection('analytics')
@@ -299,7 +330,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       final sorted = byDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
       if (sorted.length > 14) acessosDia.addAll(sorted.sublist(sorted.length - 14));
       else acessosDia.addAll(sorted);
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco analytics: $e\n$st');
+    }
     try {
       final configSnap = await db.doc('config/analytics').get();
       if (configSnap.exists) {
@@ -313,7 +346,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           acessosDia.addAll(list.length > 14 ? list.sublist(list.length - 14) : list);
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('AdminDashboard _carregarDados bloco config analytics: $e\n$st');
+    }
 
     _receitaPorMes = _buildReceitaPorMes(salesDocs);
     _igrejasPorMes = mesesKeys.map((k) {

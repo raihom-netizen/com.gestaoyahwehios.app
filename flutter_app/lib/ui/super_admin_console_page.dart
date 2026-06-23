@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -900,6 +901,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                                 QuerySnapshot<Map<String, dynamic>>>(
                               stream: FirebaseFirestore.instance
                                   .collection('igrejas')
+                                  .limit(YahwehPerformanceV4.masterChurchesListLimit)
                                   .watchSafe(),
                               builder: (context, snap) {
                                 if (snap.hasError) {
@@ -1111,7 +1113,10 @@ class _SalesSummary extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('igrejas').watchSafe(),
+          stream: FirebaseFirestore.instance
+              .collection('igrejas')
+              .limit(YahwehPerformanceV4.masterChurchesListLimit)
+              .watchSafe(),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Card(

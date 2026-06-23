@@ -53,7 +53,10 @@ class ChurchChatVoiceMicButton extends StatelessWidget {
             }
             if (recording) {
               onTapWhileRecording();
+              return;
             }
+            // Fallback mobile: alguns aparelhos não disparam long-press de forma estável.
+            onWebTap();
           },
           child: SizedBox(
             width: _size,

@@ -10,7 +10,7 @@ abstract final class ChurchPanelReadTimeouts {
 
   /// Cap externo de uma leitura completa (UI / listCacheFirst / SWR).
   static Duration get queryCap =>
-      kIsWeb ? const Duration(seconds: 90) : const Duration(seconds: 28);
+      kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 28);
 
   /// Pré-aquecimento em background (login / dashboard).
   static Duration get warmCap =>

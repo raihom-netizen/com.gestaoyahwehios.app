@@ -107,6 +107,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_panel_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
@@ -137,7 +138,6 @@ import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
@@ -290,10 +290,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (memDir != null && memDir.hasEntries) {
         _membersDirectory = memDir;
       }
-      try {
-        unawaited(_attachPanelFeedStreams(tidBoot));
-        _bindMembersDirectoryWatch(tidBoot);
-      } catch (_) {}
+      unawaited(_attachPanelFeedStreams(tidBoot).catchError((e, st) {
+        debugPrint('Dashboard init attachPanelFeedStreams: $e\n$st');
+      }));
+      _bindMembersDirectoryWatch(tidBoot);
       unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
       unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tidBoot));
       unawaited(_hydrateMembersDirectory(tidBoot));
@@ -645,7 +645,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         );
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Dashboard _paintPanelFromLocalCacheFirst: $e\n$st');
+    }
   }
 
   Future<void> _loadStreams() async {
@@ -654,7 +656,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       final op = await _resolveEffectiveTenantId()
           .timeout(const Duration(seconds: 10));
       if (op.trim().isNotEmpty) resolved = op.trim();
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Dashboard _loadStreams resolve tenant: $e\n$st');
+    }
 
     if (resolved.isNotEmpty) {
       unawaited(_paintPanelFromLocalCacheFirst(resolved));
@@ -712,7 +716,19 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     var churchNome = '';
     DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
-      igSnap = await ChurchRepository.churchDoc(effectiveChurchId).get();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint('Dashboard _boot ensurePanelReadReady: $e\n$st');
+        });
+      }
+      Future<DocumentSnapshot<Map<String, dynamic>>> readChurchDoc() =>
+          ChurchRepository.churchDoc(effectiveChurchId).get();
+      igSnap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              readChurchDoc,
+              maxAttempts: 4,
+            ).timeout(PanelResilientLoad.queryCap)
+          : await readChurchDoc();
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
@@ -736,17 +752,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                   (loaded.data['name'] ?? loaded.data['nome'] ?? '').toString();
             }
           }
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('Dashboard _loadStreams loadByChurchId fallback: $e\n$st');
+        }
       }
       if (churchSlug.isEmpty) {
         try {
           churchSlug = await TenantResolverService.resolveChurchPublicSlug(
             effectiveChurchId,
           );
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('Dashboard _loadStreams resolveChurchPublicSlug: $e\n$st');
+        }
       }
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Dashboard _loadStreams churchDoc fallback: $e\n$st');
       effectiveChurchId = ChurchRepository.churchId(resolved).isNotEmpty
           ? ChurchRepository.churchId(resolved)
           : resolved;
@@ -916,7 +937,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           onTimeout: () => const MergedFirestoreQuerySnapshot([]),
         );
         return MergedFirestoreQuerySnapshot(snap.docs);
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('Dashboard _createDepartmentsOneShotStream: $e\n$st');
         return const MergedFirestoreQuerySnapshot([]);
       }
     });
@@ -3315,7 +3337,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
             seedTenantId: widget.tenantId,
           );
           slug = _slugFromData(loaded.data);
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('Dashboard _loadSlug loadByChurchId fallback: $e\n$st');
+        }
       }
       if (slug.isEmpty) {
         slug = await TenantResolverService.resolveChurchPublicSlug(
@@ -3328,7 +3352,8 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           _loading = false;
         });
       }
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Dashboard _loadSlug fallback geral: $e\n$st');
       if (mounted) {
         setState(() {
           _slug = widget.initialSlug?.trim().isNotEmpty == true
@@ -5326,7 +5351,9 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
           _seedDocs = r.docs;
           _recentDespesasFuture = Future.value(r.snapshot);
         });
-      }).catchError((_) {}),
+      }).catchError((e, st) {
+        debugPrint('Dashboard _warmRecentDespesas loadLancamentos: $e\n$st');
+      }),
     );
   }
 
@@ -6320,54 +6347,48 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs = const [];
   try {
-    final snap = await ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 220);
+    final snap =
+        await ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 120);
     realDocs = snap.docs
         .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
         .where((d) {
-          try {
-            final dt = (d.data()['startAt'] as Timestamp).toDate();
-            return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-          } catch (_) {
-            return false;
-          }
+          final ts = d.data()['startAt'];
+          if (ts is! Timestamp) return false;
+          final dt = ts.toDate();
+          return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
         })
         .toList();
     realDocs.sort((a, b) {
-      try {
-        final ta = (a.data()['startAt'] as Timestamp).toDate();
-        final tb = (b.data()['startAt'] as Timestamp).toDate();
-        return ta.compareTo(tb);
-      } catch (_) {
-        return 0;
-      }
+      final tsa = a.data()['startAt'];
+      final tsb = b.data()['startAt'];
+      if (tsa is! Timestamp || tsb is! Timestamp) return 0;
+      return tsa.toDate().compareTo(tsb.toDate());
     });
-  } catch (_) {
+  } catch (e, st) {
+    debugPrint('Dashboard _loadEventosComFixos noticiasByStartAt: $e\n$st');
     try {
       final snap = await PanelProgramacaoLoader.queryCacheFirst(
-        noticiasRef.limit(150),
+        noticiasRef.limit(80),
         cacheKey: 'panel_${tid}_noticias_plain',
       );
       realDocs = snap.docs
           .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
           .where((d) {
-            try {
-              final dt = (d.data()['startAt'] as Timestamp).toDate();
-              return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-            } catch (_) {
-              return false;
-            }
+            final ts = d.data()['startAt'];
+            if (ts is! Timestamp) return false;
+            final dt = ts.toDate();
+            return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
           })
           .toList();
       realDocs.sort((a, b) {
-        try {
-          final ta = (a.data()['startAt'] as Timestamp).toDate();
-          final tb = (b.data()['startAt'] as Timestamp).toDate();
-          return ta.compareTo(tb);
-        } catch (_) {
-          return 0;
-        }
+        final tsa = a.data()['startAt'];
+        final tsb = b.data()['startAt'];
+        if (tsa is! Timestamp || tsb is! Timestamp) return 0;
+        return tsa.toDate().compareTo(tsb.toDate());
       });
-    } catch (_) {}
+    } catch (e2, st2) {
+      debugPrint('Dashboard _loadEventosComFixos noticias cache fallback: $e2\n$st2');
+    }
   }
 
   if (apenasRotinaGerada) {
@@ -6406,23 +6427,27 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final data = d.data();
     final templateId = (data['templateId'] ?? '').toString();
     if (templateId.isEmpty) continue;
-    try {
-      final dt = (data['startAt'] as Timestamp).toDate();
+    final ts = data['startAt'];
+    if (ts is Timestamp) {
+      final dt = ts.toDate();
       realSet.add('$templateId|${dt.millisecondsSinceEpoch}');
-    } catch (_) {}
+    }
   }
 
   QuerySnapshot<Map<String, dynamic>> templatesSnap =
       const MergedFirestoreQuerySnapshot([]);
   try {
     templatesSnap = await ChurchTenantResilientReads.eventTemplates(tid);
-  } catch (_) {
+  } catch (e, st) {
+    debugPrint('Dashboard _loadEventosComFixos eventTemplates: $e\n$st');
     try {
       templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
         templatesRef,
         cacheKey: 'panel_${tid}_event_templates_all',
       );
-    } catch (_) {}
+    } catch (e2, st2) {
+      debugPrint('Dashboard _loadEventosComFixos eventTemplates cache fallback: $e2\n$st2');
+    }
   }
   final templates = templatesSnap.docs.where((d) => d.data()['active'] != false).toList();
 
@@ -6479,7 +6504,9 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
         'photoStoragePath': '',
       });
     }
-  } catch (_) {}
+  } catch (e, st) {
+    debugPrint('Dashboard _loadEventosComFixos agenda range: $e\n$st');
+  }
 
   merged.sort((a, b) {
     final ta = a['startAt'] as Timestamp?;
@@ -6543,10 +6570,8 @@ void _showPainelProgramacaoEventoPreview(
 }) {
   final accent = accentColor ?? ThemeCleanPremium.primary;
   final title = (data['title'] ?? '').toString().trim();
-  DateTime? dt;
-  try {
-    dt = (data['startAt'] as Timestamp).toDate();
-  } catch (_) {}
+  final tsStartAt = data['startAt'];
+  final DateTime? dt = tsStartAt is Timestamp ? tsStartAt.toDate() : null;
   const wdFull = [
     'Segunda-feira',
     'Terça-feira',
@@ -6809,10 +6834,9 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
         if (staleHint) _ProgramacaoStaleHint(onRetry: onRetry),
         ...mostrar.map((data) {
           final title = (data['title'] ?? '').toString();
-          DateTime? dt;
-          try {
-            dt = (data['startAt'] as Timestamp).toDate();
-          } catch (_) {}
+          final tsStartAt = data['startAt'];
+          final DateTime? dt =
+              tsStartAt is Timestamp ? tsStartAt.toDate() : null;
           final dateStr = dt != null
               ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
               : '';
@@ -7461,10 +7485,9 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
           }();
           final hasPhoto =
               imageUrl.isNotEmpty || path0.isNotEmpty;
-          DateTime? dt;
-          try {
-            dt = (data['startAt'] as Timestamp).toDate();
-          } catch (_) {}
+          final tsStartAt = data['startAt'];
+          final DateTime? dt =
+              tsStartAt is Timestamp ? tsStartAt.toDate() : null;
           final dateStr = dt != null
               ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
               : '';
@@ -7948,14 +7971,26 @@ Future<void> _painelDestaqueToggleLike(
     var photo = FirebaseAuth.instance.currentUser?.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await firebaseDefaultFirestore
-            .collection('users')
-            .doc(uid)
-            .get();
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+            debugPrint(
+              'Dashboard _painelDestaqueToggleLike ensurePanelReadReady: $e\n$st',
+            );
+          });
+        }
+        Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
+            firebaseDefaultFirestore.collection('users').doc(uid).get();
+        final uDoc = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readUser,
+                maxAttempts: 4,
+              ).timeout(PanelResilientLoad.queryCap)
+            : await readUser().timeout(PanelResilientLoad.queryCap);
         final u = uDoc.data() ?? {};
         name = (u['nome'] ?? u['name'] ?? 'Membro').toString();
         photo = (u['fotoUrl'] ?? u['photoUrl'] ?? photo).toString();
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('Dashboard _painelDestaqueToggleLike load user: $e\n$st');
         name = 'Membro';
       }
     }
@@ -7969,7 +8004,8 @@ Future<void> _painelDestaqueToggleLike(
       parentCollection:
           ChurchTenantPostsCollections.segmentFromPostRef(doc.reference),
     );
-  } catch (_) {
+  } catch (e, st) {
+    debugPrint('Dashboard _painelDestaqueToggleLike: $e\n$st');
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
@@ -8340,8 +8376,15 @@ class _DestaqueCardState extends State<_DestaqueCard> {
         galleryPhotos.length + (hasPanelVideoSlide ? 1 : 0);
     final showCarousel = slideCount > 0;
     DateTime? dt;
-    try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
-    try { dt ??= (data['createdAt'] as Timestamp).toDate(); } catch (_) {}
+    final startAtTs = data['startAt'];
+    if (startAtTs is Timestamp) {
+      dt = startAtTs.toDate();
+    } else {
+      final createdAtTs = data['createdAt'];
+      if (createdAtTs is Timestamp) {
+        dt = createdAtTs.toDate();
+      }
+    }
     final dateStr = dt != null ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}' : '';
     final timeStr = dt != null
         ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
@@ -8896,14 +8939,26 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     var photo = user.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await firebaseDefaultFirestore
-            .collection('users')
-            .doc(user.uid)
-            .get();
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+            debugPrint(
+              'Dashboard _PainelDestaqueSocialBar._memberDisplay ensurePanelReadReady: $e\n$st',
+            );
+          });
+        }
+        Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
+            firebaseDefaultFirestore.collection('users').doc(user.uid).get();
+        final uDoc = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readUser,
+                maxAttempts: 4,
+              ).timeout(PanelResilientLoad.queryCap)
+            : await readUser().timeout(PanelResilientLoad.queryCap);
         final d = uDoc.data() ?? {};
         name = (d['nome'] ?? d['name'] ?? 'Membro').toString();
         photo = (d['fotoUrl'] ?? d['photoUrl'] ?? photo).toString();
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('Dashboard _PainelDestaqueSocialBar._memberDisplay: $e\n$st');
         name = 'Membro';
       }
     }
@@ -8927,7 +8982,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
             ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
       if (mounted) setState(() {});
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Dashboard _PainelDestaqueSocialBar._toggleLike: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
@@ -8955,7 +9011,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
             ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
       if (mounted) setState(() {});
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Dashboard _PainelDestaqueSocialBar._toggleRsvp: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
@@ -8983,10 +9040,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     final title = (data['title'] ?? '').toString();
     final text = churchPostPlainText(Map<String, dynamic>.from(data));
     final loc = (data['location'] ?? '').toString();
-    DateTime? dt;
-    try {
-      dt = (data['startAt'] as Timestamp).toDate();
-    } catch (_) {}
+    final tsStartAt = data['startAt'];
+    final DateTime? dt = tsStartAt is Timestamp ? tsStartAt.toDate() : null;
     final churchName = widget.nomeIgreja.trim().isNotEmpty
         ? widget.nomeIgreja.trim()
         : 'Nossa igreja';
@@ -9046,10 +9101,9 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
         );
         final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
         final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
-        DateTime? eventDt;
-        try {
-          eventDt = (data['startAt'] as Timestamp).toDate();
-        } catch (_) {}
+        final tsStartAt = data['startAt'];
+        final DateTime? eventDt =
+            tsStartAt is Timestamp ? tsStartAt.toDate() : null;
         final isFuture =
             widget.isEvento && eventDt != null && eventDt.isAfter(DateTime.now());
 

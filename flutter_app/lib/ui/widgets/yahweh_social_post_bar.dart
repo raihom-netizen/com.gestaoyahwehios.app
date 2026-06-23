@@ -1,14 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Barra estilo Instagram: curtir, comentar, confirmar presença (evento).
 /// Contadores em tempo real via stream do documento da notícia.
@@ -40,8 +45,10 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   /// Otimista até o Firestore confirmar (null = usar dados do stream).
   bool? _optLiked;
   bool? _optRsvp;
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId.trim());
 
-  DocumentReference<Map<String, dynamic>> get _postRef =>       ChurchUiCollections.churchDoc(widget.tenantId)
+  DocumentReference<Map<String, dynamic>> get _postRef =>
+      ChurchUiCollections.churchDoc(_tenantId)
       .collection(widget.postsParentCollection)
       .doc(widget.postId);
 
@@ -52,14 +59,22 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     var photo = user.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
+            firebaseDefaultFirestore.collection('users').doc(user.uid).get();
+        final uDoc = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readUser,
+                maxAttempts: 4,
+              ).timeout(ChurchPanelReadTimeouts.queryCap)
+            : await readUser().timeout(ChurchPanelReadTimeouts.queryCap);
         final d = uDoc.data() ?? {};
         name = (d['nome'] ?? d['name'] ?? 'Membro').toString();
         photo = (d['fotoUrl'] ?? d['photoUrl'] ?? photo).toString();
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('SocialPostBar _memberDisplay load user: $e\n$st');
         name = 'Membro';
       }
     }
@@ -85,7 +100,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     try {
       final m = await _memberDisplay();
       await NoticiaSocialService.toggleCurtida(
-        tenantId: widget.tenantId,
+        tenantId: _tenantId,
         postId: widget.postId,
         uid: uid,
         memberName: m.name,
@@ -93,7 +108,8 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
         currentlyLiked: currentlyLiked,
         parentCollection: widget.postsParentCollection,
       );
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('SocialPostBar _toggleLike: $e\n$st');
       if (mounted) {
         setState(() => _optLiked = null);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -128,7 +144,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     try {
       final m = await _memberDisplay();
       await NoticiaSocialService.toggleConfirmacaoPresenca(
-        tenantId: widget.tenantId,
+        tenantId: _tenantId,
         postId: widget.postId,
         uid: user.uid,
         memberName: m.name,
@@ -141,7 +157,9 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
         try {
           final sa = data['startAt'];
           if (sa is Timestamp) start = sa.toDate();
-        } catch (_) {}
+        } catch (e, st) {
+          debugPrint('SocialPostBar _toggleRsvp startAt parse: $e\n$st');
+        }
         if (start != null && start.isAfter(DateTime.now())) {
           if (!mounted) return;
           final title = (data['title'] ?? 'Evento').toString();
@@ -164,7 +182,8 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
           );
         }
       }
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('SocialPostBar _toggleRsvp: $e\n$st');
       if (mounted) {
         setState(() => _optRsvp = null);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -224,7 +243,8 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
                   SetOptions(merge: true),
                 );
                 ctrl.clear();
-              } catch (_) {
+              } catch (e, st) {
+                debugPrint('SocialPostBar _openComments send: $e\n$st');
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     ThemeCleanPremium.feedbackSnackBar('Erro ao enviar comentário.'),

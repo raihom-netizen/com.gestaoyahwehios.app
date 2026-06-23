@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -10,6 +10,8 @@ import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
+
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Membro leve no cache do painel (`_panel_cache/dashboard_summary`).
 class PanelHomeMemberLite {
@@ -68,7 +70,7 @@ class PanelHomeMemberLite {
     );
   }
 
-  /// Mapa compatível com [FotoMembroWidget] / avatares do painel.
+  /// Mapa compatÃ­vel com [FotoMembroWidget] / avatares do painel.
   Map<String, dynamic> toMemberDataMap() {
     return <String, dynamic>{
       if (authUid != null && authUid!.isNotEmpty) 'authUid': authUid,
@@ -215,9 +217,9 @@ class PanelDashboardSnapshot {
 
 class PanelDashboardSnapshotService {
   static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
-  /// Doc único da sessão — só `igrejas/{churchId}` (sem cluster/irmãos).
+  /// Doc Ãºnico da sessÃ£o â€” sÃ³ `igrejas/{churchId}` (sem cluster/irmÃ£os).
   static Future<List<String>> clusterDocIdsForPanel(String seed) async {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     final id = bound.isNotEmpty
@@ -265,14 +267,14 @@ class PanelDashboardSnapshotService {
     return id.isNotEmpty ? id : seed.trim();
   }
 
-  /// Doc onde o servidor grava `_panel_cache` — sempre `igrejas/{churchId}` da sessão.
+  /// Doc onde o servidor grava `_panel_cache` â€” sempre `igrejas/{churchId}` da sessÃ£o.
   static String _panelCacheWriteTenantId(String seed) {
     final id = ChurchRepository.churchId(seed);
     return id.isNotEmpty ? id : seed.trim();
   }
 
-  /// Cache pré-processado — 1 leitura para todo o Dashboard.
-  /// Canónico CF: `dashboard_summary`; alias spec: `dashboard`.
+  /// Cache prÃ©-processado â€” 1 leitura para todo o Dashboard.
+  /// CanÃ³nico CF: `dashboard_summary`; alias spec: `dashboard`.
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
     return ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('_panel_cache')
@@ -338,7 +340,7 @@ class PanelDashboardSnapshotService {
     return PanelDashboardSnapshot.fromMap(base);
   }
 
-  /// Leitura única — cache local primeiro (padrão Controle Total), depois servidor.
+  /// Leitura Ãºnica â€” cache local primeiro (padrÃ£o Controle Total), depois servidor.
   static Future<PanelDashboardSnapshot> readOnce(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelDashboardSnapshot();
@@ -394,7 +396,7 @@ class PanelDashboardSnapshotService {
 
   static const Duration _staleAfter = Duration(minutes: 6);
 
-  /// Idade máxima do snapshot para adiar queries pesadas de `membros` no painel.
+  /// Idade mÃ¡xima do snapshot para adiar queries pesadas de `membros` no painel.
   static const Duration panelCacheFreshMaxAge = _staleAfter;
 
   static bool _isFresh(Timestamp? updatedAt) {
@@ -402,7 +404,7 @@ class PanelDashboardSnapshotService {
     return DateTime.now().difference(updatedAt.toDate()) < _staleAfter;
   }
 
-  /// Aquece o cache no servidor só se ausente ou com mais de [_staleAfter].
+  /// Aquece o cache no servidor sÃ³ se ausente ou com mais de [_staleAfter].
   static Future<PanelDashboardSnapshot> warmFromCallableIfStale(
     String tenantId,
   ) async {
@@ -455,3 +457,4 @@ class PanelDashboardSnapshotService {
     return const PanelDashboardSnapshot();
   }
 }
+

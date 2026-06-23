@@ -100,7 +100,9 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegFinanceiro/${ym}/$id.$safeExt';
   }
 
-  /// Comprovantes por tipo: `financeiro/comprovantes_receitas|comprovantes_despesas|transferencias/`.
+  /// Legado: comprovantes por tipo em subpastas de `financeiro/`.
+  ///
+  /// Novos uploads devem usar [financeComprovantePath] (canónico `YYYY_MM`).
   static String financeComprovantePathByTipo({
     required String tenantId,
     required String lancamentoId,

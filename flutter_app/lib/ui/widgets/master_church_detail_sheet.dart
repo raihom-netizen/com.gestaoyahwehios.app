@@ -82,6 +82,11 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadAuditTimeline() async {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+      debugPrint(
+        'MasterChurchDetail _loadAuditTimeline ensurePanelReadReady: $e\n$st',
+      );
+    });
     return FirestoreWebGuard.runWithWebRecovery(() async {
       try {
         final snap = await FirebaseFirestore.instance
@@ -91,10 +96,11 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
             .limit(12)
             .get();
         return snap.docs;
-      } catch (_) {
+      } catch (e, st) {
+        debugPrint('MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st');
         final snap = await FirebaseFirestore.instance
             .collection('auditoria')
-            .limit(80)
+            .limit(24)
             .get();
         return snap.docs
             .where((d) {
@@ -150,7 +156,14 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         _panelCacheLabel = label;
         _panelCacheStale = stale;
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterChurchDetail _loadTechnicalHealth: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _panelCacheLabel = 'Painel igreja: indisponível no momento';
+        _panelCacheStale = true;
+      });
+    }
   }
 
   Future<void> _warmPanelCache() async {
@@ -222,7 +235,9 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         'uid': u?.uid,
         'data': FieldValue.serverTimestamp(),
       });
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('MasterChurchDetail _audit: $e\n$st');
+    }
   }
 
   Future<void> _setFree(bool free) async {

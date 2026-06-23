@@ -1,5 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -34,9 +34,8 @@ class ChurchStorageUsageResult {
 abstract final class ChurchStorageUsageService {
   ChurchStorageUsageService._();
 
-  static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
-  static final _db = FirebaseFirestore.instance;
+  static FirebaseFunctions get _functions =>
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static const _sampleCollections = [
     'members',

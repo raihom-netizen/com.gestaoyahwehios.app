@@ -2,10 +2,10 @@ import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/painting.dart' show imageCache;
 import 'package:flutter/services.dart';
@@ -73,6 +73,7 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 // ─── Templates de Certificados ──────────────────────────────────────────────
 class _CertTemplate {
@@ -394,7 +395,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
         _membersFuture = Future.value(_CertMembersListSnapshot(docs));
         _membersSyncing = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Certificados _openCertificadosFast: $e\n$st');
       if (mounted) setState(() => _membersSyncing = false);
     }
   }
@@ -422,7 +424,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
           _seedMemberDocs = docs;
           _membersFuture = Future.value(_CertMembersListSnapshot(docs));
         });
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('Certificados _refreshMembers forceRefresh: $e\n$st');
+      }
     }());
   }
 
@@ -494,8 +498,19 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   Future<void> _loadCertConfig() async {
     try {
-      final snap = await _certConfigDoc
-          .get(const GetOptions(source: Source.serverAndCache));
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint('Certificados _loadCertConfig ensurePanelReadReady: $e\n$st');
+        });
+      }
+      Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
+          _certConfigDoc.get(const GetOptions(source: Source.serverAndCache));
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              read,
+              maxAttempts: 4,
+            ).timeout(const Duration(seconds: 14))
+          : await read();
       if (mounted) {
         final cfg = snap.data();
         setState(() {
@@ -509,18 +524,34 @@ class _CertificadosPageState extends State<CertificadosPage> {
           signatories: _buildSignatoryOptions(_seedMemberDocs),
         );
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Certificados _loadCertConfig: $e\n$st');
+    }
   }
 
   Future<void> _loadTenant() async {
     try {
-      final op = ChurchRepository.churchId(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.churchDoc(op)
-          .get(const GetOptions(source: Source.serverAndCache));
+      final op = _effectiveTenantId;
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint('Certificados _loadTenant ensurePanelReadReady: $e\n$st');
+        });
+      }
+      Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
+          ChurchUiCollections.churchDoc(op)
+              .get(const GetOptions(source: Source.serverAndCache));
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              read,
+              maxAttempts: 4,
+            ).timeout(const Duration(seconds: 14))
+          : await read();
       if (mounted) {
         setState(() => _tenantData = snap.data());
       }
-    } catch (_) {}
+    } catch (e, st) {
+      debugPrint('Certificados _loadTenant: $e\n$st');
+    }
   }
 
   String get _nomeIgreja =>
@@ -532,7 +563,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     if (data == null) return '';
     return ChurchBrandService.logoPathFromData(
           data,
-          churchId: widget.tenantId,
+          churchId: _effectiveTenantId,
         ) ??
         '';
   }
@@ -568,14 +599,20 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
     }
     if (_tenantData != null) {
+      final churchId = _effectiveTenantId;
       push(churchTenantLogoHttpsUrl(_tenantData));
-      push(ChurchImageFields.logoStoragePath(_tenantData, churchIdHint: widget.tenantId.trim()));
       push(
-          '${ChurchStorageLayout.churchRoot(widget.tenantId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.jpg');
+        ChurchImageFields.logoStoragePath(
+          _tenantData,
+          churchIdHint: churchId,
+        ),
+      );
       push(
-          '${ChurchStorageLayout.churchRoot(widget.tenantId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.png');
-      push(ChurchStorageLayout.churchIdentityLogoPath(widget.tenantId));
-      push(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(widget.tenantId));
+          '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.jpg');
+      push(
+          '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.png');
+      push(ChurchStorageLayout.churchIdentityLogoPath(churchId));
+      push(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(churchId));
       for (final u in churchTenantLogoUrlCandidates(_tenantData)) {
         push(u);
       }
@@ -2580,7 +2617,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
             tenantId: widget.tenantId,
             snapshots: snapshots,
             certificadoIds: protocolIds,
-          ).catchError((_) => <String>[]),
+          ).catchError((e, st) {
+            debugPrint('Certificados _refreshMembers fallback list: $e\n$st');
+            return <String>[];
+          }),
         );
         prog01.value = 0.98;
         final pdfFname =
@@ -2757,7 +2797,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
           tenantId: widget.tenantId,
           snapshots: zipSnapshots,
           certificadoIds: protocolIdsZip,
-        ).catchError((_) => <String>[]),
+        ).catchError((e, st) {
+          debugPrint('Certificados _refreshMembers warmup fallback list: $e\n$st');
+          return <String>[];
+        }),
       );
 
       for (var i = 0; i < zipRows.length; i++) {
@@ -3666,6 +3709,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   final Map<String, TextEditingController> _textoByTemplate = {};
   bool _saving = false;
   bool _uploadingLogo = false;
+  double _uploadingLogoProgress = 0.0;
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocs = [];
   bool _membersLoading = true;
@@ -3700,19 +3744,32 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
 
   Future<void> _loadMembersForSignatoryPickers() async {
     try {
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+          debugPrint(
+            'Certificados _loadMembersForSignatoryPickers ensurePanelReadReady: $e\n$st',
+          );
+        });
+      }
       final entries = await ChurchSignatoryLoadService.loadEligible(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: op,
       );
       if (!mounted) return;
-      final op = ChurchRepository.churchId(widget.tenantId.trim());
       final col = ChurchUiCollections.membros(op);
       final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       for (var i = 0; i < entries.length; i += 10) {
         final ids = entries.skip(i).take(10).map((e) => e.memberId).toList();
         if (ids.isEmpty) continue;
-        final snap = await col
+        Future<QuerySnapshot<Map<String, dynamic>>> readBatch() => col
             .where(FieldPath.documentId, whereIn: ids)
             .get();
+        final snap = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readBatch,
+                maxAttempts: 4,
+              ).timeout(ChurchPanelReadTimeouts.queryCap)
+            : await readBatch().timeout(ChurchPanelReadTimeouts.queryCap);
         docs.addAll(snap.docs);
       }
       docs.sort((a, b) {
@@ -3726,7 +3783,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
         _memberDocs = docs;
         _membersLoading = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('Certificados _loadMembersForSignatoryPickers: $e\n$st');
       if (mounted) setState(() => _membersLoading = false);
     }
   }
@@ -3787,22 +3845,30 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   Future<void> _escolherDaGaleria() async {
     final file = await MediaHandlerService.instance.pickAndProcessLogoFromGallery();
     if (file == null || !mounted) return;
-    setState(() => _uploadingLogo = true);
+    setState(() {
+      _uploadingLogo = true;
+      _uploadingLogoProgress = 0.06;
+    });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      await ensureFirebaseReadyForPublishUpload();
       final bytes = await file.readAsBytes();
       await FirebaseStorageCleanupService.deleteCertificadoDedicatedLogoArtifacts(
-        tenantId: widget.tenantId,
+        tenantId: op,
         certConfig: widget.certConfig != null
             ? Map<String, dynamic>.from(widget.certConfig!)
             : null,
       );
       final basePath = ChurchStorageLayout.certificadoDedicatedLogoBaseWithoutExt(
-          widget.tenantId);
+          op);
       final upload = await MediaUploadService.uploadBytesDetailed(
         storagePath: '$basePath.jpg',
         bytes: bytes,
         contentType: 'image/jpeg',
+        onProgress: (p) {
+          if (!mounted) return;
+          setState(() => _uploadingLogoProgress = (0.12 + (p.clamp(0.0, 1.0) * 0.84)));
+        },
       );
       if (mounted) {
         // Um ficheiro canónico no Storage (estilo ECOFIRE); PDF/web usam logoUrl + logoPath.
@@ -3810,9 +3876,9 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
         setState(() {
           _logoCtrl.text = primaryHttps;
           _uploadingLogo = false;
+          _uploadingLogoProgress = 1.0;
         });
-        final op = ChurchRepository.churchId(widget.tenantId.trim());
-        await             ChurchUiCollections.config(op)
+        await ChurchUiCollections.config(op)
             .doc('certificados')
             .set({
           'logoUrl': primaryHttps.trim(),
@@ -3826,7 +3892,10 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _uploadingLogo = false);
+        setState(() {
+          _uploadingLogo = false;
+          _uploadingLogoProgress = 0.0;
+        });
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Erro ao enviar logo: $e')));
       }
@@ -4064,9 +4133,11 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                                 child:
                                     CircularProgressIndicator(strokeWidth: 2))
                             : const Icon(Icons.photo_library_rounded, size: 18),
-                        label: Text(_uploadingLogo
-                            ? 'Enviando...'
-                            : 'Escolher da galeria'),
+                        label: Text(
+                          _uploadingLogo
+                              ? 'Enviando... ${(_uploadingLogoProgress * 100).clamp(1, 100).round()}%'
+                              : 'Escolher da galeria',
+                        ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: ThemeCleanPremium.primary,
                           side: BorderSide(
@@ -4968,7 +5039,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       try {
         final u = await StorageMediaService.downloadUrlFromPathOrUrl(path);
         if (u != null && u.isNotEmpty) return sanitizeImageUrl(u);
-      } catch (_) {}
+      } catch (e, st) {
+        debugPrint('Certificados _resolveTemplateBgDownloadUrl path=$path: $e\n$st');
+      }
     }
     return null;
   }
@@ -6499,7 +6572,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         tenantId: widget.tenantId,
         snapshot: snapshot,
         certificadoId: protocolId,
-      ).catchError((_) => protocolId),
+      ).catchError((e, st) {
+        debugPrint('Certificados _resolveProtocolId fallback: $e\n$st');
+        return protocolId;
+      }),
     );
     return (bytes: bytes.toList(), protocolId: protocolId);
   }

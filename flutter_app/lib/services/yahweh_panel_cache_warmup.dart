@@ -1,8 +1,8 @@
-﻿import 'dart:async';
+import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaPhotoUrls, looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -117,7 +117,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
       ? resolvedTenantId.trim()
       : await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
           raw,
-          userUid: FirebaseAuth.instance.currentUser?.uid,
+          userUid: firebaseDefaultAuth.currentUser?.uid,
         );
   if (resolved.isEmpty || !context.mounted) return;
   final base = ChurchOperationalPaths.churchDoc(resolved);
@@ -172,3 +172,4 @@ Future<void> scheduleYahwehPanelImageWarmup(
     );
   } catch (_) {}
 }
+

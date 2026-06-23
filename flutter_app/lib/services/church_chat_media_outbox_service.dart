@@ -526,6 +526,7 @@ abstract final class ChurchChatMediaOutboxService {
       mime: mime,
       previewBytes: bytes,
       localPath: pathOk ? localPath : null,
+      byteSize: bytes?.length,
     );
     pending.firestoreMessageId =
         (json['firestoreMessageId'] ?? '').toString().trim().isEmpty
@@ -544,7 +545,18 @@ abstract final class ChurchChatMediaOutboxService {
         pending: pending,
         bytes: bytes?.toList(),
         localPath: pathOk ? localPath : null,
-        onProgress: (_) {},
+        onProgress: (progress) {
+          if (uploadDocId.isNotEmpty) {
+            unawaited(
+              ChurchChatUploadsService.patchProgress(
+                tenantId: tenantId,
+                uploadId: uploadDocId,
+                progress: progress,
+                status: ChurchChatUploadsService.statusUploading,
+              ),
+            );
+          }
+        },
         onSuccess: () => unawaited(clearJob(
           tenantId: tenantId,
           threadId: threadId,

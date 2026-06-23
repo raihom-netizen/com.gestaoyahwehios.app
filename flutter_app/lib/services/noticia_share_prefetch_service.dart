@@ -1,7 +1,8 @@
-import 'package:cloud_functions/cloud_functions.dart';
+﻿import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
-/// Pacote de URLs de mídia para partilha — gerado no servidor ([getNoticiaSharePack]).
+/// Pacote de URLs de mÃ­dia para partilha â€” gerado no servidor ([getNoticiaSharePack]).
 class NoticiaSharePack {
   const NoticiaSharePack({
     this.photoUrls = const [],
@@ -47,12 +48,12 @@ class NoticiaSharePack {
   }
 }
 
-/// Cache RAM + callable CF — partilha sem resolver Storage no cliente.
+/// Cache RAM + callable CF â€” partilha sem resolver Storage no cliente.
 abstract final class NoticiaSharePrefetchService {
   NoticiaSharePrefetchService._();
 
   static final _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
   static final Map<String, _RamHit> _ram = {};
   static const Duration _ramTtl = Duration(minutes: 25);
@@ -99,7 +100,7 @@ abstract final class NoticiaSharePrefetchService {
     return out;
   }
 
-  /// Pré-aquece pack no servidor (fire-and-forget ao abrir folha de partilha).
+  /// PrÃ©-aquece pack no servidor (fire-and-forget ao abrir folha de partilha).
   static Future<NoticiaSharePack?> warm({
     required String tenantId,
     required String postId,
@@ -160,3 +161,4 @@ class _RamHit {
   final NoticiaSharePack pack;
   final DateTime at;
 }
+

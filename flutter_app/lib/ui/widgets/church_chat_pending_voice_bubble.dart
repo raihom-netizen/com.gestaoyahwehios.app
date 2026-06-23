@@ -14,6 +14,7 @@ class ChurchChatPendingVoiceBubble extends StatefulWidget {
     this.localPath,
     this.errorMessage,
     this.durationMs,
+    this.fileName,
   });
 
   final ValueListenable<double> progressListenable;
@@ -21,6 +22,7 @@ class ChurchChatPendingVoiceBubble extends StatefulWidget {
   final String? localPath;
   final String? errorMessage;
   final int? durationMs;
+  final String? fileName;
 
   @override
   State<ChurchChatPendingVoiceBubble> createState() =>
@@ -74,6 +76,9 @@ class _ChurchChatPendingVoiceBubbleState
       valueListenable: widget.progressListenable,
       builder: (context, progress, _) {
         final sending = !widget.failed && progress < 1;
+        final pct = (progress.clamp(0.0, 1.0) * 100).round().clamp(0, 100);
+        final title =
+            (widget.fileName ?? '').trim().isNotEmpty ? widget.fileName!.trim() : 'Áudio';
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -106,6 +111,19 @@ class _ChurchChatPendingVoiceBubbleState
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: widget.failed
+                        ? ThemeCleanPremium.error
+                        : ThemeCleanPremium.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 4),
                 SizedBox(
                   width: 120,
                   child: LinearProgressIndicator(
@@ -123,7 +141,7 @@ class _ChurchChatPendingVoiceBubbleState
                   widget.failed
                       ? (widget.errorMessage ?? 'Falha no envio')
                       : (sending
-                          ? 'A enviar áudio…'
+                          ? 'A enviar áudio... $pct%'
                           : _formatDuration(widget.durationMs)),
                   style: TextStyle(
                     fontSize: 12,

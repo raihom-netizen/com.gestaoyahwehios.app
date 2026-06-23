@@ -291,23 +291,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     unawaited(ExpressRenewBootstrap.instance.warmUp());
-    // Android: fluxo web Mercado Pago (PIX / cartÃ£o 6x) no navegador.
-    if (IosPaymentsGate.isAndroidNative) {
-      final ok = await IosPaymentsGate.openUpgradePlansExternally(
-        source: 'android_shell',
-      );
-      if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'NÃ£o foi possÃ­vel abrir o navegador. Tente novamente ou acesse o painel web pelo computador.',
-            ),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-      return;
-    }
     Navigator.push(
       context,
       ThemeCleanPremium.fadeSlideRoute(
@@ -848,8 +831,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void _schedulePostTenantWarmups() {
     final tid = _moduleTenantId.trim();
     if (tid.isEmpty) return;
-    final warmupDelay = kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 4);
-    final dashboardDelay = kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 2);
+    final warmupDelay = kIsWeb ? const Duration(seconds: 3) : const Duration(seconds: 4);
+    final dashboardDelay = kIsWeb ? const Duration(seconds: 2) : const Duration(seconds: 2);
     Future<void>.delayed(warmupDelay, () {
       if (!mounted) return;
       unawaited(ChurchTenantOfflineWarmupService.instance
@@ -872,7 +855,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _applyBoundChurchContextToLastGood(tid);
       tenantDoc = _lastGoodTenantDoc;
     }
-    final hasCachedTenant = tenantDoc != null && tenantDoc.exists;
+    final fallbackChurchData = ChurchContextService.currentChurchData;
+    final hasCachedTenant =
+        (tenantDoc != null && tenantDoc.exists) || fallbackChurchData != null;
 
     if (_shellTenantBootstrapRunning && !hasCachedTenant) {
       return _buildTenantBootstrapScaffold(
@@ -909,12 +894,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    final registrationComplete = tenantDoc != null &&
-        (tenantDoc.data()?['registrationComplete'] ?? true) == true;
+    final churchLive = tenantDoc?.data() ?? fallbackChurchData;
+    final registrationComplete =
+        (churchLive?['registrationComplete'] ?? true) == true;
     if (!registrationComplete) {
       return _buildCompleteCadastroObrigatorio();
     }
-    final churchLive = tenantDoc?.data();
     final guard = SubscriptionGuard.evaluate(
         church: churchLive, subscription: widget.subscription);
     final bool legacyBlocked = churchLive != null

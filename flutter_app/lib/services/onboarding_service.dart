@@ -1,8 +1,9 @@
-import 'package:cloud_functions/cloud_functions.dart';
+﻿import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 class OnboardingService {
   final FirebaseFunctions _functions =
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
   Future<void> createGestorWithTrial({
     required String nome,
@@ -29,3 +30,4 @@ class OnboardingService {
     });
   }
 }
+

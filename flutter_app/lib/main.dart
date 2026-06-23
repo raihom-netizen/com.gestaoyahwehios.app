@@ -12,16 +12,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/services/auth_service.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
@@ -414,11 +411,10 @@ void main() async {
   // 1. Bindings Flutter antes de qualquer plugin nativo/async.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Firebase — único initializeApp (FlutterFire / DefaultFirebaseOptions).
-  //    Obrigatório antes de Firestore, Auth, Storage ou runApp (evita core/no-app).
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // 2. Firebase — init único/canônico (app [DEFAULT] + options da plataforma).
+  //    Obrigatório antes de Firestore/Auth/Storage ou runApp (evita core/no-app).
+  await FirebaseBootstrap.ensureInitialized();
+  FirebaseBootstrapService.refreshCachedApp();
 
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
