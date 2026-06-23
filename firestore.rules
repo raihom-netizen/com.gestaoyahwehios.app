@@ -47,10 +47,35 @@ service cloud.firestore {
     function isAdminPanel() {
       return isSignedIn() && isMaster();
     }
-    // sameChurch: documento users ou custom claims (igrejaId/tenantId) â€” evita permission-denied Mural/Departamentos/Eventos
+    // Compatibilidade de tenant entre formatos:
+    // - canónico: `igreja_xxx`
+    // - legado: `id_igreja_xxx`
+    // - seed/path legado: `/igrejas/{id}/...`
+    function tenantValueMatches(value, tenantId) {
+      return value is string && (
+        value == tenantId
+        || value == ('id_' + tenantId)
+        || tenantId == ('id_' + value)
+        || value.matches('^/?igrejas/' + tenantId + '(/.*)?$')
+        || value.matches('^.*/igrejas/' + tenantId + '(/.*)?$')
+      );
+    }
+    // sameChurch: documento users ou custom claims (igrejaId/tenantId/churchId/churchCanonicalId)
+    // com tolerância de formato legado para evitar permission-denied em todos os módulos.
     function sameChurch(tenantId) {
       let p = /databases/$(database)/documents/users/$(request.auth.uid);
-      return isSignedIn() && ((exists(p) && (get(p).data.igrejaId == tenantId || get(p).data.tenantId == tenantId)) || (request.auth.token.igrejaId == tenantId || request.auth.token.tenantId == tenantId));
+      return isSignedIn() && (
+        (exists(p) && (
+          tenantValueMatches(get(p).data.igrejaId, tenantId)
+          || tenantValueMatches(get(p).data.tenantId, tenantId)
+          || tenantValueMatches(get(p).data.churchId, tenantId)
+          || tenantValueMatches(get(p).data.churchCanonicalId, tenantId)
+          || tenantValueMatches(get(p).data.canonicalTenantId, tenantId)
+        ))
+        || tenantValueMatches(request.auth.token.igrejaId, tenantId)
+        || tenantValueMatches(request.auth.token.tenantId, tenantId)
+        || tenantValueMatches(request.auth.token.churchId, tenantId)
+      );
     }
     // Inclui capitalizaÃ§Ã£o comum no app (ex.: "Gestor", "Master") â€” sem isto canWriteTenant falha e nada grava (avisos, departamentos, mÃ­dia-meta).
     function canManageChurch() {
