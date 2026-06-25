@@ -17,7 +17,7 @@ abstract final class EcoFireFlow {
 
   static bool get disableUploadQueues => enabled;
 
-  static bool get disableRepairMyChurchBinding => enabled;
+  static bool get disableRepairMyChurchBinding => false;
 
   static bool get disableComplexBootstrap => enabled;
 

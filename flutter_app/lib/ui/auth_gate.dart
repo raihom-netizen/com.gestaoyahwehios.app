@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import '../services/church_panel_access_bootstrap.dart';
 import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
@@ -1316,35 +1317,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   Future<void> _scheduleChurchBindingRepair(User user) async {
     if (EcoFireFlow.disableRepairMyChurchBinding) return;
-    if (!AppConnectivityService.instance.isOnline) return;
-    if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
-        user.uid)) {
-      return;
-    }
-    try {
-      final fn = FirebaseFunctions.instanceFor(
-        app: firebaseDefaultApp,
-        region: 'us-central1',
-      ).httpsCallable(
-        'repairMyChurchBinding',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
-      );
-      await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 46));
-      await user.getIdToken(true);
-      await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
-      final fresh = await _loadProfile(user, repairDepth: 1);
-      if (fresh != null) {
-        await AuthProfileCacheService.instance.save(user.uid, fresh);
-      }
-    } on FirebaseFunctionsException catch (e, st) {
-      debugPrint(
-        'repairMyChurchBinding (soft fail, sessão mantida): ${e.code} ${e.message}\n$st',
-      );
-    } on TimeoutException catch (e) {
-      debugPrint('repairMyChurchBinding timeout (soft fail): $e');
-    } catch (e, st) {
-      debugPrint('repairMyChurchBinding (soft fail): $e\n$st');
-    }
+    await ChurchPanelAccessBootstrap.ensureFirestoreAccess(force: false);
   }
 
   Future<void> _enrichProfileWithMemberAsync(

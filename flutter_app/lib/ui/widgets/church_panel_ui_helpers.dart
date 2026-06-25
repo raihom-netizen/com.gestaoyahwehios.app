@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
@@ -62,7 +64,9 @@ class ChurchPanelErrorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final detail = kDebugMode && error != null ? error.toString() : null;
+    final detail = error != null
+        ? formatFirebaseErrorForUser(error!, logToCrashlytics: false)
+        : null;
     return ThemeCleanPremium.premiumErrorState(
       title: title,
       subtitle: detail ??

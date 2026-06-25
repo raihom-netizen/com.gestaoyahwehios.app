@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -77,10 +78,12 @@ abstract final class ChurchFirestoreAccess {
                 .collectionRef(id, subcollectionName)
                 .limit(capped),
             cacheKey: key,
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
           ),
-          maxAttempts: kIsWeb ? 4 : 2,
+          maxAttempts: kIsWeb ? 2 : 2,
         ),
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       FirebaseQueryAudit.record(
         module: module,
         path: path,

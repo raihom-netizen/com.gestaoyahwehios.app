@@ -3573,6 +3573,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+        maxAttempts: 5,
+      );
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
@@ -3654,6 +3658,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+        maxAttempts: 5,
+      );
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -3820,8 +3828,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         if (isFirebaseNoAppError(e)) {
           try {
             FirebaseBootstrapService.resetPublishWarmState();
-            await FirebaseBootstrapService.ensureAlwaysOn(
+            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
               refreshAuthToken: true,
+              maxAttempts: 5,
             );
           } catch (_) {}
         }
@@ -4915,8 +4924,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         if (isFirebaseNoAppError(e)) {
           try {
             FirebaseBootstrapService.resetPublishWarmState();
-            await FirebaseBootstrapService.ensureAlwaysOn(
+            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
               refreshAuthToken: true,
+              maxAttempts: 5,
             );
           } catch (_) {}
         }
@@ -5016,7 +5026,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         try {
           FastMediaPublishBootstrap.resetSessionWarm();
           FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+            refreshAuthToken: true,
+            maxAttempts: 5,
+          );
           await _retryPublishFirestoreFirst();
           if (widget.type == 'aviso') {
             final ctx = await _prepareAvisoPublishContext();

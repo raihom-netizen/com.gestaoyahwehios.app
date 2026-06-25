@@ -37,8 +37,10 @@ abstract final class EcoFirePublishBootstrap {
         if (attempt > 0) {
           FirebaseBootstrapService.resetPublishWarmState();
           if (last != null && isFirebaseNoAppError(last)) {
-            await FirebaseBootstrapService.ensureAlwaysOn(
+            await FirebaseBootstrapService.ensureInitializedOnce();
+            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
               refreshAuthToken: true,
+              maxAttempts: 5,
             );
           } else {
             await Future<void>.delayed(
@@ -46,11 +48,14 @@ abstract final class EcoFirePublishBootstrap {
             );
           }
         }
-        await FirebaseBootstrap.ensureInitialized();
-        FirebaseBootstrapService.refreshCachedApp();
+
         await FirebaseBootstrapService.ensureStorageAlwaysLinked(
           refreshAuthToken: true,
+          maxAttempts: 5,
         );
+        await FirebaseBootstrap.ensureInitialized();
+        FirebaseBootstrapService.refreshCachedApp();
+        FirebaseBootstrapService.probeStorageLinked();
 
         var user = FirebaseBootstrapService.auth.currentUser;
         if (user == null || user.isAnonymous) {

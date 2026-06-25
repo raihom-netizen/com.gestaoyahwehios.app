@@ -122,6 +122,10 @@ abstract final class AppFinalizeBootstrap {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       } else {
         await _bindQueuesAfterFirebaseCore(manualRecovery: true);
+        await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+          refreshAuthToken: true,
+          maxAttempts: 3,
+        ).catchError((_) {});
       }
       await OfflineFirstCoordinator.onAppResumed();
     } catch (e, st) {

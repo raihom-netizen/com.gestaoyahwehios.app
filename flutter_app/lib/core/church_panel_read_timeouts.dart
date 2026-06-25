@@ -6,11 +6,19 @@ abstract final class ChurchPanelReadTimeouts {
 
   /// Timeout por tentativa interna ([FirestoreReadResilience.getQuery]).
   static Duration get attempt =>
-      kIsWeb ? const Duration(seconds: 24) : const Duration(seconds: 16);
+      kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 16);
+
+  /// [FirestoreWebGuard.ensurePanelReadReady] — nunca bloquear UI além disto.
+  static Duration get readReadyCap =>
+      kIsWeb ? const Duration(seconds: 3) : const Duration(seconds: 6);
 
   /// Cap externo de uma leitura completa (UI / listCacheFirst / SWR).
   static Duration get queryCap =>
       kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 28);
+
+  /// 1.º carregamento de módulo na Web — inclui callable Admin SDK após repair.
+  static Duration get webModuleFirstLoadCap =>
+      kIsWeb ? const Duration(seconds: 32) : const Duration(seconds: 90);
 
   /// Pré-aquecimento em background (login / dashboard).
   static Duration get warmCap =>

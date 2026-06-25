@@ -51,14 +51,15 @@ abstract final class AvisoPublishService {
   }) async {
     onProgress?.call(0.06);
     Object? last;
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       try {
         if (attempt > 0) {
           FirebaseBootstrapService.resetPublishWarmState();
-          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-            refreshAuthToken: true,
-          );
         }
+        await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+          refreshAuthToken: true,
+          maxAttempts: 5,
+        );
         await AppFinalizeBootstrap.ensureSessionForPublish(
           logLabel: withPhotos ? '${logLabel}_photos' : logLabel,
         );
@@ -78,7 +79,7 @@ abstract final class AvisoPublishService {
       } catch (e, st) {
         last = e;
         ChurchPublishFlowLog.logCatch(e, st, label: 'aviso_bootstrap_$attempt');
-        if (attempt < 2 && isFirebaseNoAppError(e)) {
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
           await Future<void>.delayed(
             Duration(milliseconds: 320 * (attempt + 1)),
           );

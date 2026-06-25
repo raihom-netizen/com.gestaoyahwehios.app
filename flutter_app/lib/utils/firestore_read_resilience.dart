@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leituras Firestore estáveis (padrão Controle Total): cache local → rede com retry → último snapshot bom.
@@ -107,11 +108,11 @@ class FirestoreReadResilience {
   static Future<QuerySnapshot<Map<String, dynamic>>> getQuery(
     Query<Map<String, dynamic>> query, {
     required String cacheKey,
-    int maxAttempts = kIsWeb ? 3 : 5,
+    int maxAttempts = kIsWeb ? 2 : 5,
     Duration? attemptTimeout,
   }) async {
-    final perAttempt = attemptTimeout ??
-        (kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 18));
+    final perAttempt =
+        attemptTimeout ?? ChurchPanelReadTimeouts.attempt;
     final key = cacheKey.trim();
     QuerySnapshot<Map<String, dynamic>>? localSnap;
     try {

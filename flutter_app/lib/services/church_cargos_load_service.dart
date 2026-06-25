@@ -210,7 +210,7 @@ abstract final class ChurchCargosLoadService {
         churchId,
         forceServer: forceServer,
         limit: queryLimit,
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       if (docs.isNotEmpty) {
         putRam(churchId, docs);
         unawaited(persistAfterLoad(

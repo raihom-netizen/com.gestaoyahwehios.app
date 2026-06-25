@@ -35,6 +35,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
+import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/avatar_gestor_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -470,8 +471,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         userUid: firebaseDefaultAuth.currentUser?.uid,
       );
       _applyBoundChurchContextToLastGood(_operationalTenantId!);
-      // Desbloqueia módulos no 1.º frame — bind async continua em background.
-      _tenantResolveComplete = _operationalTenantId!.isNotEmpty;
+      // Módulos só após repair de acesso (evita permission-denied / timeout na Web).
+      _tenantResolveComplete = false;
     }
     unawaited(_warmTenantDocFromLocalCacheFirst());
     WidgetsBinding.instance.addObserver(this);
@@ -498,6 +499,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited((() async {
+        try {
+          await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+            churchIdHint: _moduleTenantId,
+          ).timeout(const Duration(seconds: 38));
+        } catch (_) {}
         unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
         if (kIsWeb) {
           unawaited(FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}));

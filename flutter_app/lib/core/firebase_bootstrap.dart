@@ -43,34 +43,40 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
         );
       }
 
-      // Fast path: evita bootstrap completo em cada envio sequencial.
+      // Fast path: só se Storage ainda estiver ligado (Android após background).
       if (FirebaseBootstrapService.isReady() &&
           FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-        if (!requireAuth) return;
-        final user = FirebaseBootstrapService.auth.currentUser;
-        if (user == null || user.isAnonymous) {
-          if (kIsWeb) WebPanelStability.markSessionExpired();
-          throw StateError(
-            'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-          );
-        }
         try {
-          await FirebaseAuthTokenGuard.refreshIfStale();
-        } catch (_) {}
-        return;
+          FirebaseBootstrapService.probeStorageLinked();
+          if (!requireAuth) return;
+          final user = FirebaseBootstrapService.auth.currentUser;
+          if (user == null || user.isAnonymous) {
+            if (kIsWeb) WebPanelStability.markSessionExpired();
+            throw StateError(
+              'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+            );
+          }
+          try {
+            await FirebaseAuthTokenGuard.refreshIfStale();
+          } catch (_) {}
+          return;
+        } catch (_) {
+          FirebaseBootstrapService.resetPublishWarmState();
+        }
       }
 
       // Caminho resiliente padrão: garante app DEFAULT + Storage ligado.
       await FirebaseBootstrapService.ensureStorageAlwaysLinked(
         refreshAuthToken: requireAuth,
+        maxAttempts: 5,
       );
 
       // Warmup Ecofire apenas após o núcleo estar estável.
       if (requireAuth) {
         await EcoFirePublishBootstrap.ensureHard(
           logLabel: 'ensureFirebaseCore',
-          strict: false,
-        ).timeout(const Duration(seconds: 8), onTimeout: () {});
+          strict: true,
+        );
       }
 
       if (requireAuth) {
@@ -109,8 +115,13 @@ Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
     ensureFirebaseCore(requireAuth: true);
 
 /// Painel / feeds — só núcleo Firebase (sem token).
-Future<void> ensureFirebaseReadyForPanelRead() =>
-    ensureFirebaseCore(requireAuth: false);
+Future<void> ensureFirebaseReadyForPanelRead() async {
+  try {
+    await ensureFirebaseCore(requireAuth: false).timeout(
+      kIsWeb ? const Duration(seconds: 5) : const Duration(seconds: 15),
+    );
+  } catch (_) {}
+}
 
 /// Avisos/eventos/mural/património/foto membro.
 Future<void> ensureFirebaseReadyForPublishUpload() =>

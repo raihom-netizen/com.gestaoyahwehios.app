@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
@@ -58,8 +59,8 @@ abstract final class IgrejaDirectFirestoreReads {
           limit: limit,
           cacheKey: key,
         ),
-        maxAttempts: kIsWeb ? 4 : 2,
-      ).timeout(Duration(seconds: kIsWeb ? 90 : 24));
+        maxAttempts: kIsWeb ? 2 : 2,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
     } on TimeoutException {
       rethrow;
     } on FirebaseException catch (e) {
@@ -136,11 +137,11 @@ abstract final class IgrejaDirectFirestoreReads {
         () => FirestoreReadResilience.getDocument(
           ChurchFirestoreAccess.churchDoc(id),
           cacheKey: 'igreja_direct_$id',
-          maxAttempts: kIsWeb ? 4 : 2,
-          attemptTimeout: Duration(seconds: kIsWeb ? 12 : 10),
+          maxAttempts: kIsWeb ? 2 : 2,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
         ),
-        maxAttempts: 4,
-      ).timeout(Duration(seconds: kIsWeb ? 90 : 24));
+        maxAttempts: 2,
+      ).timeout(ChurchPanelReadTimeouts.churchDocCap);
 
       if (!snap.exists) return null;
       final raw = snap.data();

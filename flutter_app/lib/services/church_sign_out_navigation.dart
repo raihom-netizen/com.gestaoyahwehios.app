@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -115,6 +116,7 @@ abstract final class ChurchSignOutNavigation {
     }
     await ChurchAutoSessionService.clearAutoPainel();
     WebPanelStability.clearOnSignOut();
+    ChurchPanelAccessBootstrap.resetSession();
     ChurchContextService.clear();
     ChurchOperationalFirestoreTrace.clear();
     if (uid != null && uid.isNotEmpty) {

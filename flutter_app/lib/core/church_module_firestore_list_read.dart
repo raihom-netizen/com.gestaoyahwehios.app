@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -122,7 +123,7 @@ abstract final class ChurchModuleFirestoreListRead {
           final plainSnap = await FirestoreReadResilience.getQuery(
             plain(ref),
             cacheKey: '${keyBase}_plain',
-            maxAttempts: kIsWeb ? 4 : 3,
+            maxAttempts: kIsWeb ? 2 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
           if (plainSnap.docs.isNotEmpty) return plainSnap;
@@ -134,7 +135,7 @@ abstract final class ChurchModuleFirestoreListRead {
             return await FirestoreReadResilience.getQuery(
               oq,
               cacheKey: keyBase,
-              maxAttempts: kIsWeb ? 5 : 3,
+              maxAttempts: kIsWeb ? 2 : 3,
               attemptTimeout: ChurchPanelReadTimeouts.attempt,
             );
           } catch (_) {}
@@ -143,7 +144,7 @@ abstract final class ChurchModuleFirestoreListRead {
         return FirestoreReadResilience.getQuery(
           plain(ref),
           cacheKey: '${keyBase}_plain_retry',
-          maxAttempts: kIsWeb ? 4 : 3,
+          maxAttempts: kIsWeb ? 2 : 3,
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
       }
@@ -151,8 +152,8 @@ abstract final class ChurchModuleFirestoreListRead {
       final snap = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
               readServer,
-              maxAttempts: 3,
-            ).timeout(const Duration(seconds: 18))
+              maxAttempts: 2,
+            ).timeout(ChurchPanelReadTimeouts.queryCap)
           : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
       return _finalize(snap.docs, sortDocs);
     }

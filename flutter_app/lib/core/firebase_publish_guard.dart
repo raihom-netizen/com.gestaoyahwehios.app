@@ -1,6 +1,9 @@
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
-/// Valida Firebase (sessão + núcleo) antes de publicar aviso/evento/mídia.
+/// Valida Firebase (sessão + núcleo + Storage ligado) antes de publicar aviso/evento/mídia.
 Future<void> ensureFirebaseReadyToPublish({String? logLabel}) async {
-  await ensureFirebaseCore(requireAuth: true);
+  await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+    refreshAuthToken: true,
+    maxAttempts: 5,
+  );
 }

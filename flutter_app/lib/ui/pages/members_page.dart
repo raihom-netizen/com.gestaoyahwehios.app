@@ -67,8 +67,12 @@ import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -688,7 +692,7 @@ class _MembersPageState extends State<MembersPage> {
               : (widget.subscription?['planId'] ?? '').toString().trim(),
     );
     _warmMembrosCacheFirst(_forceCanonicalTenantId(widget.tenantId));
-    _membersDataFuture = _loadMembersData();
+    _membersDataFuture = _initialMembersLoad();
     _deptsFuture = _loadDeptsForFilter();
     unawaited(_hydrateMembersDirectoryCache());
     unawaited(_watchMembersDirectoryCache());
@@ -699,7 +703,7 @@ class _MembersPageState extends State<MembersPage> {
       if (changed) {
         setState(() {
           _resolvedTenantId = resolved;
-          _membersDataFuture = _loadMembersData();
+          _membersDataFuture = _loadMembersDataWithCap();
           _deptsFuture = _loadDeptsForFilter();
         });
       }
@@ -731,7 +735,7 @@ class _MembersPageState extends State<MembersPage> {
                 ? null
                 : (widget.subscription?['planId'] ?? '').toString().trim(),
       );
-      _membersDataFuture = _loadMembersData();
+      _membersDataFuture = _loadMembersDataWithCap();
       _deptsFuture = _loadDeptsForFilter();
       _resolveEffectiveTenantId().then((resolved) {
         if (!mounted) return;
@@ -739,7 +743,7 @@ class _MembersPageState extends State<MembersPage> {
         if (changed) {
           setState(() {
             _resolvedTenantId = resolved;
-            _membersDataFuture = _loadMembersData();
+            _membersDataFuture = _loadMembersDataWithCap();
             _deptsFuture = _loadDeptsForFilter();
           });
         }
@@ -1107,7 +1111,6 @@ class _MembersPageState extends State<MembersPage> {
   static const int _membersLoadLimit = YahwehPerformanceV4.blindListPageSize;
   int get _membersQueryLimit =>
       _directoryCache.hasEntries ? _membersFirestoreInitialLimit : _membersLoadLimit;
-  static const Duration _membersCoreLoadTimeout = Duration(seconds: 18);
   static const int _maxRelatedTenantMemberQueries = 3;
 
   /// Lista a partir do cache `_panel_cache/members_directory` quando o Firestore falha.
@@ -1158,50 +1161,50 @@ class _MembersPageState extends State<MembersPage> {
     ];
   }
 
-  Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersCoreSnapshots(
-    FirebaseFirestore db,
-    String effectiveId,
-    GetOptions getOpts,
-  ) async {
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() =>
-        ChurchUiCollections.membros(effectiveId)
-            .orderBy('updatedAt', descending: true)
-            .limit(_membersQueryLimit)
-            .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() =>
-        ChurchUiCollections.membros(effectiveId)
-            .limit(_membersQueryLimit)
-            .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> pendente() async {
-      final snap = await ChurchUiCollections.membros(effectiveId)
-          .limit(_membersQueryLimit)
-          .get(getOpts);
-      final filtered = snap.docs.where((d) {
-        final status =
-            (d.data()['status'] ?? '').toString().trim().toLowerCase();
-        return status == 'pendente';
-      }).toList();
-      return _MergedQuerySnapshot(filtered);
-    }
+  /// Monta os 7 snapshots que a UI legada espera a partir da lista de docs membros.
+  List<QuerySnapshot<Map<String, dynamic>>> _snapshotsFromMemberDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  ) {
+    final pendDocs = allDocs
+        .where((d) =>
+            (d.data()['status'] ?? d.data()['STATUS'] ?? '')
+                .toString()
+                .toLowerCase() ==
+            'pendente')
+        .toList();
+    final merged = _MergedQuerySnapshot(allDocs);
+    return [
+      merged,
+      merged,
+      merged,
+      merged,
+      _EmptyQuerySnapshot(),
+      _EmptyQuerySnapshot(),
+      _MergedQuerySnapshot(pendDocs),
+    ];
+  }
 
-    try {
-      return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-        membrosPlain(),
-        pendente(),
-      ]).timeout(_membersCoreLoadTimeout);
-    } catch (_) {
-      try {
-        return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-          membrosOrdered(),
-          pendente(),
-        ]).timeout(_membersCoreLoadTimeout);
-      } catch (_) {
-        return Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-          membrosPlain(),
-          pendente(),
-        ]).timeout(_membersCoreLoadTimeout);
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterSelfOnlyMemberDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const [];
+    final cpfDigits = (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+    return docs.where((d) {
+      if (d.id == uid) return true;
+      final data = d.data();
+      final authUid = (data['authUid'] ?? '').toString().trim();
+      if (authUid.isNotEmpty && authUid == uid) return true;
+      if (cpfDigits.length == 11) {
+        final idDigits = d.id.replaceAll(RegExp(r'\D'), '');
+        if (idDigits == cpfDigits) return true;
+        final cpfDoc = (data['CPF'] ?? data['cpf'] ?? '')
+            .toString()
+            .replaceAll(RegExp(r'\D'), '');
+        if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
       }
-    }
+      return false;
+    }).toList();
   }
 
   void _warmMembrosCacheFirst(String tenantId) {
@@ -1225,6 +1228,66 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
+  Future<List<QuerySnapshot<Map<String, dynamic>>>> _initialMembersLoad() async {
+    await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+      churchIdHint: _forceCanonicalTenantId(widget.tenantId),
+    ).timeout(
+      Duration(seconds: kIsWeb ? 38 : 46),
+      onTimeout: () {},
+    );
+    return _loadMembersDataWithCap();
+  }
+
+  Future<void> _repairAccessAndRefreshMembers({bool forceServer = true}) async {
+    await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+      force: true,
+      churchIdHint: _effectiveTenantId.trim().isNotEmpty
+          ? _effectiveTenantId.trim()
+          : _forceCanonicalTenantId(widget.tenantId),
+    );
+    if (!mounted) return;
+    _refreshMembers(forceServer: forceServer);
+  }
+
+  /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
+  Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersDataWithCap({
+    bool forceServer = false,
+  }) async {
+    try {
+      return await _loadMembersData(forceServer: forceServer).timeout(
+        kIsWeb
+            ? ChurchPanelReadTimeouts.webModuleFirstLoadCap
+            : const Duration(seconds: 90),
+      );
+    } on TimeoutException {
+      final resolved = _resolvedTenantId?.trim().isNotEmpty == true
+          ? _resolvedTenantId!.trim()
+          : ChurchRepository.churchId(_forceCanonicalTenantId(widget.tenantId));
+      final effectiveId = resolved.isNotEmpty
+          ? resolved
+          : _forceCanonicalTenantId(widget.tenantId);
+      if (effectiveId.isEmpty) rethrow;
+      var cache = await MembersDirectorySnapshotService.warmFromCallable(
+        tenantId: effectiveId,
+      ).timeout(const Duration(seconds: 22));
+      if (!cache.hasEntries) {
+        cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
+      }
+      final selfOnly = AppPermissions.isRestrictedMember(widget.role) &&
+          !AppPermissions.canEditMembersDirectory(
+              widget.role, widget.permissions);
+      if (cache.hasEntries) {
+        return _snapshotsFromDirectoryCache(
+          cache,
+          selfOnlyMemberList: selfOnly,
+        );
+      }
+      throw TimeoutException(
+        'Tempo esgotado ao carregar membros. Toque em Tentar novamente.',
+      );
+    }
+  }
+
   /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
   Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData(
       {bool forceServer = false}) async {
@@ -1240,23 +1303,19 @@ class _MembersPageState extends State<MembersPage> {
     }
     final effectiveId = tenantId.isNotEmpty ? tenantId : originalId;
 
-    final getOpts = forceServer
-        ? GetOptions(source: Source.server)
-        : (_directoryCache.hasEntries
-            ? const GetOptions(source: Source.cache)
-            : const GetOptions(source: Source.serverAndCache));
-
     final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
         !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
-    final churchId = ChurchRepository.churchId(effectiveId);
-    final loadId = churchId.isNotEmpty ? churchId : effectiveId;
-    final db = firebaseDefaultFirestore;
+    final result = await ChurchMembersLoadService.load(
+      seedTenantId: effectiveId,
+      limit: _membersLoadLimit,
+      forceRefresh: forceServer,
+      forceServer: forceServer,
+    );
 
-    late final List<QuerySnapshot<Map<String, dynamic>>> initialCore;
-    try {
-      initialCore = await _loadMembersCoreSnapshots(db, loadId, getOpts);
-    } catch (e) {
+    var mergedMembers = result.docs.toList();
+
+    if (mergedMembers.isEmpty && result.hasHardError) {
       var cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
       if (!cache.hasEntries) {
         cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(
@@ -1269,42 +1328,18 @@ class _MembersPageState extends State<MembersPage> {
           selfOnlyMemberList: selfOnlyMemberList,
         );
       }
-      rethrow;
+      throw StateError(
+        result.softError?.trim().isNotEmpty == true
+            ? result.softError!.trim()
+            : 'Não foi possível carregar os membros.',
+      );
     }
-
-    final membrosSnap = initialCore[0];
-    final pendenteSnap = initialCore[1];
-
-    var mergedMembers = membrosSnap.docs.toList();
-    var pendenteOut = pendenteSnap;
 
     if (selfOnlyMemberList) {
-      bool keepSelf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-        final uid = FirebaseAuth.instance.currentUser?.uid;
-        if (uid == null) return false;
-        if (d.id == uid) return true;
-        final data = d.data();
-        final authUid = (data['authUid'] ?? '').toString().trim();
-        if (authUid.isNotEmpty && authUid == uid) return true;
-        final cpfDigits =
-            (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
-        if (cpfDigits.length == 11) {
-          final idDigits = d.id.replaceAll(RegExp(r'\D'), '');
-          if (idDigits == cpfDigits) return true;
-          final cpfDoc = (data['CPF'] ?? data['cpf'] ?? '')
-              .toString()
-              .replaceAll(RegExp(r'\D'), '');
-          if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
-        }
-        return false;
-      }
-
-      mergedMembers = mergedMembers.where(keepSelf).toList();
-      pendenteOut =
-          _MergedQuerySnapshot(pendenteSnap.docs.where(keepSelf).toList());
+      mergedMembers = _filterSelfOnlyMemberDocs(mergedMembers);
     }
 
-    if (!forceServer && getOpts.source == Source.cache) {
+    if (!forceServer && result.fromCache) {
       unawaited(
         _loadMembersData(forceServer: true).then((serverSnaps) {
           if (!mounted) return;
@@ -1313,16 +1348,7 @@ class _MembersPageState extends State<MembersPage> {
       );
     }
 
-    final emptyUsers = _EmptyQuerySnapshot();
-    return [
-      _MergedQuerySnapshot(mergedMembers),
-      _MergedQuerySnapshot(mergedMembers),
-      _MergedQuerySnapshot(mergedMembers),
-      _MergedQuerySnapshot(mergedMembers),
-      emptyUsers,
-      emptyUsers,
-      pendenteOut,
-    ];
+    return _snapshotsFromMemberDocs(mergedMembers);
   }
 
   /// Abre a lista em rota fullscreen (root) com botão Voltar aos filtros — melhor no telemóvel.
@@ -1643,7 +1669,7 @@ class _MembersPageState extends State<MembersPage> {
       if (clearOptimisticRemovedMemberId != null) {
         _optimisticRemovedMemberIds.remove(clearOptimisticRemovedMemberId);
       }
-      _membersDataFuture = _loadMembersData(forceServer: forceServer);
+      _membersDataFuture = _loadMembersDataWithCap(forceServer: forceServer);
     });
   }
 
@@ -7131,7 +7157,7 @@ class _MembersPageState extends State<MembersPage> {
               isSyncing: false,
               errorTitle: 'Não foi possível carregar os membros',
               error: snap.error,
-              onRetry: _refreshMembers,
+              onRetry: () => unawaited(_repairAccessAndRefreshMembers()),
             ),
           );
         }
@@ -7644,7 +7670,7 @@ class _MembersPageState extends State<MembersPage> {
               isSyncing: false,
               errorTitle: 'Não foi possível carregar os números',
               error: snap.error,
-              onRetry: _refreshMembers,
+              onRetry: () => unawaited(_repairAccessAndRefreshMembers()),
             ),
           );
         }

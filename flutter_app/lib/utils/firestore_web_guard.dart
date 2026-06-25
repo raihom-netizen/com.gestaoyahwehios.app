@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 
@@ -110,8 +111,12 @@ class FirestoreWebGuard {
   /// Painel igreja (web/mobile) — leitura rápida sem desligar a rede.
   static Future<void> ensurePanelReadReady() async {
     if (!kIsWeb) return;
-    applyWebFirestoreSettings();
-    await ensureWebDatabaseConnected(refreshAuth: false);
+    try {
+      applyWebFirestoreSettings();
+      await ensureWebDatabaseConnected(refreshAuth: false).timeout(
+        ChurchPanelReadTimeouts.readReadyCap,
+      );
+    } catch (_) {}
   }
 
   /// Painel Master web — sessão estável antes de qualquer leitura/gravação.
@@ -150,7 +155,7 @@ class FirestoreWebGuard {
     if (kIsWeb && WebPanelStability.isSessionExpired) {
       return fn();
     }
-    final attempts = kIsWeb ? maxAttempts.clamp(3, 6) : maxAttempts;
+    final attempts = kIsWeb ? maxAttempts.clamp(2, 3) : maxAttempts;
     Object? lastError;
     StackTrace? lastStack;
     for (var attempt = 0; attempt < attempts; attempt++) {

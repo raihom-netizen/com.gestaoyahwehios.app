@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -167,7 +168,17 @@ abstract final class ChurchMembersLoadService {
 
     if (!forceRefresh && !forceServer) {
       try {
-        var directory = await MembersDirectorySnapshotService.readOnce(churchId);
+        var directory = const MembersDirectorySnapshot();
+        // Web: callable (Admin SDK) primeiro — não depende de canAccessTenant no cliente
+        // e evita estourar o cap de 14s antes do fallback terminar.
+        if (kIsWeb) {
+          directory = await MembersDirectorySnapshotService.warmFromCallable(
+            tenantId: churchId,
+          ).timeout(const Duration(seconds: 22));
+        }
+        if (!directory.hasEntries) {
+          directory = await MembersDirectorySnapshotService.readOnce(churchId);
+        }
         if (!directory.hasEntries) {
           directory = await MembersDirectorySnapshotService
               .warmFromCallableIfStale(churchId);
@@ -387,8 +398,8 @@ abstract final class ChurchMembersLoadService {
           orderByField: 'updatedAt',
           sortDocs: _sortByName,
         ),
-        maxAttempts: 4,
-      );
+        maxAttempts: 2,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
 
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);

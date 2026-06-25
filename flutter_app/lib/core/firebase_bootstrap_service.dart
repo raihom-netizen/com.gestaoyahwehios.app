@@ -492,7 +492,10 @@ abstract final class FirebaseBootstrapService {
     bool requireAuth = true,
   }) async {
     if (!_hasApp()) {
-      await ensureStorageAlwaysLinked(refreshAuthToken: requireAuth);
+      await ensureStorageAlwaysLinked(
+        refreshAuthToken: requireAuth,
+        maxAttempts: 5,
+      );
     } else {
       await FirebaseBootstrap.ensureInitialized();
       refreshCachedApp();
@@ -837,8 +840,9 @@ abstract final class FirebaseBootstrapService {
   static Future<void> _softReinit() async {
     FirebaseBootstrap.reset();
     _cachedApp = null;
-    await FirebaseBootstrap.ensureInitialized();
-    _cachedApp = Firebase.app();
+    _ensureOnceFuture = null;
+    await ensureInitializedOnce();
+    refreshCachedApp();
   }
 
   static FirebaseHealthReport _optimisticColdStartHealth() =>

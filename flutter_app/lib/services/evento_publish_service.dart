@@ -55,16 +55,11 @@ abstract final class EventoPublishService {
       try {
         if (attempt > 0) {
           FirebaseBootstrapService.resetPublishWarmState();
-          if (last != null && isFirebaseNoAppError(last!)) {
-            await FirebaseBootstrapService.ensureAlwaysOn(
-              refreshAuthToken: true,
-            );
-          } else {
-            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-              refreshAuthToken: true,
-            );
-          }
         }
+        await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+          refreshAuthToken: true,
+          maxAttempts: 5,
+        );
         await AppFinalizeBootstrap.ensureSessionForPublish(
           logLabel: withMedia ? '${logLabel}_media' : logLabel,
         );

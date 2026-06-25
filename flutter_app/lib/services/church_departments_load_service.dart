@@ -194,7 +194,7 @@ abstract final class ChurchDepartmentsLoadService {
       final docs = await _loadFirestoreFull(
         churchId,
         forceServer: forceServer,
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       if (docs.isNotEmpty) {
         putRam(churchId, docs);
         return ChurchDepartmentsLoadResult(
@@ -214,7 +214,7 @@ abstract final class ChurchDepartmentsLoadService {
         moduleLabel: 'Departamentos',
         limit: kLimit,
         cacheKey: cacheKey(churchId),
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       if (snap.docs.isNotEmpty) {
         putRam(churchId, snap.docs);
         return ChurchDepartmentsLoadResult(

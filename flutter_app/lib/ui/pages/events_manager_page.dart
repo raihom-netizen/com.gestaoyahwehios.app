@@ -8408,6 +8408,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
+    try {
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+        maxAttempts: 5,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ThemeCleanPremium.showErrorSnackBarWithRetry(
+          context,
+          formatUploadErrorForUser(e),
+          onRetry: _save,
+        );
+      }
+      return;
+    }
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
@@ -8552,8 +8568,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           if (isFirebaseNoAppError(e)) {
             try {
               FirebaseBootstrapService.resetPublishWarmState();
-              await FirebaseBootstrapService.ensureAlwaysOn(
+              await FirebaseBootstrapService.ensureStorageAlwaysLinked(
                 refreshAuthToken: true,
+                maxAttempts: 5,
               );
             } catch (_) {}
           }
