@@ -4,8 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
 class MercadoPagoAdminPage extends StatefulWidget {
   /// Quando aberto dentro do painel master (drawer), evita conflito de [PrimaryScrollController].
@@ -141,11 +140,10 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
       Object? firestoreError;
 
       try {
-        final ref = FirebaseFirestore.instance.collection('config').doc('mercado_pago');
-        final doc = await FirestoreReadResilience.getDocument(
+        final ref = MasterAdminFirestore.db.collection('config').doc('mercado_pago');
+        final doc = await MasterAdminFirestore.document(
           ref,
           cacheKey: 'config_mercado_pago',
-          maxAttempts: 3,
         );
         if (doc.exists) {
           final raw = doc.data();
@@ -254,14 +252,14 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
   }
 
   Future<void> _salvarCredenciaisFirestoreFallback(Map<String, dynamic> data) async {
-    final ref = FirebaseFirestore.instance.collection('config').doc('mercado_pago');
-    await ref.set(
+    final ref = MasterAdminFirestore.db.collection('config').doc('mercado_pago');
+    await MasterAdminFirestore.write(() => ref.set(
       {
         ...data,
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
-    );
+    ));
     _loadedFromServer = Map<String, dynamic>.from(data);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -673,11 +671,12 @@ class _SalesList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('sales')
-          .orderBy('createdAt', descending: true)
-          .limit(50)
-          .watchSafe(),
+      stream: MasterAdminFirestore.watchQuery(
+        MasterAdminFirestore.db
+            .collection('sales')
+            .orderBy('createdAt', descending: true)
+            .limit(50),
+      ),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return MasterPremiumCard(
@@ -765,7 +764,9 @@ class _LicensesSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').limit(100).watchSafe(),
+      stream: MasterAdminFirestore.watchQuery(
+        MasterAdminFirestore.churchesQuery(limit: 100),
+      ),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return MasterPremiumCard(

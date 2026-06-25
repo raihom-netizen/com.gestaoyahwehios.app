@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Site público consolidado — `igrejas/{tid}/_panel_cache/public_site`.
@@ -89,7 +89,8 @@ abstract final class PanelPublicSiteSnapshotService {
   PanelPublicSiteSnapshotService._();
 
   static DocumentReference<Map<String, dynamic>> ref(String tenantId) {
-    return ChurchOperationalPaths.churchDoc(tenantId.trim())
+    final id = ChurchRepository.churchId(tenantId.trim());
+    return ChurchRepository.churchDoc(id.isNotEmpty ? id : tenantId.trim())
         .collection('_panel_cache')
         .doc('public_site');
   }

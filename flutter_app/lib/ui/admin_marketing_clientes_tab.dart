@@ -7,20 +7,19 @@ import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
-    firebaseDefaultFirestore
-        .collection(MarketingStorageLayout.firestoreCollection)
-        .doc(MarketingStorageLayout.firestoreMarketingClientesDocId);
+    MarketingPublicSiteService.marketingClientesDocRef;
 
 List<Map<String, dynamic>> _cloneItems(Map<String, dynamic>? data) {
   final raw = data?['items'];
@@ -205,7 +204,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
         builder: (context, setLocal) {
           final tidHint = igrejaTenantIdCtrl.text.trim();
           final pathPreview = tidHint.isNotEmpty
-              ? ChurchStorageLayout.marketingClienteShowcaseCapaPath(tidHint)
+              ? FirebasePaths.storageMarketingCapa(tidHint)
               : 'Legado (só leitura): ${MarketingStorageLayout.legacyClienteShowcasePhotoPath(
                   idCtrl.text.trim().isEmpty
                       ? 'id_lista'
@@ -245,7 +244,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                       onChanged: (_) => setLocal(() {}),
                       decoration: const InputDecoration(
                         labelText: 'ID Firestore da igreja (obrigatório ao enviar capa)',
-                        hintText: 'ex.: igreja_o_brasil_para_cristo_jardim_goiano',
+                        hintText: 'ex.: igreja_nome_da_igreja',
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),
@@ -433,8 +432,8 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
                         try {
                           if (pendingBytes != null && pendingBytes!.isNotEmpty) {
-                            photoPath = ChurchStorageLayout
-                                .marketingClienteShowcaseCapaPath(tenantRaw);
+                            photoPath =
+                                FirebasePaths.storageMarketingCapa(tenantRaw);
                             final oldPath =
                                 (ref?['fotoPath'] ?? '').toString().trim();
                             if (oldPath.isNotEmpty && oldPath != photoPath) {
@@ -611,7 +610,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
             .trim();
         if (tenant.isNotEmpty) {
           final p =
-              ChurchStorageLayout.marketingClienteShowcaseCapaPath(tenant);
+              FirebasePaths.storageMarketingCapa(tenant);
           try {
             await firebaseDefaultStorage.ref(p).delete();
           } catch (_) {}

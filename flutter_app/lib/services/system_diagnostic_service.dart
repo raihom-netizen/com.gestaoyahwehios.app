@@ -1,4 +1,5 @@
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
@@ -121,8 +122,8 @@ abstract final class SystemDiagnosticService {
     return SystemDiagnosticSnapshot(
       churchId: id,
       seedId: ChurchContextService.seedId ?? seedTenantId.trim(),
-      firestorePath: id.isEmpty ? '' : 'igrejas/$id',
-      storagePath: id.isEmpty ? '' : 'igrejas/$id',
+      firestorePath: id.isEmpty ? '' : FirebasePaths.igreja(id),
+      storagePath: id.isEmpty ? '' : FirebasePaths.storageRoot(id),
       userUid: uid,
       boundAt: ChurchContextService.boundAt,
       fieldCount: fieldCount,

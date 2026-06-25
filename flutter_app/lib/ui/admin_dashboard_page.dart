@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Dashboard SaaS Super Premium: KPIs, gráficos de novas igrejas, usuários, recebimentos PIX/cartão, vencimentos e acessos.
@@ -242,10 +243,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       debugPrint('AdminDashboard _carregarDados bloco usuarios: $e\n$st');
     }
     try {
-      final tenantsAgg = await db.collection('igrejas').count().get();
+      await MasterAdminFirestore.ensureReady();
+      final tenantsAgg = await MasterAdminFirestore.write(
+        () => db.collection('igrejas').count().get(),
+      );
       tenantsCount = tenantsAgg.count ?? 0;
-      final tenantsSnap =
-          await db.collection('igrejas').limit(_kTenantsSampleLimit).get();
+      final tenantsSnap = await MasterAdminFirestore.query(
+        db.collection('igrejas').limit(_kTenantsSampleLimit),
+        cacheKey: 'master_dashboard_igrejas_sample',
+      );
       for (final d in tenantsSnap.docs) {
         final data = d.data();
         final lic = data['license'] as Map?;

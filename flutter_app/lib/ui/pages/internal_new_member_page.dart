@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:flutter/services.dart';
@@ -477,7 +478,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         memberId: ref.id,
       );
       AppStorageImageService.instance.invalidateStoragePrefix(
-          'igrejas/${ChurchPanelTenant.resolve(widget.tenantId)}/membros/${ref.id}');
+        '${FirebasePaths.storageRoot(ChurchPanelTenant.resolve(widget.tenantId))}/membros/${ref.id}',
+      );
 
       try {
         await functions.httpsCallable('createMemberLoginFromPublic').call({

@@ -1,6 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
-/// 11.2.305+1998: Deploy completo — tenant canónico síncrono igrejas/igreja_o_brasil_para_cristo_jardim_goiano (Firestore+Storage); cartão membro CNH PDF; bind imediato login/shell.
+/// 11.2.305+1998: Deploy completo — tenant canónico síncrono igrejas/{churchId} (Firestore+Storage); cartão membro CNH PDF; bind imediato login/shell.
 /// 11.2.305+1997: Hotfix — Firebase init antes runApp; painel abre com cache perfil/church (sem erro igreja); sessão web rápida.
 /// 11.2.305+1991: Deploy completo — fotos membros rápidas, Termos/Privacidade tela cheia, patrimônio/chat/exclusão membro.
 /// 11.2.305+1990: Deploy completo — Firestore web CT, cartão membro path igrejas/{id}/membros.
@@ -364,6 +364,7 @@
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 /// 11.2.305+1924: Assinantes — só liderança (pastor, gestor, secretário, tesoureiro, admin, líder dept.) em certificados, carteirinha, financeiro e patrimônio.
 /// 11.2.305+1964: Certificados — lista completa membros (59+), ChurchCertificadosLoadService, UI premium violeta.
+/// 11.2.305+2004: Deploy completo — alinhamento Web/Android/iOS (feed mural, financeiro, visitantes/cargos, master admin); tenant igrejas/{churchId}.
 const String appVersion = '11.2.305';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
@@ -409,7 +410,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2003';
+const String appBuildNumber = '2004';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

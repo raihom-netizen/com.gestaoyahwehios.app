@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -68,7 +69,7 @@ abstract final class ChatPublishVerificationService {
     required String igrejaId,
     required String threadId,
   }) =>
-      'igrejas/${igrejaId.trim()}/chats/${threadId.trim()}/messages';
+      FirebasePaths.chatMessages(igrejaId, threadId);
 
   static Future<void> verifyStorageMetadata({
     required String storagePath,

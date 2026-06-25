@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -71,7 +72,7 @@ abstract final class EventosPublishVerificationService {
   }
 
   static String collectionPathFor(String igrejaId) =>
-      'igrejas/${igrejaId.trim()}/${ChurchTenantPostsCollections.eventos}';
+      FirebasePaths.eventos(igrejaId);
 
   /// Paths a partir de URLs https, `gs://` ou path bare `igrejas/.../eventos/...`.
   static List<String> storagePathsFromRefs(Iterable<String> refs) {

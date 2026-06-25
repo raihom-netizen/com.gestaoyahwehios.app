@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -285,8 +286,12 @@ final class ChurchDataService {
     }
     await ensureReadyForWrite();
     final ts = DateTime.now().millisecondsSinceEpoch;
-    final storagePath =
-        'igrejas/${churchId.trim()}/${folder.trim()}/${documentId.trim()}/$ts';
+    final storagePath = FirebasePaths.storageGenericUploadPath(
+      churchId: churchId,
+      folder: folder,
+      documentId: documentId,
+      timestampMs: ts,
+    );
     ChurchTenantWriteLog.storageUploadStart(storagePath, module: module);
     try {
       final ref = storage.ref(storagePath);

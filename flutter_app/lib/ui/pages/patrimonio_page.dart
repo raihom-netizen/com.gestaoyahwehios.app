@@ -41,6 +41,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
@@ -913,14 +914,18 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       ChurchModuleQueryProbe.logSuccess(
         module: 'Patrimônio',
         churchId: ChurchPatrimonioLoadService.resolveChurchId(tid),
-        path: 'igrejas/${ChurchPatrimonioLoadService.resolveChurchId(tid)}/patrimonio',
+        path: FirebasePaths.patrimonio(
+          ChurchPatrimonioLoadService.resolveChurchId(tid),
+        ),
         totalDocs: result.docs.length,
       );
     } catch (e) {
       ChurchModuleQueryProbe.logError(
         module: 'Patrimônio',
         churchId: ChurchPatrimonioLoadService.resolveChurchId(tid),
-        path: 'igrejas/${ChurchPatrimonioLoadService.resolveChurchId(tid)}/patrimonio',
+        path: FirebasePaths.patrimonio(
+          ChurchPatrimonioLoadService.resolveChurchId(tid),
+        ),
         error: '$e',
       );
     }
@@ -2292,6 +2297,35 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       );
     }
 
+    if (_effectiveTenantId.trim().isEmpty) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        appBar: showAppBar
+            ? AppBar(
+                leading: canPop
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: () => Navigator.maybePop(context),
+                        tooltip: 'Voltar',
+                      )
+                    : null,
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                title: const Text('Patrimônio'),
+              )
+            : null,
+        body: Padding(
+          padding: ThemeCleanPremium.pagePadding(context),
+          child: const ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Igreja não identificada',
+            error: 'Não foi possível resolver o churchId da sessão atual.',
+          ),
+        ),
+      );
+    }
+
     if (!AppPermissions.canViewPatrimonio(
       widget.role,
       memberCanViewPatrimonio: widget.podeVerPatrimonio,
@@ -2795,7 +2829,7 @@ class _BensTabState extends State<_BensTab> {
           churchId: tid,
           docs: const [],
           readSource: 'timeout',
-          collectionPath: 'igrejas/$tid/patrimonio',
+          collectionPath: FirebasePaths.patrimonio(tid),
           softError: 'Tempo esgotado ao carregar patrimônio.',
         ),
       );
@@ -2807,8 +2841,8 @@ class _BensTabState extends State<_BensTab> {
         _lastCursor = result.docs.isNotEmpty ? result.docs.last : null;
         _hasMorePages =
             result.docs.length >= ChurchPatrimonioLoadService.kDefaultAllLimit;
-        _lastLoadHint =
-            'igrejas/$tid/patrimonio (${result.readSource}, ${result.docs.length} bens)';
+        _lastLoadHint = '${FirebasePaths.patrimonio(tid)} '
+            '(${result.readSource}, ${result.docs.length} bens)';
         final snap = _snapshotFromLoadedDocs();
         _PatrimonioRamCache.store(tid, snap);
         setState(() => _future = Future.value(snap));
@@ -2816,7 +2850,7 @@ class _BensTabState extends State<_BensTab> {
         _seedFromLocalCaches();
         setState(() {
           _lastLoadHint = result.softError ??
-              'igrejas/$tid/patrimonio (${result.readSource}, 0 bens)';
+              '${FirebasePaths.patrimonio(tid)} (${result.readSource}, 0 bens)';
           _future = Future.value(_snapshotFromLoadedDocs());
         });
       } else if (result.softError != null && result.softError!.isNotEmpty) {

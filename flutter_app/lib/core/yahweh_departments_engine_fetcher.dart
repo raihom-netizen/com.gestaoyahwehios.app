@@ -13,8 +13,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
 abstract final class YahwehDepartmentsEngineFetcher {
   YahwehDepartmentsEngineFetcher._();
 
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

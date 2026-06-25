@@ -8,6 +8,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/marketing_gallery_cms.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -714,12 +715,8 @@ class _MarketingGestaoYahwehGallerySectionState
       );
     }
 
-    final docRef = FirebaseFirestore.instance
-        .collection(MarketingStorageLayout.firestoreCollection)
-        .doc(MarketingStorageLayout.firestoreGalleryDocId);
-
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.documentWatchSafe(docRef),
+      stream: MarketingPublicSiteService.watchGallery(),
       builder: (context, snap) {
         return _buildFromFirestoreData(
           snap.data?.data(),

@@ -26,6 +26,8 @@ import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -148,7 +150,7 @@ abstract final class ChurchTenantResilientReads {
   }) async {
     await preparePanelRead();
     final tid = await _readTenantId(tenantId, userUid: userUid);
-    final path = 'igrejas/$tid';
+    final path = FirebasePaths.igreja(tid);
     return ChurchModuleFirestoreAudit.traceQuery(
       module: 'Cadastro Igreja',
       churchId: tid,
@@ -231,11 +233,10 @@ abstract final class ChurchTenantResilientReads {
     int limit = ChurchTenantListLimits.defaultPageSize,
   }) =>
       FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
+        final avisosCol = ChurchUiCollections.avisos(tenantId);
         try {
           return await FirestoreReadResilience.getQuery(
-            church
-                .collection('avisos')
+            avisosCol
                 .where('ativo', isEqualTo: true)
                 .where('publicado', isEqualTo: true)
                 .orderBy('createdAt', descending: true)
@@ -245,15 +246,12 @@ abstract final class ChurchTenantResilientReads {
         } catch (_) {
           try {
             return await FirestoreReadResilience.getQuery(
-              church
-                  .collection('avisos')
-                  .orderBy('createdAt', descending: true)
-                  .limit(limit),
+              avisosCol.orderBy('createdAt', descending: true).limit(limit),
               cacheKey: _key(tenantId, 'avisos_feed_$limit'),
             );
           } catch (_) {
             final plain = await FirestoreReadResilience.getQuery(
-              church.collection('avisos').limit(limit),
+              avisosCol.limit(limit),
               cacheKey: _key(tenantId, 'avisos_plain_$limit'),
             );
             return _sortAvisosSnapshot(plain);
@@ -540,7 +538,7 @@ abstract final class ChurchTenantResilientReads {
     try {
       final uid = userUid ?? firebaseDefaultAuth.currentUser?.uid;
       final tid = await _readTenantId(tenantId, userUid: uid);
-      final path = 'igrejas/$tid/departamentos';
+      final path = FirebasePaths.departamentos(tid);
       Future<QuerySnapshot<Map<String, dynamic>>> fetch() =>
           ChurchModuleFirestoreAudit.traceQuery(
             module: 'Departamentos',
@@ -630,15 +628,15 @@ abstract final class ChurchTenantResilientReads {
     int limit = 120,
   }) =>
       FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
+        final cargosCol = ChurchUiCollections.cargos(tenantId);
         try {
           return await FirestoreReadResilience.getQuery(
-            church.collection('cargos').orderBy('name').limit(limit),
+            cargosCol.orderBy('name').limit(limit),
             cacheKey: _key(tenantId, 'cargos_$limit'),
           );
         } catch (_) {
           final plain = await FirestoreReadResilience.getQuery(
-            church.collection('cargos').limit(limit),
+            cargosCol.limit(limit),
             cacheKey: _key(tenantId, 'cargos_plain_$limit'),
           );
           return _sortCargosSnapshot(plain);
@@ -673,18 +671,15 @@ abstract final class ChurchTenantResilientReads {
     required int limit,
   }) =>
       FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
+        final financeCol = ChurchUiCollections.financeiro(tenantId);
         try {
           return await FirestoreReadResilience.getQuery(
-            church
-                .collection('finance')
-                .orderBy('createdAt', descending: true)
-                .limit(limit),
+            financeCol.orderBy('createdAt', descending: true).limit(limit),
             cacheKey: _key(tenantId, 'finance_$limit'),
           );
         } catch (_) {
           final plain = await FirestoreReadResilience.getQuery(
-            church.collection('finance').limit(limit),
+            financeCol.limit(limit),
             cacheKey: _key(tenantId, 'finance_plain_$limit'),
           );
           return _sortFinanceSnapshot(plain);
@@ -774,13 +769,13 @@ abstract final class ChurchTenantResilientReads {
     final id = itemDocId.trim();
     if (id.isEmpty) {
       return FirestoreReadResilience.getDocument(
-        _church(tenantId).collection('patrimonio').doc('_empty_'),
+        ChurchUiCollections.patrimonio(tenantId).doc('_empty_'),
         cacheKey: _key(tenantId, 'patrimonio_item_empty'),
       );
     }
     Future<DocumentSnapshot<Map<String, dynamic>>> loadFor(String tid) =>
         FirestoreReadResilience.getDocument(
-          _church(tid).collection('patrimonio').doc(id),
+          ChurchUiCollections.patrimonio(tid).doc(id),
           cacheKey: _key(tid, 'patrimonio_item_$id'),
         );
     final primary = await _readTenantId(tenantId);
@@ -793,7 +788,7 @@ abstract final class ChurchTenantResilientReads {
   ) async {
     Future<DocumentSnapshot<Map<String, dynamic>>> loadFor(String tid) =>
         FirestoreReadResilience.getDocument(
-          _church(tid).collection('config').doc('patrimonio'),
+          ChurchUiCollections.config(tid).doc('patrimonio'),
           cacheKey: _key(tid, 'patrimonio_config'),
         );
     final primary = await _readTenantId(tenantId);
@@ -1168,15 +1163,15 @@ abstract final class ChurchTenantResilientReads {
     int limit = 120,
   }) =>
       FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
+        final escalasCol = ChurchUiCollections.escalas(tenantId);
         try {
           return await FirestoreReadResilience.getQuery(
-            church.collection('escalas').orderBy('date', descending: true).limit(limit),
+            escalasCol.orderBy('date', descending: true).limit(limit),
             cacheKey: _key(tenantId, 'escalas_$limit'),
           );
         } catch (_) {
           final plain = await FirestoreReadResilience.getQuery(
-            church.collection('escalas').limit(limit),
+            escalasCol.limit(limit),
             cacheKey: _key(tenantId, 'escalas_plain_$limit'),
           );
           return _sortEscalasByDateSnapshot(plain, descending: true);

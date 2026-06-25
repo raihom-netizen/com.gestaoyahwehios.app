@@ -11,6 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -24,10 +25,10 @@ import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
@@ -64,6 +65,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
@@ -1025,7 +1027,6 @@ class _FinancePageState extends State<FinancePage>
     _financeRealtimeSubs.add(
       _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
     );
-    if (kIsWeb) return;
     _financeRealtimeSubs.addAll([
       ChurchUiCollections.churchDoc(_tid)
           .collection('contas')
@@ -1090,14 +1091,14 @@ class _FinancePageState extends State<FinancePage>
       ChurchModuleQueryProbe.logSuccess(
         module: 'Financeiro',
         churchId: ChurchFinanceLoadService.resolveChurchId(tid),
-        path: 'igrejas/${ChurchFinanceLoadService.resolveChurchId(tid)}/finance',
+        path: FirebasePaths.finance(ChurchFinanceLoadService.resolveChurchId(tid)),
         totalDocs: results[0].docs.length,
       );
     } catch (e) {
       ChurchModuleQueryProbe.logError(
         module: 'Financeiro',
         churchId: ChurchFinanceLoadService.resolveChurchId(tid),
-        path: 'igrejas/${ChurchFinanceLoadService.resolveChurchId(tid)}/finance',
+        path: FirebasePaths.finance(ChurchFinanceLoadService.resolveChurchId(tid)),
         error: '$e',
       );
     }
@@ -1212,6 +1213,35 @@ class _FinancePageState extends State<FinancePage>
               )
             : null,
         body: const ChurchPanelLoadingBody(),
+      );
+    }
+
+    if (_tid.trim().isEmpty) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        appBar: showAppBar
+            ? AppBar(
+                leading: canPop
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: () => Navigator.maybePop(context),
+                        tooltip: 'Voltar')
+                    : null,
+                elevation: 0,
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                title: const Text('Financeiro'),
+              )
+            : null,
+        body: Padding(
+          padding: ThemeCleanPremium.pagePadding(context),
+          child: const ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Igreja não identificada',
+            error: 'Não foi possível resolver o churchId da sessão atual.',
+          ),
+        ),
       );
     }
 
@@ -3453,6 +3483,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tenantId = ChurchRepository.churchId(widget.tenantId.trim());
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
@@ -3693,7 +3724,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future:                               ChurchUiCollections.churchDoc(widget.tenantId)
+                          future: ChurchUiCollections.churchDoc(tenantId)
                               .collection('contas')
                               .orderBy('nome')
                               .get(),
@@ -3734,7 +3765,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                     if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
                       const SizedBox(height: 6),
                       FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future:                             ChurchUiCollections.churchDoc(widget.tenantId)
+                        future: ChurchUiCollections.churchDoc(tenantId)
                             .collection('contas')
                             .doc(ctaId)
                             .get(),
@@ -7860,14 +7891,37 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
   }
 }
 
-/// Membros ativos — lista completa (picker premium com busca).
+/// Membros ativos — cache `_panel_cache/members_directory` (rápido; evita scan 3000).
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
-    final snap = await ChurchUiCollections.membros(op).limit(3000).get();
+    var snap = await MembersDirectorySnapshotService.readOnce(op);
+    if (!snap.hasEntries) {
+      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(op);
+    }
     final out = <({String id, String nome})>[];
-    for (final d in snap.docs) {
+    for (final e in snap.entries) {
+      final st = e.status.toLowerCase();
+      if (st == 'inativo' ||
+          st == 'recusado' ||
+          st == 'bloqueado' ||
+          st == 'cancelado') {
+        continue;
+      }
+      final n = e.displayName.trim();
+      if (n.isEmpty) continue;
+      out.add((id: e.memberDocId, nome: n));
+    }
+    if (out.isNotEmpty) {
+      out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+      return out;
+    }
+    // Fallback leve se cache ainda não existir.
+    final legacy = await ChurchUiCollections.membros(op)
+        .limit(YahwehPerformanceV4.defaultPageSize * 5)
+        .get();
+    for (final d in legacy.docs) {
       final m = d.data();
       final st = (m['STATUS'] ?? m['status'] ?? '').toString().toLowerCase();
       if (st == 'inativo' ||

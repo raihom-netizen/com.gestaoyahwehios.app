@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -66,7 +67,7 @@ abstract final class PatrimonioPublishVerificationService {
   }
 
   static String collectionPathFor(String igrejaId) =>
-      'igrejas/${igrejaId.trim()}/patrimonio';
+      FirebasePaths.patrimonio(igrejaId);
 
   static String photoStoragePath({
     required String igrejaId,

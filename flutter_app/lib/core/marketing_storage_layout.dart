@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 /// - [institutionalPdfPrefix] — PDFs
 ///
 /// Igrejas em destaque (foto + dados no Firestore `app_public/marketing_clientes`):
-/// - **Novo:** `igrejas/{igrejaTenantId}/marketing_destaque/capa.jpg` (ID = documento em `igrejas/`, ex. `igreja_o_brasil_para_cristo_jardim_goiano`).
+/// - **Novo:** `igrejas/{igrejaTenantId}/marketing_destaque/capa.jpg` (ID = documento em `igrejas/`, ex. `igreja_nome_da_igreja`).
 /// - **Legado:** [legacyClienteShowcasePhotoPath] → `public/gestao_yahweh/clientes/{entryId}/capa.jpg`
 ///
 /// Firestore `app_public/institutional_gallery` — campo `items` (CMS da galeria).
@@ -79,6 +79,18 @@ abstract final class MarketingStorageLayout {
   static const String firestoreCollection = 'app_public';
   static const String firestoreGalleryDocId = 'institutional_gallery';
   static const String firestoreMarketingClientesDocId = 'marketing_clientes';
+  static const String firestoreSiteDocId = 'site';
+
+  /// Vídeo hero padrão do site de divulgação (Storage global, não tenant).
+  static const String defaultInstitutionalVideoPath =
+      'public/videos/institucional.mp4';
+
+  /// Config global de links de download (Play Store / iOS).
+  static const String appDownloadsConfigPath = 'config/appDownloads';
+
+  /// Thumb legada de capa de cliente em destaque.
+  static String clienteShowcaseThumbPath(String parentFolder) =>
+      '$parentFolder/thumb_capa.jpg';
 
   /// Mesmo formato em lista, grelha e Firestore (evita exclusão que não encontra o item).
   static String normalizeObjectPath(String p) {

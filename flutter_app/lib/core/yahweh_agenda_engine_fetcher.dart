@@ -12,8 +12,7 @@ import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 abstract final class YahwehAgendaEngineFetcher {
   YahwehAgendaEngineFetcher._();
 
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

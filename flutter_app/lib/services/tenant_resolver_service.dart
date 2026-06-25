@@ -15,30 +15,17 @@ class TenantResolverService {
   static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
   static const int _scanLimit = 350;
 
-  /// Doc Firestore + Storage canónico da Igreja Brasil para Cristo (BPC).
-  static const String kBpcCanonicalIgrejaDocId =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  /// âncora legada desativada (sem tenant fixo hardcoded no app).
+  static const String kBpcCanonicalIgrejaDocId = 'igreja_canonica_desativada';
 
   /// IDs legados — migrados para [kBpcCanonicalIgrejaDocId]; redirecionados via `church_aliases`.
-  static const List<String> kBpcLegacyTenantIds = [
-    'brasilparacristo',
-    'brasilparacristo_sistema',
-    'iobpc-jardim-goiano',
-    'o-brasil-cristo-jardim-goiano',
-  ];
+  static const List<String> kBpcLegacyTenantIds = [];
 
   /// Cluster operacional — após consolidação BPC, só o doc canónico.
-  static const Map<String, List<String>> _anchoredChurchClusters = {
-    kBpcCanonicalIgrejaDocId: [kBpcCanonicalIgrejaDocId],
-  };
+  static const Map<String, List<String>> _anchoredChurchClusters = {};
 
   /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) → doc canónico operacional.
-  static const Map<String, String> _publicSlugToCanonicalDocId = {
-    'o-brasil-cristo-jardim-goiano': kBpcCanonicalIgrejaDocId,
-    'iobpc-jardim-goiano': kBpcCanonicalIgrejaDocId,
-    'brasil-para-cristo': kBpcCanonicalIgrejaDocId,
-    'brasilparacristo': kBpcCanonicalIgrejaDocId,
-  };
+  static const Map<String, String> _publicSlugToCanonicalDocId = {};
 
   static bool _looksLikeChurchDocId(String value) {
     final v = value.trim();

@@ -6,8 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
 /// Recebimentos de licenças — sales (Mercado Pago) + status por tenant. Super Premium, responsivo.
 class AdminRecebimentosPage extends StatelessWidget {
@@ -95,10 +94,12 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
     });
     try {
       final List<Map<String, dynamic>> list = [];
-      final salesSnap = await firebaseDefaultFirestore
-          .collection('sales')
-          .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
-          .get();
+      final salesSnap = await MasterAdminFirestore.query(
+        MasterAdminFirestore.db
+            .collection('sales')
+            .limit(YahwehPerformanceV4.masterPaymentsSampleLimit),
+        cacheKey: 'master_sales_sample',
+      );
       for (final d in salesSnap.docs) {
         final data = d.data();
         final status = (data['status'] ?? '').toString().toLowerCase();
@@ -110,10 +111,12 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
         }
         list.add(data);
       }
-      final mpSnap = await firebaseDefaultFirestore
-          .collection('mp_payments')
-          .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
-          .get();
+      final mpSnap = await MasterAdminFirestore.query(
+        MasterAdminFirestore.db
+            .collection('mp_payments')
+            .limit(YahwehPerformanceV4.masterPaymentsSampleLimit),
+        cacheKey: 'master_mp_payments_sample',
+      );
       for (final d in mpSnap.docs) {
         final data = d.data();
         if ((data['status'] ?? '').toString() != 'approved') continue;
@@ -329,11 +332,12 @@ class _SalesList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-          .collection('sales')
-          .orderBy('createdAt', descending: true)
-          .limit(80)
-          .watchSafe(),
+      stream: MasterAdminFirestore.watchQuery(
+        MasterAdminFirestore.db
+            .collection('sales')
+            .orderBy('createdAt', descending: true)
+            .limit(80),
+      ),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();
@@ -454,8 +458,9 @@ class _LicensesSummary extends StatelessWidget {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final minTouch = ThemeCleanPremium.minTouchTarget;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream:
-          firebaseDefaultFirestore.collection('igrejas').limit(150).watchSafe(),
+      stream: MasterAdminFirestore.watchQuery(
+        MasterAdminFirestore.churchesQuery(limit: 150),
+      ),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();

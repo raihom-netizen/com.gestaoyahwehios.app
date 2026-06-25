@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -285,6 +286,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       seedTenantId: _churchId,
       forceRefresh: forceRefresh,
       forceServer: forceServer,
+      fullList: forceRefresh || forceServer,
     );
     if (result.docs.isNotEmpty) {
       ChurchVisitantesLoadService.putRam(result.churchId, result.docs);
@@ -2405,7 +2407,7 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
   bool get _isEdit => widget.visitor != null;
 
   String get _pathLabel =>
-      'igrejas/${widget.churchId.trim()}/visitantes';
+      FirebasePaths.visitantes(widget.churchId.trim());
 
   @override
   void initState() {

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
@@ -215,8 +216,8 @@ abstract final class GlobalTenantAuditService {
     String churchId,
     ChurchSyncDiagnosticReport sync,
   ) {
-    final root = 'igrejas/$churchId';
-    final storage = ChurchStorageLayout.churchRoot(churchId);
+    final root = FirebasePaths.igreja(churchId);
+    final storage = FirebasePaths.storageRoot(churchId);
 
     String? err(String? e) =>
         (e ?? '').trim().isEmpty ? null : e!.trim();

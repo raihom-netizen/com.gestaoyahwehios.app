@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -4814,27 +4813,13 @@ class _ChurchTenantFallback extends StatelessWidget {
 
   Future<DocumentSnapshot<Map<String, dynamic>>?> _loadTenant() async {
     try {
-      final resolved =
-          await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
-        slugClean,
-      ).timeout(const Duration(seconds: 14));
-      if (resolved != null && resolved.isNotEmpty) {
-        final doc = await ChurchUiCollections.churchDoc(resolved).get();
+      final resolved = await PublicChurchSlugResolver.resolve(slugClean)
+          .timeout(const Duration(seconds: 14));
+      if (resolved != null && resolved.churchId.isNotEmpty) {
+        final doc = await ChurchUiCollections.churchDoc(resolved.churchId).get();
         if (doc.exists) return doc;
       }
     } catch (_) {}
-
-    final db = firebaseDefaultFirestore;
-    for (final field in const ['slug', 'alias', 'slugId']) {
-      try {
-        final q = await db
-            .collection('igrejas')
-            .where(field, isEqualTo: slugClean)
-            .limit(1)
-            .get();
-        if (q.docs.isNotEmpty) return q.docs.first;
-      } catch (_) {}
-    }
     return null;
   }
 

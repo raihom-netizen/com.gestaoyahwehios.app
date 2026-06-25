@@ -31,7 +31,6 @@ import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
@@ -206,12 +205,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     final hint = (widget.tenantId ?? widget.slug ?? '').trim();
     if (hint.isNotEmpty) {
       final panel = ChurchContextService.panelChurchId(hint);
-      final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
-      final ok = hint == ctxId ||
-          panel == ctxId ||
-          mapped == ctxId ||
-          TenantResolverService.anchoredClusterIdsFor(ctxId).contains(hint);
-      if (!ok) return false;
+      final canonical = ChurchRepository.churchId(hint);
+      if (hint != ctxId && panel != ctxId && canonical != ctxId) {
+        return false;
+      }
     }
     _applyTenantFromChurchDataSync(ctxId, ctxData);
     return true;
@@ -1963,35 +1960,40 @@ class PublicSignupStatusPage extends StatelessWidget {
 
   Future<({String churchName, Map<String, dynamic>? memberData, String? error})>
       _loadStatus() async {
-    final db = firebaseDefaultFirestore;
     final slugTrim = slug.trim();
     if (slugTrim.isEmpty || protocolo.trim().isEmpty) {
       return (churchName: 'Igreja', memberData: null, error: 'Link inválido.');
     }
 
-    QuerySnapshot<Map<String, dynamic>> q = await db
-        .collection('igrejas')
-        .where('slug', isEqualTo: slugTrim)
-        .limit(1)
-        .get();
-    if (q.docs.isEmpty) {
-      q = await db
-          .collection('igrejas')
-          .where('alias', isEqualTo: slugTrim)
-          .limit(1)
-          .get();
-    }
-    if (q.docs.isEmpty) {
+    PublicChurchResolved? resolved;
+    try {
+      resolved = await PublicChurchSlugResolver.resolve(slugTrim)
+          .timeout(const Duration(seconds: 14));
+    } catch (_) {}
+
+    if (resolved == null || resolved.churchId.isEmpty) {
       return (
         churchName: 'Igreja',
         memberData: null,
         error: 'Igreja não encontrada para este link.'
       );
     }
-    final churchDoc = q.docs.first;
+
+    final churchDoc =
+        await ChurchUiCollections.churchDoc(resolved.churchId).get();
+    if (!churchDoc.exists) {
+      return (
+        churchName: 'Igreja',
+        memberData: null,
+        error: 'Igreja não encontrada para este link.'
+      );
+    }
+
+    final profile = resolved.profile.isNotEmpty
+        ? resolved.profile
+        : (churchDoc.data() ?? const <String, dynamic>{});
     final churchName =
-        (churchDoc.data()['name'] ?? churchDoc.data()['nome'] ?? 'Igreja')
-            .toString();
+        (profile['name'] ?? profile['nome'] ?? 'Igreja').toString();
 
     final membrosCol =         ChurchUiCollections.membros(churchDoc.id);
     var memberDoc = await membrosCol.doc(protocolo.trim()).get();

@@ -64,10 +64,32 @@
   - `igrejas/{churchId}`
   - `igrejas/{churchId}/departamentos/{departamentoId}`
   - `igrejas/{churchId}/membros/{membroId}`
+  - `igrejas/{churchId}/visitantes/{visitanteId}`
+  - `igrejas/{churchId}/cargos/{cargoId}`
+  - `igrejas/{churchId}/mural_avisos/{avisoId}` (ou `igrejas/{churchId}/avisos/{avisoId}`)
+  - `igrejas/{churchId}/chats/{chatId}`
+  - `igrejas/{churchId}/escalas/{escalaId}`
+  - `igrejas/{churchId}/certificados/{certificadoId}` (ou consultas de certificados dentro de `membros`)
+  - `igrejas/{churchId}/patrimonio/{itemId}`
   - `igrejas/{churchId}/config/mercado_pago`
   - `igrejas/{churchId}/finance/{financeId}`
   - `igrejas/{churchId}/finance_logs/{logId}`
   - `igrejas/{churchId}/finance_mp_notifications/{notificationId}`
-- Estrutura Storage canónica:
+  - `igrejas/{churchId}/fornecedores/{fornecedorId}`
+  - `igrejas/{churchId}/fornecedor_compromissos/{compromissoId}`
+- Estrutura Storage canónica (sempre `igrejas/{churchId}/…` via `FirebasePaths` / `ChurchStorageLayout`):
   - `igrejas/{churchId}/configuracoes/logo_igreja.png`
+  - `igrejas/{churchId}/membros/{memberId}/foto_perfil.jpg`
+  - `igrejas/{churchId}/avisos/{postId}/capa_aviso.jpg` (+ galeria)
+  - `igrejas/{churchId}/eventos/{postId}/fotos/foto_N.jpg` (+ videos/thumbs)
+  - `igrejas/{churchId}/patrimonio/{itemId}/foto_N.jpg`
+  - `igrejas/{churchId}/financeiro/YYYY_MM/{lancamentoId}.jpg`
+  - `igrejas/{churchId}/fornecedores/{fornecedorId}/compromissos/{id}_comprovante.jpg`
+  - `igrejas/{churchId}/chat_media/{images|videos|audio|docs}/` + `chat_media/thumbs/`
+  - `igrejas/{churchId}/certificados/`, `cartao_membro/`, `certificados_gestor/`
+  - **Proibido** novos uploads em `tenants/{id}/media/…` — legado só leitura/migração (`migrate_legacy_storage.py`)
+  - **Permitido na raiz do bucket:** `public/` (site institucional / marketing global)
+  - Firestore marketing: `app_public/institutional_gallery`, `app_public/marketing_clientes`, `app_public/site`
+  - Site público igreja: resolver slug via `PublicChurchSlugResolver` → `igrejas/{churchId}`
+  - Cadastro membro público: gravar em `FirebasePaths.membros(churchId)` + foto em `FirebasePaths.storageMemberProfilePhoto`
 - Toda função de leitura/escrita/upload deve receber `churchId` como parâmetro obrigatório (ou resolver pelo contexto da sessão).

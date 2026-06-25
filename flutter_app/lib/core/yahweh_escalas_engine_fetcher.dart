@@ -13,9 +13,8 @@ import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
 abstract final class YahwehEscalasEngineFetcher {
   YahwehEscalasEngineFetcher._();
 
-  /// Referência aceite — **não** usar em runtime fixo; só documentação/DEBUG.
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  /// Sem fallback fixo de tenant — usar sempre o churchId da sessão.
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

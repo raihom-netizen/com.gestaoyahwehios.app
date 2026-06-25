@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -68,7 +69,7 @@ abstract final class ChurchChatDiagnosticService {
 
     try {
       final probe = ChurchChatMediaResolver.normalizePath(
-        'igrejas/${tenantIdHint.trim()}/chat_media/.probe',
+        FirebasePaths.storageChatMediaProbe(tenantIdHint),
       );
       // Probe path may not exist — storage connectivity via metadata attempt.
       await ChurchChatMediaResolver.objectExists(probe);

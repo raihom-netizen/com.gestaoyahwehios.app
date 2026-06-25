@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 /// Porta única de tenant no **painel igreja** pós-login.
 ///
 /// **Usar em todo módulo** (Membros, Financeiro, Chat, Certificados, etc.):
-/// - `ChurchPanelTenantGateway.churchId(shellHint)` → `igreja_o_brasil_para_cristo_jardim_goiano`
+/// - `ChurchPanelTenantGateway.churchId(shellHint)` → `igreja_{tenant_slug}`
 /// - `ChurchPanelTenantGateway.firestoreRoot(hint)` → `igrejas/{churchId}`
 /// - `ChurchPanelTenantGateway.membros(hint)` → coleção canónica do módulo
 ///

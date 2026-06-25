@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 ///
 
-/// O [tenantId] deve ser o ID real do documento (ex.: `igreja_o_brasil_para_cristo_jardim_goiano`).
+/// O [tenantId] deve ser o ID real do documento (ex.: `igreja_nome_da_igreja`).
 
 abstract final class IgrejaDirectFirestoreReads {
 

@@ -6,9 +6,10 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
 /// ✅ Painel Master (Super Admin)
 /// - Lista todas as igrejas (collection: igrejas)
@@ -46,41 +47,45 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
       await billing.setTenantFreeMaster(ref.id);
       return;
     }
-    await ref.set(
-      {
-        'plano': FieldValue.delete(),
-        'planId': FieldValue.delete(),
-        'license': {
-          'isFree': false,
+    await MasterAdminFirestore.write(
+      () => ref.set(
+        {
+          'plano': FieldValue.delete(),
+          'planId': FieldValue.delete(),
+          'license': {
+            'isFree': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
           'updatedAt': FieldValue.serverTimestamp(),
         },
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
+        SetOptions(merge: true),
+      ),
     );
   }
 
   Future<void> _setActive(
       DocumentReference<Map<String, dynamic>> ref, bool active) async {
-    await ref.set(
-      {
-        'license': {
-          'active': active,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }
-      },
-      SetOptions(merge: true),
+    await MasterAdminFirestore.write(
+      () => ref.set(
+        {
+          'license': {
+            'active': active,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }
+        },
+        SetOptions(merge: true),
+      ),
     );
   }
 
   CollectionReference<Map<String, dynamic>> get _plans =>
-      firebaseDefaultFirestore
+      MasterAdminFirestore.db
           .collection('config')
           .doc('plans')
           .collection('items');
 
   DocumentReference<Map<String, dynamic>> get _memberCardCfg =>
-      firebaseDefaultFirestore.doc('config/memberCard');
+      MasterAdminFirestore.db.doc('config/memberCard');
 
   Future<void> _editMemberCardConfig(Map<String, dynamic> data) async {
     final titleCtrl = TextEditingController(
@@ -141,16 +146,18 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
           ),
           FilledButton(
             onPressed: () async {
-              await _memberCardCfg.set(
-                {
-                  'title': titleCtrl.text.trim(),
-                  'subtitle': subtitleCtrl.text.trim(),
-                  'logoUrl': logoCtrl.text.trim(),
-                  'bgColor': bgCtrl.text.trim(),
-                  'textColor': textCtrl.text.trim(),
-                  'updatedAt': FieldValue.serverTimestamp(),
-                },
-                SetOptions(merge: true),
+              await MasterAdminFirestore.write(
+                () => _memberCardCfg.set(
+                  {
+                    'title': titleCtrl.text.trim(),
+                    'subtitle': subtitleCtrl.text.trim(),
+                    'logoUrl': logoCtrl.text.trim(),
+                    'bgColor': bgCtrl.text.trim(),
+                    'textColor': textCtrl.text.trim(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  },
+                  SetOptions(merge: true),
+                ),
               );
               if (mounted) Navigator.pop(context);
             },
@@ -162,7 +169,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
   }
 
   Future<void> _seedDefaultPlans() async {
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = MasterAdminFirestore.db.batch();
 
     void up(String id, Map<String, dynamic> data) {
       batch.set(_plans.doc(id), data, SetOptions(merge: true));
@@ -227,7 +234,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
       'note': 'Sob consulta',
     });
 
-    await batch.commit();
+    await MasterAdminFirestore.write(() => batch.commit());
   }
 
   Future<void> _editTenant(DocumentSnapshot<Map<String, dynamic>> d) async {
@@ -525,12 +532,14 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
               );
 
               if (trialEnds != null) {
-                final subQs = await firebaseDefaultFirestore
-                    .collection('subscriptions')
-                    .where('igrejaId', isEqualTo: d.id)
-                    .orderBy('createdAt', descending: true)
-                    .limit(1)
-                    .get();
+                final subQs = await MasterAdminFirestore.query(
+                  MasterAdminFirestore.db
+                      .collection('subscriptions')
+                      .where('igrejaId', isEqualTo: d.id)
+                      .orderBy('createdAt', descending: true)
+                      .limit(1),
+                  cacheKey: 'master_subscriptions_${d.id}',
+                );
                 final payload = {
                   'igrejaId': d.id,
                   'planId': selectedPlan,
@@ -538,19 +547,21 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                   'trialEndsAt': trialEnds,
                   'updatedAt': FieldValue.serverTimestamp(),
                 };
-                if (subQs.docs.isEmpty) {
-                  await firebaseDefaultFirestore
-                      .collection('subscriptions')
-                      .add({
-                    ...payload,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
-                } else {
-                  await subQs.docs.first.reference.set(
-                    payload,
-                    SetOptions(merge: true),
-                  );
-                }
+                await MasterAdminFirestore.write(() async {
+                  if (subQs.docs.isEmpty) {
+                    await MasterAdminFirestore.db
+                        .collection('subscriptions')
+                        .add({
+                      ...payload,
+                      'createdAt': FieldValue.serverTimestamp(),
+                    });
+                  } else {
+                    await subQs.docs.first.reference.set(
+                      payload,
+                      SetOptions(merge: true),
+                    );
+                  }
+                });
               }
               if (mounted) Navigator.pop(context);
             },
@@ -610,7 +621,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 _SalesSummary(plans: _plans),
                 const SizedBox(height: 12),
                 StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: _memberCardCfg.watchSafe(),
+                  stream: MasterAdminFirestore.watchDocument(_memberCardCfg),
                   builder: (context, snap) {
                     final data = snap.data?.data() ?? {};
                     final title = (data['title'] ?? 'Gestao YAHWEH').toString();
@@ -727,7 +738,9 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 Expanded(
                   child: _tab == 1
                       ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _plans.orderBy('order').watchSafe(),
+                          stream: MasterAdminFirestore.watchQuery(
+                            _plans.orderBy('order'),
+                          ),
                           builder: (context, snap) {
                             if (snap.hasError)
                               return Center(child: Text('Erro: ${snap.error}'));
@@ -888,7 +901,9 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                           },
                         )
                       : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _plans.orderBy('order').watchSafe(),
+                          stream: MasterAdminFirestore.watchQuery(
+                            _plans.orderBy('order'),
+                          ),
                           builder: (context, plansSnap) {
                             if (plansSnap.hasError)
                               return Center(
@@ -900,10 +915,12 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
                             return StreamBuilder<
                                 QuerySnapshot<Map<String, dynamic>>>(
-                              stream: firebaseDefaultFirestore
-                                  .collection('igrejas')
-                                  .limit(YahwehPerformanceV4.masterChurchesListLimit)
-                                  .watchSafe(),
+                              stream: MasterAdminFirestore.watchQuery(
+                                MasterAdminFirestore.churchesQuery(
+                                  limit: YahwehPerformanceV4
+                                      .masterChurchesListLimit,
+                                ),
+                              ),
                               builder: (context, snap) {
                                 if (snap.hasError) {
                                   return Center(
@@ -1095,7 +1112,7 @@ class _SalesSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: plans.orderBy('order').watchSafe(),
+      stream: MasterAdminFirestore.watchQuery(plans.orderBy('order')),
       builder: (context, plansSnap) {
         if (!plansSnap.hasData) {
           return const Card(
@@ -1114,10 +1131,11 @@ class _SalesSummary extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: firebaseDefaultFirestore
-              .collection('igrejas')
-              .limit(YahwehPerformanceV4.masterChurchesListLimit)
-              .watchSafe(),
+          stream: MasterAdminFirestore.watchQuery(
+            MasterAdminFirestore.churchesQuery(
+              limit: YahwehPerformanceV4.masterChurchesListLimit,
+            ),
+          ),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Card(

@@ -16,7 +16,8 @@ import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dar
 import "package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart";
 import "package:gestao_yahweh/services/public_site_analytics.dart";
 import "package:gestao_yahweh/core/app_constants.dart";
-import "package:gestao_yahweh/services/firestore_stream_utils.dart";
+import "package:gestao_yahweh/core/marketing_storage_layout.dart";
+import "package:gestao_yahweh/services/marketing_public_site_service.dart";
 import "package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart";
 import "package:gestao_yahweh/ui/widgets/modern_store_download_button.dart";
 
@@ -451,7 +452,8 @@ class _SitePublicPageState extends State<SitePublicPage>
                           key: _keyVideo,
                           child: PremiumMarketingHeroVideo(
                             height: isMobile ? 200 : 280,
-                            defaultStoragePath: 'public/videos/institucional.mp4',
+                            defaultStoragePath:
+                                MarketingStorageLayout.defaultInstitutionalVideoPath,
                           ),
                         ),
                       ),
@@ -1384,9 +1386,7 @@ class _DownloadsSection extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirestoreStreamUtils.documentWatchBootstrap(
-                FirebaseFirestore.instance.doc('config/appDownloads'),
-              ),
+              stream: MarketingPublicSiteService.watchAppDownloads(),
               builder: (context, snap) {
                 final data = snap.data?.data() ?? {};
                 final folderUrl = (data['driveFolderUrl'] ?? '').toString();

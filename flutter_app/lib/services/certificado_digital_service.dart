@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
-
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 /// Upload do certificado (.p12 / .pfx) para o Storage **restrito** e referÃªncia no perfil do usuÃ¡rio logado.
 ///
 /// **SeguranÃ§a:** nÃ£o gravar senha do certificado no Firestore. Use [FlutterSecureStorage] apenas no dispositivo
@@ -113,7 +113,8 @@ class CertificadoDigitalService {
     if (tid.isEmpty) throw StateError('Igreja invÃ¡lida');
     if (bytes.isEmpty) throw StateError('Arquivo vazio');
     final safeName = originalFileName.replaceAll(RegExp(r'[^\w.\-]'), '_');
-    final path = 'igrejas/$tid/certificados_gestor/${uid}_${DateTime.now().millisecondsSinceEpoch}.p12';
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final path = FirebasePaths.storageCertificadoGestorP12(tid, uid, ts);
     await MediaUploadService.uploadBytesWithRetry(
       storagePath: path,
       bytes: bytes,

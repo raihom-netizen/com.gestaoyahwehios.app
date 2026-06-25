@@ -880,6 +880,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   @override
   Widget build(BuildContext context) {
+    final effectiveTenantId = _effectiveTenantId;
+    if (effectiveTenantId.trim().isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Igreja não identificada',
+          error: 'Não foi possível resolver o churchId da sessão atual.',
+        ),
+      );
+    }
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _membersFuture,
       builder: (context, snap) {
@@ -1898,13 +1910,14 @@ class _CertificadosPageState extends State<CertificadosPage> {
     );
     try {
       final snap =
-          await CertificateEmitidoService.getForTenant(widget.tenantId, cid);
+          await CertificateEmitidoService.getForTenant(_effectiveTenantId, cid);
       if (!snap.exists || snap.data() == null) {
         throw Exception('Protocolo não encontrado');
       }
       final d = snap.data()!;
-      final tid = (d['tenantId'] ?? '').toString().trim();
-      if (tid.isEmpty || tid != widget.tenantId) {
+      final tid = ChurchRepository.churchId((d['tenantId'] ?? '').toString().trim());
+      final expectedTenantId = ChurchRepository.churchId(_effectiveTenantId);
+      if (tid.isEmpty || tid != expectedTenantId) {
         throw Exception('Este certificado não pertence a esta igreja.');
       }
       phase.value = 'A gerar PDF…';
@@ -2406,7 +2419,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final callable = FirebaseFunctions.instance
           .httpsCallable('processarCertificadosLote');
       final res = await callable.call<Map<String, dynamic>>({
-        'igrejaId': widget.tenantId,
+        'igrejaId': _effectiveTenantId,
         'listaMembrosId': selectedDocs.map((e) => e.id).toList(),
         'idAssinatura': template.id,
         'templateId': template.id,

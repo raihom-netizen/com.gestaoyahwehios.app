@@ -5,9 +5,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -43,7 +45,8 @@ class ChurchVisitantesLoadResult {
 abstract final class ChurchVisitantesLoadService {
   ChurchVisitantesLoadService._();
 
-  static const int kDefaultLimit = 120;
+  static const int kDefaultLimit = YahwehPerformanceV4.defaultPageSize;
+  static const int kFullLimit = 120;
 
   /// Doc de kit — não é visitante; excluir de listagens e cache RAM.
   static const String kSchemaDocId = '_schema';
@@ -124,10 +127,12 @@ abstract final class ChurchVisitantesLoadService {
   /// Lista visitantes — **nunca lança** (lista vazia = coleção ainda sem docs).
   static Future<ChurchVisitantesLoadResult> load({
     required String seedTenantId,
-    int limit = kDefaultLimit,
+    int? limit,
+    bool fullList = false,
     bool forceRefresh = false,
     bool forceServer = false,
   }) async {
+    final effectiveLimit = limit ?? (fullList ? kFullLimit : kDefaultLimit);
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
       return const ChurchVisitantesLoadResult(
@@ -139,16 +144,21 @@ abstract final class ChurchVisitantesLoadService {
       );
     }
 
-    final path = 'igrejas/$churchId/visitantes';
-    final ramKey = cacheKey(churchId, limit);
+    final path = FirebasePaths.visitantes(churchId);
+    final ramKey = cacheKey(churchId, effectiveLimit);
 
     if (!forceRefresh && !forceServer) {
-      final ramHit = peekRam(seedTenantId, limit: limit);
+      var ramHit = peekRam(seedTenantId, limit: effectiveLimit);
+      if (ramHit == null &&
+          !fullList &&
+          effectiveLimit == kDefaultLimit) {
+        ramHit = peekRam(seedTenantId, limit: kFullLimit);
+      }
       if (ramHit != null && ramHit.isNotEmpty) {
         unawaited(_refreshInBackground(
           churchId: churchId,
-          ramKey: ramKey,
-          limit: limit,
+          ramKey: cacheKey(churchId, kFullLimit),
+          limit: kFullLimit,
         ));
         return ChurchVisitantesLoadResult(
           churchId: churchId,
@@ -164,8 +174,8 @@ abstract final class ChurchVisitantesLoadService {
         _putRam(ramKey, docs);
         unawaited(_refreshInBackground(
           churchId: churchId,
-          ramKey: ramKey,
-          limit: limit,
+          ramKey: cacheKey(churchId, kFullLimit),
+          limit: kFullLimit,
         ));
         return ChurchVisitantesLoadResult(
           churchId: churchId,
@@ -187,8 +197,8 @@ abstract final class ChurchVisitantesLoadService {
           _putRam(ramKey, docs);
           unawaited(_refreshInBackground(
             churchId: churchId,
-            ramKey: ramKey,
-            limit: limit,
+            ramKey: cacheKey(churchId, kFullLimit),
+            limit: kFullLimit,
           ));
           return ChurchVisitantesLoadResult(
             churchId: churchId,
@@ -201,7 +211,7 @@ abstract final class ChurchVisitantesLoadService {
 
       try {
         final cacheSnap = await ChurchUiCollections.visitantes(churchId)
-            .limit(limit)
+            .limit(effectiveLimit)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 3));
         final docs = _sortByCreatedAt(_filterVisitorDocs(cacheSnap.docs));
@@ -209,8 +219,8 @@ abstract final class ChurchVisitantesLoadService {
           _putRam(ramKey, docs);
           unawaited(_refreshInBackground(
             churchId: churchId,
-            ramKey: ramKey,
-            limit: limit,
+            ramKey: cacheKey(churchId, kFullLimit),
+            limit: kFullLimit,
           ));
           return ChurchVisitantesLoadResult(
             churchId: churchId,
@@ -228,11 +238,18 @@ abstract final class ChurchVisitantesLoadService {
         churchId: churchId,
         cacheKey: ramKey,
         forceServer: forceServer,
-        limit: limit,
+        limit: effectiveLimit,
       ));
       if (docs.isNotEmpty) {
         _putRam(ramKey, docs);
         unawaited(_persistHive(churchId, docs));
+      }
+      if (!fullList && effectiveLimit == kDefaultLimit) {
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: cacheKey(churchId, kFullLimit),
+          limit: kFullLimit,
+        ));
       }
       return ChurchVisitantesLoadResult(
         churchId: churchId,
@@ -249,7 +266,7 @@ abstract final class ChurchVisitantesLoadService {
         churchId,
         'visitantes',
         moduleLabel: 'Visitantes',
-        limit: limit,
+        limit: effectiveLimit,
         cacheKey: ramKey,
       ).timeout(
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
@@ -477,7 +494,7 @@ abstract final class ChurchVisitantesLoadService {
         () => schemaRef.set(
           ChurchTenantFields.stamp(churchId, {
             'schemaVersion': 1,
-            'firestorePath': 'igrejas/$churchId/visitantes',
+            'firestorePath': FirebasePaths.visitantes(churchId),
             'isWelcomeKit': true,
             'provisionedAt': FieldValue.serverTimestamp(),
             'followupsSubcollection': 'followups',

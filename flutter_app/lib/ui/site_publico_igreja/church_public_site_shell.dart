@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_store_download_button.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -788,9 +788,7 @@ class ChurchPublicAppDownloadBanner extends StatelessWidget {
           ],
         ),
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirestoreStreamUtils.documentWatchBootstrap(
-            firebaseDefaultFirestore.doc('config/appDownloads'),
-          ),
+          stream: MarketingPublicSiteService.watchAppDownloads(),
           builder: (context, snap) {
             final data = snap.data?.data() ?? {};
             final androidUrl =

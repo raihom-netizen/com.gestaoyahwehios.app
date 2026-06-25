@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -132,9 +133,8 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
     setState(() => _marketingGalleryStorageRefreshToken++);
   }
 
-DocumentReference<Map<String, dynamic>> get _docRef => firebaseDefaultFirestore
-      .collection(MarketingStorageLayout.firestoreCollection)
-      .doc(MarketingStorageLayout.firestoreGalleryDocId);
+DocumentReference<Map<String, dynamic>> get _docRef =>
+    MarketingPublicSiteService.galleryDocRef;
 
   String _itemPath(Map<String, dynamic> item) =>
       MarketingStorageLayout.normalizeObjectPath(

@@ -10,7 +10,9 @@ import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show freshFirebaseStorageDisplayUrl, sanitizeImageUrl;
 import 'package:video_player/video_player.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 
 /// Campos opcionais no Firestore (`igrejas/{id}` ou `app_public/site`) para vídeo institucional.
 bool mapHasInstitutionalVideo(Map<String, dynamic>? data) {
@@ -200,7 +202,7 @@ class _PremiumInstitutionalVideoCardState
       return;
     }
     try {
-      final ref = FirebaseStorage.instance.ref(path);
+      final ref = firebaseDefaultStorage.ref(path);
       final u = await ref.getDownloadURL();
       if (mounted) setState(() => _posterResolved = u);
     } catch (_) {
@@ -244,7 +246,7 @@ class _PremiumInstitutionalVideoCardState
       return;
     }
     Future<void> tryPath() async {
-      final ref = FirebaseStorage.instance.ref(path);
+      final ref = firebaseDefaultStorage.ref(path);
       final u = await ref.getDownloadURL();
       if (!mounted) return;
       setState(() {
@@ -466,16 +468,13 @@ class PremiumMarketingHeroVideo extends StatelessWidget {
   const PremiumMarketingHeroVideo({
     super.key,
     this.height = 280,
-    this.defaultStoragePath = 'public/videos/institucional.mp4',
+    this.defaultStoragePath = MarketingStorageLayout.defaultInstitutionalVideoPath,
   });
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('app_public')
-          .doc('site')
-          .watchSafe(),
+      stream: MarketingPublicSiteService.watchSite(),
       builder: (context, snap) {
         Map<String, dynamic>? data;
         if (snap.hasData && snap.data!.exists) {

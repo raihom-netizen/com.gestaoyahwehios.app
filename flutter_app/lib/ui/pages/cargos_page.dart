@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
@@ -711,7 +712,7 @@ class _CargosPageState extends State<CargosPage> {
     if (churchId.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    final path = 'igrejas/$churchId/cargos';
+    final path = FirebasePaths.cargos(churchId);
 
     final result = await ChurchCargosLoadService.load(
       seedTenantId: churchId,

@@ -14,8 +14,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class YahwehChurchProfileEngine {
   YahwehChurchProfileEngine._();
 
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

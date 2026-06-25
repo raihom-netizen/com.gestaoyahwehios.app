@@ -22,9 +22,8 @@ abstract final class YahwehReportsEngineFetcher {
   static const int kPatrimonioReportLimit = 200;
   static const int kMembrosReportLimit = 800;
 
-  /// Referência aceite — **não** usar em runtime fixo; só documentação/DEBUG.
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  /// Sem fallback fixo de tenant — usar sempre o churchId da sessão.
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

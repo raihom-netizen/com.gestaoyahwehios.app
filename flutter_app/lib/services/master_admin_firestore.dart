@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -9,6 +10,15 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 /// Todas as telas admin devem usar este serviço em vez de `FirebaseFirestore.instance` directo.
 abstract final class MasterAdminFirestore {
   MasterAdminFirestore._();
+
+  static FirebaseFirestore get db => firebaseDefaultFirestore;
+
+  /// Listagem agregada de igrejas (painel master — não confundir com tenant do painel igreja).
+  static Query<Map<String, dynamic>> churchesQuery({int? limit}) {
+    Query<Map<String, dynamic>> q = db.collection('igrejas');
+    if (limit != null) q = q.limit(limit);
+    return q;
+  }
 
   /// Arranque / troca de aba — token + rede + recuperação suave.
   static Future<void> ensureReady({bool refreshAuth = true}) async {
@@ -64,6 +74,23 @@ abstract final class MasterAdminFirestore {
   static Future<T> write<T>(Future<T> Function() fn) async {
     await FirestoreWebGuard.prepareForCriticalWrite();
     return FirestoreWebGuard.runWithWebRecovery(fn, maxAttempts: 4);
+  }
+
+  /// Stream resiliente para `StreamBuilder` no painel master (web).
+  static Stream<QuerySnapshot<Map<String, dynamic>>> watchQuery(
+    Query<Map<String, dynamic>> query, {
+    bool broadcast = false,
+  }) async* {
+    await ensureReady();
+    yield* FirestoreStreamUtils.queryWatchSafe(query, broadcast: broadcast);
+  }
+
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> watchDocument(
+    DocumentReference<Map<String, dynamic>> ref, {
+    bool broadcast = false,
+  }) async* {
+    await ensureReady();
+    yield* FirestoreStreamUtils.documentWatchSafe(ref, broadcast: broadcast);
   }
 
   /// Mensagem amigável para UI (sem stack trace gigante).

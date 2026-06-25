@@ -757,7 +757,7 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 
-      final nextDocs = kIsWeb ? _filterFeedDocs(snap.docs) : snap.docs;
+      final nextDocs = _filterFeedDocs(snap.docs);
       if (reset) {
         _feedRawDocs
           ..clear()
@@ -785,7 +785,7 @@ class InstagramMuralState extends State<InstagramMural> {
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 4));
           if (cacheSnap.docs.isNotEmpty) {
-            _feedRawDocs.addAll(cacheSnap.docs);
+            _feedRawDocs.addAll(_filterFeedDocs(cacheSnap.docs));
             _feedLastCursor =
                 _feedRawDocs.isNotEmpty ? _feedRawDocs.last : null;
             _feedLoadError = null;

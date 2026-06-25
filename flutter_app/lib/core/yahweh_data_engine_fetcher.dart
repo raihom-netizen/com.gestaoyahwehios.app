@@ -41,9 +41,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class YahwehDataEngineFetcher {
   YahwehDataEngineFetcher._();
 
-  /// Igreja piloto de testes aceite — **só** documentação/DEBUG; nunca usar em runtime fixo.
-  static const String pilotChurchIdHint =
-      'igreja_o_brasil_para_cristo_jardim_goiano';
+  /// Sem fallback fixo de tenant — usar sempre o churchId da sessão.
+  static const String pilotChurchIdHint = '';
 
   static String resolveChurchId([String? hint]) =>
       ChurchRepository.churchId(hint);

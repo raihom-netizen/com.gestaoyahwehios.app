@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -69,7 +70,7 @@ abstract final class CertificadosPublishVerificationService {
       _resolve(seed, userUid, 'certificados');
 
   static String storagePrefix(String igrejaId) =>
-      '${ChurchStorageLayout.churchRoot(igrejaId)}/certificados/';
+      '${FirebasePaths.storageCertificadosPrefix(igrejaId)}/';
 
   static void clearError() => _lastError = null;
 }
@@ -86,7 +87,7 @@ abstract final class CarteirinhaPublishVerificationService {
       _resolve(seed, userUid, 'carteirinha');
 
   static String storagePrefix(String igrejaId) =>
-      '${ChurchStorageLayout.churchRoot(igrejaId)}/${ChurchStorageLayout.kSegCartaoMembro}/';
+      '${FirebasePaths.storageRoot(igrejaId)}/${ChurchStorageLayout.kSegCartaoMembro}/';
 
   static void clearError() => _lastError = null;
 }
@@ -103,7 +104,7 @@ abstract final class OracaoPublishVerificationService {
       _resolve(seed, userUid, 'oracao');
 
   static String collectionPath(String igrejaId) =>
-      'igrejas/${igrejaId.trim()}/pedidosOracao';
+      FirebasePaths.pedidosOracao(igrejaId.trim());
 
   static void clearError() => _lastError = null;
 }
@@ -120,7 +121,7 @@ abstract final class TransferenciaPublishVerificationService {
       _resolve(seed, userUid, 'transferencia');
 
   static String collectionPath(String igrejaId) =>
-      'igrejas/${igrejaId.trim()}/cartas_historico';
+      FirebasePaths.transferencias(igrejaId.trim());
 
   static void clearError() => _lastError = null;
 }
@@ -137,7 +138,7 @@ abstract final class FornecedorPublishVerificationService {
       _resolve(seed, userUid, 'fornecedor');
 
   static String collectionPath(String igrejaId) =>
-      'igrejas/${igrejaId.trim()}/fornecedores';
+      FirebasePaths.fornecedores(igrejaId.trim());
 
   static void clearError() => _lastError = null;
 }

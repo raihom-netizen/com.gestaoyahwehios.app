@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -38,7 +40,8 @@ class ChurchCargosLoadResult {
 abstract final class ChurchCargosLoadService {
   ChurchCargosLoadService._();
 
-  static const int kLimit = 120;
+  static const int kLimit = YahwehPerformanceV4.defaultPageSize;
+  static const int kFullLimit = 80;
 
   static final Map<
       String,
@@ -101,6 +104,7 @@ abstract final class ChurchCargosLoadService {
       _loadFirestoreFull(
     String churchId, {
     bool forceServer = false,
+    int limit = kFullLimit,
   }) async {
     final id = ChurchRepository.churchId(churchId);
     if (id.isEmpty) return const [];
@@ -109,7 +113,7 @@ abstract final class ChurchCargosLoadService {
     return ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: ChurchUiCollections.cargos(id),
       cacheKey: key,
-      limit: kLimit,
+      limit: limit,
       forceServer: forceServer,
       legacyFallbackSubcollections: const ['roles'],
       orderByField: 'order',
@@ -134,7 +138,7 @@ abstract final class ChurchCargosLoadService {
       );
     }
 
-    final path = 'igrejas/$churchId/cargos';
+    final path = FirebasePaths.cargos(churchId);
 
     if (!forceRefresh && !forceServer) {
       final ram = peekRam(churchId);
@@ -199,10 +203,13 @@ abstract final class ChurchCargosLoadService {
     }
 
     Object? lastError;
+    final queryLimit =
+        forceServer || forceRefresh ? kFullLimit : kLimit;
     try {
       final docs = await _loadFirestoreFull(
         churchId,
         forceServer: forceServer,
+        limit: queryLimit,
       );
       if (docs.isNotEmpty) {
         putRam(churchId, docs);
@@ -214,13 +221,16 @@ abstract final class ChurchCargosLoadService {
             collectionPath: path,
           ),
         ));
-        return ChurchCargosLoadResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: forceServer ? 'server' : 'firestore_full',
-          collectionPath: path,
-        );
       }
+      if (!forceRefresh && !forceServer && queryLimit == kLimit) {
+        unawaited(_refreshInBackground(churchId));
+      }
+      return ChurchCargosLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: forceServer ? 'server' : 'firestore_full',
+        collectionPath: path,
+      );
     } catch (e) {
       lastError = e;
     }
@@ -302,7 +312,10 @@ abstract final class ChurchCargosLoadService {
 
   static Future<void> _refreshInBackground(String churchId) async {
     try {
-      final docs = await _loadFirestoreFull(churchId);
+      final docs = await _loadFirestoreFull(
+        churchId,
+        limit: kFullLimit,
+      );
       if (docs.isEmpty) return;
       putRam(churchId, docs);
       await persistAfterLoad(
@@ -310,7 +323,7 @@ abstract final class ChurchCargosLoadService {
           churchId: churchId,
           docs: docs,
           readSource: 'background_refresh',
-          collectionPath: 'igrejas/$churchId/cargos',
+          collectionPath: FirebasePaths.cargos(churchId),
         ),
       );
     } catch (_) {}

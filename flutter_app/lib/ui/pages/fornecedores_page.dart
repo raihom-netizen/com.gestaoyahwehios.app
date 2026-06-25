@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
@@ -190,7 +191,7 @@ Future<_FornecedoresAgendaBundle> _loadFornecedoresAgendaBundle({
         docs: fnSnap.docs
             .cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
         readSource: 'timeout',
-        collectionPath: 'igrejas/$tid/fornecedores',
+        collectionPath: FirebasePaths.fornecedores(tid),
         softError: 'Tempo esgotado ao carregar fornecedores.',
       ),
     );
@@ -1503,7 +1504,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           churchId: tid,
           docs: const [],
           readSource: 'timeout',
-          collectionPath: 'igrejas/$tid/fornecedores',
+          collectionPath: FirebasePaths.fornecedores(tid),
           softError: 'Tempo esgotado ao carregar fornecedores.',
         ),
       );
@@ -1518,8 +1519,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           _fornecedoresShowingStaleCache = _fornecedoresShouldShowStaleBanner(
             fromCache: result.fromCache,
           );
-          _loadHint =
-              'igrejas/$tid/fornecedores (${result.readSource}, ${result.docs.length})';
+          _loadHint = '${FirebasePaths.fornecedores(tid)} '
+              '(${result.readSource}, ${result.docs.length})';
         });
       } else if (result.softError != null && result.softError!.isNotEmpty) {
         final hadLocal = (_fornecedoresSnap?.docs.isNotEmpty ?? false);
@@ -1593,16 +1594,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       ChurchModuleQueryProbe.logSuccess(
         module: 'Fornecedores',
         churchId: ChurchFornecedoresLoadService.resolveChurchId(tid),
-        path:
-            'igrejas/${ChurchFornecedoresLoadService.resolveChurchId(tid)}/fornecedores',
+        path: FirebasePaths.fornecedores(
+          ChurchFornecedoresLoadService.resolveChurchId(tid),
+        ),
         totalDocs: result.docs.length,
       );
     } catch (e) {
       ChurchModuleQueryProbe.logError(
         module: 'Fornecedores',
         churchId: ChurchFornecedoresLoadService.resolveChurchId(tid),
-        path:
-            'igrejas/${ChurchFornecedoresLoadService.resolveChurchId(tid)}/fornecedores',
+        path: FirebasePaths.fornecedores(
+          ChurchFornecedoresLoadService.resolveChurchId(tid),
+        ),
         error: '$e',
       );
     }
@@ -2220,7 +2223,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'igrejas/${_effectiveTenantId}/fornecedores',
+                  FirebasePaths.fornecedores(_effectiveTenantId),
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
                     fontSize: 11,
@@ -4343,7 +4346,9 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                           ),
                         ),
                         Text(
-                          'igrejas/${ChurchRepository.churchId(widget.tenantId)}/fornecedores',
+                          FirebasePaths.fornecedores(
+                            ChurchRepository.churchId(widget.tenantId),
+                          ),
                           style: GoogleFonts.inter(
                             fontSize: 10.5,
                             color: Colors.grey.shade600,
@@ -4666,6 +4671,7 @@ class FornecedorHubPage extends StatefulWidget {
 
 class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTickerProviderStateMixin {
   late TabController _tab;
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   @override
   void initState() {
@@ -4683,13 +4689,13 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     super.dispose();
   }
 
-  DocumentReference<Map<String, dynamic>> get _fornecedorRef =>       ChurchUiCollections.fornecedores(widget.tenantId)
+  DocumentReference<Map<String, dynamic>> get _fornecedorRef =>       ChurchUiCollections.fornecedores(_tenantId)
       .doc(widget.fornecedorId);
 
-  CollectionReference<Map<String, dynamic>> get _financeCol =>       ChurchUiCollections.financeiro(widget.tenantId);
+  CollectionReference<Map<String, dynamic>> get _financeCol =>       ChurchUiCollections.financeiro(_tenantId);
 
   CollectionReference<Map<String, dynamic>> get _compCol =>
-      ChurchUiCollections.fornecedorCompromissos(widget.tenantId);
+      ChurchUiCollections.fornecedorCompromissos(_tenantId);
 
   Future<void> _novaComTipo(String presetTipo) async {
     final doc = await _fornecedorRef.get();
@@ -4697,7 +4703,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     final nome = (doc.data()?['nome'] ?? '').toString();
     final ok = await showFinanceLancamentoEditorForTenant(
       context,
-      tenantId: widget.tenantId,
+      tenantId: _tenantId,
       presetFornecedorId: widget.fornecedorId,
       presetFornecedorNome: nome,
       lockFornecedor: true,
@@ -4714,7 +4720,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   Future<void> _editarLancamento(QueryDocumentSnapshot<Map<String, dynamic>> d) async {
     final ok = await showFinanceLancamentoEditorForTenant(
       context,
-      tenantId: widget.tenantId,
+      tenantId: _tenantId,
       existingDoc: d,
       presetFornecedorId: widget.fornecedorId,
       lockFornecedor: true,
@@ -4742,7 +4748,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     );
     if (ok != true || !mounted) return;
     try {
-      await excluirLancamentoFinanceiroComAuditoria(d, widget.tenantId);
+      await excluirLancamentoFinanceiroComAuditoria(d, _tenantId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Lançamento excluído.')),
@@ -4759,9 +4765,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
   Future<void> _emitirRecibo(Map<String, dynamic> m, String financeDocId) async {
     try {
-      final brandingFuture = _loadBrandingFastForRecibo(widget.tenantId);
+      final brandingFuture = _loadBrandingFastForRecibo(_tenantId);
       final signersFuture =
-          ChurchSignatoryLoadService.loadEligible(seedTenantId: widget.tenantId);
+          ChurchSignatoryLoadService.loadEligible(seedTenantId: _tenantId);
       final doc = await _fornecedorRef.get(
         const GetOptions(source: Source.serverAndCache),
       );
@@ -4799,7 +4805,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
       final cfg = await showFornecedorReciboEmitSheet(
         context,
-        tenantId: widget.tenantId,
+        tenantId: _tenantId,
         fornecedorNome: nomeForn,
         valor: v,
         referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
@@ -4815,7 +4821,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
         Map<String, dynamic> churchData = {};
         try {
           churchData =
-              (await ChurchRepository.churchDoc(widget.tenantId).get()).data() ??
+              (await ChurchRepository.churchDoc(_tenantId).get()).data() ??
                   {};
         } catch (_) {}
         churchStamp = PdfDigitalStampInput.now(
@@ -4862,7 +4868,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   Widget build(BuildContext context) {
     final seedData = widget.initialData ??
         ChurchFornecedoresLoadService.peekDocData(
-          widget.tenantId,
+          _tenantId,
           widget.fornecedorId,
         );
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -4973,14 +4979,14 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
             children: [
               _CadastroTab(
                 fornecedorRef: _fornecedorRef,
-                tenantId: widget.tenantId,
+                tenantId: _tenantId,
                 seedData: cadastro,
                 canWrite: ChurchRolePermissions.isCorporateModuleTeam(
                   widget.role,
                 ),
               ),
               _FinanceiroTab(
-                tenantId: widget.tenantId,
+                tenantId: _tenantId,
                 fornecedorId: widget.fornecedorId,
                 panelRole: widget.role,
                 onNovaDespesa: _novaDespesa,
@@ -4990,13 +4996,13 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 onRecibo: _emitirRecibo,
               ),
               _AgendaTab(
-                tenantId: widget.tenantId,
+                tenantId: _tenantId,
                 compCol: _compCol,
                 fornecedorId: widget.fornecedorId,
               ),
               _FornecedoresCompromissosListaTab(
-                tenantId: widget.tenantId,
-                colFornecedores:                     ChurchUiCollections.fornecedores(widget.tenantId),
+                tenantId: _tenantId,
+                colFornecedores:                     ChurchUiCollections.fornecedores(_tenantId),
                 onOpenFornecedor: null,
                 fornecedorIdFilter: widget.fornecedorId,
                 showFornecedorLine: false,
