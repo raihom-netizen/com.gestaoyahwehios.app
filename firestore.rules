@@ -50,14 +50,19 @@ service cloud.firestore {
     // Compatibilidade de tenant entre formatos:
     // - canónico: `igreja_xxx`
     // - legado: `id_igreja_xxx`
+    // - legado UI: `v_igreja_xxx`
     // - seed/path legado: `/igrejas/{id}/...`
     function tenantValueMatches(value, tenantId) {
       return value is string && (
         value == tenantId
         || value == ('id_' + tenantId)
+        || value == ('v_' + tenantId)
         || tenantId == ('id_' + value)
+        || tenantId == ('v_' + value)
         || value.matches('^/?igrejas/' + tenantId + '(/.*)?$')
+        || value.matches('^/?igrejas/v_' + tenantId + '(/.*)?$')
         || value.matches('^.*/igrejas/' + tenantId + '(/.*)?$')
+        || value.matches('^.*/igrejas/v_' + tenantId + '(/.*)?$')
       );
     }
     // sameChurch: documento users ou custom claims (igrejaId/tenantId/churchId/churchCanonicalId)

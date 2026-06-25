@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -962,7 +963,10 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+    final fn = FirebaseFunctions.instanceFor(
+      app: firebaseDefaultApp,
+      region: 'us-central1',
+    ).httpsCallable(
       'repairMyChurchBinding',
       options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
     );
@@ -999,7 +1003,7 @@ class _LoginPageState extends State<LoginPage> {
   Future<bool> _userHasChurchBinding(User user) async {
     try {
       final doc =
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(user.uid).get();
       final data = doc.data();
       final igrejaId =
           (data?['igrejaId'] ?? data?['tenantId'] ?? '').toString().trim();

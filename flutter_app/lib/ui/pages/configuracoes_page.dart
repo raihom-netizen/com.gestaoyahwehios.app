@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_member_notification_prefs_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
@@ -185,7 +186,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
         }
         final uDoc = await firestoreDocumentGetReliable(
-          FirebaseFirestore.instance.collection('users').doc(u.uid.trim()),
+          firebaseDefaultFirestore.collection('users').doc(u.uid.trim()),
         ).timeout(const Duration(seconds: 8));
         final d = uDoc.data();
         if (d != null) {
@@ -292,7 +293,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
         }
         final uDoc = await firestoreDocumentGetReliable(
-          FirebaseFirestore.instance.collection('users').doc(authUser.uid.trim()),
+          firebaseDefaultFirestore.collection('users').doc(authUser.uid.trim()),
         ).timeout(const Duration(seconds: 8));
         userAtivo = uDoc.data()?['ativo'] == true;
       } catch (_) {
@@ -409,7 +410,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       );
     } catch (_) {
       try {
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
+        await firebaseDefaultFirestore.collection('users').doc(user.uid).set(
           {firestoreField: v},
           SetOptions(merge: true),
         );
@@ -1477,7 +1478,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     setState(() => _sugestaoEnviando = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance.collection('suggestions').add({
+      await firebaseDefaultFirestore.collection('suggestions').add({
         'tenantId': widget.tenantId,
         'userId': user?.uid ?? '',
         'userEmail': user?.email ?? '',

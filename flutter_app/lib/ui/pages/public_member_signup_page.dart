@@ -1963,7 +1963,7 @@ class PublicSignupStatusPage extends StatelessWidget {
 
   Future<({String churchName, Map<String, dynamic>? memberData, String? error})>
       _loadStatus() async {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final slugTrim = slug.trim();
     if (slugTrim.isEmpty || protocolo.trim().isEmpty) {
       return (churchName: 'Igreja', memberData: null, error: 'Link inválido.');

@@ -55,3 +55,19 @@
 
 - Manter o código modular e limpo; respeitar `.cursor/rules/` (Firebase/imagens, deploy, versão) quando aplicável.
 - **Deploy completo** (pedido explícito ao final): seguir `.cursor/rules/deploy-completo-producao.mdc` — `.\scripts\deploy_completo.ps1` na raiz (Firebase + functions + web + AAB em `D:\Temporarios` + ZIP iOS + `git push` para Codemagic).
+
+## Regra de ouro — paths dinâmicos por igreja (multi-tenant)
+
+- **Proibido** hardcode de tenant (`igreja_o_brasil_para_cristo_jardim_goiano` ou similares) em Firestore/Storage.
+- Sempre resolver e usar `churchId`/`currentChurchId` dinamicamente via `ChurchRepository.churchId(...)` ou `ChurchContext`.
+- Estrutura Firestore canónica:
+  - `igrejas/{churchId}`
+  - `igrejas/{churchId}/departamentos/{departamentoId}`
+  - `igrejas/{churchId}/membros/{membroId}`
+  - `igrejas/{churchId}/config/mercado_pago`
+  - `igrejas/{churchId}/finance/{financeId}`
+  - `igrejas/{churchId}/finance_logs/{logId}`
+  - `igrejas/{churchId}/finance_mp_notifications/{notificationId}`
+- Estrutura Storage canónica:
+  - `igrejas/{churchId}/configuracoes/logo_igreja.png`
+- Toda função de leitura/escrita/upload deve receber `churchId` como parâmetro obrigatório (ou resolver pelo contexto da sessão).

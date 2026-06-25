@@ -220,6 +220,14 @@ class TenantResolverService {
     if (fromPath != null && fromPath.isNotEmpty) {
       t = fromPath;
     }
+    // Algumas rotas antigas persistiram tenant com prefixo `v_` (ex.: v_igreja_xxx).
+    // O doc canónico continua sendo `igreja_xxx`.
+    if (t.startsWith('v_') && t.length > 2) {
+      final tail = t.substring(2).trim();
+      if (tail.startsWith('igreja_')) {
+        t = tail;
+      }
+    }
     // Algumas contas/sessões antigas persistiram tenant no formato
     // `id_igreja_...`; o doc real sempre é `igreja_...`.
     if (t.startsWith('id_') && t.length > 3) {

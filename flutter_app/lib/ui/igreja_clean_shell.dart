@@ -222,6 +222,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (mounted) setState(() => _roleOverride = resolved);
   }
 
+  String _forceCanonicalTenantId(String raw) {
+    final t = raw.trim();
+    if (t.startsWith('v_igreja_') && t.length > 2) {
+      return t.substring(2);
+    }
+    if (t.startsWith('id_igreja_') && t.length > 3) {
+      return t.substring(3);
+    }
+    return t;
+  }
+
   /// Doc canÃ³nico (`departamentos`, chat, slug) â€” resolvido uma vez no arranque/resume.
   String? _operationalTenantId;
 
@@ -234,10 +245,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Sempre doc canônico — nunca slug legado nos módulos do shell.
   String get _moduleTenantId {
     final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
-    if (ctx.isNotEmpty) return ctx;
+    if (ctx.isNotEmpty) return _forceCanonicalTenantId(ctx);
     final op = (_operationalTenantId ?? '').trim();
-    if (op.isNotEmpty) return ChurchPanelTenant.resolve(op);
-    return ChurchPanelTenant.resolve(widget.tenantId.trim());
+    if (op.isNotEmpty) {
+      return ChurchPanelTenant.resolve(_forceCanonicalTenantId(op));
+    }
+    return ChurchPanelTenant.resolve(_forceCanonicalTenantId(widget.tenantId));
   }
 
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).
@@ -447,7 +460,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   @override
   void initState() {
     super.initState();
-    final hint = widget.tenantId.trim();
+    final hint = _forceCanonicalTenantId(widget.tenantId);
     if (hint.isNotEmpty) {
       final canonical = ChurchPanelTenant.resolve(hint);
       _operationalTenantId = canonical;
@@ -1797,13 +1810,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         letterSpacing: 0.12,
                       ),
                     ),
-                    if (widget.tenantId.trim().isNotEmpty)
+                    if (_moduleTenantId.trim().isNotEmpty)
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: () {
                             Clipboard.setData(
-                                ClipboardData(text: widget.tenantId.trim()));
+                                ClipboardData(text: _moduleTenantId.trim()));
                             ScaffoldMessenger.of(context).showSnackBar(
                               ThemeCleanPremium.successSnackBar(
                                   'ID da igreja copiado.'),
@@ -1817,7 +1830,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               children: [
                                 Flexible(
                                   child: Text(
-                                    'ID: ${widget.tenantId.trim()}',
+                                    'ID: ${_moduleTenantId.trim()}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -1839,7 +1852,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           ),
                         ),
                       ),
-                    _HeaderLocalizacao(tenantId: widget.tenantId.trim()),
+                    _HeaderLocalizacao(tenantId: _moduleTenantId),
                     if (licenseBlocked)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),

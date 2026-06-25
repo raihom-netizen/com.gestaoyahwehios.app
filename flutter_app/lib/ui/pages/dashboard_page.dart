@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1075,7 +1076,7 @@ class _DashboardPageState extends State<DashboardPage> {
                             title: 'Downloads do app',
                             child: StreamBuilder<
                                 DocumentSnapshot<Map<String, dynamic>>>(
-                              stream: FirebaseFirestore.instance
+                              stream: firebaseDefaultFirestore
                                   .doc('config/appDownloads')
                                   .watchSafe(),
                               builder: (context, dlSnap) {
@@ -1171,7 +1172,7 @@ class _LicenseActiveBadge extends StatelessWidget {
         return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
           future: planId.isEmpty
               ? Future<DocumentSnapshot<Map<String, dynamic>>?>.value(null)
-              : FirebaseFirestore.instance
+              : firebaseDefaultFirestore
                   .collection('config')
                   .doc('plans')
                   .collection('items')

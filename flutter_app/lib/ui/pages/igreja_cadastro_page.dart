@@ -1507,7 +1507,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (userWriteId.isNotEmpty && _looksLikeFirebaseAuthUid(userWriteId)) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () => FirebaseFirestore.instance
+          () => firebaseDefaultFirestore
               .collection('users')
               .doc(userWriteId)
               .set({

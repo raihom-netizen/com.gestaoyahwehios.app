@@ -206,19 +206,31 @@ class _MembersPageState extends State<MembersPage> {
   /// churchId canónico (`igrejas/{id}`) — via [ChurchContextService] após login.
   String? _resolvedTenantId;
 
+  String _forceCanonicalTenantId(String raw) {
+    final t = raw.trim();
+    if (t.startsWith('v_igreja_') && t.length > 2) {
+      return t.substring(2);
+    }
+    if (t.startsWith('id_igreja_') && t.length > 3) {
+      return t.substring(3);
+    }
+    return t;
+  }
+
   /// Cache da ligação igreja (alias/slug) para incluir em toda escrita de membro.
   Map<String, String>? _tenantLinkageCache;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
         (_resolvedTenantId ?? '').isNotEmpty
             ? _resolvedTenantId
-            : widget.tenantId,
+            : _forceCanonicalTenantId(widget.tenantId),
       );
 
   /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
   Future<String> _resolveEffectiveTenantId() async {
-    final id = ChurchRepository.churchId(widget.tenantId);
-    return id.isNotEmpty ? id : widget.tenantId.trim();
+    final seed = _forceCanonicalTenantId(widget.tenantId);
+    final id = ChurchRepository.churchId(seed);
+    return id.isNotEmpty ? id : seed.trim();
   }
 
   Map<String, dynamic> _memberPhotoFirestorePatch(
@@ -669,13 +681,13 @@ class _MembersPageState extends State<MembersPage> {
       _filtroFaixaEtaria = widget.initialFiltroFaixaEtaria!;
     }
     _limitFuture = _limitService.checkLimit(
-      widget.tenantId,
+      _forceCanonicalTenantId(widget.tenantId),
       planIdOverride:
           (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
               ? null
               : (widget.subscription?['planId'] ?? '').toString().trim(),
     );
-    _warmMembrosCacheFirst(widget.tenantId);
+    _warmMembrosCacheFirst(_forceCanonicalTenantId(widget.tenantId));
     _membersDataFuture = _loadMembersData();
     _deptsFuture = _loadDeptsForFilter();
     unawaited(_hydrateMembersDirectoryCache());
@@ -691,7 +703,11 @@ class _MembersPageState extends State<MembersPage> {
           _deptsFuture = _loadDeptsForFilter();
         });
       }
-      _startMembersRealtimeWatch(resolved.isNotEmpty ? resolved : widget.tenantId);
+      _startMembersRealtimeWatch(
+        resolved.isNotEmpty
+            ? resolved
+            : _forceCanonicalTenantId(widget.tenantId),
+      );
     });
   }
 
@@ -709,7 +725,7 @@ class _MembersPageState extends State<MembersPage> {
       _q = '';
       _searchCtrl.clear();
       _limitFuture = _limitService.checkLimit(
-        widget.tenantId,
+        _forceCanonicalTenantId(widget.tenantId),
         planIdOverride:
             (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
                 ? null
@@ -728,7 +744,10 @@ class _MembersPageState extends State<MembersPage> {
           });
         }
         _startMembersRealtimeWatch(
-            resolved.isNotEmpty ? resolved : widget.tenantId);
+          resolved.isNotEmpty
+              ? resolved
+              : _forceCanonicalTenantId(widget.tenantId),
+        );
       });
     }
   }
@@ -855,7 +874,9 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _hydrateMembersDirectoryCache() async {
     final resolved = await _resolveEffectiveTenantId();
-    final tid = resolved.isNotEmpty ? resolved : widget.tenantId.trim();
+    final tid = resolved.isNotEmpty
+        ? resolved
+        : _forceCanonicalTenantId(widget.tenantId);
     if (tid.isEmpty || !mounted) return;
     final cache = await MembersDirectorySnapshotService.readOnce(tid);
     if (!mounted) return;
@@ -881,7 +902,9 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _watchMembersDirectoryCache() async {
     final resolved = await _resolveEffectiveTenantId();
-    final tid = resolved.isNotEmpty ? resolved : widget.tenantId.trim();
+    final tid = resolved.isNotEmpty
+        ? resolved
+        : _forceCanonicalTenantId(widget.tenantId);
     if (tid.isEmpty) return;
     await _directoryCacheSub?.cancel();
     _directoryCacheSub =
@@ -904,7 +927,7 @@ class _MembersPageState extends State<MembersPage> {
       if (!mounted) return;
       final tid = _effectiveTenantId.trim().isNotEmpty
           ? _effectiveTenantId.trim()
-          : widget.tenantId.trim();
+          : _forceCanonicalTenantId(widget.tenantId);
       if (tid.isEmpty) return;
       unawaited(PanelMediaPrefetchService.applyToUrlCaches(tid));
       ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
@@ -949,7 +972,7 @@ class _MembersPageState extends State<MembersPage> {
   Future<List<_MemberDoc>> _membersDocsForExport() async {
     final tid = _effectiveTenantId.trim().isNotEmpty
         ? _effectiveTenantId.trim()
-        : widget.tenantId.trim();
+        : _forceCanonicalTenantId(widget.tenantId);
     if (tid.isEmpty) return const [];
 
     var cache = _directoryCache;
@@ -1182,7 +1205,7 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   void _warmMembrosCacheFirst(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = _forceCanonicalTenantId(tenantId);
     if (tid.isEmpty) return;
     unawaited(
       ChurchRepository.listCacheFirst(
@@ -1208,8 +1231,9 @@ class _MembersPageState extends State<MembersPage> {
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceServer);
     final resolved = await _resolveEffectiveTenantId();
     if (mounted) setState(() => _resolvedTenantId = resolved);
-    final tenantId = resolved.isNotEmpty ? resolved : widget.tenantId;
-    final originalId = widget.tenantId.trim();
+    final tenantId =
+        resolved.isNotEmpty ? resolved : _forceCanonicalTenantId(widget.tenantId);
+    final originalId = _forceCanonicalTenantId(widget.tenantId);
     if (tenantId.isEmpty && originalId.isEmpty) {
       return Future.value(List<QuerySnapshot<Map<String, dynamic>>>.filled(
           7, _EmptyQuerySnapshot()));
@@ -1661,7 +1685,7 @@ class _MembersPageState extends State<MembersPage> {
     );
     final tid = _effectiveTenantId.trim().isNotEmpty
         ? _effectiveTenantId.trim()
-        : widget.tenantId.trim();
+        : _forceCanonicalTenantId(widget.tenantId);
     if (tid.isNotEmpty) {
       MembersDirectorySnapshotService.rememberInMemory(tid, _directoryCache);
     }

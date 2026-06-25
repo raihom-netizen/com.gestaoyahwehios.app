@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 class ChangePasswordPage extends StatefulWidget {
   final String tenantId; // igrejaId (mantido para compatibilidade)
@@ -71,7 +72,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       await user.updatePassword(newPass);
 
       // Marca MUST_CHANGE_PASS = false
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+      await firebaseDefaultFirestore.collection('users').doc(user.uid).update({
         'mustChangePass': false,
       });
 

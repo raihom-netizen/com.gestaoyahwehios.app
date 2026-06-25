@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -283,7 +284,10 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       if (uid != null && emailChangedForAuth) {
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);
-          final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
+          final res = await FirebaseFunctions.instanceFor(
+            app: firebaseDefaultApp,
+            region: 'us-central1',
+          )
               .httpsCallable('recreateMemberAuthForNewEmail')
               .call({
             'tenantId': widget.tenantId,
@@ -330,7 +334,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       }
 
       if (uid != null && !authRecreatedAfterEmail) {
-        await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        await firebaseDefaultFirestore.collection('users').doc(uid).update({
           'mustCompleteRegistration': false,
           'name': _nameCtrl.text.trim(),
           'nome': _nameCtrl.text.trim(),
@@ -349,7 +353,10 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         });
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);
-          await FirebaseFunctions.instanceFor(region: 'us-central1')
+          await FirebaseFunctions.instanceFor(
+            app: firebaseDefaultApp,
+            region: 'us-central1',
+          )
               .httpsCallable('alignMemberDocToAuthUid')
               .call({
             'tenantId': widget.tenantId,

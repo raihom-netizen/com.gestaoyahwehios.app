@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -32,7 +33,10 @@ class _SignupCompletarGestorPageState extends State<SignupCompletarGestorPage> {
   bool _resolvedStep = false;
 
   FirebaseFunctions get _fnUsCentral1 =>
-      FirebaseFunctions.instanceFor(region: 'us-central1');
+      FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      );
 
   @override
   void initState() {
@@ -50,7 +54,7 @@ class _SignupCompletarGestorPageState extends State<SignupCompletarGestorPage> {
     if (user == null) return;
     try {
       final doc =
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+          await firebaseDefaultFirestore.collection('users').doc(user.uid).get();
       final d = doc.data();
       if (d == null) {
         if (mounted) setState(() => _resolvedStep = true);

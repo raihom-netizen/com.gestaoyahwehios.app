@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import '../services/ios_payments_gate.dart';
 
 import 'pages/biometric_lock_page.dart';
@@ -83,6 +84,17 @@ Map<String, dynamic> authGateNormalizeProfile(
     'active': active,
     'memberStatusPending': active ? false : access.memberStatusPending,
   };
+}
+
+String _forceCanonicalChurchId(String raw) {
+  final t = raw.trim();
+  if (t.startsWith('v_igreja_') && t.length > 2) {
+    return t.substring(2);
+  }
+  if (t.startsWith('id_igreja_') && t.length > 3) {
+    return t.substring(3);
+  }
+  return t;
 }
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -348,7 +360,10 @@ class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
   Future<void> _repairAccess({bool silent = false}) async {
     setState(() => _repairing = true);
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final fn = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      )
           .httpsCallable(
         'repairMyChurchBinding',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
@@ -658,7 +673,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
     }
     try {
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       final loadTimeout =
           kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 6);
 
@@ -1072,7 +1087,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
       if (igrejaId.isEmpty) {
         try {
-          final userDoc = await FirebaseFirestore.instance
+          final userDoc = await firebaseDefaultFirestore
               .collection('users')
               .doc(user.uid)
               .get()
@@ -1086,7 +1101,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           }
         } catch (_) {
           try {
-            final userDoc = await FirebaseFirestore.instance
+            final userDoc = await firebaseDefaultFirestore
                 .collection('users')
                 .doc(user.uid)
                 .get(const GetOptions(source: Source.cache))
@@ -1220,7 +1235,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     Map<String, dynamic>? cached,
   ) async {
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+      final fn = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      )
           .httpsCallable(
         'getUserProfile',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
@@ -1304,7 +1322,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       return;
     }
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+      final fn = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable(
         'repairMyChurchBinding',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
       );
@@ -1578,7 +1599,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   Future<void> _tryEmergencyBootstrapFromLocalFirestore() async {
     if (!mounted || _bootstrapProfile != null) return;
     try {
-      final userDoc = await FirebaseFirestore.instance
+      final userDoc = await firebaseDefaultFirestore
           .collection('users')
           .doc(widget.user.uid)
           .get(const GetOptions(source: Source.cache));
@@ -1703,7 +1724,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
             throw TimeoutException('profile_load');
           },
         );
-    _userDocRoleSub = FirebaseFirestore.instance
+    _userDocRoleSub = firebaseDefaultFirestore
         .collection('users')
         .doc(widget.user.uid)
         .watchSafe()
@@ -1798,10 +1819,15 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final user = widget.user;
     final active = p['active'] == true;
     final mustChangePass = p['mustChangePass'] == true;
-    final igrejaId = ChurchPanelTenant.resolve((p['igrejaId'] ?? '').toString());
+    final churchMap = p['church'] as Map<String, dynamic>?;
+    final churchDocId = (churchMap?['id'] ?? '').toString();
+    final igrejaSeed = churchDocId.trim().isNotEmpty
+        ? churchDocId
+        : (p['igrejaId'] ?? p['tenantId'] ?? '').toString();
+    final igrejaId = ChurchPanelTenant.resolve(_forceCanonicalChurchId(igrejaSeed));
     final cpf = (p['cpf'] ?? '').toString();
     final sub = (p['subscription'] as Map<String, dynamic>?);
-    final church = p['church'] as Map<String, dynamic>?;
+    final church = churchMap;
 
     if (!active) {
       if (p['memberStatusPending'] == true) {
