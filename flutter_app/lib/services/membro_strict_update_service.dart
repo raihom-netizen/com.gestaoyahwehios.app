@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// CRUD membro â€” grava sÃ³ em `igrejas/{churchId}/membros/{memberId}` com verificaÃ§Ã£o.
@@ -135,16 +136,15 @@ abstract final class MembroStrictUpdateService {
     final before = await docRef.get(const GetOptions(source: Source.server));
     if (!before.exists) return;
 
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.delete(),
-      maxAttempts: kIsWeb ? 4 : 2,
     );
 
     for (var attempt = 0; attempt < 4; attempt++) {
       final after = await docRef.get(const GetOptions(source: Source.server));
       if (!after.exists) return;
       await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 160));
-      await FirestoreWebGuard.runWithWebRecovery(() => docRef.delete());
+      await runFirestorePublishWithRecovery(() => docRef.delete());
     }
     throw StateError(
       '${kDeleteVerifyFailedMessage} (${docRef.path} ainda existe)',
@@ -301,7 +301,7 @@ abstract final class MembroStrictUpdateService {
 
     for (final uid in userIds) {
       try {
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => db.collection('users').doc(uid).delete(),
         );
       } catch (_) {}
@@ -313,12 +313,12 @@ abstract final class MembroStrictUpdateService {
         }
       } catch (_) {}
       try {
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => ChurchUiCollections.tenantUsers(churchId).doc(uid).delete(),
         );
       } catch (_) {}
       try {
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => db
               .collection('igrejas')
               .doc(churchId)
@@ -331,7 +331,7 @@ abstract final class MembroStrictUpdateService {
 
     if (cpf.length == 11) {
       try {
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => ChurchUiCollections.usersIndex(churchId).doc(cpf).delete(),
         );
       } catch (_) {}
@@ -358,7 +358,7 @@ abstract final class MembroStrictUpdateService {
 
   static Future<void> _prepareWrite() async {
     if (!kIsWeb) return;
-    await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
   }
 
   /// Atualiza ficha e confirma no servidor (sem Â«salvo com sucessoÂ» falso).
@@ -396,7 +396,7 @@ abstract final class MembroStrictUpdateService {
       const GetOptions(source: Source.serverAndCache),
     );
 
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () async {
         if (existing.exists) {
           await docRef.update(payload);
@@ -404,7 +404,6 @@ abstract final class MembroStrictUpdateService {
           await docRef.set(payload, SetOptions(merge: true));
         }
       },
-      maxAttempts: kIsWeb ? 3 : 2,
     );
 
     await _verifySavedFields(docRef, payload);

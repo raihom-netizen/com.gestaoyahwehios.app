@@ -73,7 +73,7 @@ abstract final class EcoFirePublishBootstrap {
         }
 
         if (kIsWeb) {
-          await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+          await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
         }
 
         return;

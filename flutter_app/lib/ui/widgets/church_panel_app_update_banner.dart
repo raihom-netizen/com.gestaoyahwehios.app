@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -57,7 +58,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirestoreStreamUtils.documentWatchBootstrap(
-        FirebaseFirestore.instance.doc('config/appVersion'),
+        AppGlobalFirestoreAccess.configDoc('appVersion'),
       ),
       builder: (context, snap) {
         final data = snap.data?.data();

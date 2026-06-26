@@ -25,7 +25,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
@@ -215,7 +215,7 @@ class MemberProfilePhotoUpdateService {
     final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
-        (tid) => FirestoreWebGuard.runWithWebRecovery(
+        (tid) => runFirestorePublishWithRecovery(
           () async {
             final churchId = ChurchRepository.churchId(tid.trim());
             return MembrosOfflineSync.set(

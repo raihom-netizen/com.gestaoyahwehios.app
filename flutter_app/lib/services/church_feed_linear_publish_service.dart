@@ -18,7 +18,6 @@ import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Pipeline único e síncrono: upload → Storage OK → Firestore → agenda → distribuição.
 abstract final class ChurchFeedLinearPublishService {
@@ -130,9 +129,6 @@ abstract final class ChurchFeedLinearPublishService {
       logLabel: 'feed_linear_$postType',
       strict: true,
     );
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
     _report(onUploadProgress, 0.18);
 
     if (isEvento) {

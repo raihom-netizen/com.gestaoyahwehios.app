@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Erro típico do Firestore Web (SDK 11.x) — não é falha da rede do utilizador.
@@ -10,11 +9,12 @@ bool isFirestoreInternalAssertion(Object error) {
   return FirestoreWebGuard.isInternalAssertionError(error);
 }
 
-/// Prepara sessão antes de gravar aviso/evento — evita `reconnect` no 1.º retry.
+/// Prepara sessão antes de gravar — **sem** `terminate()` no 1.º attempt.
 Future<void> prepareFirestorePublishAttempt({
   int attempt = 0,
   bool allowReconnect = false,
   bool criticalWrite = false,
+  Object? lastError,
 }) async {
   if (attempt > 0) {
     await Future<void>.delayed(
@@ -23,13 +23,14 @@ Future<void> prepareFirestorePublishAttempt({
   }
   if (kIsWeb) {
     try {
-      if (attempt == 0 && criticalWrite) {
-        await FirestoreWebGuard.prepareForCriticalWrite();
-      } else if (attempt == 0) {
-        await FirestoreWebGuard.prepareForChatWrite();
+      if (attempt == 0) {
+        await FirestoreWebGuard.prepareForPublishWrite();
       } else {
+        final hard = lastError != null &&
+            (FirestoreWebGuard.isClientTerminated(lastError) ||
+                isFirestoreInternalAssertion(lastError));
         await FirestoreWebGuard.recoverFirestoreWebSession(
-          allowHardReconnect: attempt >= 2,
+          allowHardReconnect: hard,
         );
       }
     } catch (_) {}
@@ -41,36 +42,18 @@ Future<void> prepareFirestorePublishAttempt({
   }
 }
 
-/// Publicação / escrita Firestore com retries (Controle Total + recuperação Web).
+/// Publicação / escrita Firestore — prep leve + recovery só após falha (1 retry web).
 Future<T> runFirestorePublishWithRecovery<T>(
   Future<T> Function() fn, {
-  int maxAttempts = 5,
+  int maxAttempts = 2,
   bool criticalWrite = false,
 }) async {
-  Future<T> runAttempts() async {
-    Object? last;
-    StackTrace? lastSt;
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        await prepareFirestorePublishAttempt(
-          attempt: attempt,
-          allowReconnect: attempt >= maxAttempts - 1,
-          criticalWrite: criticalWrite,
-        );
-        return await fn();
-      } catch (e, st) {
-        last = e;
-        lastSt = st;
-        final retryable = FirestoreReadResilience.isTransient(e) ||
-            isFirestoreInternalAssertion(e);
-        if (!retryable || attempt >= maxAttempts - 1) break;
-      }
-    }
-    Error.throwWithStackTrace(last!, lastSt ?? StackTrace.current);
-  }
-
   if (kIsWeb) {
-    return FirestoreWebGuard.runWithWebRecovery(runAttempts);
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    return FirestoreWebGuard.runWithWebRecovery(
+      fn,
+      maxAttempts: maxAttempts.clamp(2, 4),
+    );
   }
-  return runAttempts();
+  return fn();
 }

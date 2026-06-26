@@ -5,9 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Opções compartilhadas: http(s), URLs «soltas» (domínio com ponto) e e-mail.
 const LinkifyOptions kGlobalAnnouncementLinkifyOptions = LinkifyOptions(
@@ -48,9 +48,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
   @override
   void initState() {
     super.initState();
-    _annSub = FirebaseFirestore.instance
-        .doc('config/global_announcement')
-        .watchSafe()
+    _annSub = AppGlobalFirestoreAccess.watchConfig('global_announcement')
         .listen(_onAnnouncementSnap, onError: (_) {});
   }
 
@@ -133,8 +131,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
 
     DocumentSnapshot<Map<String, dynamic>>? userSnap;
     try {
-      userSnap =
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      userSnap = await AppGlobalFirestoreAccess.getUser(user.uid);
     } catch (_) {
       return;
     }
@@ -463,10 +460,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                               message.hashCode;
                         }
                         try {
-                          await FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(uid)
-                              .set(payload, SetOptions(merge: true));
+                          await AppGlobalFirestoreAccess.mergeUser(uid, payload);
                         } catch (_) {}
                       },
                       style: FilledButton.styleFrom(

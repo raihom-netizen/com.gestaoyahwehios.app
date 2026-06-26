@@ -19,7 +19,7 @@ import 'package:gestao_yahweh/services/membro_publish_verification_service.dart'
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Pipeline único — foto perfil membro: bootstrap → Storage → Firestore.
 ///
@@ -194,9 +194,8 @@ abstract final class MemberProfilePhotoSaveService {
         MembroPublishVerificationService.assertMembroDocPath(docRef);
 
         onPhase?.call('A gravar cadastro…');
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => docRef.set(updates, SetOptions(merge: true)),
-          maxAttempts: 4,
         );
 
         await MembroPublishVerificationService.verifyDocumentExists(

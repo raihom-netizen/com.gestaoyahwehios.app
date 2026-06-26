@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Patrimônio Ecofire — Storage (4 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto04`).
 abstract final class PatrimonioPublishService {
@@ -323,9 +323,8 @@ abstract final class PatrimonioPublishService {
 
     onUploadProgress?.call(0.92);
 
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
-      maxAttempts: 4,
     ).timeout(
       const Duration(seconds: 45),
       onTimeout: () => throw TimeoutException(
@@ -406,9 +405,8 @@ abstract final class PatrimonioPublishService {
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
 
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
-      maxAttempts: 4,
     );
     await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
   }
@@ -455,9 +453,8 @@ abstract final class PatrimonioPublishService {
     payload['publishState'] = FieldValue.delete();
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
 
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.set(payload, SetOptions(merge: true)),
-      maxAttempts: 4,
     );
   }
 }

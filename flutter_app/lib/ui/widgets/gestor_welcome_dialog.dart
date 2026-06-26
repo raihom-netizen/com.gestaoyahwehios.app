@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 
@@ -84,9 +85,10 @@ class GestorWelcomeDialog {
     Map<String, dynamic> sistema = {};
 
     try {
-      final sys = await FirebaseFirestore.instance
-          .doc('config/sistema')
-          .get(const GetOptions(source: Source.server));
+      final sys = await AppGlobalFirestoreAccess.getConfig(
+        'sistema',
+        source: Source.server,
+      );
 
       sistema = sys.data() ?? {};
     } catch (_) {}

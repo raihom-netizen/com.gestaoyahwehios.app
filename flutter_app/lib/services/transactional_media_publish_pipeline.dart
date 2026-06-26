@@ -1,10 +1,9 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 
 /// Fases do publish transacional — UI pode mapear para barra de progresso.
@@ -200,12 +199,9 @@ abstract final class TransactionalMediaPublishPipeline {
       );
 
       onProgress?.call(TransactionalMediaPhase.savingFirestore, 0);
-      if (kIsWeb) {
-        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-      }
-      final result = await FirestoreWebGuard.runWithWebRecovery(
+      final result = await runFirestorePublishWithRecovery(
         () => saveFirestore(upload!),
-        maxAttempts: firestoreMaxAttempts,
+        maxAttempts: firestoreMaxAttempts.clamp(2, 4),
       );
       onProgress?.call(TransactionalMediaPhase.savingFirestore, 1);
       return result;
@@ -218,12 +214,12 @@ abstract final class TransactionalMediaPublishPipeline {
   /// Gravação Firestore isolada (quando upload já concluiu noutro serviço strict).
   static Future<void> saveFirestoreWithRecovery({
     required Future<void> Function() write,
-    int maxAttempts = 4,
+    int maxAttempts = 2,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
-    await FirestoreWebGuard.runWithWebRecovery(write, maxAttempts: maxAttempts);
+    await runFirestorePublishWithRecovery(
+      write,
+      maxAttempts: maxAttempts.clamp(2, 4),
+    );
   }
 
   /// Progresso combinado (compress 15 % + upload 75 % + firestore 10 %).

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -69,10 +70,7 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
       final effectiveTid = ChurchRepository.churchId(tidRaw).isNotEmpty
           ? ChurchRepository.churchId(tidRaw)
           : tidRaw.trim();
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
+      final userDoc = await AppGlobalFirestoreAccess.getUser(user.uid);
       final userData = userDoc.data() ?? {};
       final userChurch = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
           .toString()

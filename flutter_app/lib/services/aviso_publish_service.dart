@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
@@ -15,7 +14,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Publicação de aviso — pipeline **linear** único: bootstrap → Storage → Firestore → site.
 ///
@@ -71,10 +69,6 @@ abstract final class AvisoPublishService {
           strict: true,
         );
         onProgress?.call(0.12);
-        if (kIsWeb) {
-          await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-        }
-        onProgress?.call(0.14);
         return;
       } catch (e, st) {
         last = e;

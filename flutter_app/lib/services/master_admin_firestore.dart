@@ -72,7 +72,7 @@ abstract final class MasterAdminFirestore {
   }
 
   static Future<T> write<T>(Future<T> Function() fn) async {
-    await FirestoreWebGuard.prepareForCriticalWrite();
+    await FirestoreWebGuard.prepareForPublishWrite();
     return FirestoreWebGuard.runWithWebRecovery(fn, maxAttempts: 4);
   }
 

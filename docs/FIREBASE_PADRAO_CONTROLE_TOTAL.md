@@ -1,5 +1,8 @@
 # Firebase — padrão Controle Total (Gestão YAHWEH)
 
+> **Mapeamento completo CT / WisdomApp ↔ YAHWEH (paths, gateway, leituras, gravações, gaps):**  
+> [`docs/MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md`](MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md)
+
 ## Princípio
 
 1. **Ficheiros (Storage):** `putData` / `putFile` com utilizador autenticado → URL → gravar URL no documento de negócio.

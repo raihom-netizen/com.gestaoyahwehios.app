@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -724,10 +725,7 @@ class _PastoralLeituraRowState extends State<_PastoralLeituraRow> {
 
   Future<void> _resolveLabel() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.uid)
-          .get();
+      final snap = await AppGlobalFirestoreAccess.getUser(widget.uid);
       if (!mounted) return;
       if (snap.exists) {
         final d = snap.data() ?? {};

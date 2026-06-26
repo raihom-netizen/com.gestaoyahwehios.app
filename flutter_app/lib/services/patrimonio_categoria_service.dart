@@ -80,7 +80,7 @@ abstract final class PatrimonioCategoriaService {
       throw ArgumentError('Informe o nome da categoria.');
     }
 
-    await FirestoreWebGuard.prepareForCriticalWrite();
+    await FirestoreWebGuard.prepareForPublishWrite();
     await FirestoreWebGuard.runWithWebRecovery(
       () async {
         await ChurchUiCollections.config(churchId).doc('patrimonio').set(

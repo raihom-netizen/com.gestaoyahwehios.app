@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Tipos de conteúdo publicável — **único motor** (avisos, eventos, mural, feed público).
 enum PublicationKind {
@@ -124,9 +123,6 @@ abstract final class PublicationEngine {
 
   static Future<String> saveFirestore(PublicationSaveRequest request) async {
     await ensureFirebaseCore(requireAuth: true);
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
     final patch = _buildFirestorePatch(request);
     final merge = request.merge ?? !request.isNewDoc;
     try {
@@ -222,9 +218,6 @@ abstract final class PublicationEngine {
     required bool isNewDoc,
   }) async {
     await ensureFirebaseCore(requireAuth: true);
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
     final patch = _buildStrictFirestorePatch(payload, isNewDoc: isNewDoc);
     final request = PublicationSaveRequest(
       docRef: docRef,

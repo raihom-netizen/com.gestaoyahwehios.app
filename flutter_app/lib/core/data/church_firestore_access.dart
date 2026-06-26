@@ -183,7 +183,7 @@ abstract final class ChurchFirestoreAccess {
     bool merge = true,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
     final payload = ChurchTenantFields.stamp(
@@ -205,7 +205,7 @@ abstract final class ChurchFirestoreAccess {
     required Map<String, dynamic> data,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final col = collectionRef(churchId, subcollectionName);
     final payload = ChurchTenantFields.stamp(
@@ -227,7 +227,7 @@ abstract final class ChurchFirestoreAccess {
     required String docId,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
     await ChurchModuleFirestoreAudit.traceQuery(

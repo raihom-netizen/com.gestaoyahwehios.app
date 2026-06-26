@@ -233,23 +233,31 @@ class FirestoreWebGuard {
     await ensureWebDatabaseConnected(refreshAuth: true);
   }
 
-  /// Antes de publicar/gravar doc crítico — reduz INTERNAL ASSERTION (SDK 11.x + listeners do painel).
-  static Future<void> prepareForCriticalWrite() async {
+  /// Preparação leve antes de gravar — **nunca** `terminate()` (Controle Total / WisdomApp).
+  ///
+  /// Recovery pesado só após falha em [runWithWebRecovery], [runFirestorePublishWithRecovery]
+  /// ou [runChatWriteWithRecovery].
+  static Future<void> prepareForPublishWrite() async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
     if (EcoFireFlow.passThroughFirestore) {
       await ensureWebDatabaseConnected(refreshAuth: false);
       return;
     }
-    await recoverFirestoreWebSession(allowHardReconnect: true);
-    await ensureWebDatabaseConnected(refreshAuth: true);
-    // Segundo ciclo rede — alinha WatchChangeAggregator após dezenas de listeners no IndexedStack.
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !user.isAnonymous) {
+      try {
+        await user.getIdToken(false);
+      } catch (_) {}
+    }
     try {
-      await firebaseDefaultFirestore.disableNetwork();
-      await Future<void>.delayed(const Duration(milliseconds: 120));
       await firebaseDefaultFirestore.enableNetwork();
     } catch (_) {}
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+
+  /// Alias legado — mesma preparação leve (sem matar o cliente Firestore).
+  static Future<void> prepareForCriticalWrite() async {
+    await prepareForPublishWrite();
   }
 
   /// Chat (texto/mídia): **não** desliga a rede — listeners do thread ficam activos.
@@ -267,10 +275,14 @@ class FirestoreWebGuard {
     } catch (_) {}
   }
 
-  /// Recuperação progressiva após falha no envio do chat.
-  static Future<void> recoverForChatWrite({required int attempt}) async {
+  /// Recuperação após falha no envio do chat — hard reset só se cliente terminado.
+  static Future<void> recoverForChatWrite({
+    required int attempt,
+    Object? lastError,
+  }) async {
     if (!kIsWeb) return;
-    if (attempt >= 3) {
+    final hard = lastError != null && isClientTerminated(lastError);
+    if (hard) {
       await recoverFirestoreWebSession(allowHardReconnect: true);
       await ensureWebDatabaseConnected(refreshAuth: true);
       await Future<void>.delayed(const Duration(milliseconds: 120));
@@ -299,7 +311,10 @@ class FirestoreWebGuard {
           debugPrint(
             'FirestoreWebGuard: chat write retry $attempt/$maxAttempts…',
           );
-          await recoverForChatWrite(attempt: attempt);
+          await recoverForChatWrite(
+            attempt: attempt,
+            lastError: lastError,
+          );
         }
         return await fn();
       } catch (e, st) {

@@ -2,7 +2,6 @@ import 'dart:async' show TimeoutException;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -20,6 +19,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isFirebaseStorageHttpUrl, sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Financeiro — comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
@@ -226,7 +226,7 @@ abstract final class FinanceComprovantePublishService {
     required Object error,
   }) async {
     final msg = error.toString().split('\n').first;
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.set(
         {
           comprovanteUploadStateField: EntityPublishStatus.error,
@@ -236,17 +236,11 @@ abstract final class FinanceComprovantePublishService {
         },
         SetOptions(merge: true),
       ),
-      maxAttempts: 3,
     ).catchError((_) {});
   }
 
   static Future<void> _writeFirestore(Future<void> Function() action) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      await FirestoreWebGuard.runWithWebRecovery(action, maxAttempts: 4);
-      return;
-    }
-    await action();
+    await runFirestorePublishWithRecovery(action);
   }
 
   static Future<String> resolveComprovanteUrl(Map<String, dynamic> data) async {
@@ -515,9 +509,8 @@ abstract final class FinanceComprovantePublishService {
 
         final firestorePatch = persisted.toFirestorePatch();
 
-        await FirestoreWebGuard.runWithWebRecovery(
+        await runFirestorePublishWithRecovery(
           () => docRef.set(firestorePatch, SetOptions(merge: true)),
-          maxAttempts: 4,
         ).timeout(
           const Duration(seconds: 30),
           onTimeout: () => throw TimeoutException(
@@ -555,7 +548,7 @@ abstract final class FinanceComprovantePublishService {
       downloadUrl: (data['comprovanteUrl'] ?? '').toString(),
       referenceDate: referenceDateFromMap(data),
     );
-    await FirestoreWebGuard.runWithWebRecovery(
+    await runFirestorePublishWithRecovery(
       () => docRef.set(
         {
           'hasComprovante': false,

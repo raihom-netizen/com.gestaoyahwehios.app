@@ -5170,7 +5170,6 @@ class _MembersPageState extends State<MembersPage> {
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       if (kIsWeb) {
-        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 

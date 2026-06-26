@@ -2,9 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Tela de informações do sistema, resumo geral e sugestões/críticas.
 class SistemaInformacoesPage extends StatefulWidget {
@@ -38,7 +38,7 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
     setState(() => _loading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance.collection('suggestions').add({
+      await AppGlobalFirestoreAccess.addSuggestion({
         'tenantId': widget.tenantId,
         'userId': user?.uid ?? '',
         'userEmail': user?.email ?? '',
@@ -272,11 +272,7 @@ class _MinhasSugestoesState extends State<_MinhasSugestoes> {
     if (uid.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       key: ValueKey(_streamKey),
-      stream: FirebaseFirestore.instance
-          .collection('suggestions')
-          .where('userId', isEqualTo: uid)
-          .limit(20)
-          .watchSafe(),
+      stream: AppGlobalFirestoreAccess.watchUserSuggestions(uid),
       builder: (context, snap) {
         if (snap.hasError && (snap.data?.docs.isEmpty ?? true)) {
           return ChurchPanelResilientLoadBanner(
