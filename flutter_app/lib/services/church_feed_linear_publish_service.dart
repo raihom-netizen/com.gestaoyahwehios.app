@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
@@ -256,6 +257,9 @@ abstract final class ChurchFeedLinearPublishService {
     payload['publicSite'] = publicSite;
 
     _report(onUploadProgress, 0.78);
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
+    }
     await PublicationEngine.saveStrictPublished(
       docRef: docRef,
       tenantId: churchId,

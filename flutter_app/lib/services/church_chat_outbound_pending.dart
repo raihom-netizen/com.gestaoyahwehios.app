@@ -48,6 +48,8 @@ class ChurchChatOutboundPending {
   bool failed = false;
   String? errorMessage;
   bool cancelled = false;
+  /// Enfileirado para reenvio offline — bolha local pode fechar sem messageId.
+  bool offlineQueued = false;
 
   /// Mensagem stub no Firestore (envio otimista).
   String? firestoreMessageId;

@@ -1,5 +1,7 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2014: Deploy completo — chat áudio/mídia CT, saudação WhatsApp, gate mídia módulos, Firestore sem terminate.
+/// 11.2.305+2013: Play ClassNotFoundException MainActivity — AAB bundle completo (sem --target-platform arm64), validação dex.
 /// 11.2.305+2012: Deploy completo — Firestore CT (sem terminate), AppGlobalFirestoreAccess lib/ui, web/AAB/iOS.
 /// 11.2.305+2011: Deploy completo — Firestore web CT (sem terminate preventivo), mapeamento CT/Wisdom, web/AAB/iOS.
 /// 11.2.305+2010: Deploy completo forçado — regras, functions, web, AAB, iOS Codemagic.
@@ -417,7 +419,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2012';
+const String appBuildNumber = '2014';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -104,6 +104,7 @@ import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -3231,6 +3232,15 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
 }
 
 /// Links do site público e cadastro público — exibidos no dashboard quando a igreja tem slug configurado.
+/// O atalho «Cadastro da Igreja» só aparece se o cadastro raiz ainda não estiver concluído.
+bool _isIgrejaCadastroConcluido(Map<String, dynamic>? data) {
+  if (data == null || data.isEmpty) return false;
+  if (data['registrationComplete'] == false) return false;
+  if (data['registrationComplete'] == true) return true;
+  return TenantResolverService.churchProfileRichnessScore(data) >=
+      ChurchCadastroLoadService.kMinProfileScore;
+}
+
 class _LinksPublicosStrip extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -3249,6 +3259,7 @@ class _LinksPublicosStrip extends StatefulWidget {
 class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   String? _slug;
   bool _loading = false;
+  bool _cadastroConcluido = true;
 
   static String _slugFromData(Map<String, dynamic>? data) {
     if (data == null || data.isEmpty) return '';
@@ -3318,12 +3329,20 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     try {
       final tenantHint = _resolveTenantHint();
       final readId = ChurchRepository.churchId(tenantHint);
+      Map<String, dynamic>? churchData;
       var slug = TenantResolverService.knownPublicSlugForChurchDocId(
         readId.isNotEmpty ? readId : tenantHint,
       );
+      if (slug.isNotEmpty && readId.isNotEmpty) {
+        try {
+          final snap = await ChurchRepository.churchDoc(readId).get();
+          churchData = snap.data();
+        } catch (_) {}
+      }
       if (slug.isNotEmpty && mounted) {
         setState(() {
           _slug = slug;
+          _cadastroConcluido = _isIgrejaCadastroConcluido(churchData);
           _loading = false;
         });
         return;
@@ -3336,6 +3355,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
             readId,
             seedTenantId: widget.tenantId,
           );
+          churchData = loaded.data;
           slug = _slugFromData(loaded.data);
         } catch (e, st) {
           debugPrint('Dashboard _loadSlug loadByChurchId fallback: $e\n$st');
@@ -3346,9 +3366,16 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           readId.isNotEmpty ? readId : widget.tenantId,
         );
       }
+      if (churchData == null && readId.isNotEmpty) {
+        try {
+          final snap = await ChurchRepository.churchDoc(readId).get();
+          churchData = snap.data();
+        } catch (_) {}
+      }
       if (mounted) {
         setState(() {
           _slug = slug.isEmpty ? null : slug;
+          _cadastroConcluido = _isIgrejaCadastroConcluido(churchData);
           _loading = false;
         });
       }
@@ -3365,6 +3392,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
                       widget.tenantId,
                     )
                   : null;
+          _cadastroConcluido = true;
           _loading = false;
         });
       }
@@ -3415,6 +3443,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
 
     final hasSlug = _slug != null && _slug!.isNotEmpty;
     if (!hasSlug) {
+      if (_cadastroConcluido) {
+        return const SizedBox.shrink();
+      }
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceMd),
         decoration: BoxDecoration(

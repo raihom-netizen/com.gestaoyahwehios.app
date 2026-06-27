@@ -2259,6 +2259,25 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
+  String _pendingUploadStatusLabel(
+    ChurchChatOutboundPending p,
+    double progress, {
+    String? mediaLabel,
+    String? fileName,
+  }) {
+    if (p.failed) return p.errorMessage ?? 'Falha no envio';
+    final clamped = progress.clamp(0.0, 1.0);
+    if (clamped >= 1) return 'Enviado';
+    if (clamped >= 0.88) return 'A confirmar envio...';
+    final pct = (clamped * 100).round().clamp(0, 100);
+    if (mediaLabel != null) {
+      return 'A enviar $mediaLabel... $pct%';
+    }
+    final safeName =
+        (fileName ?? p.fileName).trim().isNotEmpty ? (fileName ?? p.fileName) : 'ficheiro';
+    return 'A enviar $safeName... $pct%';
+  }
+
   Future<List<int>?> _bytesForPendingUpload({
     required ChurchChatOutboundPending pending,
     required List<int>? bytes,
@@ -2419,6 +2438,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         },
         onSuccess: () {
+          if (pending.offlineQueued) {
+            if (mounted && pending.albumIndex == 0) {
+              setState(() => _replyDraft = null);
+            }
+            _removePending(pending.localId);
+            return;
+          }
           if (pending.firestoreMessageId == null ||
               pending.firestoreMessageId!.isEmpty) {
             final i = _pendingOutbound.indexWhere(
@@ -2808,13 +2834,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       body = ValueListenableBuilder<double>(
         valueListenable: p.progressListenable,
         builder: (context, progress, _) {
-          final clamped = progress.clamp(0.0, 1.0);
-          final sending = !p.failed && clamped < 1;
-          final pct = (clamped * 100).round().clamp(0, 100);
           final safeName = p.fileName.trim().isNotEmpty ? p.fileName : 'ficheiro';
-          final status = p.failed
-              ? (p.errorMessage ?? 'Falha no envio')
-              : (sending ? 'A enviar $safeName... $pct%' : 'A processar...');
+          final status = _pendingUploadStatusLabel(
+            p,
+            progress,
+            fileName: safeName,
+          );
           return ChurchChatUploadProgressIndicator(
             progress: p.failed ? null : progress,
             label: status,
@@ -2912,13 +2937,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     return ValueListenableBuilder<double>(
       valueListenable: p.progressListenable,
       builder: (context, progress, _) {
-        final clamped = progress.clamp(0.0, 1.0);
-        final sending = !p.failed && clamped < 1;
-        final pct = (clamped * 100).round().clamp(0, 100);
         final mediaLabel = p.kind == 'video' ? 'vídeo' : 'imagem';
-        final status = p.failed
-            ? (p.errorMessage ?? 'Falha no envio')
-            : (sending ? 'A enviar $mediaLabel... $pct%' : 'A processar...');
+        final status = _pendingUploadStatusLabel(
+          p,
+          progress,
+          mediaLabel: mediaLabel,
+        );
         return Align(
           alignment: Alignment.centerLeft,
           child: Text(
@@ -3184,12 +3208,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _startVoiceRecordingImpl() async {
     try {
       final startedPath = await _chatAudio.startRecording();
-      if (startedPath == null && !kIsWeb) {
+      if (startedPath == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text(
-                'Permissão de microfone necessária para gravar.',
+              content: Text(
+                kIsWeb
+                    ? 'Permissão de microfone necessária. Autorize no browser e tente de novo.'
+                    : 'Permissão de microfone necessária para gravar.',
               ),
               behavior: SnackBarBehavior.floating,
               backgroundColor: ThemeCleanPremium.error,
@@ -3264,6 +3290,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
     if (!send) {
       await _chatAudio.stopRecording(send: false);
+      return;
+    }
+
+    if (recordedMs < 800) {
+      await _chatAudio.stopRecording(send: false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gravação muito curta. Segure o microfone um pouco mais.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
 

@@ -577,9 +577,6 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     );
   }
 
-  static const String _kPastoralWhatsPrefill =
-      'Olá! Aqui é a pastoral da igreja. Como está? Gostaríamos de manter contato com você.';
-
   String _viewerCpfDigits() {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     for (final d in widget.memberDocs) {
@@ -620,7 +617,6 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         tenantId: widget.tenantId,
         memberRole: widget.role,
         viewerCpfDigits: viewerCpf,
-        whatsappPrefill: _kPastoralWhatsPrefill,
       );
     }
 

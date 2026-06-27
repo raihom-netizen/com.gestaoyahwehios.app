@@ -16,7 +16,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
   final String tenantId;
   final String memberRole;
   final String viewerCpfDigits;
-  final String whatsappPrefill;
+  final String? whatsappPrefill;
 
   const PastoralAttentionMemberCard({
     super.key,
@@ -25,11 +25,13 @@ class PastoralAttentionMemberCard extends StatelessWidget {
     required this.tenantId,
     required this.memberRole,
     this.viewerCpfDigits = '',
-    this.whatsappPrefill = ChurchMemberContactChat.faleComigoDraft,
+    this.whatsappPrefill,
   });
 
   @override
   Widget build(BuildContext context) {
+    final prefill =
+        whatsappPrefill ?? ChurchMemberContactChat.faleComigoDraft();
     final hasPhone = alert.phoneDigits.trim().length >= 10;
     final foto = MemberProfilePhotoResolver.displayRef(memberData, preferThumb: true);
     final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(memberData, preferThumb: true);
@@ -152,7 +154,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                       memberData: memberData,
                       displayName: alert.name,
                       memberDocId: alert.memberId,
-                      draftText: whatsappPrefill,
+                      draftText: prefill,
                       popSheetBeforeNavigate: true,
                     ),
                   ),
@@ -166,7 +168,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                         ? () => ChurchMemberContactChat.openWhatsAppFaleComigo(
                               context,
                               memberData,
-                              message: whatsappPrefill,
+                              message: prefill,
                               tenantId: tenantId,
                               memberDocId: alert.memberId,
                             )

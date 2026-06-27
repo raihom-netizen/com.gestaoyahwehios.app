@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_sheet.dart';
@@ -107,6 +108,12 @@ abstract final class FinanceComprovanteAttachService {
   static Future<FinanceComprovanteAttachment?> pickFromFiles(
     BuildContext context,
   ) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.financeiro,
+    )) {
+      return null;
+    }
     try {
       final result = await YahwehFilePicker.pickFiles(
         type: FileType.custom,
@@ -163,6 +170,12 @@ abstract final class FinanceComprovanteAttachService {
     BuildContext context,
   ) async {
     if (kIsWeb) return null;
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.financeiro,
+    )) {
+      return null;
+    }
     try {
       final picker = ImagePicker();
       final xfile = await picker.pickImage(

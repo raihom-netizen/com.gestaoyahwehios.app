@@ -29,7 +29,7 @@ Future<void> launchWhatsAppContact(
   if (d.isEmpty) return;
   await ChurchMemberContactChat.launchWhatsAppDigits(
     d,
-    message: prefilledMessage ?? ChurchMemberContactChat.faleComigoDraft,
+    message: prefilledMessage ?? ChurchMemberContactChat.faleComigoDraft(),
   );
 }
 

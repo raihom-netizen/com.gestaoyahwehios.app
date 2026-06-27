@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -13,11 +14,12 @@ import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Contato por chat da igreja ou WhatsApp â€” web, iOS e Android.
+/// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
 
-  static const String faleComigoDraft = 'OlÃ¡! Gostaria de falar com vocÃª.';
+  static String faleComigoDraft([DateTime? at]) =>
+      YahwehContactGreeting.faleComigoDraft(at);
 
   /// Fecha dialog/sheet/ficha empilhada antes de ir ao mÃ³dulo Chat (web painel).
   static void _popPanelOverlayIfNeeded(BuildContext context) {
@@ -175,7 +177,7 @@ abstract final class ChurchMemberContactChat {
     required Map<String, dynamic> memberData,
     required String displayName,
     String? memberDocId,
-    String draftText = faleComigoDraft,
+    String? draftText,
     bool popSheetBeforeNavigate = false,
   }) {
     unawaited(
@@ -187,7 +189,7 @@ abstract final class ChurchMemberContactChat {
         memberData: memberData,
         displayName: displayName,
         memberDocId: memberDocId,
-        draftText: draftText,
+        draftText: draftText ?? faleComigoDraft(),
         popSheetBeforeNavigate: popSheetBeforeNavigate,
       ),
     );
@@ -270,10 +272,10 @@ abstract final class ChurchMemberContactChat {
   /// Abre WhatsApp (app nativo ou wa.me na web).
   static Future<bool> launchWhatsAppDigits(
     String rawDigits, {
-    String message = faleComigoDraft,
+    String? message,
   }) =>
       YahwehWhatsAppService.openWithMessage(
-        message: message,
+        message: message ?? faleComigoDraft(),
         phoneDigits: rawDigits,
       );
 
@@ -285,7 +287,7 @@ abstract final class ChurchMemberContactChat {
     required Map<String, dynamic> memberData,
     required String displayName,
     String? memberDocId,
-    String draftText = faleComigoDraft,
+    String? draftText,
     bool popSheetBeforeNavigate = false,
   }) async {
     final myUid = firebaseDefaultAuth.currentUser?.uid?.trim();
@@ -317,7 +319,7 @@ abstract final class ChurchMemberContactChat {
     if (peerUid == null || peerUid.isEmpty) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Este membro ainda nÃ£o tem conta no app (login). '
+          'Este membro ainda não tem conta no app (login). '
           'Ative o acesso em Membros ou use o WhatsApp.',
         ),
       );
@@ -326,7 +328,7 @@ abstract final class ChurchMemberContactChat {
     if (peerUid == myUid) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'VocÃª nÃ£o pode abrir chat consigo mesmo.',
+          'Você não pode abrir chat consigo mesmo.',
         ),
       );
       return;
@@ -346,13 +348,13 @@ abstract final class ChurchMemberContactChat {
     if (!ensured) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'A sincronizar o chat â€” a conversa abre na mesma.',
+          'A sincronizar o chat — a conversa abre na mesma.',
         ),
       );
     }
 
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
-    final draft = draftText.trim();
+    final draft = (draftText ?? faleComigoDraft()).trim();
 
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
@@ -367,7 +369,7 @@ abstract final class ChurchMemberContactChat {
   static Future<void> openWhatsAppFaleComigo(
     BuildContext context,
     Map<String, dynamic> memberData, {
-    String message = 'Fale comigo',
+    String? message,
     String? tenantId,
     String? memberDocId,
   }) async {
@@ -391,11 +393,14 @@ abstract final class ChurchMemberContactChat {
       );
       return;
     }
-    final ok = await launchWhatsAppDigits(digits, message: message);
+    final ok = await launchWhatsAppDigits(
+      digits,
+      message: message ?? faleComigoDraft(),
+    );
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'NÃ£o foi possÃ­vel abrir o WhatsApp. Verifique se o app estÃ¡ instalado.',
+          'Não foi possível abrir o WhatsApp. Verifique se o app está instalado.',
         ),
       );
     }

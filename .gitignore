@@ -11,6 +11,8 @@ IOS/*.mobileprovision
 
 # Saidas de deploy_completo.ps1 (artefatos AAB / ZIP iOS).
 .deploy-state/
+.gradle-build-cache/
+deploy_build_*.log
 # `-CopyTo/` acidental quando o splatting falhou — bloquear sempre.
 -CopyTo/
 **/-CopyTo/

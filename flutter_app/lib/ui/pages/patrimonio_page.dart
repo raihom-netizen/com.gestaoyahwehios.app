@@ -74,6 +74,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:image_picker/image_picker.dart' show ImageSource, XFile;
 import 'package:photo_view/photo_view.dart';
@@ -8356,11 +8357,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final List<XFile> list;
       if (vagas == 1) {
         final single =
-            await MediaHandlerService.instance.pickAndProcessFromGallery();
+            await MediaHandlerService.instance.pickAndProcessFromGallery(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            );
         list = single != null ? [single] : [];
       } else {
         final picked =
-            await MediaHandlerService.instance.pickAndProcessMultipleImages();
+            await MediaHandlerService.instance.pickAndProcessMultipleImages(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            );
         list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
       }
       if (list.isEmpty || !mounted) return;
@@ -8439,7 +8446,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     setState(() => _mediaPicking = true);
     try {
       final file =
-          await MediaHandlerService.instance.pickAndProcessFromCamera();
+          await MediaHandlerService.instance.pickAndProcessFromCamera(
+            module: YahwehMediaModule.patrimonio,
+            context: context,
+          );
       if (file == null || !mounted) return;
       final bytes = await SafeImageBytes.patrimonioFromPicker(file)
           .timeout(const Duration(seconds: 25));
@@ -8543,9 +8553,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     try {
       XFile? picked;
       if (source == ImageSource.camera) {
-        picked = await MediaHandlerService.instance.pickAndProcessFromCamera();
+        picked = await MediaHandlerService.instance.pickAndProcessFromCamera(
+          module: YahwehMediaModule.patrimonio,
+          context: context,
+        );
       } else {
-        picked = await MediaHandlerService.instance.pickAndProcessFromGallery();
+        picked = await MediaHandlerService.instance.pickAndProcessFromGallery(
+          module: YahwehMediaModule.patrimonio,
+          context: context,
+        );
       }
       if (picked == null || !mounted) return;
       final bytes = await _bytesFromPickerXFile(picked);
@@ -8582,11 +8598,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final List<XFile> list;
       if (limit == 1) {
         final single =
-            await MediaHandlerService.instance.pickAndProcessFromGallery();
+            await MediaHandlerService.instance.pickAndProcessFromGallery(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            );
         list = single != null ? [single] : [];
       } else {
         final picked =
-            await MediaHandlerService.instance.pickAndProcessMultipleImages();
+            await MediaHandlerService.instance.pickAndProcessMultipleImages(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            );
         list = picked.length > limit ? picked.sublist(0, limit) : picked;
       }
       if (list.isEmpty || !mounted) return;

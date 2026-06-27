@@ -2,6 +2,7 @@ import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/services/chat_audio_web_blob.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:http/http.dart' as http;
@@ -63,6 +64,10 @@ class ChatAudioService {
         MediaService.chatVoiceRecordConfig(encoder: _encoder),
         path: '',
       );
+      if (!await recorder.isRecording()) {
+        await recorder.dispose();
+        return null;
+      }
     } else {
       final dir = await getTemporaryDirectory();
       final ext = _encoder == AudioEncoder.opus ? 'opus' : 'm4a';
@@ -72,6 +77,10 @@ class ChatAudioService {
         MediaService.chatVoiceRecordConfig(encoder: _encoder),
         path: path,
       );
+      if (!await recorder.isRecording()) {
+        await recorder.dispose();
+        return null;
+      }
     }
 
     _recorder = recorder;
@@ -111,14 +120,17 @@ class ChatAudioService {
 
     if (kIsWeb) {
       final blobPath = outPath ?? expected ?? '';
-      if (blobPath.isNotEmpty &&
-          (blobPath.startsWith('blob:') || blobPath.startsWith('http'))) {
-        try {
-          final r = await http.get(Uri.parse(blobPath));
-          if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
-            _webBytes = Uint8List.fromList(r.bodyBytes);
-          }
-        } catch (_) {}
+      if (blobPath.isNotEmpty) {
+        _webBytes = await readRecordingBlob(blobPath);
+        if ((_webBytes == null || _webBytes!.isEmpty) &&
+            (blobPath.startsWith('blob:') || blobPath.startsWith('http'))) {
+          try {
+            final r = await http.get(Uri.parse(blobPath));
+            if (r.statusCode == 200 && r.bodyBytes.isNotEmpty) {
+              _webBytes = Uint8List.fromList(r.bodyBytes);
+            }
+          } catch (_) {}
+        }
       }
       return null;
     }

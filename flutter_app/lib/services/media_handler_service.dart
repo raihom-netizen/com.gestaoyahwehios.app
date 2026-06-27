@@ -2,6 +2,7 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show BuildContext;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:image_picker/image_picker.dart';
 
 // Condicional: mobile usa compressão nativa; web só usa image_picker com qualidade.
@@ -39,7 +40,15 @@ class MediaHandlerService {
     int? imageQuality,
     int? minWidth,
     int? minHeight,
+    YahwehMediaModule? module,
+    BuildContext? context,
   }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: module,
+    )) {
+      return null;
+    }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
@@ -59,15 +68,38 @@ class MediaHandlerService {
   }
 
   /// Apenas galeria, processado para Full HD (conveniente para membros/eventos).
-  Future<XFile?> pickAndProcessFromGallery() =>
-      pickAndProcessImage(source: ImageSource.gallery);
+  Future<XFile?> pickAndProcessFromGallery({
+    YahwehMediaModule? module,
+    BuildContext? context,
+  }) =>
+      pickAndProcessImage(
+        source: ImageSource.gallery,
+        module: module,
+        context: context,
+      );
 
   /// Câmera, processado para Full HD.
-  Future<XFile?> pickAndProcessFromCamera() =>
-      pickAndProcessImage(source: ImageSource.camera);
+  Future<XFile?> pickAndProcessFromCamera({
+    YahwehMediaModule? module,
+    BuildContext? context,
+  }) =>
+      pickAndProcessImage(
+        source: ImageSource.camera,
+        module: module,
+        context: context,
+      );
 
   /// Múltiplas imagens da galeria (ex.: eventos), processadas para Full HD.
-  Future<List<XFile>> pickAndProcessMultipleImages() async {
+  Future<List<XFile>> pickAndProcessMultipleImages({
+    YahwehMediaModule? module,
+    BuildContext? context,
+  }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: module,
+    )) {
+      return [];
+    }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
@@ -121,35 +153,57 @@ class MediaHandlerService {
     required ImageSource source,
     BuildContext? webCropContext,
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
-  }) =>
-      pickCropEncodeWebp(
-        source: source,
-        profile: HighResCropProfile.feedFree,
-        webCropContext: webCropContext,
-        webpOutputQuality: webpOutputQuality,
-      );
+    YahwehMediaModule? module,
+  }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: webCropContext,
+      module: module,
+    )) {
+      return null;
+    }
+    return pickCropEncodeWebp(
+      source: source,
+      profile: HighResCropProfile.feedFree,
+      webCropContext: webCropContext,
+      webpOutputQuality: webpOutputQuality,
+    );
+  }
 
   /// Foto de membro: quadrado 1:1 + WebP (nativo).
   Future<XFile?> pickCropEncodeMemberPhotoWebp({
     required ImageSource source,
     BuildContext? webCropContext,
-  }) =>
-      pickCropEncodeWebp(
-        source: source,
-        profile: HighResCropProfile.memberSquare,
-        webCropContext: webCropContext,
-      );
+  }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: webCropContext,
+      module: YahwehMediaModule.membros,
+    )) {
+      return null;
+    }
+    return pickCropEncodeWebp(
+      source: source,
+      profile: HighResCropProfile.memberSquare,
+      webCropContext: webCropContext,
+    );
+  }
 
   /// Várias imagens da galeria (mural) — recorte por foto + WebP (sequencial no mobile).
   Future<List<XFile>> pickMultiCropEncodeFeedWebpFromGallery(
     BuildContext? webCropContext, {
     int? maxPickCount,
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+    YahwehMediaModule? module,
     void Function(List<XFile> picked)? onGalleryPicked,
     void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
     void Function(XFile encoded, int index, int total)? onEachReady,
     void Function(int index, int total)? onEncodeSkipped,
   }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: webCropContext,
+      module: module,
+    )) {
+      return [];
+    }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }

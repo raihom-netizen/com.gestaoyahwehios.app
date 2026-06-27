@@ -19,10 +19,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 $KeyProps = Join-Path $FlutterApp "android\key.properties"
 $DebugInfoDir = Join-Path $FlutterApp "debug-info"
 $OutAab = Join-Path $FlutterApp "build\app\outputs\bundle\release\app-release.aab"
+$MainActivityDexToken = "com/gestaoyahweh/app/MainActivity"
+
+# Cache Gradle do repo (evita SSL Tag mismatch em downloads Maven/Gradle corrompidos).
+$projectGradleHome = Join-Path $RepoRoot ".gradle-build-cache"
+if (Test-Path (Join-Path $projectGradleHome "caches")) {
+    $env:GRADLE_USER_HOME = $projectGradleHome
+}
+if (-not $env:JAVA_HOME -or -not (Test-Path $env:JAVA_HOME)) {
+    $toolchainJdk = "C:\dev\gestao-yahweh-toolchain\jdk-17"
+    if (Test-Path $toolchainJdk) {
+        $env:JAVA_HOME = $toolchainJdk
+        $env:PATH = "$toolchainJdk\bin;$env:PATH"
+    }
+}
 
 function Get-AndroidSdkPath {
     param([string] $FlutterAppPath)
@@ -188,6 +203,36 @@ function Assert-Aab16kCompatibility {
     }
 }
 
+function Assert-AabMainActivityPresent {
+    param([string] $AabPath)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gy_main_act_" + [Guid]::NewGuid().ToString("N"))
+    [System.IO.Directory]::CreateDirectory($tmpDir) | Out-Null
+
+    try {
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($AabPath, $tmpDir)
+        $classesDex = Join-Path $tmpDir "base\dex\classes.dex"
+        if (-not (Test-Path $classesDex)) {
+            throw "AAB invalido: falta base/dex/classes.dex em`n  $AabPath"
+        }
+        $bytes = [System.IO.File]::ReadAllBytes($classesDex)
+        $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+        if ($text -notmatch [regex]::Escape($MainActivityDexToken)) {
+            throw @"
+ERRO Play (ClassNotFoundException): MainActivity nao encontrada em classes.dex.
+Manifesto aponta com.gestaoyahweh.app.MainActivity — regenere o AAB (sem --target-platform android-arm64).
+"@
+        }
+        Write-Host "Play launcher: MainActivity presente em base/dex/classes.dex." -ForegroundColor Green
+    }
+    finally {
+        if (Test-Path $tmpDir) {
+            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
     Write-Host "Erro: flutter_app nao encontrado." -ForegroundColor Red
     exit 1
@@ -230,12 +275,12 @@ if (-not (Test-Path $DebugInfoDir)) {
     New-Item -ItemType Directory -Path $DebugInfoDir | Out-Null
 }
 
-Write-Host "`n=== flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
+Write-Host "`n=== flutter build appbundle --release --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
+Write-Host "NDK arm64-v8a via android/app/build.gradle.kts (16K). Sem --target-platform (bundle completo para Play)." -ForegroundColor DarkGray
 Write-Host "Guarde a pasta flutter_app\debug-info\ para symbolizar stack traces (Crashlytics / flutter symbolize)." -ForegroundColor DarkGray
 . (Join-Path $RepoRoot "scripts\flutter_invoke_with_retry.ps1")
 $buildExit = Invoke-FlutterWithRetry -Label "AAB Play" -MaxAttempts 5 -InitialWaitSec 25 -Arguments @(
     "build", "appbundle", "--release",
-    "--target-platform", "android-arm64",
     "--obfuscate", "--split-debug-info=./debug-info"
 )
 if ($buildExit -ne 0) { exit $buildExit }
@@ -244,6 +289,9 @@ if (-not (Test-Path $OutAab)) {
     Write-Host "Erro: AAB nao gerado em $OutAab" -ForegroundColor Red
     exit 1
 }
+
+Write-Host "`n=== validacao MainActivity no AAB (Play ClassNotFoundException) ===" -ForegroundColor Cyan
+Assert-AabMainActivityPresent -AabPath $OutAab
 
 Write-Host "`n=== validacao Advertising ID (Play Console) ===" -ForegroundColor Cyan
 Assert-ReleaseManifestHasAdIdPermission -FlutterAppPath $FlutterApp

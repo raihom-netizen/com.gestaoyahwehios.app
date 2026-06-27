@@ -80,6 +80,10 @@ android {
                     "Na raiz do repo: .\\scripts\\build_android_play_store_aab.ps1"
             }
             signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             // Não bloquear AAB se firebasecrashlyticssymbols.googleapis.com estiver inacessível (DNS/rede).
             configure<CrashlyticsExtension> {
                 mappingFileUploadEnabled = false

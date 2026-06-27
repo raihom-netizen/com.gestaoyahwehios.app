@@ -76,9 +76,17 @@ class _ChurchChatPendingVoiceBubbleState
       valueListenable: widget.progressListenable,
       builder: (context, progress, _) {
         final sending = !widget.failed && progress < 1;
-        final pct = (progress.clamp(0.0, 1.0) * 100).round().clamp(0, 100);
+        final clamped = progress.clamp(0.0, 1.0);
+        final pct = (clamped * 100).round().clamp(0, 100);
         final title =
             (widget.fileName ?? '').trim().isNotEmpty ? widget.fileName!.trim() : 'Áudio';
+        final statusText = widget.failed
+            ? (widget.errorMessage ?? 'Falha no envio')
+            : (sending
+                ? (clamped >= 0.88
+                    ? 'A confirmar envio...'
+                    : 'A enviar áudio... $pct%')
+                : _formatDuration(widget.durationMs));
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -138,11 +146,7 @@ class _ChurchChatPendingVoiceBubbleState
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  widget.failed
-                      ? (widget.errorMessage ?? 'Falha no envio')
-                      : (sending
-                          ? 'A enviar áudio... $pct%'
-                          : _formatDuration(widget.durationMs)),
+                  statusText,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

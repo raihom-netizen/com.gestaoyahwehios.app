@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show BuildContext, Rect, ScaffoldMessenger;
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -13,7 +14,8 @@ import 'package:url_launcher/url_launcher.dart';
 abstract final class YahwehWhatsAppService {
   YahwehWhatsAppService._();
 
-  static const String defaultContactDraft = ChurchMemberContactChat.faleComigoDraft;
+  static String get defaultContactDraft =>
+      YahwehContactGreeting.faleComigoDraft();
 
   /// Normaliza telefone BR (55 + DDD + número).
   static String normalizeBrazilDigits(String raw) {
@@ -207,14 +209,14 @@ abstract final class YahwehWhatsAppService {
   static Future<void> openForMember(
     BuildContext context,
     Map<String, dynamic> memberData, {
-    String message = defaultContactDraft,
+    String? message,
     String? tenantId,
     String? memberDocId,
   }) =>
       ChurchMemberContactChat.openWhatsAppFaleComigo(
         context,
         memberData,
-        message: message,
+        message: message ?? defaultContactDraft,
         tenantId: tenantId,
         memberDocId: memberDocId,
       );

@@ -50,6 +50,7 @@ Future<T> runFirestorePublishWithRecovery<T>(
 }) async {
   if (kIsWeb) {
     await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
     return FirestoreWebGuard.runWithWebRecovery(
       fn,
       maxAttempts: maxAttempts.clamp(2, 4),

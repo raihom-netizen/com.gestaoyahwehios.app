@@ -68,27 +68,17 @@ class FirestoreWebGuard {
     await Future<void>.delayed(const Duration(milliseconds: 140));
   }
 
-  /// Recuperação Web — após assert interno, hard reset como Controle Total (terminate + long-polling).
+  /// Recuperação Web — **sem** `terminate()` (mata o singleton e quebra Eventos/Avisos/Patrimônio).
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
     if (WebPanelStability.isSessionExpired) return;
+
     if (allowHardReconnect) {
-      try {
-        await firebaseDefaultFirestore.disableNetwork();
-      } catch (_) {}
-      try {
-        await firebaseDefaultFirestore.terminate();
-      } catch (_) {}
-      try {
-        await firebaseDefaultFirestore.clearPersistence();
-      } catch (_) {}
+      await _reconnectFirestoreAfterTerminated();
       applyWebFirestoreSettings();
-      try {
-        await firebaseDefaultFirestore.enableNetwork();
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 160));
     }
+
     await stabilizeAfterWebSignIn();
     if (allowHardReconnect) {
       try {
@@ -101,11 +91,32 @@ class FirestoreWebGuard {
       await Future<void>.delayed(const Duration(milliseconds: 80));
       await firebaseDefaultFirestore.enableNetwork();
     } catch (e) {
-      if (isClientTerminated(e) && allowHardReconnect) {
+      if (isClientTerminated(e)) {
         await _reconnectFirestoreAfterTerminated();
+        applyWebFirestoreSettings();
+        try {
+          await firebaseDefaultFirestore.enableNetwork();
+        } catch (_) {}
       }
     }
     await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
+  /// Garante cliente Firestore utilizável na web — **nunca** chama `terminate()`.
+  static Future<void> ensureFirestoreClientAlive() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    try {
+      await firebaseDefaultFirestore.enableNetwork();
+      return;
+    } catch (e) {
+      if (!isClientTerminated(e)) return;
+    }
+    await _reconnectFirestoreAfterTerminated();
+    applyWebFirestoreSettings();
+    try {
+      await firebaseDefaultFirestore.enableNetwork();
+    } catch (_) {}
   }
 
   /// Painel igreja (web/mobile) — leitura rápida sem desligar a rede.
@@ -253,6 +264,7 @@ class FirestoreWebGuard {
     try {
       await firebaseDefaultFirestore.enableNetwork();
     } catch (_) {}
+    await ensureFirestoreClientAlive();
   }
 
   /// Alias legado — mesma preparação leve (sem matar o cliente Firestore).

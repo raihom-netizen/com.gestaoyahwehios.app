@@ -2341,7 +2341,8 @@ class ChurchChatService {
     String? albumGroupId,
     int albumIndex = 0,
     int albumCount = 1,
-    /// ApÃ³s [EcoFireStorageUpload.putData] concluÃ­do â€” evita re-verificaÃ§Ã£o lenta na Web.
+    int? voiceDurationMs,
+    /// Após [EcoFireStorageUpload.putData] concluído — evita re-verificação lenta na Web.
     bool skipStorageVerify = false,
   }) async {
     ChurchPublishFlowLog.chatStart();
@@ -2403,6 +2404,10 @@ class ChurchChatService {
       if (fileName != null && fileName.trim().isNotEmpty)
         'fileName': fileName.trim(),
       if (fileSize != null && fileSize > 0) 'fileSize': fileSize,
+      if (voiceDurationMs != null && voiceDurationMs > 0) ...{
+        'duration': (voiceDurationMs / 1000).ceil(),
+        'durationSeconds': (voiceDurationMs / 1000).ceil(),
+      },
       if (nr != null) 'replyTo': nr,
       if (nf != null) 'forwardedFrom': nf,
       if (gid.isNotEmpty) ...{

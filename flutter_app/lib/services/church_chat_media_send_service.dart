@@ -104,6 +104,7 @@ abstract final class ChurchChatMediaSendService {
             bytes: bytes,
             localPath: localPath,
           );
+          pending.offlineQueued = true;
           EcoFireResilientPublish.scheduleSync(reason: 'chat_media_queued');
           onProgress?.call(1.0);
           onSuccess?.call();
@@ -320,6 +321,7 @@ abstract final class ChurchChatMediaSendService {
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
     }
+    onProgress?.call(0.92);
 
     final written = await _writeFirestoreAfterUpload(
       resolvedTenant: resolvedTenant,
@@ -335,6 +337,7 @@ abstract final class ChurchChatMediaSendService {
       throw StateError('Não foi possível gravar a mensagem no chat.');
     }
 
+    onProgress?.call(0.98);
     pending.firestoreMessageId = written.messageId;
     onReplyCleared?.call();
     onProgress?.call(1.0);
@@ -351,10 +354,8 @@ abstract final class ChurchChatMediaSendService {
     int? fileSize,
     Map<String, dynamic>? replyTo,
   }) async {
-    Object? last;
-    for (var attempt = 1; attempt <= 4; attempt++) {
-      try {
-        return await ChurchChatService.writeMediaMessageFirestoreOnce(
+    Future<({String messageId, bool allowed})> writeOnce() =>
+        ChurchChatService.writeMediaMessageFirestoreOnce(
           tenantId: resolvedTenant,
           threadId: threadId,
           kind: pending.kind,
@@ -364,6 +365,7 @@ abstract final class ChurchChatMediaSendService {
               ? pending.fileName
               : null,
           fileSize: fileSize,
+          voiceDurationMs: pending.voiceDurationMs,
           replyTo: replyTo,
           senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
           albumGroupId: pending.albumGroupId,
@@ -371,6 +373,17 @@ abstract final class ChurchChatMediaSendService {
           albumCount: pending.albumCount,
           skipStorageVerify: true,
         );
+
+    Object? last;
+    for (var attempt = 1; attempt <= 4; attempt++) {
+      try {
+        if (kIsWeb) {
+          return await FirestoreWebGuard.runWithWebRecovery(
+            writeOnce,
+            maxAttempts: 2,
+          );
+        }
+        return await writeOnce();
       } catch (e) {
         last = e;
         if (attempt < 4) {

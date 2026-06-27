@@ -86,8 +86,13 @@ String formatFirebaseErrorForUser(
 
   final raw = error.toString();
   if (FirestoreWebGuard.isInternalAssertionError(error) ||
+      FirestoreWebGuard.isClientTerminated(error) ||
       raw.contains('WatchChangeAggregator') ||
       raw.contains('PersistentListenStream')) {
+    if (FirestoreWebGuard.isClientTerminated(error) ||
+        raw.toLowerCase().contains('terminated')) {
+      return 'Sincronização Firebase interrompida. Toque em «Tentar novamente».';
+    }
     return 'Sincronização com o servidor em curso. '
         'Aguarde alguns segundos e toque em Tentar de novo.';
   }

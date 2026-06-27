@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_feed_publish_editor_theme.dart';
@@ -4422,6 +4423,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         context,
         maxPickCount: remaining,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        module: _isAviso ? YahwehMediaModule.avisos : YahwehMediaModule.eventos,
         onEachReady: (encoded, index, total) async {
           if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerPost) {
             return;
@@ -4474,6 +4476,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         source: ImageSource.camera,
         webCropContext: context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        module: _isAviso ? YahwehMediaModule.avisos : YahwehMediaModule.eventos,
       );
       if (file != null) {
         await _addEncodedFeedPhoto(file);

@@ -51,6 +51,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -7660,6 +7661,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         context,
         maxPickCount: remaining,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        module: YahwehMediaModule.eventos,
         onEachReady: (encoded, index, total) async {
           if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerEvent) {
             return;
@@ -7711,6 +7713,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         source: ImageSource.camera,
         webCropContext: context,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        module: YahwehMediaModule.eventos,
       );
       if (file != null && mounted) {
         await _addEncodedEventPhoto(file);
@@ -8564,6 +8567,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       } catch (e, st) {
         EventosPublishVerificationService.rememberLastError(e);
         await CrashlyticsService.record(e, st, reason: 'eventos_publish');
+        if (FirestoreWebGuard.isClientTerminated(e)) {
+          await YahwehModuleMediaGate.recoverAfterTerminatedIfWeb();
+        }
         if (mounted) {
           if (isFirebaseNoAppError(e)) {
             try {
@@ -8608,6 +8614,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('PersistentListenStream') ||
           msg.contains('Unexpected state') ||
           msg.contains('core/no-app') ||
+          msg.contains('terminated') ||
+          FirestoreWebGuard.isClientTerminated(e) ||
           isFirebaseNoAppError(e);
       final verifyFailed =
           msg.contains('Documento não localizado no Firestore') ||
