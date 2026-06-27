@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Patrimônio Ecofire — Storage (4 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto04`).
@@ -323,12 +324,19 @@ abstract final class PatrimonioPublishService {
 
     onUploadProgress?.call(0.92);
 
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
-    ).timeout(
-      const Duration(seconds: 45),
-      onTimeout: () => throw TimeoutException(
-        'Gravação no Firestore demorou demais. Verifique a rede.',
+    await AdminFeedFirestoreBridge.upsertTenantDoc(
+      churchId: igrejaId,
+      collection: 'patrimonio',
+      docId: itemId,
+      data: payload,
+      isNewDoc: isNewDoc,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+      ).timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw TimeoutException(
+          'Gravação no Firestore demorou demais. Verifique a rede.',
+        ),
       ),
     );
 
@@ -405,8 +413,15 @@ abstract final class PatrimonioPublishService {
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
 
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+    await AdminFeedFirestoreBridge.upsertTenantDoc(
+      churchId: igrejaId,
+      collection: 'patrimonio',
+      docId: itemId,
+      data: payload,
+      isNewDoc: isNewDoc,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+      ),
     );
     await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
   }
@@ -453,8 +468,15 @@ abstract final class PatrimonioPublishService {
     payload['publishState'] = FieldValue.delete();
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
 
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(payload, SetOptions(merge: true)),
+    await AdminFeedFirestoreBridge.upsertTenantDoc(
+      churchId: cid,
+      collection: 'patrimonio',
+      docId: iid,
+      data: payload,
+      isNewDoc: false,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload, SetOptions(merge: true)),
+      ),
     );
   }
 }

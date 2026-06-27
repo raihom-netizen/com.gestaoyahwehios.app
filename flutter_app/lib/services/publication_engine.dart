@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Tipos de conteúdo publicável — **único motor** (avisos, eventos, mural, feed público).
@@ -227,12 +228,20 @@ abstract final class PublicationEngine {
       isNewDoc: isNewDoc,
     );
     try {
-      await runFirestorePublishWithRecovery(
-        () => ChurchDataService.instance.setTenantDocument(
-          ref: docRef,
-          data: patch,
-          merge: !isNewDoc,
-          module: request.postType,
+      final collection = request.isEvento ? 'eventos' : 'avisos';
+      await AdminFeedFirestoreBridge.upsertTenantDoc(
+        churchId: tenantId.trim(),
+        collection: collection,
+        docId: docRef.id,
+        data: patch,
+        isNewDoc: isNewDoc,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => ChurchDataService.instance.setTenantDocument(
+            ref: docRef,
+            data: patch,
+            merge: !isNewDoc,
+            module: request.postType,
+          ),
         ),
       );
     } catch (e, st) {

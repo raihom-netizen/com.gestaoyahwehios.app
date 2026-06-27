@@ -7,8 +7,10 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web_stub.dart'
+    if (dart.library.html) 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 
 /// Visualização premium de comprovante (imagem ou PDF) — padrão Controle Total.
 abstract final class FinanceComprovanteViewerSheet {
@@ -59,10 +61,12 @@ abstract final class FinanceComprovanteViewerSheet {
   }) async {
     if (url.trim().isEmpty) return;
     if (kIsWeb) {
-      final uri = Uri.tryParse(url);
-      if (uri != null && await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
+      await showFinanceComprovanteWebEmbed(
+        context: context,
+        url: url,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
       return;
     }
 

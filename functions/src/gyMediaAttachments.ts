@@ -1,0 +1,294 @@
+/**
+ * Cloud Functions — anexos padronizados (WISDOMAPP → GESTAOYAHWEH).
+ * Web instável: Admin SDK grava Storage + Firestore sem conflito com snapshots().
+ */
+import * as functions from "firebase-functions/v1";
+import { admin, fs, storageBucket } from "./adminDb";
+import { resolveTenantIdForCallable, userCanAccessTenant } from "./tenantCallableResolve";
+
+const CF_DELETE = "__DELETE__";
+const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
+const ALLOWED_FEED_COLLECTIONS = new Set(["avisos", "eventos", "patrimonio", "finance"]);
+
+function decodeAdminFirestoreValue(value: unknown): unknown {
+  if (value === CF_DELETE) {
+    return admin.firestore.FieldValue.delete();
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const o = value as Record<string, unknown>;
+    if (typeof o._tsMs === "number" && Number.isFinite(o._tsMs)) {
+      return admin.firestore.Timestamp.fromMillis(o._tsMs);
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(o)) {
+      out[k] = decodeAdminFirestoreValue(v);
+    }
+    return out;
+  }
+  if (Array.isArray(value)) {
+    return value.map(decodeAdminFirestoreValue);
+  }
+  return value;
+}
+
+function decodeAdminFirestoreMap(raw: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw || {})) {
+    out[k] = decodeAdminFirestoreValue(v);
+  }
+  return out;
+}
+
+async function requireChurchAccess(
+  context: functions.https.CallableContext,
+  churchId: string,
+): Promise<{ uid: string; email: string; churchId: string }> {
+  if (!context.auth?.uid) {
+    throw new functions.https.HttpsError("unauthenticated", "Autenticação necessária.");
+  }
+  const uid = context.auth.uid;
+  const email = String((context.auth.token?.email as string) || "")
+    .trim()
+    .toLowerCase();
+  const tid = String(churchId || "").trim();
+  if (!tid) {
+    throw new functions.https.HttpsError("invalid-argument", "churchId ausente.");
+  }
+  const resolved = await resolveTenantIdForCallable(
+    { uid, token: context.auth.token as Record<string, unknown> },
+    tid,
+  );
+  if (!resolved || resolved !== tid) {
+    throw new functions.https.HttpsError("permission-denied", "Sem acesso a esta igreja.");
+  }
+  const ok = await userCanAccessTenant(uid, email, tid);
+  if (!ok) {
+    throw new functions.https.HttpsError("permission-denied", "Sem permissão nesta igreja.");
+  }
+  return { uid, email, churchId: tid };
+}
+
+function extFromMime(mimeType: string, fileName?: string): string {
+  const m = String(mimeType || "").toLowerCase();
+  if (m.includes("pdf")) return "pdf";
+  if (m.includes("png")) return "png";
+  if (m.includes("webp")) return "webp";
+  const fn = String(fileName || "").toLowerCase();
+  if (fn.endsWith(".pdf")) return "pdf";
+  if (fn.endsWith(".png")) return "png";
+  if (fn.endsWith(".webp")) return "webp";
+  return "jpg";
+}
+
+function financeComprovantePath(
+  churchId: string,
+  lancamentoId: string,
+  referenceDate?: string,
+  ext = "jpg",
+): string {
+  let ym = referenceDate?.trim() || "";
+  if (!/^\d{4}_\d{2}$/.test(ym)) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const mo = String(now.getMonth() + 1).padStart(2, "0");
+    ym = `${y}_${mo}`;
+  }
+  const safeExt = ext.replace(/[^a-z0-9]/gi, "").slice(0, 8) || "jpg";
+  return `igrejas/${churchId}/financeiro/${ym}/${lancamentoId}.${safeExt}`;
+}
+
+/**
+ * Web: base64 → Storage → merge Firestore comprovante* no lançamento finance/.
+ * Espelho WISDOMAPP ctUploadReceiptToStorage.
+ */
+export const gyUploadFinanceComprovante = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 120, memory: "512MB" })
+  .https.onCall(async (data, context) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const lancamentoId = String(body.lancamentoId || body.docId || "").trim();
+    const base64 = String(body.base64 || body.dataBase64 || "").trim();
+    const mimeType = String(body.mimeType || "image/jpeg").trim();
+    const fileName = String(body.fileName || "comprovante").trim();
+
+    const auth = await requireChurchAccess(context, churchId);
+    if (!lancamentoId) {
+      throw new functions.https.HttpsError("invalid-argument", "lancamentoId ausente.");
+    }
+    if (!base64) {
+      throw new functions.https.HttpsError("invalid-argument", "base64 ausente.");
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(base64, "base64");
+    } catch {
+      throw new functions.https.HttpsError("invalid-argument", "base64 inválido.");
+    }
+    if (buffer.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Arquivo vazio.");
+    }
+    if (buffer.length > MAX_FINANCE_BYTES) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        `Arquivo grande demais (máx ${MAX_FINANCE_BYTES / (1024 * 1024)} MB).`,
+      );
+    }
+    if (mimeType.toLowerCase().startsWith("video/")) {
+      throw new functions.https.HttpsError("invalid-argument", "Vídeo não permitido.");
+    }
+
+    const ext = extFromMime(mimeType, fileName);
+    const refDate = String(body.referenceYearMonth || body.yearMonth || "").trim();
+    const storagePath = financeComprovantePath(
+      auth.churchId,
+      lancamentoId,
+      refDate || undefined,
+      ext,
+    );
+
+    const contentType =
+      ext === "pdf"
+        ? "application/pdf"
+        : ext === "png"
+          ? "image/png"
+          : ext === "webp"
+            ? "image/webp"
+            : "image/jpeg";
+
+    const bucket = storageBucket();
+    const file = bucket.file(storagePath);
+    await file.save(buffer, {
+      metadata: {
+        contentType,
+        cacheControl: "public, max-age=31536000",
+      },
+      resumable: false,
+    });
+    await file.makePublic().catch(() => undefined);
+    const [metadata] = await file.getMetadata();
+    if (!metadata?.name) {
+      throw new functions.https.HttpsError("internal", "Falha ao confirmar upload Storage.");
+    }
+
+    const [downloadUrl] = await file.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    });
+
+    const docRef = fs()
+      .collection("igrejas")
+      .doc(auth.churchId)
+      .collection("finance")
+      .doc(lancamentoId);
+
+    const patch = {
+      comprovanteUrl: downloadUrl,
+      comprovanteLink: downloadUrl,
+      comprovanteStoragePath: storagePath,
+      comprovanteMimeType: contentType,
+      comprovanteFileName: fileName || `comprovante.${ext}`,
+      hasComprovante: true,
+      comprovanteUploadState: "published",
+      comprovanteUploadError: admin.firestore.FieldValue.delete(),
+      comprovanteUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await docRef.set(patch, { merge: true });
+
+    return {
+      ok: true,
+      comprovanteUrl: downloadUrl,
+      storagePath,
+      mimeType: contentType,
+      fileName: patch.comprovanteFileName,
+    };
+  });
+
+/**
+ * Web: upsert documento de feed/patrimônio/finance via Admin SDK.
+ * Espelho WISDOMAPP ctAdminUpsertCourseVideo.
+ */
+export const gyAdminUpsertFeedPost = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 60, memory: "256MB" })
+  .https.onCall(async (data, context) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const collection = String(body.collection || body.subcollection || "").trim();
+    const docId = String(body.docId || body.id || "").trim();
+    const rawData = (body.data || {}) as Record<string, unknown>;
+    const create = body.create === true;
+    const merge = body.merge !== false;
+
+    const auth = await requireChurchAccess(context, churchId);
+    if (!ALLOWED_FEED_COLLECTIONS.has(collection)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        `collection inválida: ${collection}`,
+      );
+    }
+    if (!docId) {
+      throw new functions.https.HttpsError("invalid-argument", "docId ausente.");
+    }
+
+    const decoded = decodeAdminFirestoreMap(rawData);
+    decoded.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    if (create) {
+      decoded.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    const docRef = fs()
+      .collection("igrejas")
+      .doc(auth.churchId)
+      .collection(collection)
+      .doc(docId);
+
+    if (create && !merge) {
+      await docRef.set(decoded);
+    } else {
+      await docRef.set(decoded, { merge: true });
+    }
+
+    return { ok: true, docId, path: docRef.path };
+  });
+
+/** Exclusão em lote de posts aviso/evento (admin). */
+export const gyAdminDeleteFeedPosts = functions
+  .region("us-central1")
+  .https.onCall(async (data, context) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const collection = String(body.collection || "avisos").trim();
+    const docIds = Array.isArray(body.docIds)
+      ? (body.docIds as unknown[]).map((id) => String(id || "").trim()).filter(Boolean)
+      : [];
+
+    const auth = await requireChurchAccess(context, churchId);
+    if (!["avisos", "eventos"].includes(collection)) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "collection deve ser avisos ou eventos.",
+      );
+    }
+    if (docIds.length === 0) {
+      return { ok: true, deleted: 0 };
+    }
+    if (docIds.length > 32) {
+      throw new functions.https.HttpsError("invalid-argument", "Máximo 32 docs por chamada.");
+    }
+
+    const batch = fs().batch();
+    for (const id of docIds) {
+      const ref = fs()
+        .collection("igrejas")
+        .doc(auth.churchId)
+        .collection(collection)
+        .doc(id);
+      batch.delete(ref);
+    }
+    await batch.commit();
+    return { ok: true, deleted: docIds.length };
+  });

@@ -7664,6 +7664,12 @@ export {
 
 export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 
+export {
+  gyUploadFinanceComprovante,
+  gyAdminUpsertFeedPost,
+  gyAdminDeleteFeedPosts,
+} from "./gyMediaAttachments";
+
 export { backfillMemberCodigos } from "./memberCodigo";
 
 export {

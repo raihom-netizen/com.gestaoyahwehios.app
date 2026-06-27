@@ -1,7 +1,9 @@
 # Firebase — padrão Controle Total (Gestão YAHWEH)
 
 > **Mapeamento completo CT / WisdomApp ↔ YAHWEH (paths, gateway, leituras, gravações, gaps):**  
-> [`docs/MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md`](MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md)
+> [`docs/MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md`](MAPEAMENTO_PADRAO_FIREBASE_CT_WISDOM_YAHWEH.md)  
+> **Plano anexos Avisos/Eventos/Patrimônio/Financeiro + backup Wisdom:**  
+> [`docs/IMPLEMENTACAO_ANEXOS_AVISOS_EVENTOS_PATRIMONIO_FINANCEIRO.md`](IMPLEMENTACAO_ANEXOS_AVISOS_EVENTOS_PATRIMONIO_FINANCEIRO.md)
 
 ## Princípio
 

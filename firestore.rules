@@ -867,11 +867,6 @@ service cloud.firestore {
           allow update: if false;
         }
       }
-      // Eventos (subcoleÃ§Ã£o legada/alternativa ao feed) â€” alinhado ao mural de eventos.
-      match /eventos/{docId} {
-        allow read: if isMaster() || canAccessTenant(id);
-        allow write: if canWriteMuralFeed(id);
-      }
       match /cultos/{cultoId} {
         allow read: if isMaster() || canAccessTenant(id);
         allow write: if isAdminPanel() || canWriteTenant(id);
