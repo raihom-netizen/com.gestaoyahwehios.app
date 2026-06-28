@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -7963,18 +7964,15 @@ String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
 
 /// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
 /// Retorna `true` se gravou com sucesso.
-Future<void> _ensureFinanceWriteReady() async {
-  await EcoFireResilientPublish.prepareForPublish(logLabel: 'finance_write');
-  try {
-    await ensureFirebaseReadyForPublishUpload();
-  } catch (e) {
-    if (EcoFireResilientPublish.shouldQueueSilently(e)) return;
-    if (isFirebaseNoAppError(e)) {
-      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
-      await ensureFirebaseReadyForPublishUpload();
-      return;
-    }
-    rethrow;
+Future<void> _ensureFinanceWriteReady({BuildContext? context}) async {
+  final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+    context: context,
+    module: YahwehMediaModule.financeiro,
+    logLabel: 'finance_write',
+    withPhotos: true,
+  );
+  if (!ok) {
+    throw StateError('Firebase indisponível para operações financeiras.');
   }
 }
 
@@ -8809,7 +8807,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       return false;
     }
 
-    await _ensureFinanceWriteReady();
+    await _ensureFinanceWriteReady(context: context);
 
     Future<void> persistComprovante({
       required DocumentReference<Map<String, dynamic>> docRef,
@@ -9058,7 +9056,7 @@ Future<void> uploadFinanceComprovanteForLancamento(
   if (!context.mounted) return;
 
   try {
-    await _ensureFinanceWriteReady();
+    await _ensureFinanceWriteReady(context: context);
     final prepared =
         await FinanceComprovanteAttachService.prepareUploadBytes(picked);
     final data = doc.data() ?? {};
@@ -9128,6 +9126,7 @@ Future<void> uploadFinanceComprovanteForLancamento(
       unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
       return;
     }
+    await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
     await FinanceComprovantePublishService.markComprovanteUploadFailed(
       docRef: doc.reference,
       error: e,

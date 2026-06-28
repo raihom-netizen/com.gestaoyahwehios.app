@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Comentários do mural — cache-first, envio otimista, sem spinner infinito na web.
@@ -101,6 +102,17 @@ class _MuralCommentsSheetState extends State<MuralCommentsSheet> {
     });
     _ctrl.clear();
     try {
+      if (!await YahwehModuleMediaGate.ensureReadyForPublish(
+        context: context,
+        module: YahwehMediaModule.avisos,
+      )) {
+        if (mounted) {
+          setState(() {
+            _items = _items.where((e) => e.id != optimistic.id).toList();
+          });
+        }
+        return;
+      }
       await NoticiaSocialService.addComment(
         postRef: widget.postRef,
         uid: widget.authorUid,
@@ -110,7 +122,8 @@ class _MuralCommentsSheetState extends State<MuralCommentsSheet> {
       );
       if (!mounted) return;
       await _reload();
-    } catch (_) {
+    } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (!mounted) return;
       setState(() {
         _items = _items.where((e) => e.id != optimistic.id).toList();

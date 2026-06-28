@@ -75,6 +75,7 @@ import 'package:gestao_yahweh/ui/web/church_public_seo.dart';
 import 'package:gestao_yahweh/ui/web/open_external_url.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
@@ -5795,6 +5796,12 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
+      module: YahwehMediaModule.eventos,
+    ));
+    unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
+      module: YahwehMediaModule.avisos,
+    ));
     unawaited(PublicSiteMediaAuth.ensurePublicVisitorMediaAccess());
   }
 

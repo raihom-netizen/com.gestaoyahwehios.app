@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_church_features.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -240,6 +241,12 @@ class _ChurchChatBroadcastSheetState extends State<_ChurchChatBroadcastSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecione ao menos um membro.')),
       );
+      return;
+    }
+    if (!await YahwehModuleMediaGate.ensureReadyForPublish(
+      context: context,
+      module: YahwehMediaModule.chat,
+    )) {
       return;
     }
     setState(() => _sending = true);

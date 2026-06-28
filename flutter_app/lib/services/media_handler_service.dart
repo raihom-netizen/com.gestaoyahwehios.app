@@ -132,20 +132,23 @@ class MediaHandlerService {
   /// Retorna um [XFile] pronto para upload (bytes/XFile.path).
   Future<XFile?> pickAndProcessLogoImage({
     ImageSource source = ImageSource.gallery,
+    BuildContext? context,
   }) async {
     return pickAndProcessImage(
       source: source,
       imageQuality: logoQuality,
       minWidth: logoMaxWidth,
       minHeight: logoMaxHeight,
+      module: YahwehMediaModule.cadastro,
+      context: context,
     );
   }
 
-  Future<XFile?> pickAndProcessLogoFromGallery() =>
-      pickAndProcessLogoImage(source: ImageSource.gallery);
+  Future<XFile?> pickAndProcessLogoFromGallery({BuildContext? context}) =>
+      pickAndProcessLogoImage(source: ImageSource.gallery, context: context);
 
-  Future<XFile?> pickAndProcessLogoFromCamera() =>
-      pickAndProcessLogoImage(source: ImageSource.camera);
+  Future<XFile?> pickAndProcessLogoFromCamera({BuildContext? context}) =>
+      pickAndProcessLogoImage(source: ImageSource.camera, context: context);
 
   /// Mural / avisos / eventos: web = encode automático; mobile = recorte/confirmar conforme plataforma.
   /// [webpOutputQuality]: use [kPremiumMuralFeedWebpQuality] (ou [kHighResWebpQuality]).
@@ -173,10 +176,12 @@ class MediaHandlerService {
   Future<XFile?> pickCropEncodeMemberPhotoWebp({
     required ImageSource source,
     BuildContext? webCropContext,
+    bool requireAuth = true,
   }) async {
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: webCropContext,
       module: YahwehMediaModule.membros,
+      requireAuth: requireAuth,
     )) {
       return null;
     }

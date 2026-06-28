@@ -56,19 +56,16 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupDoneThisSession) return;
 
     _warmupDoneThisSession = true;
-    // Web: só leituras leves — heavy dispara INTERNAL ASSERTION + milhares de 404 Storage.
-    if (kIsWeb) {
-      unawaited(_runWarmup(tidIn, light: true));
-      return;
-    }
-    // 1.º frame: só leituras leves (painel rápido).
     unawaited(_runWarmup(tidIn, light: true));
     if (!_heavyWarmupScheduled) {
       _heavyWarmupScheduled = true;
-      Future<void>.delayed(const Duration(seconds: 4), () {
-        if (_sessionTenant != tidIn) return;
-        unawaited(_runWarmup(tidIn, light: false));
-      });
+      Future<void>.delayed(
+        Duration(seconds: kIsWeb ? 6 : 4),
+        () {
+          if (_sessionTenant != tidIn) return;
+          unawaited(_runWarmup(tidIn, light: false));
+        },
+      );
     }
   }
 
@@ -103,7 +100,7 @@ class ChurchTenantOfflineWarmupService {
         ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
       );
 
-      final membrosLimit = kIsWeb ? (light ? 8 : 12) : (light ? 24 : 80);
+      final membrosLimit = kIsWeb ? (light ? 16 : 40) : (light ? 24 : 80);
       final avisosLimit = light ? 20 : 50;
       final eventosLimit = light ? 20 : 60;
 

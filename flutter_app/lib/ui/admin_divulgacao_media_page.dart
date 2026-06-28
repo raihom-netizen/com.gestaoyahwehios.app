@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -149,6 +150,18 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         .map((e) => Map<String, dynamic>.from(e))
         .where((e) => _itemPath(e).isNotEmpty)
         .toList();
+  }
+
+  Future<void> _persistGalleryItems(List<Map<String, dynamic>> items) async {
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => _docRef.set(
+        {
+          'items': items,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+    );
   }
 
   List<_VisibleRow> _visibleRows(List<Map<String, dynamic>> items) {
@@ -345,6 +358,12 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
 
   Future<void> _pickAndUpload() async {
     if (_uploading) return;
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.divulgacao,
+    )) {
+      return;
+    }
     final result = await YahwehFilePicker.pickFiles(
       withData: true,
       type: FileType.custom,
@@ -393,6 +412,13 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     });
     StreamSubscription<TaskSnapshot>? sub;
     try {
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.divulgacao,
+        logLabel: 'admin_divulgacao_upload',
+      )) {
+        return;
+      }
       final ref = firebaseDefaultStorage.ref(storagePath);
       final task = ref.putData(
         bytes,
@@ -428,10 +454,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         // Firestore não permite FieldValue.serverTimestamp() dentro de arrays.
         'uploadedAt': Timestamp.now(),
       });
-      await _docRef.set({
-        'items': items,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await _persistGalleryItems(items);
       if (!mounted) return;
       await _loadGallery(showSpinner: false);
       if (!mounted) return;
@@ -439,6 +462,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         ThemeCleanPremium.successSnackBar('Mídia adicionada na divulgação.'),
       );
     } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao enviar mídia: $e')),
@@ -476,10 +500,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
       'category': form.category,
       'featured': form.featured,
     };
-    await _docRef.set({
-      'items': copy,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _persistGalleryItems(copy);
     if (!mounted) return;
     await _loadGallery(showSpinner: false);
     if (!mounted) return;
@@ -493,10 +514,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     final it = copy[index];
     final next = !MarketingGalleryCms.truthy(it['featured']);
     copy[index] = {...it, 'featured': next};
-    await _docRef.set({
-      'items': copy,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _persistGalleryItems(copy);
     if (mounted) await _loadGallery(showSpinner: false);
   }
 
@@ -505,10 +523,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     final copy = List<Map<String, dynamic>>.from(items);
     final it = copy.removeAt(from);
     copy.insert(to, it);
-    await _docRef.set({
-      'items': copy,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _persistGalleryItems(copy);
     if (mounted) await _loadGallery(showSpinner: false);
   }
 
@@ -560,10 +575,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         if (remaining.length == fresh.length) {
           throw StateError('GALLERY_ITEM_NOT_FOUND');
         }
-        await _docRef.set({
-          'items': _cloneGalleryItemMaps(remaining),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        await _persistGalleryItems(_cloneGalleryItemMaps(remaining));
       } else {
         await firebaseDefaultFirestore.runTransaction((txn) async {
           final snap = await txn.get(_docRef);

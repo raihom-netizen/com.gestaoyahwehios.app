@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart'
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_data_engine_fetcher.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 
 /// Módulos do Gestão YAHWEH — **uma** porta de entrada para persistência offline-first.
@@ -326,6 +327,13 @@ abstract final class YahwehCentralEngineService {
         fields: textOnly,
       );
     }
+    final gateOk = await YahwehModuleMediaGate.prepareForPublishUpload(
+      module: YahwehMediaModule.membros,
+      logLabel: 'membro_foto',
+    );
+    if (!gateOk) {
+      throw StateError('Firebase indisponível para enviar foto do membro.');
+    }
     if (scheduleBackground) {
       MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
         tenantId: cid,
@@ -361,6 +369,13 @@ abstract final class YahwehCentralEngineService {
     final cid = ChurchRepository.churchId(igrejaId);
     if (cid.isEmpty) {
       throw StateError('churchId vazio — use ChurchRepository.churchId.');
+    }
+    final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+      module: YahwehMediaModule.cadastro,
+      logLabel: 'logo_igreja',
+    );
+    if (!ok) {
+      throw StateError('Firebase indisponível para enviar logo da igreja.');
     }
     final path = ChurchStorageLayout.churchIdentityLogoPath(cid);
     final upload = await MediaUploadService.uploadBytesDetailed(

@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -104,11 +105,14 @@ abstract final class MemberProfilePhotoSaveService {
     return FirebaseBootstrapService.runGuarded(
       () async {
         onPhase?.call('A preparar Firebase…');
-        await AppFinalizeBootstrap.ensureSessionForPublish(
+        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+          module: YahwehMediaModule.membros,
           logLabel: 'membro_foto',
+          requireAuth: requireAuth,
         );
-        await ensureFirebaseReadyForMediaUpload();
-        await EcoFirePublishBootstrap.ensureHard(logLabel: 'membro_foto');
+        if (!ok) {
+          throw StateError('Firebase indisponível para enviar foto do membro.');
+        }
 
         final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
         final docId = memberDocId.trim();

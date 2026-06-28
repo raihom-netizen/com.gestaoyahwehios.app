@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
@@ -345,6 +346,12 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                       onPressed: uploading
                           ? null
                           : () async {
+                              if (!await YahwehModuleMediaGate.ensureReadyForPick(
+                                context: ctx,
+                                module: YahwehMediaModule.divulgacao,
+                              )) {
+                                return;
+                              }
                               final pick = await YahwehFilePicker.pickFiles(
                                 type: FileType.custom,
                                 allowedExtensions: const [
@@ -432,6 +439,13 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
                         try {
                           if (pendingBytes != null && pendingBytes!.isNotEmpty) {
+                            if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+                              context: ctx,
+                              module: YahwehMediaModule.divulgacao,
+                              logLabel: 'marketing_cliente_capa',
+                            )) {
+                              return;
+                            }
                             photoPath =
                                 FirebasePaths.storageMarketingCapa(tenantRaw);
                             final oldPath =
@@ -538,6 +552,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
                           if (ctx.mounted) Navigator.pop(ctx, true);
                         } catch (e) {
+                          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
                           setLocal(() => uploading = false);
                           if (ctx.mounted) {
                             ScaffoldMessenger.of(ctx).showSnackBar(

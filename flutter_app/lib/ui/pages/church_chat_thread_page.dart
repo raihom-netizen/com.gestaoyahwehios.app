@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -1772,26 +1773,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<bool> _ensureChatFirebaseReadyForMedia() async {
-    if (FirebaseBootstrapService.isReady() &&
-        FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      return true;
-    }
-    try {
-      await ensureFirebaseCore(requireAuth: true);
-      return true;
-    } on Object catch (e) {
-      if (!isFirebaseNoAppError(e)) return false;
-      try {
-        FirebaseBootstrapService.resetPublishWarmState();
-        await FirebaseBootstrapService.ensureInitializedOnce();
-        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
-        await ensureFirebaseCore(requireAuth: true);
-        return true;
-      } on Object catch (e, st) {
-        debugPrint('_ensureChatFirebaseReadyForMedia recover no-app: $e\n$st');
-        return false;
-      }
-    }
+    return YahwehModuleMediaGate.ensureReadyForPick(
+      context: mounted ? context : null,
+      module: YahwehMediaModule.chat,
+    );
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -1803,8 +1788,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
     final x = source == ImageSource.camera
-        ? await MediaHandlerService.instance.pickAndProcessFromCamera()
-        : await MediaHandlerService.instance.pickAndProcessFromGallery();
+        ? await MediaHandlerService.instance.pickAndProcessFromCamera(
+            module: YahwehMediaModule.chat,
+            context: context,
+          )
+        : await MediaHandlerService.instance.pickAndProcessFromGallery(
+            module: YahwehMediaModule.chat,
+            context: context,
+          );
     if (x == null) return;
     if (mounted) {
       ImmediateMediaAttachFeedback.showArquivoAnexado(

@@ -1091,16 +1091,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                       child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _LinksPublicosStrip(
-                          tenantId: _effectiveTenantId.isNotEmpty
-                              ? _effectiveTenantId
-                              : widget.tenantId,
-                          role: widget.role,
-                          initialSlug: _churchSlug.trim().isNotEmpty
-                              ? _churchSlug.trim()
-                              : null,
-                        ),
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
                         StreamBuilder<PanelDashboardSnapshot>(
                           stream: PanelDashboardSnapshotService.watch(
                             _effectiveTenantId,
@@ -1131,6 +1121,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                   },
                                   onOpenPainelCorpoAdmin:
                                       _scrollToCorpoAdministrativo,
+                                ),
+                                const SizedBox(
+                                    height: ThemeCleanPremium.spaceMd),
+                                _LinksPublicosStrip(
+                                  tenantId: _effectiveTenantId.isNotEmpty
+                                      ? _effectiveTenantId
+                                      : widget.tenantId,
+                                  role: widget.role,
+                                  churchSlug: _churchSlug,
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceMd),
@@ -3244,12 +3243,12 @@ bool _isIgrejaCadastroConcluido(Map<String, dynamic>? data) {
 class _LinksPublicosStrip extends StatefulWidget {
   final String tenantId;
   final String role;
-  final String? initialSlug;
+  final String churchSlug;
 
   const _LinksPublicosStrip({
     required this.tenantId,
     required this.role,
-    this.initialSlug,
+    this.churchSlug = '',
   });
 
   @override
@@ -3260,6 +3259,12 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   String? _slug;
   bool _loading = false;
   bool _cadastroConcluido = true;
+
+  String get _effectiveSlug {
+    final fromParent = widget.churchSlug.trim();
+    if (fromParent.isNotEmpty) return fromParent;
+    return (_slug ?? '').trim();
+  }
 
   static String _slugFromData(Map<String, dynamic>? data) {
     if (data == null || data.isEmpty) return '';
@@ -3289,8 +3294,8 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   @override
   void initState() {
     super.initState();
-    final seed = widget.initialSlug?.trim();
-    if (seed != null && seed.isNotEmpty) {
+    final seed = widget.churchSlug.trim();
+    if (seed.isNotEmpty) {
       _slug = seed;
       return;
     }
@@ -3306,15 +3311,15 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   @override
   void didUpdateWidget(covariant _LinksPublicosStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final seed = widget.initialSlug?.trim();
-    if (seed != null && seed.isNotEmpty && seed != _slug) {
+    final seed = widget.churchSlug.trim();
+    if (seed.isNotEmpty && seed != _slug) {
       setState(() {
         _slug = seed;
         _loading = false;
       });
       return;
     }
-    if (_loading || _slug == null || _slug!.isEmpty) {
+    if (_loading || _effectiveSlug.isEmpty) {
       final known = _slugFromKnownMap();
       if (known != null) {
         setState(() {
@@ -3383,8 +3388,8 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
       debugPrint('Dashboard _loadSlug fallback geral: $e\n$st');
       if (mounted) {
         setState(() {
-          _slug = widget.initialSlug?.trim().isNotEmpty == true
-              ? widget.initialSlug!.trim()
+          _slug = widget.churchSlug.trim().isNotEmpty
+              ? widget.churchSlug.trim()
               : TenantResolverService.knownPublicSlugForChurchDocId(
                   widget.tenantId,
                 ).isNotEmpty
@@ -3400,14 +3405,14 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   }
 
   void _openSitePublico() {
-    final slug = _slug?.trim();
-    if (slug == null || slug.isEmpty || !mounted) return;
+    final slug = _effectiveSlug;
+    if (slug.isEmpty || !mounted) return;
     PublicMemberSignupNavigation.openChurchPublicSite(context, slug: slug);
   }
 
   void _openCadastroPublico() {
-    final slug = _slug?.trim();
-    if (slug == null || slug.isEmpty || !mounted) return;
+    final slug = _effectiveSlug;
+    if (slug.isEmpty || !mounted) return;
     PublicMemberSignupNavigation.open(context, slug: slug, tenantId: widget.tenantId);
   }
 
@@ -3422,257 +3427,412 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceMd),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-          border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.08)),
-        ),
-        child: Row(
-          children: [
-            SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: ThemeCleanPremium.primary)),
-            const SizedBox(width: 12),
-            Text('Carregando links...', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
-          ],
-        ),
-      );
+    if (_loading && _effectiveSlug.isEmpty) {
+      return _LinksPublicosSkeleton();
     }
 
-    final hasSlug = _slug != null && _slug!.isNotEmpty;
+    final slug = _effectiveSlug;
+    final hasSlug = slug.isNotEmpty;
     if (!hasSlug) {
-      if (_cadastroConcluido) {
-        return const SizedBox.shrink();
-      }
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceMd),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-          border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.08)),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.link_rounded, color: ThemeCleanPremium.primary.withOpacity(0.7), size: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Configure o "slug" no Cadastro da Igreja para exibir os links do site público e do cadastro de membros.',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
-              ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => IgrejaCadastroPage(tenantId: widget.tenantId, role: widget.role))).then((_) => _loadSlug()),
-              icon: const Icon(Icons.settings_rounded, size: 18),
-              label: const Text('Cadastro da Igreja'),
-              style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10)),
-            ),
-          ],
-        ),
+      return _LinksPublicosSetupCard(
+        cadastroConcluido: _cadastroConcluido,
+        tenantId: widget.tenantId,
+        role: widget.role,
+        onRefresh: _loadSlug,
       );
     }
 
-    final siteUrl = '${AppConstants.publicWebBaseUrl}/igreja/$_slug';
-    final cadastroUrl =
-        AppConstants.publicChurchMemberSignupUrl(_slug!);
+    final siteUrl = '${AppConstants.publicWebBaseUrl}/igreja/$slug';
+    final cadastroUrl = AppConstants.publicChurchMemberSignupUrl(slug);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                ThemeCleanPremium.primary.withValues(alpha: 0.95),
-                const Color(0xFF4F46E5),
-                const Color(0xFF7C3AED),
-              ],
-            ),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: [
-              BoxShadow(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
-                ),
-                child: const Icon(
-                  Icons.rocket_launch_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Links públicos da igreja',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                        letterSpacing: -0.25,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Abra, copie e compartilhe em um toque',
-                      style: TextStyle(
-                        color: Color(0xFFE0E7FF),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        _LinkPublicoTile(
-          icon: Icons.public_rounded,
-          label: 'Site público da igreja',
-          badge: 'Site',
-          url: siteUrl,
-          onOpen: _openSitePublico,
-          onShare: () => _shareUrl(siteUrl, 'Site da igreja'),
-          onCopy: () => _copyUrl(siteUrl),
-        ),
-        const SizedBox(height: 10),
-        _LinkPublicoTile(
-          icon: Icons.person_add_rounded,
-          label: 'Cadastro de usuários (público)',
-          badge: 'Cadastro',
-          url: cadastroUrl,
-          onOpen: _openCadastroPublico,
-          onShare: () => _shareUrl(cadastroUrl, 'Cadastro de membro'),
-          onCopy: () => _copyUrl(cadastroUrl),
-        ),
-      ],
+    return _LinksPublicosPremiumCard(
+      siteUrl: siteUrl,
+      cadastroUrl: cadastroUrl,
+      onOpenSite: _openSitePublico,
+      onOpenCadastro: _openCadastroPublico,
+      onCopy: _copyUrl,
+      onShare: _shareUrl,
     );
   }
 }
 
-class _LinkPublicoTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String badge;
-  final String url;
-  final VoidCallback onOpen;
-  final VoidCallback onShare;
-  final VoidCallback onCopy;
-
-  const _LinkPublicoTile({
-    required this.icon,
-    required this.label,
-    required this.badge,
-    required this.url,
-    required this.onOpen,
-    required this.onShare,
+/// Card colorido — links públicos (painel inicial, antes dos aniversariantes).
+class _LinksPublicosPremiumCard extends StatelessWidget {
+  const _LinksPublicosPremiumCard({
+    required this.siteUrl,
+    required this.cadastroUrl,
+    required this.onOpenSite,
+    required this.onOpenCadastro,
     required this.onCopy,
+    required this.onShare,
   });
+
+  final String siteUrl;
+  final String cadastroUrl;
+  final VoidCallback onOpenSite;
+  final VoidCallback onOpenCadastro;
+  final void Function(String url) onCopy;
+  final void Function(String url, String label) onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE0E7FF)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFEFF6FF),
+                  Color(0xFFEDE9FE),
+                  Color(0xFFF0FDF4),
+                ],
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2563EB), Color(0xFF7C3AED)],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.35),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.public_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Seus links públicos',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.35,
+                          color: Color(0xFF1E3A8A),
+                        ),
+                      ),
+                      SizedBox(height: 3),
+                      Text(
+                        'Toque para abrir, copiar ou compartilhar',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+            child: Column(
+              children: [
+                _ModernPublicLinkTile(
+                  title: 'Site público',
+                  subtitle: 'Eventos e informações da igreja',
+                  url: siteUrl,
+                  icon: Icons.language_rounded,
+                  gradient: const [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                  onTap: onOpenSite,
+                  onCopy: () => onCopy(siteUrl),
+                  onShare: () => onShare(siteUrl, 'Site da igreja'),
+                ),
+                const SizedBox(height: 10),
+                _ModernPublicLinkTile(
+                  title: 'Cadastro de membros',
+                  subtitle: 'Link público para novos membros',
+                  url: cadastroUrl,
+                  icon: Icons.person_add_alt_1_rounded,
+                  gradient: const [Color(0xFF10B981), Color(0xFF059669)],
+                  onTap: onOpenCadastro,
+                  onCopy: () => onCopy(cadastroUrl),
+                  onShare: () => onShare(cadastroUrl, 'Cadastro de membro'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModernPublicLinkTile extends StatelessWidget {
+  const _ModernPublicLinkTile({
+    required this.title,
+    required this.subtitle,
+    required this.url,
+    required this.icon,
+    required this.gradient,
+    required this.onTap,
+    required this.onCopy,
+    required this.onShare,
+  });
+
+  final String title;
+  final String subtitle;
+  final String url;
+  final IconData icon;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+  final VoidCallback onCopy;
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
     final minTouch = ThemeCleanPremium.minTouchTarget;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.08)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: ThemeCleanPremium.primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: gradient,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
                 ),
-                child: Icon(icon, color: ThemeCleanPremium.primary, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  badge,
-                  style: TextStyle(
-                    color: ThemeCleanPremium.primary,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 11.5,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        url,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF475569),
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(width: 4),
+                Column(
+                  children: [
+                    _LinkIconAction(
+                      icon: Icons.open_in_new_rounded,
+                      tooltip: 'Abrir',
+                      color: gradient.first,
+                      onPressed: onTap,
+                      minSize: minTouch,
+                    ),
+                    const SizedBox(height: 4),
+                    _LinkIconAction(
+                      icon: Icons.copy_rounded,
+                      tooltip: 'Copiar',
+                      color: const Color(0xFF64748B),
+                      onPressed: onCopy,
+                      minSize: minTouch,
+                    ),
+                    const SizedBox(height: 4),
+                    _LinkIconAction(
+                      icon: Icons.share_rounded,
+                      tooltip: 'Compartilhar',
+                      color: const Color(0xFF64748B),
+                      onPressed: onShare,
+                      minSize: minTouch,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LinkIconAction extends StatelessWidget {
+  const _LinkIconAction({
+    required this.icon,
+    required this.tooltip,
+    required this.color,
+    required this.onPressed,
+    required this.minSize,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onPressed;
+  final double minSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            width: minSize * 0.78,
+            height: minSize * 0.78,
+            child: Icon(icon, size: 20, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LinksPublicosSkeleton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 168,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      alignment: Alignment.center,
+      child: const SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2.5),
+      ),
+    );
+  }
+}
+
+class _LinksPublicosSetupCard extends StatelessWidget {
+  const _LinksPublicosSetupCard({
+    required this.cadastroConcluido,
+    required this.tenantId,
+    required this.role,
+    required this.onRefresh,
+  });
+
+  final bool cadastroConcluido;
+  final String tenantId;
+  final String role;
+  final Future<void> Function() onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFF7ED), Color(0xFFFFFBEB)],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.link_off_rounded, color: Color(0xFFEA580C), size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              cadastroConcluido
+                  ? 'Slug público ainda não encontrado. Abra o Cadastro da Igreja e salve o slug, ou toque em atualizar.'
+                  : 'Configure o slug no Cadastro da Igreja para exibir os links do site e do cadastro de membros.',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9A3412),
+                height: 1.35,
               ),
-            ],
+            ),
           ),
-          const SizedBox(height: 10),
-          SelectableText(
-            url,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontFamily: 'monospace'),
-            maxLines: 2,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton.icon(
-                onPressed: onOpen,
-                icon: const Icon(Icons.open_in_browser_rounded, size: 18),
-                label: const Text('Abrir'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.primary,
-                  minimumSize: Size(minTouch, 40),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => IgrejaCadastroPage(
+                  tenantId: tenantId,
+                  role: role,
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: onShare,
-                icon: const Icon(Icons.share_rounded, size: 18),
-                label: const Text('Compartilhar'),
-                style: OutlinedButton.styleFrom(minimumSize: Size(minTouch, 40)),
-              ),
-              OutlinedButton.icon(
-                onPressed: onCopy,
-                icon: const Icon(Icons.copy_rounded, size: 18),
-                label: const Text('Copiar link'),
-                style: OutlinedButton.styleFrom(minimumSize: Size(minTouch, 40)),
-              ),
-            ],
+            ).then((_) => onRefresh()),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFEA580C),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            child: const Text('Configurar'),
           ),
         ],
       ),

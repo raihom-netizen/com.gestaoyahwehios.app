@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -105,28 +106,36 @@ class FirestoreStreamUtils {
     }
   }
 
+  static Future<QuerySnapshot<Map<String, dynamic>>> _queryFirstSnapshot(
+    Query<Map<String, dynamic>> query,
+  ) =>
+      FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await query
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await query.get().timeout(ChurchPanelReadTimeouts.queryCap);
+        }
+      });
+
   /// Query com 1.º snapshot via `.get()` (cache) — evita spinner infinito na web.
   ///
-  /// Web: **só** `.get()` — dezenas de `snapshots()` paralelos disparam
+  /// Web: `.get()` + polling leve — paridade com `snapshots()` mobile sem
   /// `INTERNAL ASSERTION FAILED` no Firestore JS 11.x.
   static Stream<QuerySnapshot<Map<String, dynamic>>> queryWatchBootstrap(
     Query<Map<String, dynamic>> query, {
     bool broadcast = true,
   }) async* {
     try {
-      yield await FirestoreWebGuard.runWithWebRecovery(() async {
-        try {
-          return await query
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          return await query.get().timeout(const Duration(seconds: 14));
-        }
-      });
+      yield await _queryFirstSnapshot(query);
     } catch (_) {
       yield const MergedFirestoreQuerySnapshot([]);
     }
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      yield* _webQueryPolling(query);
+      return;
+    }
     if (!WebPanelStability.tryOpenListener('query')) {
       return;
     }
@@ -137,21 +146,26 @@ class FirestoreStreamUtils {
     );
   }
 
+  static Future<DocumentSnapshot<Map<String, dynamic>>> _documentFirstSnapshot(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) =>
+      FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await ref
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await ref.get().timeout(ChurchPanelReadTimeouts.queryCap);
+        }
+      });
+
   /// Documento com 1.º snapshot via `.get()` — pintura instantânea no painel master.
   static Stream<DocumentSnapshot<Map<String, dynamic>>> documentWatchBootstrap(
     DocumentReference<Map<String, dynamic>> ref, {
     bool broadcast = true,
   }) async* {
     try {
-      yield await FirestoreWebGuard.runWithWebRecovery(() async {
-        try {
-          return await ref
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          return await ref.get().timeout(const Duration(seconds: 14));
-        }
-      });
+      yield await _documentFirstSnapshot(ref);
     } catch (e) {
       // Falha de rede/regras ≠ documento inexistente — não emitir snapshot vazio.
       if (isTransientNetworkError(e) ||
@@ -163,7 +177,10 @@ class FirestoreStreamUtils {
       }
       yield _emptyDocumentSnapshot;
     }
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      yield* _webDocumentPolling(ref);
+      return;
+    }
     // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
     yield* resilientDocument(_nativeDocumentSnapshots(ref), broadcast: broadcast);
   }
@@ -202,21 +219,46 @@ class FirestoreStreamUtils {
     }
   }
 
-  /// Painel master web: one-shot; mobile: bootstrap + live quando seguro.
+  /// Web: polling; mobile: bootstrap + live quando seguro.
   static Stream<DocumentSnapshot<Map<String, dynamic>>> documentWatchSafe(
     DocumentReference<Map<String, dynamic>> ref, {
     bool broadcast = true,
-  }) {
-    if (kIsWeb) return documentOneShot(ref);
-    return documentWatchBootstrap(ref, broadcast: broadcast);
-  }
+  }) =>
+      documentWatchBootstrap(ref, broadcast: broadcast);
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> queryWatchSafe(
     Query<Map<String, dynamic>> query, {
     bool broadcast = true,
-  }) {
-    if (kIsWeb) return queryOneShot(query);
-    return queryWatchBootstrap(query, broadcast: broadcast);
+  }) =>
+      queryWatchBootstrap(query, broadcast: broadcast);
+
+  /// Web — re-fetch periódico (substitui `snapshots()`).
+  static Stream<QuerySnapshot<Map<String, dynamic>>> _webQueryPolling(
+    Query<Map<String, dynamic>> query,
+  ) async* {
+    while (true) {
+      await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      if (WebPanelStability.isSessionExpired) return;
+      try {
+        yield await FirestoreWebGuard.runWithWebRecovery(
+          () => query.get().timeout(ChurchPanelReadTimeouts.queryCap),
+        );
+      } catch (_) {}
+    }
+  }
+
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> _webDocumentPolling(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async* {
+    while (true) {
+      await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      if (WebPanelStability.isSessionExpired) return;
+      try {
+        yield await FirestoreWebGuard.runWithWebRecovery(
+          () => ref.get().timeout(ChurchPanelReadTimeouts.queryCap),
+        );
+      } catch (_) {}
+    }
   }
 
   /// Em falha transitória, emite snapshot vazio e agenda recuperação Web.

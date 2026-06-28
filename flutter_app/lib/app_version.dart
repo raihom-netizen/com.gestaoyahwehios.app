@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2017: Paridade WISDOMAPP total — gate mídia todos módulos, polling web 12s, índices ativo+publicado, public_church_slugs, cache público anónimo, warmup web 16/40 membros.
 /// 11.2.305+2016: Deploy completo — padrão WISDOMAPP cache-first (YahwehModuleCaches), CF gyPublicMemberSignup, chat/membros/fornecedores bridge Web, avisos SWR, shell lazy 2 módulos.
 /// 11.2.305+2015: Deploy completo — anexos padronizados (CF gyUploadFinanceComprovante, gyAdminUpsertFeedPost), bridge Web, viewer comprovante iframe, regras eventos unificadas.
 /// 11.2.305+2014: Deploy completo — chat áudio/mídia CT, saudação WhatsApp, gate mídia módulos, Firestore sem terminate.
@@ -421,7 +422,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2016';
+const String appBuildNumber = '2017';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

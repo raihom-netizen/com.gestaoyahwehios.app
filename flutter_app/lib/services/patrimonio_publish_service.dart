@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
@@ -107,33 +108,26 @@ abstract final class PatrimonioPublishService {
     List<String> existingUrls = const [],
     void Function(double progress)? onUploadProgress,
   }) async {
-    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-      );
-    }
     Object? bootstrapLast;
-    for (var attempt = 0; attempt < 5; attempt++) {
+    for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
           FirebaseBootstrapService.resetPublishWarmState();
-          if (bootstrapLast != null && isFirebaseNoAppError(bootstrapLast!)) {
-            await FirebaseBootstrapService.ensureAlwaysOn(
-              refreshAuthToken: true,
-            );
-          }
         }
-        await AppFinalizeBootstrap.ensureSessionForPublish(
+        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+          module: YahwehMediaModule.patrimonio,
           logLabel: 'patrimonio_publish',
+          withPhotos: uploadsBySlot.isNotEmpty || newImages.isNotEmpty,
         );
-        await ensureFirebaseReadyForPublishUpload();
-        await ensureFirebaseReadyForMediaUpload();
-        await EcoFirePublishBootstrap.ensureHard(logLabel: 'patrimonio_publish');
+        if (!ok) {
+          throw StateError('Firebase indisponível para publicar patrimônio.');
+        }
         bootstrapLast = null;
         break;
       } catch (e) {
         bootstrapLast = e;
-        if (attempt < 4 && isFirebaseNoAppError(e)) {
+        if (attempt < 2 && isFirebaseNoAppError(e)) {
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
           await Future<void>.delayed(
             Duration(milliseconds: 280 * (attempt + 1)),
           );

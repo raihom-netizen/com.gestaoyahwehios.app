@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
@@ -16,6 +17,12 @@ abstract final class MemberProfilePhotoPickService {
   static Future<({Uint8List bytes, String displayName})?> pickForMemberEdit(
     BuildContext context,
   ) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.membros,
+    )) {
+      return null;
+    }
     if (kIsWeb) {
       return pickFromGallery(context);
     }
@@ -110,6 +117,11 @@ abstract final class MemberProfilePhotoPickService {
   }
 
   static Future<({Uint8List bytes, String displayName})?> _pickWebFile() async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      module: YahwehMediaModule.membros,
+    )) {
+      return null;
+    }
     final result = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],

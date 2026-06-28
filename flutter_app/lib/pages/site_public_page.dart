@@ -4,6 +4,7 @@ import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
 import "package:gestao_yahweh/services/app_session_stability.dart";
 import "package:gestao_yahweh/core/public_site_media_auth.dart";
+import "package:gestao_yahweh/core/yahweh_module_media_gate.dart";
 import "package:cloud_firestore/cloud_firestore.dart";
 import "package:url_launcher/url_launcher.dart";
 import "package:gestao_yahweh/ui/widgets/version_footer.dart";
@@ -76,8 +77,15 @@ class _SitePublicPageState extends State<SitePublicPage>
     WidgetsBinding.instance.addObserver(this);
     if (kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
+          module: YahwehMediaModule.divulgacao,
+        ));
         PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       });
+    } else {
+      unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
+        module: YahwehMediaModule.divulgacao,
+      ));
     }
     // Planos = mesma fonte do Master: `config/plans/items` em tempo real (+ fallback [planosOficiais]).
     _effectiveConfigsSub =

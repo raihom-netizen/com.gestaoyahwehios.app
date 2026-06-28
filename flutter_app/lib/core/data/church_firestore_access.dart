@@ -288,7 +288,7 @@ abstract final class ChurchFirestoreAccess {
         debugPrint('ChurchFirestoreAccess.poll[$watchKey]: $e');
         yield const MergedFirestoreQuerySnapshot([]);
       }
-      await Future<void>.delayed(const Duration(seconds: 8));
+      await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
     }
   }
 

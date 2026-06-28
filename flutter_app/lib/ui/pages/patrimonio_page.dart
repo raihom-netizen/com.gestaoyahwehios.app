@@ -853,7 +853,6 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   void _startPatrimonioRealtimeSync() {
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
     for (final s in _patrimonioRealtimeSubs) {
       unawaited(s.cancel());
     }
@@ -8720,7 +8719,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
     try {
       YahwehFlowLog.patrimonioStart();
-      await ensureFirebaseReadyForPublishUpload();
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.patrimonio,
+        logLabel: 'patrimonio_save',
+        withPhotos: _slotPending.any((b) => b != null),
+      )) {
+        return;
+      }
       final tenantId = _churchIdForPublish;
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();
@@ -8811,6 +8817,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (!mounted) return;
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         final offlinePayload = buildCorePayload();

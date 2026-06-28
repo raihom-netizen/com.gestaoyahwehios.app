@@ -531,6 +531,13 @@ service cloud.firestore {
 
     // PadrÃ£o: tudo vinculado Ã  igreja e ao gestor â€” patrimÃ´nio, fotos, vÃ­deos, notÃ­cias, escalas, membros, financeiro, etc.
     // igrejas/{id}/membros, noticias, eventos, patrimonio, finance, escalas, departamentos, cargos, visitantes, config, users...
+
+    // Ãndice global slug â†’ churchId â€” leitura pÃºblica instantÃ¢nea (site + cadastro membro). Web = Android = iOS.
+    match /public_church_slugs/{slugKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /igrejas/{id} {
       // Leitura pÃºblica para busca de igreja (CPF/e-mail) e perfil da igreja
       allow read: if true;

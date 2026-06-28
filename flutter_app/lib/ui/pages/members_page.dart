@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
@@ -314,16 +315,21 @@ class _MembersPageState extends State<MembersPage> {
     required Map<String, dynamic> memberData,
     required Uint8List bytes,
   }) async {
-    final result = await YahwehCentralEngineService.executeSingleProfileSave(
-      collectionId: 'membros',
-      docId: memberDocId,
-      igrejaId: tenantId,
-      payloadFields: const {},
-      photoBytes: bytes,
-      memberDataHint: memberData,
-    );
-    if (!mounted) return;
-    _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
+    try {
+      final result = await YahwehCentralEngineService.executeSingleProfileSave(
+        collectionId: 'membros',
+        docId: memberDocId,
+        igrejaId: tenantId,
+        payloadFields: const {},
+        photoBytes: bytes,
+        memberDataHint: memberData,
+      );
+      if (!mounted) return;
+      _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
+    } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
+      rethrow;
+    }
   }
 
   void _invalidateMemberPhotoCaches(
@@ -838,10 +844,6 @@ class _MembersPageState extends State<MembersPage> {
     }
     _membersRealtimeSubs.clear();
     _membersRealtimeTenant = tenantId;
-    // Web + cadastro: zero snapshots() — refresh manual/debounce (evita loop + lentidão).
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      return;
-    }
     _membrosRealtimeSkipInitial = true;
     final db = firebaseDefaultFirestore;
     _membersRealtimeSubs.add(

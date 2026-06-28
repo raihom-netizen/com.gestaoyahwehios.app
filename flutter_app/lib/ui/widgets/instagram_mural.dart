@@ -642,7 +642,6 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _startFeedLiveSync() async {
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
     try {
       await _ensureMuralFirebaseReady();
     } catch (e) {
@@ -3579,10 +3578,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-        maxAttempts: 5,
-      );
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.avisos,
+        logLabel: 'mural_aviso_save',
+      )) {
+        return;
+      }
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
@@ -3664,10 +3666,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-        maxAttempts: 5,
-      );
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.eventos,
+        logLabel: 'mural_evento_save',
+      )) {
+        return;
+      }
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -3830,16 +3835,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (e, st) {
       EventosPublishVerificationService.rememberLastError(e);
       await CrashlyticsService.record(e, st, reason: 'eventos_publish');
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (mounted) {
-        if (isFirebaseNoAppError(e)) {
-          try {
-            FirebaseBootstrapService.resetPublishWarmState();
-            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-              refreshAuthToken: true,
-              maxAttempts: 5,
-            );
-          } catch (_) {}
-        }
         ThemeCleanPremium.showErrorSnackBarWithRetry(
           context,
           formatUploadErrorForUser(e),
@@ -4928,16 +4925,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (e, st) {
       AvisosPublishVerificationService.rememberLastError(e);
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (mounted) {
-        if (isFirebaseNoAppError(e)) {
-          try {
-            FirebaseBootstrapService.resetPublishWarmState();
-            await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-              refreshAuthToken: true,
-              maxAttempts: 5,
-            );
-          } catch (_) {}
-        }
         ThemeCleanPremium.showErrorSnackBarWithRetry(
           context,
           formatUploadErrorForUser(e),

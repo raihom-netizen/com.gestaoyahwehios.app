@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
@@ -28,6 +29,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart'
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
@@ -179,6 +181,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
+      module: YahwehMediaModule.membros,
+    ));
     final slugPeek = (widget.slug ?? '').trim();
     if (slugPeek.isNotEmpty) {
       final instant = PublicChurchSlugResolver.peek(slugPeek);
@@ -978,9 +983,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   Future<void> _pickPhoto({bool fromCamera = false}) async {
+    final authUser = FirebaseAuth.instance.currentUser;
+    final isPublicVisitor = authUser == null || authUser.isAnonymous;
     final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
       source: fromCamera ? ImageSource.camera : ImageSource.gallery,
       webCropContext: context,
+      requireAuth: !isPublicVisitor,
     );
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
@@ -1173,6 +1181,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (isPublicVisitor) {
         await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
       }
+      if (_photoBytes != null && _photoBytes!.isNotEmpty) {
+        if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+          context: context,
+          module: YahwehMediaModule.membros,
+          logLabel: 'public_member_signup_foto',
+          requireAuth: !isPublicVisitor,
+        )) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+      }
       final ref = editingDocId != null
           ? col.doc(editingDocId)
           : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
@@ -1189,16 +1208,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
 
-      final alias = _tenantAlias.isNotEmpty ? _tenantAlias : _tenantId;
-      final slug = _tenantSlug.isNotEmpty ? _tenantSlug : _tenantId;
-      // Grava na igreja correta (igrejas/{tenantId}/membros); pendente até o gestor aprovar.
-      // Login Firebase (e-mail + senha 123456) é criado na aprovação — callable `setMemberApproved`.
+      // Path canónico: igrejas/{churchId}/membros — sem alias/tenantId legados.
       final data = {
         'MEMBER_ID': ref.id,
         'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : ref.id,
-        'alias': alias,
-        'slug': slug,
-        'tenantId': _tenantId,
+        'churchId': _tenantId,
         'NOME_COMPLETO': _nameCtrl.text.trim(),
         'EMAIL': _emailCtrl.text.trim(),
         'DATA_NASCIMENTO': Timestamp.fromDate(birthParsed),
@@ -1250,7 +1264,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               await MemberCodigoService.allocateNext(_tenantId!);
           data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
         }
-        if (kIsWeb) {
+        if (kIsWeb && isPublicVisitor) {
+          await ChurchFunctionsService.publicMemberSignup(
+            churchId: _tenantId!.trim(),
+            docId: ref.id,
+            data: AdminFeedFirestoreBridge.encodeMap(data),
+          );
+        } else if (kIsWeb) {
           await AdminFeedFirestoreBridge.upsertTenantDoc(
             churchId: _tenantId!.trim(),
             collection: 'membros',
@@ -1290,6 +1310,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         _lastSubmittedDocId = ref.id;
       });
     } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+        e,
+        requireAuth: !(FirebaseAuth.instance.currentUser == null ||
+            FirebaseAuth.instance.currentUser!.isAnonymous),
+      );
       if (!mounted) return;
       final u = FirebaseAuth.instance.currentUser;
       final msg = e.toString().contains('permission-denied') &&

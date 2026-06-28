@@ -107,23 +107,25 @@ class _AdminMarketingCanaisMasterCardState
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await _ref.set(
-        {
-          'contactName': _contactCtrl.text.trim().isEmpty
-              ? FieldValue.delete()
-              : _contactCtrl.text.trim(),
-          'instagramUrl': _instagramCtrl.text.trim().isEmpty
-              ? FieldValue.delete()
-              : _instagramCtrl.text.trim(),
-          'youtubeUrl': _youtubeCtrl.text.trim().isEmpty
-              ? FieldValue.delete()
-              : _youtubeCtrl.text.trim(),
-          'whatsapp': _whatsappCtrl.text.trim().isEmpty
-              ? FieldValue.delete()
-              : _whatsappCtrl.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _ref.set(
+          {
+            'contactName': _contactCtrl.text.trim().isEmpty
+                ? FieldValue.delete()
+                : _contactCtrl.text.trim(),
+            'instagramUrl': _instagramCtrl.text.trim().isEmpty
+                ? FieldValue.delete()
+                : _instagramCtrl.text.trim(),
+            'youtubeUrl': _youtubeCtrl.text.trim().isEmpty
+                ? FieldValue.delete()
+                : _youtubeCtrl.text.trim(),
+            'whatsapp': _whatsappCtrl.text.trim().isEmpty
+                ? FieldValue.delete()
+                : _whatsappCtrl.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

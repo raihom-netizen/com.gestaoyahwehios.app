@@ -44,6 +44,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_event_categories_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
@@ -525,6 +526,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   void _warmEventosCacheFirst(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
+    unawaited(YahwehModuleCaches.eventos.warmUp(tid));
+    unawaited(
+      ChurchRepository.listCacheFirst(
+        module: ChurchRepository.eventos,
+        churchIdHint: tid,
+        limit: 40,
+      ),
+    );
     unawaited(
       ChurchEventosLoadService.loadGallery(seedTenantId: tid),
     );
@@ -7838,6 +7847,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.eventos,
+    )) {
+      return;
+    }
     setState(() => _mediaPicking = true);
     try {
       final xfile = await ImagePicker().pickVideo(
@@ -8412,10 +8427,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     try {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-        maxAttempts: 5,
-      );
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.eventos,
+        logLabel: 'eventos_manager_save',
+      )) {
+        if (mounted) setState(() => _saving = false);
+        return;
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
@@ -8567,19 +8586,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       } catch (e, st) {
         EventosPublishVerificationService.rememberLastError(e);
         await CrashlyticsService.record(e, st, reason: 'eventos_publish');
+        await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
         if (FirestoreWebGuard.isClientTerminated(e)) {
           await YahwehModuleMediaGate.recoverAfterTerminatedIfWeb();
         }
         if (mounted) {
-          if (isFirebaseNoAppError(e)) {
-            try {
-              FirebaseBootstrapService.resetPublishWarmState();
-              await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-                refreshAuthToken: true,
-                maxAttempts: 5,
-              );
-            } catch (_) {}
-          }
           ThemeCleanPremium.showErrorSnackBarWithRetry(
             context,
             formatUploadErrorForUser(e),

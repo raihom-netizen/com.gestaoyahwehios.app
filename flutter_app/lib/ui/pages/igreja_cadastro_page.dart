@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -1261,6 +1262,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     try {
       final picked = await MediaHandlerService.instance.pickAndProcessImage(
         source: camera ? ImageSource.camera : ImageSource.gallery,
+        module: YahwehMediaModule.cadastro,
+        context: context,
       );
       if (picked == null || !mounted) return;
       final bytes = await picked.readAsBytes();
@@ -1620,7 +1623,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!_canEdit) return;
     try {
       final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromGallery();
+          await MediaHandlerService.instance.pickAndProcessLogoFromGallery(
+        context: context,
+      );
       await _stageLogoFromPickedFile(file);
     } catch (e) {
       _onLogoPickError(e);
@@ -1631,7 +1636,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!_canEdit) return;
     try {
       final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromCamera();
+          await MediaHandlerService.instance.pickAndProcessLogoFromCamera(
+        context: context,
+      );
       await _stageLogoFromPickedFile(file);
     } catch (e) {
       _onLogoPickError(e);
@@ -1745,7 +1752,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _logoUploadPhase = 'uploading';
     }
     try {
-      await ensureFirebaseReadyForPublishUpload();
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.cadastro,
+        logLabel: 'igreja_logo_upload',
+      )) {
+        if (mounted) {
+          setState(() {
+            _uploadingLogo = false;
+            _logoUploadPhase = '';
+          });
+        }
+        return false;
+      }
       final resolvedId = await _resolveTenantIdForSave();
       final png =
           await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
@@ -1819,6 +1838,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       return true;
     } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (mounted) {
         setState(() {
           _uploadingLogo = false;

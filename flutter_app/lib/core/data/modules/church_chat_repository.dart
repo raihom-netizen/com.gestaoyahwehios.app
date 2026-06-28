@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/data/church_data_result.dart';
@@ -88,7 +89,7 @@ final class ChurchChatRepository extends ChurchModuleRepositoryBase {
           .snapshots()
           .listen(onData);
     }
-    return Stream.periodic(const Duration(seconds: 6)).asyncMap((_) async {
+    return Stream.periodic(ChurchPanelReadTimeouts.webPollInterval).asyncMap((_) async {
       final r = await listMessagesOnce(
         threadId: threadId,
         churchIdHint: id,

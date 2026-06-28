@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/painting.dart' show imageCache;
@@ -3906,7 +3907,9 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   }
 
   Future<void> _escolherDaGaleria() async {
-    final file = await MediaHandlerService.instance.pickAndProcessLogoFromGallery();
+    final file = await MediaHandlerService.instance.pickAndProcessLogoFromGallery(
+      context: context,
+    );
     if (file == null || !mounted) return;
     setState(() {
       _uploadingLogo = true;
@@ -3914,7 +3917,19 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
     });
     try {
       final op = ChurchRepository.churchId(widget.tenantId.trim());
-      await ensureFirebaseReadyForPublishUpload();
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.cadastro,
+        logLabel: 'certificado_logo',
+      )) {
+        if (mounted) {
+          setState(() {
+            _uploadingLogo = false;
+            _uploadingLogoProgress = 0.0;
+          });
+        }
+        return;
+      }
       final bytes = await file.readAsBytes();
       await FirebaseStorageCleanupService.deleteCertificadoDedicatedLogoArtifacts(
         tenantId: op,
@@ -3954,6 +3969,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             ThemeCleanPremium.successSnackBar('Logo da galeria definido.'));
       }
     } catch (e) {
+      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (mounted) {
         setState(() {
           _uploadingLogo = false;
