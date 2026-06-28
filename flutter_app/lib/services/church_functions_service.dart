@@ -54,7 +54,7 @@ abstract final class ChurchFunctionsService {
     );
   }
 
-  /// Upsert documento tenant via Admin SDK (Web — avisos, eventos, patrimônio, finance).
+  /// Upsert documento tenant via Admin SDK (Web — avisos, eventos, patrimônio, finance, chat, membros).
   static Future<String> adminUpsertFeedPost({
     required String churchId,
     required String collection,
@@ -62,6 +62,9 @@ abstract final class ChurchFunctionsService {
     required Map<String, dynamic> data,
     bool create = false,
     bool merge = true,
+    bool useUpdate = false,
+    String? subCollection,
+    String? subDocId,
   }) async {
     final res = await _call('gyAdminUpsertFeedPost', {
       'churchId': churchId.trim(),
@@ -70,6 +73,25 @@ abstract final class ChurchFunctionsService {
       'data': data,
       'create': create,
       'merge': merge,
+      'useUpdate': useUpdate,
+      if (subCollection != null && subCollection.trim().isNotEmpty)
+        'subCollection': subCollection.trim(),
+      if (subDocId != null && subDocId.trim().isNotEmpty)
+        'subDocId': subDocId.trim(),
+    });
+    return (res['docId'] ?? subDocId ?? docId).toString();
+  }
+
+  /// Cadastro membro público via Admin SDK (Web-safe).
+  static Future<String> publicMemberSignup({
+    required String churchId,
+    required String docId,
+    required Map<String, dynamic> data,
+  }) async {
+    final res = await _call('gyPublicMemberSignup', {
+      'churchId': churchId.trim(),
+      'docId': docId.trim(),
+      'data': data,
     });
     return (res['docId'] ?? docId).toString();
   }

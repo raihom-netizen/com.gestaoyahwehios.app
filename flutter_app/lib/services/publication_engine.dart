@@ -217,6 +217,7 @@ abstract final class PublicationEngine {
     required PublicationKind kind,
     required Map<String, dynamic> payload,
     required bool isNewDoc,
+    void Function(double progress)? onProgress,
   }) async {
     await ensureFirebaseCore(requireAuth: true);
     final patch = _buildStrictFirestorePatch(payload, isNewDoc: isNewDoc);
@@ -235,6 +236,7 @@ abstract final class PublicationEngine {
         docId: docRef.id,
         data: patch,
         isNewDoc: isNewDoc,
+        onProgress: onProgress,
         directWrite: () => runFirestorePublishWithRecovery(
           () => ChurchDataService.instance.setTenantDocument(
             ref: docRef,

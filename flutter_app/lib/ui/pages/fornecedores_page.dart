@@ -42,9 +42,8 @@ import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
-import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
+import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1314,47 +1313,28 @@ Future<void> showFornecedorCompromissoEditor(
   _CompromissosRamCache.invalidate(churchId);
 
   try {
-    DocumentReference<Map<String, dynamic>> docRef;
-    if (existing == null) {
-      docRef = await compCol.add({
-        ...payload,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      docRef = existing.reference;
-      await docRef.update(payload);
-    }
+    final docRef = await FornecedorCompromissoPublishService.saveCompromisso(
+      compCol: compCol,
+      churchId: churchId,
+      fornecedorId: fornecedorId,
+      payload: payload,
+      existing: existing,
+    );
 
     if (pendingComprovante != null) {
-      final ext = FinanceComprovanteAttachService.extensionForMime(
-        pendingComprovante!.mimeType,
-      );
       await FinanceComprovanteUi.runWithProgress(
         context,
         label: 'Enviando comprovante…',
         action: (_) async {
-          final url = await FornecedorCompromissoComprovanteService.upload(
+          await FornecedorCompromissoPublishService.attachComprovante(
+            docRef: docRef,
             churchId: churchId,
             fornecedorId: fornecedorId,
             compromissoId: docRef.id,
             bytes: pendingComprovante!.bytes,
-            contentType: pendingComprovante!.mimeType,
-            ext: ext,
+            mimeType: pendingComprovante!.mimeType,
+            fileName: pendingComprovante!.fileName,
           );
-          final storagePath =
-              ChurchStorageLayout.fornecedorCompromissoComprovantePath(
-            tenantId: churchId,
-            fornecedorId: fornecedorId,
-            compromissoId: docRef.id,
-            ext: ext,
-          );
-          await docRef.update({
-            'comprovanteStoragePath': storagePath,
-            'comprovanteUrl': url,
-            'hasComprovante': true,
-            'comprovanteFileName': pendingComprovante!.fileName,
-            'comprovanteMimeType': pendingComprovante!.mimeType,
-          });
           return true;
         },
       );

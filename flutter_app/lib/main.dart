@@ -60,6 +60,7 @@ import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_cache_bootstrap.dart';
 import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
@@ -487,6 +488,7 @@ void main() async {
     LoginPreferences.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
     AuthProfileCacheService.warmUpForStartup(),
+    YahwehCacheBootstrap.warmUpPrefs(),
   ]);
 
   if (!firebaseBoot.isReady) {

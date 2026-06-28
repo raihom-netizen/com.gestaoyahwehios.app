@@ -7668,6 +7668,7 @@ export {
   gyUploadFinanceComprovante,
   gyAdminUpsertFeedPost,
   gyAdminDeleteFeedPosts,
+  gyPublicMemberSignup,
 } from "./gyMediaAttachments";
 
 export { backfillMemberCodigos } from "./memberCodigo";

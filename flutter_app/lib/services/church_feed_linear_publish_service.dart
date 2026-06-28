@@ -16,7 +16,6 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
@@ -257,15 +256,13 @@ abstract final class ChurchFeedLinearPublishService {
     payload['publicSite'] = publicSite;
 
     _report(onUploadProgress, 0.78);
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
-    }
     await PublicationEngine.saveStrictPublished(
       docRef: docRef,
       tenantId: churchId,
       kind: kind,
       payload: payload,
       isNewDoc: isNewDoc,
+      onProgress: onUploadProgress,
     );
     if (isEvento) {
       await _mirrorEventoToLegacyEventsCollection(
@@ -275,11 +272,10 @@ abstract final class ChurchFeedLinearPublishService {
       );
     }
 
-    if (isEvento) {
-      await EventosPublishVerificationService.verifyDocumentExists(docRef);
-    } else {
-      await AvisosPublishVerificationService.verifyDocumentExists(docRef);
-    }
+    await _verifyFeedDocPublished(
+      docRef: docRef,
+      isEvento: isEvento,
+    );
     _report(onUploadProgress, 0.88);
 
     if (isEvento && syncAgenda) {
@@ -423,5 +419,34 @@ abstract final class ChurchFeedLinearPublishService {
         'notificationStatus': notificationStatus,
       },
     );
+  }
+
+  static Future<void> _verifyFeedDocPublished({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required bool isEvento,
+  }) async {
+    Future<void> verify() async {
+      if (isEvento) {
+        await EventosPublishVerificationService.verifyDocumentExists(
+          docRef,
+          preferServer: !kIsWeb,
+        );
+      } else {
+        await AvisosPublishVerificationService.verifyDocumentExists(
+          docRef,
+          preferServer: !kIsWeb,
+        );
+      }
+    }
+
+    if (kIsWeb) {
+      try {
+        await verify().timeout(const Duration(seconds: 18));
+      } catch (_) {
+        // CF Admin SDK já gravou — não bloquear por lag de leitura web.
+      }
+      return;
+    }
+    await verify();
   }
 }

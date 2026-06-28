@@ -10,7 +10,7 @@
 | WisdomApp | `C:\WisdomApp\lib` |
 | Gestão YAHWEH | `C:\gestao_yahweh_premium_final\flutter_app` |
 
-**Docs relacionados:** `docs/FIREBASE_PADRAO_CONTROLE_TOTAL.md`, `IMPLEMENTACAO_ALINHAMENTO_CONTROLE_TOTAL.md`, `.cursor/rules/igrejas-arquitetura-final.mdc`, **`docs/IMPLEMENTACAO_ANEXOS_AVISOS_EVENTOS_PATRIMONIO_FINANCEIRO.md`** (plano anexos + backup Wisdom)
+**Docs relacionados:** `docs/FIREBASE_PADRAO_CONTROLE_TOTAL.md`, `IMPLEMENTACAO_ALINHAMENTO_CONTROLE_TOTAL.md`, `.cursor/rules/igrejas-arquitetura-final.mdc`, **`docs/IMPLEMENTACAO_ANEXOS_AVISOS_EVENTOS_PATRIMONIO_FINANCEIRO.md`** (plano anexos + backup Wisdom), **`docs/PADRAO_MESTRE_WISDOMAPP_YAHWEH_TOTAL.md`** (padrão total velocidade + gravações + mídia Web/Android/iOS)
 
 ---
 

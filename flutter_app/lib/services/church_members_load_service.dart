@@ -248,6 +248,12 @@ abstract final class ChurchMembersLoadService {
           final docs = _sortByName(TenantModuleHiveCache.toQueryDocuments(hive));
           if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
             _putRam(ramKey, docs);
+            unawaited(_refreshInBackground(
+              churchId: churchId,
+              ramKey: ramKey,
+              limit: capped,
+              reference: reference,
+            ));
             return ChurchMembersLoadResult(
               churchId: churchId,
               docs: docs,

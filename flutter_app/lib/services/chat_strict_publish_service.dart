@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
@@ -68,7 +69,7 @@ abstract final class ChatStrictPublishService {
       fileSize: fileSize,
     );
 
-    if (!skipServerRecheck) {
+    if (!skipServerRecheck && !kIsWeb) {
       final ref = ChatPublishVerificationService.messageDocRef(
         igrejaId: resolvedTenant,
         threadId: threadId,

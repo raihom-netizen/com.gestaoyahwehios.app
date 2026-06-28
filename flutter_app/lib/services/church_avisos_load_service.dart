@@ -155,6 +155,11 @@ abstract final class ChurchAvisosLoadService {
     if (!forceRefresh && !forceServer) {
       final ramHit = peekRam(churchId, limit: limit);
       if (ramHit != null && ramHit.isNotEmpty) {
+        unawaited(_refreshFeedInBackground(
+          churchId: churchId,
+          limit: limit,
+          ramKey: ramKey,
+        ));
         return ChurchAvisosLoadResult(
           churchId: churchId,
           docs: ramHit,
@@ -167,6 +172,11 @@ abstract final class ChurchAvisosLoadService {
       if (mem != null && mem.docs.isNotEmpty) {
         final docs = _sortByCreatedAt(mem.docs);
         _putRam(ramKey, docs);
+        unawaited(_refreshFeedInBackground(
+          churchId: churchId,
+          limit: limit,
+          ramKey: ramKey,
+        ));
         return ChurchAvisosLoadResult(
           churchId: churchId,
           docs: docs,
@@ -185,6 +195,11 @@ abstract final class ChurchAvisosLoadService {
               _sortByCreatedAt(TenantModuleHiveCache.toQueryDocuments(hive));
           if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
+            unawaited(_refreshFeedInBackground(
+              churchId: churchId,
+              limit: limit,
+              ramKey: ramKey,
+            ));
             return ChurchAvisosLoadResult(
               churchId: churchId,
               docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -203,6 +218,11 @@ abstract final class ChurchAvisosLoadService {
         if (cacheSnap.docs.isNotEmpty) {
           final docs = _sortByCreatedAt(cacheSnap.docs);
           _putRam(ramKey, docs);
+          unawaited(_refreshFeedInBackground(
+            churchId: churchId,
+            limit: limit,
+            ramKey: ramKey,
+          ));
           return ChurchAvisosLoadResult(
             churchId: churchId,
             docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -392,5 +412,25 @@ abstract final class ChurchAvisosLoadService {
     if (result.churchId.isEmpty || result.docs.isEmpty) return;
     putRam(result.churchId, result.docs);
     await _persistHive(result.churchId, result.docs);
+  }
+
+  static Future<void> _refreshFeedInBackground({
+    required String churchId,
+    required int limit,
+    required String ramKey,
+  }) async {
+    try {
+      final docs = await _loadFirestoreFeed(
+        churchId: churchId,
+        limit: limit,
+        cacheKey: ramKey,
+        forceServer: false,
+      );
+      if (docs.isNotEmpty) {
+        final filtered = _filterRenderableFeed(docs, churchId, max: limit);
+        _putRam(ramKey, filtered);
+        unawaited(_persistHive(churchId, filtered));
+      }
+    } catch (_) {}
   }
 }

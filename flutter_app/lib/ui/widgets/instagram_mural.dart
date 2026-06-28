@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
@@ -730,6 +731,10 @@ class InstagramMuralState extends State<InstagramMural> {
         if (hit.docs.isNotEmpty) {
           ChurchAvisosLoadService.putRam(_tid, hit.docs, limit: _feedPageSize);
           unawaited(ChurchAvisosLoadService.persistAfterLoad(hit));
+          YahwehModuleCaches.avisos.applyDocs(
+            hit.docs,
+            readSource: hit.readSource,
+          );
         }
         if (hit.softError != null && hit.docs.isEmpty && mounted) {
           _feedLoadError = hit.softError;

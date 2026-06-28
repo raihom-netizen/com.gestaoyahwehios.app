@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
 /// Política de módulos do painel — carregar sob demanda (menos RAM / arranque rápido).
@@ -31,6 +32,29 @@ abstract final class ChurchShellLazyModulePolicy {
     ChurchShellIndices.patrimonio,
     ChurchShellIndices.fornecedores,
   };
+
+  /// Máximo de módulos materializados em RAM (WISDOMAPP home_shell = 2).
+  static const int kMaxRetainedMaterializedModules = 2;
+
+  /// Evicta páginas antigas do [pageCache] — mantém dashboard + ativo + LRU.
+  static void evictStaleModules({
+    required List<Widget?> pageCache,
+    required int activeIndex,
+    required List<int> lruIndices,
+  }) {
+    if (lruIndices.length <= kMaxRetainedMaterializedModules) return;
+    while (lruIndices.length > kMaxRetainedMaterializedModules) {
+      final evict = lruIndices.removeAt(0);
+      if (evict == activeIndex || evict == dashboardIndex) {
+        lruIndices.add(evict);
+        if (lruIndices.length <= kMaxRetainedMaterializedModules) break;
+        continue;
+      }
+      if (evict >= 0 && evict < pageCache.length) {
+        pageCache[evict] = null;
+      }
+    }
+  }
 
   static bool shouldPrefetchOnHover(int index) =>
       !kIsWeb && heavyModuleIndices.contains(index);

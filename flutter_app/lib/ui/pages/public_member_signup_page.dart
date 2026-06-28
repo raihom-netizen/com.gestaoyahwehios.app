@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -1249,7 +1250,18 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               await MemberCodigoService.allocateNext(_tenantId!);
           data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
         }
-        await ref.set(data);
+        if (kIsWeb) {
+          await AdminFeedFirestoreBridge.upsertTenantDoc(
+            churchId: _tenantId!.trim(),
+            collection: 'membros',
+            docId: ref.id,
+            data: data,
+            isNewDoc: true,
+            directWrite: () => ref.set(data),
+          );
+        } else {
+          await ref.set(data);
+        }
         if (_tenantId != null && _tenantId!.trim().isNotEmpty) {
           unawaited(
             DashboardStatsCounterService.onMemberCreated(_tenantId!.trim())

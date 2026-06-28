@@ -77,6 +77,7 @@ import 'widgets/connectivity_offline_strip.dart';
 import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_cache_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_shell_lazy_module_policy.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
@@ -172,8 +173,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Foto do usuÃ¡rio vinda do Firestore (quando Auth photoURL estÃ¡ vazio).
   String? _userPhotoUrlFromFirestore;
 
-  /// Cache das pÃ¡ginas do menu para manter estado ao trocar de aba ou ao voltar ao app (evita recarregar e tela preta).
+  /// Cache das páginas do menu — LRU máx. 2 módulos (padrão WISDOMAPP).
   final List<Widget?> _pageCache = List.filled(25, null);
+  final List<int> _materializedModuleLru = <int>[];
   bool _showPaymentConfirmedBanner = false;
   int _lastPaymentTick = 0;
   int _paymentBannerAnimSeed = 0;
@@ -850,6 +852,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void _schedulePostTenantWarmups() {
     final tid = _moduleTenantId.trim();
     if (tid.isEmpty) return;
+    YahwehCacheBootstrap.scheduleTenantWarm(tid);
     final warmupDelay = kIsWeb ? const Duration(seconds: 3) : const Duration(seconds: 4);
     final dashboardDelay = kIsWeb ? const Duration(seconds: 2) : const Duration(seconds: 2);
     Future<void>.delayed(warmupDelay, () {
@@ -1298,12 +1301,27 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// (evita cinza + â€œLiberado pelo gestorâ€; o que aparece Ã© utilizÃ¡vel).
   bool _shouldListNavIndex(int i) => _canAccessItem(i);
 
+  void _selectShellIndex(int index) {
+    if (!_canAccessItem(index)) {
+      _showPanelSnack('Acesso negado para este módulo.', isError: true);
+      return;
+    }
+    _materializedModuleLru.remove(index);
+    _materializedModuleLru.add(index);
+    ChurchShellLazyModulePolicy.evictStaleModules(
+      pageCache: _pageCache,
+      activeIndex: index,
+      lruIndices: _materializedModuleLru,
+    );
+    setState(() => _selectedIndex = index);
+  }
+
   void _navigateToShellModuleFromDashboard(int index) {
     if (!_canAccessItem(index)) {
       _showPanelSnack('Acesso negado para este mÃ³dulo.', isError: true);
       return;
     }
-    setState(() => _selectedIndex = index);
+    _selectShellIndex(index);
     TenantIntelligentPreload.scheduleModuleForShellIndex(
       _moduleTenantId,
       index,

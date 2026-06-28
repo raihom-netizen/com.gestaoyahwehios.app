@@ -8,7 +8,35 @@ import { resolveTenantIdForCallable, userCanAccessTenant } from "./tenantCallabl
 
 const CF_DELETE = "__DELETE__";
 const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_FEED_COLLECTIONS = new Set(["avisos", "eventos", "patrimonio", "finance"]);
+const ALLOWED_FEED_COLLECTIONS = new Set([
+  "avisos",
+  "eventos",
+  "patrimonio",
+  "finance",
+  "membros",
+  "fornecedor_compromissos",
+  "chats",
+]);
+
+function resolveTenantDocRef(
+  churchId: string,
+  collection: string,
+  docId: string,
+  subCollection?: string,
+  subDocId?: string,
+) {
+  let ref = fs()
+    .collection("igrejas")
+    .doc(churchId)
+    .collection(collection)
+    .doc(docId);
+  const subCol = (subCollection || "").trim();
+  const subId = (subDocId || "").trim();
+  if (subCol && subId) {
+    ref = ref.collection(subCol).doc(subId);
+  }
+  return ref;
+}
 
 function decodeAdminFirestoreValue(value: unknown): unknown {
   if (value === CF_DELETE) {
@@ -219,9 +247,12 @@ export const gyAdminUpsertFeedPost = functions
     const churchId = String(body.churchId || body.tenantId || "").trim();
     const collection = String(body.collection || body.subcollection || "").trim();
     const docId = String(body.docId || body.id || "").trim();
+    const subCollection = String(body.subCollection || body.subcollectionPath || "").trim();
+    const subDocId = String(body.subDocId || body.subId || "").trim();
     const rawData = (body.data || {}) as Record<string, unknown>;
     const create = body.create === true;
     const merge = body.merge !== false;
+    const useUpdate = body.useUpdate === true;
 
     const auth = await requireChurchAccess(context, churchId);
     if (!ALLOWED_FEED_COLLECTIONS.has(collection)) {
@@ -233,26 +264,37 @@ export const gyAdminUpsertFeedPost = functions
     if (!docId) {
       throw new functions.https.HttpsError("invalid-argument", "docId ausente.");
     }
+    if (subCollection && !subDocId) {
+      throw new functions.https.HttpsError("invalid-argument", "subDocId ausente.");
+    }
 
     const decoded = decodeAdminFirestoreMap(rawData);
     decoded.updatedAt = admin.firestore.FieldValue.serverTimestamp();
-    if (create) {
+    if (create && !useUpdate) {
       decoded.createdAt = admin.firestore.FieldValue.serverTimestamp();
     }
 
-    const docRef = fs()
-      .collection("igrejas")
-      .doc(auth.churchId)
-      .collection(collection)
-      .doc(docId);
+    const docRef = resolveTenantDocRef(
+      auth.churchId,
+      collection,
+      docId,
+      subCollection || undefined,
+      subDocId || undefined,
+    );
 
-    if (create && !merge) {
+    if (useUpdate) {
+      await docRef.update(decoded);
+    } else if (create && !merge) {
       await docRef.set(decoded);
     } else {
       await docRef.set(decoded, { merge: true });
     }
 
-    return { ok: true, docId, path: docRef.path };
+    return {
+      ok: true,
+      docId: subDocId || docId,
+      path: docRef.path,
+    };
   });
 
 /** Exclusão em lote de posts aviso/evento (admin). */
@@ -291,4 +333,48 @@ export const gyAdminDeleteFeedPosts = functions
     }
     await batch.commit();
     return { ok: true, deleted: docIds.length };
+  });
+
+/**
+ * Cadastro membro público — Admin SDK (Web-safe, Fase 3 doc mestre).
+ * Auth opcional; valida slug/churchId e grava draft em igrejas/{id}/membros.
+ */
+export const gyPublicMemberSignup = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 60, memory: "256MB" })
+  .https.onCall(async (data, context) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const docId = String(body.docId || body.memberId || "").trim();
+    const rawData = (body.data || {}) as Record<string, unknown>;
+
+    if (!churchId) {
+      throw new functions.https.HttpsError("invalid-argument", "churchId ausente.");
+    }
+    if (!docId) {
+      throw new functions.https.HttpsError("invalid-argument", "docId ausente.");
+    }
+
+    const churchSnap = await fs().collection("igrejas").doc(churchId).get();
+    if (!churchSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+    }
+
+    const decoded = decodeAdminFirestoreMap(rawData);
+    decoded.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    decoded.createdAt = admin.firestore.FieldValue.serverTimestamp();
+    decoded.status = decoded.status || "pendente_aprovacao";
+    decoded.publicSignup = true;
+    if (context.auth?.uid) {
+      decoded.authUid = context.auth.uid;
+    }
+
+    const docRef = fs()
+      .collection("igrejas")
+      .doc(churchId)
+      .collection("membros")
+      .doc(docId);
+
+    await docRef.set(decoded, { merge: true });
+    return { ok: true, docId, path: docRef.path };
   });

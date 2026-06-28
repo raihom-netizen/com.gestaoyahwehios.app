@@ -32,6 +32,7 @@ import 'church_chat_threads_list_cache.dart';
 import 'chat_publish_verification_service.dart';
 import 'chat_strict_publish_service.dart';
 import 'firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -417,22 +418,27 @@ class ChurchChatService {
       messageType: messageType,
     );
     final tRef = threadRef(tenantId, threadId);
-    Future<void> commit() => FirestoreWebGuard.runChatWriteWithRecovery(() async {
-          if (kIsWeb) {
-            // Web: gravaÃ§Ãµes sequenciais â€” menos INTERNAL ASSERTION vs batch + listeners.
-            await msgRef.set(messageData);
-            await tRef.set(threadPatch, SetOptions(merge: true));
-          } else {
-            final batch = _db.batch();
-            batch.set(msgRef, messageData);
-            batch.set(tRef, threadPatch, SetOptions(merge: true));
-            await batch.commit();
-          }
+    Future<void> commitMobile() => FirestoreWebGuard.runChatWriteWithRecovery(() async {
+          final batch = _db.batch();
+          batch.set(msgRef, messageData);
+          batch.set(tRef, threadPatch, SetOptions(merge: true));
+          await batch.commit();
         });
     if (kIsWeb) {
-      await commit();
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: msgRef,
+        data: messageData,
+        isNewDoc: true,
+        directWrite: () => msgRef.set(messageData),
+      );
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: tRef,
+        data: threadPatch,
+        isNewDoc: false,
+        directWrite: () => tRef.set(threadPatch, SetOptions(merge: true)),
+      );
     } else {
-      await runFirestorePublishWithRecovery(commit);
+      await runFirestorePublishWithRecovery(commitMobile);
     }
     unawaited(mergeDmThreadIndexIfNeeded(tenantId, threadId));
     unawaited(
@@ -2554,16 +2560,26 @@ class ChurchChatService {
       threadId: threadId,
       messageId: messageId,
     );
-    try {
-      await FirestoreWebGuard.runChatWriteWithRecovery(() => ref.update(patch));
-    } on FirebaseException catch (e) {
-      if (patch.containsKey('thumbStoragePath') && e.code == 'permission-denied') {
-        patch.remove('thumbStoragePath');
-        await ref.update(patch);
-      } else {
-        rethrow;
+    Future<void> writeMessage() async {
+      try {
+        await FirestoreWebGuard.runChatWriteWithRecovery(() => ref.update(patch));
+      } on FirebaseException catch (e) {
+        if (patch.containsKey('thumbStoragePath') && e.code == 'permission-denied') {
+          patch.remove('thumbStoragePath');
+          await ref.update(patch);
+        } else {
+          rethrow;
+        }
       }
     }
+
+    await AdminFeedFirestoreBridge.upsertDocRef(
+      docRef: ref,
+      data: patch,
+      isNewDoc: false,
+      useUpdate: true,
+      directWrite: writeMessage,
+    );
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
       final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
@@ -2572,13 +2588,17 @@ class ChurchChatService {
         fileName: fileName,
       );
       try {
-        await threadRef(resolvedTenant, threadId).set(
-          threadLastMessageIndexPatch(
-            preview: preview,
-            senderUid: uid,
-            messageType: kind,
-          ),
-          SetOptions(merge: true),
+        final tRef = threadRef(resolvedTenant, threadId);
+        final threadPatch = threadLastMessageIndexPatch(
+          preview: preview,
+          senderUid: uid,
+          messageType: kind,
+        );
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: tRef,
+          data: threadPatch,
+          isNewDoc: false,
+          directWrite: () => tRef.set(threadPatch, SetOptions(merge: true)),
         );
         unawaited(
           ChurchChatLocalConversations.recordFromOutbound(
