@@ -10,11 +10,15 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
@@ -34,6 +38,8 @@ class LiderancaPage extends StatefulWidget {
 }
 
 class _LiderancaPageState extends State<LiderancaPage> {
+  static const Color _accent = Color(0xFFF43F5E);
+
   bool _loading = true;
   List<_LeaderRow> _rows = [];
   String _effectiveTenantId = '';
@@ -228,6 +234,13 @@ class _LiderancaPageState extends State<LiderancaPage> {
     return map;
   }
 
+  static Color _rankAccent(int rank) {
+    if (rank >= 80) return const Color(0xFF7C3AED);
+    if (rank >= 60) return ThemeCleanPremium.primary;
+    if (rank >= 40) return const Color(0xFF14B8A6);
+    return _accent;
+  }
+
   @override
   Widget build(BuildContext context) {
     final padding = ThemeCleanPremium.pagePadding(context);
@@ -254,102 +267,149 @@ class _LiderancaPageState extends State<LiderancaPage> {
       );
     }
 
-    final isMobile = ThemeCleanPremium.isMobile(context);
-
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
         leadingWidth: 64,
         leading: YahwehSuperPremiumBackButton.appBarLeading(context),
         automaticallyImplyLeading: false,
-        title: const Text(
+        title: Text(
           'Organograma ministerial',
-          style: TextStyle(
+          style: GoogleFonts.inter(
             fontWeight: FontWeight.w800,
-            letterSpacing: 0.2,
+            letterSpacing: -0.2,
+            fontSize: 17,
           ),
         ),
-        backgroundColor: ThemeCleanPremium.primary,
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         elevation: 0,
-        scrolledUnderElevation: 0.5,
-        surfaceTintColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white, size: 24),
+        scrolledUnderElevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                _accent,
+                Color.lerp(_accent, Colors.white, 0.22)!,
+              ],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _accent.withValues(alpha: 0.28),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
       ),
-      body: SafeArea(
-        top: false,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                          padding.left, isMobile ? 12 : 16, padding.right, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (!isMobile) ...[
-                            Text(
-                              'Organograma ministerial',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: ThemeCleanPremium.onSurface,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                          ],
-                          Text(
-                            _usedPanelCache
-                                ? 'Lista rápida do painel (líderes de departamento). Para cargos ministeriais completos, atribua funções em Membros ou Cargos.'
-                                : 'Membros com cargos de liderança (pastores, tesoureiros, líderes, etc.), do maior nível hierárquico para o menor.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              height: 1.35,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
+      body: DecoratedBox(
+        decoration: churchModuleBodyGradient(_accent),
+        child: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
                     ),
-                  ),
-                  if (_rows.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Center(
+                    slivers: [
+                      SliverToBoxAdapter(
                         child: Padding(
-                          padding: padding,
-                          child: Text(
-                            'Nenhum líder encontrado. Atribua cargos em Membros > Editar ou cadastre cargos em Cargos.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                              height: 1.35,
+                          padding: EdgeInsets.fromLTRB(
+                            padding.left,
+                            16,
+                            padding.right,
+                            12,
+                          ),
+                          child: YahwehWisdomSectionCard(
+                            borderTint: _accent,
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                churchWisdomModuleIconLeading(
+                                  icon: Icons.account_tree_rounded,
+                                  accent: _accent,
+                                  size: 48,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Hierarquia ministerial',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          color: const Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        _usedPanelCache
+                                            ? 'Lista rápida do painel. Para cargos completos, atribua funções em Membros ou cadastre em Cargos.'
+                                            : 'Membros com cargos de liderança — do maior nível hierárquico para o menor.',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          height: 1.4,
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      if (_rows.isNotEmpty) ...[
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          '${_rows.length} líder${_rows.length == 1 ? '' : 'es'}',
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: _accent,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
                       ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: EdgeInsets.fromLTRB(
-                        padding.left,
-                        8,
-                        padding.right,
-                        padding.bottom + 24,
-                      ),
-                      sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, i) {
-                            final r = _rows[i];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(16),
+                      if (_rows.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: ChurchWisdomModuleEmptyState(
+                            icon: Icons.account_tree_outlined,
+                            title: 'Nenhum líder no organograma',
+                            message:
+                                'Atribua cargos em Membros > Editar ou cadastre cargos em Cargos.',
+                            accent: _accent,
+                          ),
+                        )
+                      else
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(
+                            padding.left,
+                            0,
+                            padding.right,
+                            padding.bottom + 24,
+                          ),
+                          sliver: SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, i) {
+                                final r = _rows[i];
+                                final tierColor = _rankAccent(r.rank);
+                                return ChurchWisdomModuleListCard(
+                                  title: r.name,
+                                  subtitle: r.cargoLabel,
+                                  accent: tierColor,
                                   onTap: () => openChurchLeaderContactPage(
                                     context,
                                     memberData: r.memberData,
@@ -360,60 +420,75 @@ class _LiderancaPageState extends State<LiderancaPage> {
                                     memberRole: widget.role,
                                     viewerCpfDigits: widget.viewerCpfDigits,
                                   ),
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                          color: const Color(0xFFE2E8F0)),
-                                      boxShadow:
-                                          ThemeCleanPremium.softUiCardShadow,
-                                    ),
-                                    child: ListTile(
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 10),
-                                      leading: FotoMembroWidget(
-                                        tenantId: tid,
-                                        memberId: r.memberId,
-                                        memberData: r.memberData,
-                                        imageUrl: r.photoUrl,
-                                        size: 56,
-                                        preferListThumbnail: true,
-                                      ),
-                                      title: Text(
-                                        r.name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 16,
+                                  leading: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(14),
+                                        child: FotoMembroWidget(
+                                          tenantId: tid,
+                                          memberId: r.memberId,
+                                          memberData: r.memberData,
+                                          imageUrl: r.photoUrl,
+                                          size: 48,
+                                          preferListThumbnail: true,
                                         ),
                                       ),
-                                      subtitle: Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          r.cargoLabel,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            color: ThemeCleanPremium.primary,
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                      Positioned(
+                                        right: -4,
+                                        bottom: -4,
+                                        child: _LeaderRankBadge(
+                                          rank: r.rank,
+                                          color: tierColor,
                                         ),
                                       ),
-                                      trailing: const Icon(
-                                        Icons.chevron_right_rounded,
-                                        color: Color(0xFF94A3B8),
-                                      ),
-                                    ),
+                                    ],
                                   ),
-                                ),
-                              ),
-                            );
-                          },
-                          childCount: _rows.length,
+                                );
+                              },
+                              childCount: _rows.length,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
+                    ],
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LeaderRankBadge extends StatelessWidget {
+  const _LeaderRankBadge({required this.rank, required this.color});
+
+  final int rank;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (rank <= 0) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.4),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        '$rank',
+        style: GoogleFonts.inter(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
       ),
     );
   }

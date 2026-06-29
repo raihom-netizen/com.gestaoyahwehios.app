@@ -622,7 +622,10 @@ service cloud.firestore {
       }
       // Resumo do painel (totais por mÃªs) â€” escrita sÃ³ Firebase Admin (Cloud Function); leitura gestÃ£o.
       match /_panel_cache/{docId} {
-        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow read: if docId == 'public_site'
+          || isMaster()
+          || canAccessTenant(id)
+          || memberLinkedToTenant(id);
         allow write: if false;
       }
       // Contadores leves da Home (`members`, `avisos`, `eventos`) â€” leitura rÃ¡pida do painel.

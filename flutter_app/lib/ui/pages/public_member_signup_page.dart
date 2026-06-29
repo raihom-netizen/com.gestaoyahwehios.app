@@ -23,13 +23,13 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
@@ -43,6 +43,8 @@ import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.da
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_public_site_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoHttpsUrl,
@@ -138,6 +140,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     IconData? icon,
     Widget? suffixIcon,
     String? counterText,
+    bool required = false,
   }) =>
       memberSignupInputDecoration(
         label: label,
@@ -146,7 +149,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         suffixIcon: suffixIcon,
         counterText: counterText,
         accentColor: _signupStepAccent,
+        required: required,
       );
+
+  String? _reqEmail(String? v) {
+    final base = _req(v);
+    if (base != null) return base;
+    final t = v!.trim();
+    if (!t.contains('@') || t.length < 5) return 'E-mail inválido';
+    return null;
+  }
 
   /// UFs do Brasil para seleção manual (quando não sabe o CEP).
   static const List<String> _ufs = [
@@ -1040,6 +1052,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   Future<void> _submit() async {
     if (_saving) return;
+    if (!_validatePhotoRequired()) return;
     if (!_formKey.currentState!.validate()) return;
     final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
     if (birthParsed == null) {
@@ -1195,10 +1208,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       final ref = editingDocId != null
           ? col.doc(editingDocId)
           : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
-      final docPhotoId = cpfDigits.isNotEmpty ? cpfDigits : ref.id;
       String? photoStoragePathField;
       Uint8List? photoBytesForBackground;
-      final photoUrl = _buildAutoAvatarUrl(docPhotoId);
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
         photoBytesForBackground =
             await ImageHelper.compressMemberProfileForUpload(_photoBytes!);
@@ -1232,13 +1243,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
-        'foto_url': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-        'fotoUrl': photoUrl,
-        'photoURL': photoUrl,
-        'avatarUrl': photoUrl,
-        if (photoStoragePathField != null)
+        if (photoStoragePathField != null) ...{
           'photoStoragePath': photoStoragePathField,
+          'foto_url': photoStoragePathField,
+          'FOTO_URL_OU_ID': photoStoragePathField,
+          'fotoUrl': photoStoragePathField,
+          'photoURL': photoStoragePathField,
+          'avatarUrl': photoStoragePathField,
+        },
         'PUBLIC_SIGNUP': true,
         'STATUS': 'pendente',
         'status': 'pendente',
@@ -1354,12 +1366,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       return false;
     }
     _birthDate = birthParsed;
-    final p = _req(_phoneCtrl.text);
-    if (p != null) {
-      _snackWizard(p);
-      return false;
-    }
-    final e = _req(_emailCtrl.text);
+    final e = _reqEmail(_emailCtrl.text);
     if (e != null) {
       _snackWizard(e);
       return false;
@@ -1367,23 +1374,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     return true;
   }
 
-  bool _validateWizardStep1() {
-    final r1 = _req(_enderecoCtrl.text);
-    if (r1 != null) {
-      _snackWizard(r1);
-      return false;
-    }
-    final r2 = _req(_bairroCtrl.text);
-    if (r2 != null) {
-      _snackWizard(r2);
-      return false;
-    }
-    if (_cityCtrl.text.trim().isEmpty) {
-      _snackWizard('Informe a cidade.');
-      return false;
-    }
-    if (_estadoCtrl.text.trim().isEmpty) {
-      _snackWizard('Selecione o estado (UF).');
+  bool _validateWizardStep1() => true;
+
+  bool _validatePhotoRequired() {
+    if (_photoBytes == null || _photoBytes!.isEmpty) {
+      _snackWizard('Envie a foto de perfil (campo obrigatório).');
       return false;
     }
     return true;
@@ -1487,15 +1482,32 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     child: ListView(
                       children: [
                     if (_loading) ...[
-                    const LinearProgressIndicator(minHeight: 3),
+                    const LinearProgressIndicator(
+                      minHeight: 3,
+                      color: Color(0xFF0D9488),
+                      backgroundColor: Color(0x220D9488),
+                    ),
                     const SizedBox(height: 12),
                     ],
                     MemberSignupWizardProgress(step: _signupStep),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 14),
+                    const MemberSignupRequiredFieldsAlert(),
+                    const SizedBox(height: 16),
+                    YahwehWisdomSectionCard(
+                      margin: EdgeInsets.zero,
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                     if (_signupStep == 0) ...[
-                    const Text(
-                      'Preencha todos os dados para entrar no cadastro da igreja.',
-                      style: TextStyle(color: Colors.black54),
+                    Text(
+                      'Preencha os campos obrigatórios (*) para entrar no cadastro da igreja.',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        height: 1.35,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     MemberSignupSectionTitle(
@@ -1506,7 +1518,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     TextFormField(
                       controller: _nameCtrl,
                       decoration: _signInput(
-                          label: 'Nome completo', icon: Icons.person_rounded),
+                          label: 'Nome completo',
+                          icon: Icons.person_rounded,
+                          required: true),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
@@ -1544,7 +1558,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               }),
                             ],
                             decoration: _signInput(
-                                label: 'CPF', icon: Icons.badge_rounded),
+                                label: 'CPF',
+                                icon: Icons.badge_rounded,
+                                required: true),
                             validator: (v) {
                               final msg = _req(v);
                               if (msg != null) return msg;
@@ -1567,6 +1583,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               label: 'Data de nascimento',
                               icon: Icons.cake_rounded,
                               hint: 'DD/MM/AAAA',
+                              required: true,
                               suffixIcon: IconButton(
                                 icon: Icon(Icons.calendar_month_rounded,
                                     color: ThemeCleanPremium.primary),
@@ -1635,8 +1652,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               }),
                             ],
                             decoration: _signInput(
-                                label: 'Telefone', icon: Icons.phone_rounded),
-                            validator: _req,
+                                label: 'Telefone',
+                                icon: Icons.phone_rounded,
+                                hint: 'Opcional'),
                           ),
                         ),
                       ],
@@ -1646,8 +1664,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
                       decoration: _signInput(
-                          label: 'Email', icon: Icons.alternate_email_rounded),
-                      validator: _req,
+                          label: 'E-mail',
+                          icon: Icons.alternate_email_rounded,
+                          required: true),
+                      validator: _reqEmail,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
@@ -1677,7 +1697,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ],
                     if (_signupStep == 1) ...[
                     MemberSignupSectionTitle(
-                      title: 'Endereço',
+                      title: 'Endereço (opcional)',
                       accentColor: _signupStepAccent,
                     ),
                     const SizedBox(height: 10),
@@ -1719,9 +1739,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       decoration: _signInput(
                         label: 'Logradouro (rua, avenida)',
                         icon: Icons.home_rounded,
-                        hint: 'Rua, avenida, alameda',
+                        hint: 'Opcional',
                       ),
-                      validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -1736,8 +1755,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     TextFormField(
                       controller: _bairroCtrl,
                       decoration: _signInput(
-                          label: 'Bairro', icon: Icons.location_city_rounded),
-                      validator: _req,
+                          label: 'Bairro',
+                          icon: Icons.location_city_rounded,
+                          hint: 'Opcional'),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -1813,9 +1833,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ],
                     ],
                     if (_signupStep == 2) ...[
-                    const SizedBox(height: 16),
                     MemberSignupSectionTitle(
-                      title: 'Família',
+                      title: 'Família (opcional)',
                       accentColor: _signupStepAccent,
                     ),
                     const SizedBox(height: 10),
@@ -1844,51 +1863,22 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           icon: Icons.people_alt_rounded),
                     ),
                     const SizedBox(height: 16),
-                    MemberSignupSectionTitle(
-                      title: 'Foto do membro',
-                      accentColor: _signupStepAccent,
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 32,
-                          backgroundImage: _photoBytes == null
-                              ? null
-                              : MemoryImage(_photoBytes!),
-                          child: _photoBytes == null
-                              ? const Icon(Icons.person)
-                              : null,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _pickPhoto(fromCamera: false),
-                                  icon: const Icon(Icons.photo_library),
-                                  label: const Text('Galeria'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: () => _pickPhoto(fromCamera: true),
-                                  icon: const Icon(Icons.camera_alt),
-                                  label: const Text('Selfie'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'A foto será usada para emissão do cartão de membro e no painel da igreja.',
-                      style: TextStyle(color: Colors.black54, fontSize: 13),
+                    MemberSignupPhotoRequiredCard(
+                      hasPhoto:
+                          _photoBytes != null && _photoBytes!.isNotEmpty,
+                      onGallery: () => _pickPhoto(fromCamera: false),
+                      onCamera: () => _pickPhoto(fromCamera: true),
+                      photoPreview: CircleAvatar(
+                        radius: 40,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        backgroundImage: _photoBytes == null
+                            ? null
+                            : MemoryImage(_photoBytes!),
+                        child: _photoBytes == null
+                            ? Icon(Icons.person_rounded,
+                                size: 36, color: Colors.grey.shade400)
+                            : null,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -1958,8 +1948,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               ),
                               child: Text(
                                 _signupStep == 0
-                                    ? 'Continuar para endereço'
-                                    : 'Continuar para família e foto',
+                                    ? 'Continuar (endereço opcional)'
+                                    : 'Continuar para foto *',
                                 textAlign: TextAlign.center,
                                 style:
                                     const TextStyle(fontWeight: FontWeight.w800),
@@ -1970,11 +1960,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       ),
                     ],
                     const SizedBox(height: 12),
+                        ],
+                      ),
+                    ),
                       ],
                     ),
                   ),
-                    ),
-                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -1995,62 +1988,58 @@ class PublicSignupStatusPage extends StatelessWidget {
     required this.protocolo,
   });
 
-  Future<({String churchName, Map<String, dynamic>? memberData, String? error})>
-      _loadStatus() async {
+  Future<({
+    String churchName,
+    String? nome,
+    String? statusRaw,
+    String? error,
+  })> _loadStatus() async {
     final slugTrim = slug.trim();
-    if (slugTrim.isEmpty || protocolo.trim().isEmpty) {
-      return (churchName: 'Igreja', memberData: null, error: 'Link inválido.');
+    final protocol = protocolo.trim();
+    if (slugTrim.isEmpty || protocol.isEmpty) {
+      return (
+        churchName: 'Igreja',
+        nome: null,
+        statusRaw: null,
+        error: 'Link inválido.',
+      );
     }
 
-    PublicChurchResolved? resolved;
+    PublicChurchResolved? resolved = PublicChurchSlugResolver.peek(slugTrim);
+    resolved ??= await PublicChurchSlugResolver.resolveFast(slugTrim)
+        .timeout(const Duration(seconds: 6), onTimeout: () => null);
+
     try {
-      resolved = await PublicChurchSlugResolver.resolve(slugTrim)
-          .timeout(const Duration(seconds: 14));
-    } catch (_) {}
-
-    if (resolved == null || resolved.churchId.isEmpty) {
-      return (
-        churchName: 'Igreja',
-        memberData: null,
-        error: 'Igreja não encontrada para este link.'
+      final cf = await ChurchFunctionsService.publicSignupStatus(
+        slug: slugTrim,
+        churchId: resolved?.churchId,
+        protocolo: protocol,
       );
-    }
-
-    final churchDoc =
-        await ChurchUiCollections.churchDoc(resolved.churchId).get();
-    if (!churchDoc.exists) {
-      return (
-        churchName: 'Igreja',
-        memberData: null,
-        error: 'Igreja não encontrada para este link.'
-      );
-    }
-
-    final profile = resolved.profile.isNotEmpty
-        ? resolved.profile
-        : (churchDoc.data() ?? const <String, dynamic>{});
-    final churchName =
-        (profile['name'] ?? profile['nome'] ?? 'Igreja').toString();
-
-    final membrosCol =         ChurchUiCollections.membros(churchDoc.id);
-    var memberDoc = await membrosCol.doc(protocolo.trim()).get();
-    if (!memberDoc.exists) {
-      final byLegacy = await membrosCol
-          .where('legacyMemberDocId', isEqualTo: protocolo.trim())
-          .limit(1)
-          .get();
-      if (byLegacy.docs.isNotEmpty) {
-        memberDoc = byLegacy.docs.first;
+      if (!cf.found || !cf.ok) {
+        return (
+          churchName: cf.churchName,
+          nome: null,
+          statusRaw: null,
+          error: cf.error ?? 'Cadastro não localizado para o protocolo informado.',
+        );
       }
-    }
-    if (!memberDoc.exists) {
       return (
-        churchName: churchName,
-        memberData: null,
-        error: 'Cadastro não localizado para o protocolo informado.'
+        churchName: cf.churchName,
+        nome: cf.nome,
+        statusRaw: cf.status,
+        error: null,
+      );
+    } catch (e) {
+      return (
+        churchName: resolved != null
+            ? (resolved.profile['name'] ?? resolved.profile['nome'] ?? 'Igreja')
+                .toString()
+            : 'Igreja',
+        nome: null,
+        statusRaw: null,
+        error: 'Não foi possível consultar o status. Tente novamente.',
       );
     }
-    return (churchName: churchName, memberData: memberDoc.data(), error: null);
   }
 
   static ({String label, Color color}) _statusUi(String raw) {
@@ -2088,112 +2077,86 @@ class PublicSignupStatusPage extends StatelessWidget {
       ),
       body: ChurchPublicSiteScaffoldBackground(
         child: FutureBuilder<
-          ({
-            String churchName,
-            Map<String, dynamic>? memberData,
-            String? error
-          })>(
-        future: _loadStatus(),
-        builder: (context, snap) {
-          if (!snap.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final data = snap.data!;
-          if (data.error != null) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  data.error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15),
-                ),
-              ),
-            );
-          }
-          final member = data.memberData!;
-          final nome = (member['NOME_COMPLETO'] ?? member['nome'] ?? 'Membro')
-              .toString();
-          final statusRaw =
-              (member['status'] ?? member['STATUS'] ?? 'pendente').toString();
-          final status = _statusUi(statusRaw);
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Card(
-                margin: const EdgeInsets.all(16),
-                elevation: 0,
-                surfaceTintColor: Colors.transparent,
-                color: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(22),
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                shadowColor: Colors.transparent,
+            ({
+              String churchName,
+              String? nome,
+              String? statusRaw,
+              String? error,
+            })>(
+          future: _loadStatus(),
+          builder: (context, snap) {
+            if (!snap.hasData) {
+              return const ChurchWisdomPublicLoading(
+                message: 'Consultando protocolo…',
+              );
+            }
+            final data = snap.data!;
+            if (data.error != null) {
+              return Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        data.churchName,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        nome,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: status.color.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: status.color.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        child: Text(
-                          'Status: ${status.label}',
+                  padding: const EdgeInsets.all(24),
+                  child: ChurchWisdomPublicSurfaceCard(
+                    child: Text(
+                      data.error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                  ),
+                ),
+              );
+            }
+            final nome = data.nome ?? 'Membro';
+            final status = _statusUi(data.statusRaw ?? 'pendente');
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ChurchWisdomPublicSurfaceCard(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          data.churchName,
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 15,
+                          style: const TextStyle(
+                            fontSize: 20,
                             fontWeight: FontWeight.w800,
-                            color: status.color,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Protocolo: $protocolo',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF475569),
-                          fontWeight: FontWeight.w700,
+                        const SizedBox(height: 8),
+                        Text(
+                          nome,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 14),
+                        ChurchWisdomPublicStatusBadge(
+                          label: 'Status: ${status.label}',
+                          color: status.color,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Protocolo: $protocolo',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF475569),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
-      ),
+            );
+          },
+        ),
       ),
     );
   }

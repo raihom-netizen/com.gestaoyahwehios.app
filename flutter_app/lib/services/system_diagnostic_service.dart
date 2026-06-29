@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// DiagnÃ³stico de sessÃ£o â€” churchId, paths, tempos e Ãºltimo erro.
+/// Diagnóstico de sessão — churchId, paths, tempos e último erro.
 class SystemDiagnosticSnapshot {
   const SystemDiagnosticSnapshot({
     required this.churchId,

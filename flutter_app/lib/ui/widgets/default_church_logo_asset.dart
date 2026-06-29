@@ -36,10 +36,11 @@ class DefaultChurchLogoAsset extends StatelessWidget {
       width: side,
       height: side,
       fit: fit,
-      filterQuality: FilterQuality.medium,
+      filterQuality: FilterQuality.high,
+      isAntiAlias: true,
       gaplessPlayback: true,
       errorBuilder: (_, __, ___) => Icon(
-        Icons.church_rounded,
+        Icons.shield_rounded,
         size: side * 0.45,
         color: Colors.grey.shade400,
       ),

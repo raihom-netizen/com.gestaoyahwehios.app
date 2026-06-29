@@ -5,7 +5,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Snapshot leve de `chat_threads` para abrir a lista Â«ConversasÂ» sem skeleton.
+/// Snapshot leve de `chat_threads` para abrir a lista «Conversas» sem skeleton.
 abstract final class ChurchChatThreadsListCache {
   ChurchChatThreadsListCache._();
 
@@ -93,7 +93,7 @@ abstract final class ChurchChatThreadsListCache {
   }
 }
 
-/// Documento sÃ³-leitura reconstruÃ­do do disco (lista estÃ¡vel ao abrir o hub).
+/// Documento só-leitura reconstruído do disco (lista estável ao abrir o hub).
 // ignore: subtype_of_sealed_class
 class _CachedChatThreadDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
   _CachedChatThreadDoc({required this.id, required Map<String, dynamic> data})

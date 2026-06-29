@@ -4,9 +4,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/data/yahweh_data_repository.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
-import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -15,8 +15,11 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class PublicChurchSiteBootstrap {
   PublicChurchSiteBootstrap._();
 
-  static FirebaseFunctions get _functions =>
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
+  static FirebaseFunctions get _functionsSa =>
+      FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'southamerica-east1',
+      );
 
   static String normalizeSlugInput(String raw) =>
       PublicChurchSlugResolver.normalizePublicSlugInput(raw);
@@ -136,25 +139,26 @@ abstract final class PublicChurchSiteBootstrap {
     return null;
   }
 
-  /// Aquece cache mural + `_panel_cache/public_site` — todas as plataformas.
+  /// Aquece cache mural + `_panel_cache/public_site` + módulos P0 públicos — todas as plataformas.
   static void warmCaches(String churchId) {
     final id = churchId.trim();
     if (id.isEmpty) return;
-    unawaited(PanelPublicSiteSnapshotService.readOnce(id));
+    unawaited(YahwehModuleCaches.warmPublicSiteModules(id));
     unawaited(
       YahwehPublicFeedRepository.readInstantFeed(
         id,
         refreshServerCacheInBackground: true,
       ),
     );
-    // Warmup server-side do cache público/cadastro (best effort).
-    unawaited(() async {
-      try {
-        final call = _functions.httpsCallable('warmPublicSiteAndSignupCache');
-        await call.call(<String, dynamic>{'churchId': id}).timeout(
-          const Duration(seconds: 6),
-        );
-      } catch (_) {}
-    }());
+    unawaited(_warmPublicSiteCallable(id));
+  }
+
+  static Future<void> _warmPublicSiteCallable(String churchId) async {
+    try {
+      final call = _functionsSa.httpsCallable('warmPublicSiteAndSignupCache');
+      await call.call(<String, dynamic>{'churchId': churchId}).timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (_) {}
   }
 }

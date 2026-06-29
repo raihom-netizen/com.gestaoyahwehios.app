@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.warmPublicSiteAndSignupCache = void 0;
 exports.mirrorPublicSitePanelCache = mirrorPublicSitePanelCache;
 exports.recomputePanelPublicSiteCache = recomputePanelPublicSiteCache;
+exports.resolvePublicChurchIdFromInput = resolvePublicChurchIdFromInput;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const churchPerformancePack_1 = require("./churchPerformancePack");

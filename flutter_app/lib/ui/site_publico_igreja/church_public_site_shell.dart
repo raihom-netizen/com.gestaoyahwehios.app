@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/core/yahweh_design_system.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoHttpsUrl,
@@ -904,33 +905,15 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
     final deep = Color.lerp(accentColor, const Color(0xFF0F172A), 0.38)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      child: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.45),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: accentColor.withValues(alpha: 0.12),
-              blurRadius: 32,
-              offset: const Offset(0, 16),
-              spreadRadius: -2,
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
+      child: YahwehWisdomSectionCard(
+        margin: EdgeInsets.zero,
+        padding: EdgeInsets.zero,
+        borderTint: accentColor,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusMd),
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -938,21 +921,42 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
                 colors: [
                   accentColor,
                   deep,
+                  Color.lerp(deep, YahwehWisdomVisualKit.tealAccent, 0.25)!,
                 ],
               ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Seja bem-vindo(a)',
-                  style: TextStyle(
-                    fontSize: MediaQuery.sizeOf(context).width < 400 ? 22 : 26,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    height: 1.12,
-                    letterSpacing: -0.6,
-                  ),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.church_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Seja bem-vindo(a)',
+                        style: GoogleFonts.poppins(
+                          fontSize:
+                              MediaQuery.sizeOf(context).width < 400 ? 22 : 26,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          height: 1.12,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 if (name.isNotEmpty) ...[
                   const SizedBox(height: 10),
@@ -971,10 +975,10 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   'Portal da família — mural, cultos e novidades',
-                  style: TextStyle(
+                  style: GoogleFonts.poppins(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.82),
+                    color: Colors.white.withValues(alpha: 0.88),
                     height: 1.3,
                   ),
                 ),
@@ -1456,21 +1460,10 @@ class ChurchPublicSiteHero extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x08000000),
-              blurRadius: 20,
-              offset: Offset(0, 6),
-            ),
-          ],
-        ),
+      child: YahwehWisdomSectionCard(
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        borderTint: accentColor,
         child: LayoutBuilder(
           builder: (context, c) {
             final narrow = c.maxWidth < 420;
@@ -1488,7 +1481,8 @@ class ChurchPublicSiteHero extends StatelessWidget {
                     foregroundColor: Colors.white,
                     minimumSize: minTouch,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -1507,13 +1501,16 @@ class ChurchPublicSiteHero extends StatelessWidget {
                   label: const Text('Já sou membro — Entrar'),
                   style: FilledButton.styleFrom(
                     foregroundColor: onSurface,
-                    backgroundColor: const Color(0xFFE8EEF5),
+                    backgroundColor: const Color(0xFFF1F5F9),
                     minimumSize: minTouch,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: accentColor.withValues(alpha: 0.35)),
+                      side: BorderSide(
+                        color: accentColor.withValues(alpha: 0.35),
+                      ),
                     ),
                   ),
                 ),
@@ -1525,14 +1522,24 @@ class ChurchPublicSiteHero extends StatelessWidget {
                 Text(
                   'Comece por aqui',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: GoogleFonts.poppins(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: Colors.grey.shade800,
+                    color: YahwehWisdomVisualKit.navyDeep,
                     letterSpacing: 0.2,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 4),
+                Text(
+                  'Cadastro público com campos obrigatórios e foto de perfil',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 12),
                 if (narrow)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

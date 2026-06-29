@@ -1,7 +1,7 @@
 ﻿import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// PDF gerado no servidor (certificado / carteirinha) â€” evita trabalho pesado no cliente.
+/// PDF gerado no servidor (certificado / carteirinha) — evita trabalho pesado no cliente.
 abstract final class ChurchServerPdfService {
   ChurchServerPdfService._();
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_notification_center.dart';
 import 'package:gestao_yahweh/ui/pages/notifications_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_bank_notification_tile.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
 import 'package:intl/intl.dart';
 
@@ -289,97 +290,16 @@ class _NotificationCenterSheetState extends State<_NotificationCenterSheet> {
         final item = items[i];
         final dt = item.createdAt;
         final dateTxt =
-            dt == null ? '' : DateFormat('dd/MM HH:mm', 'pt_BR').format(dt);
-        return Material(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          child: InkWell(
-            onTap: () => unawaited(_onItemTap(item)),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                border: Border.all(
-                  color: item.isRead
-                      ? const Color(0xFFE2E8F0)
-                      : item.accent.withValues(alpha: 0.35),
-                ),
-                boxShadow:
-                    item.isRead ? null : ThemeCleanPremium.softUiCardShadow,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: item.accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(item.icon, color: item.accent, size: 20),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                item.title,
-                                style: TextStyle(
-                                  fontWeight: item.isRead
-                                      ? FontWeight.w700
-                                      : FontWeight.w900,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                            if (!item.isRead)
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: item.accent,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                          ],
-                        ),
-                        if (item.body.isNotEmpty) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            item.body,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                              height: 1.25,
-                            ),
-                          ),
-                        ],
-                        if (dateTxt.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            '${gyModuleLabel(item.module)} · $dateTxt',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+            dt == null ? '' : DateFormat('dd/MM · HH:mm', 'pt_BR').format(dt);
+        return GestaoBankNotificationTile(
+          title: item.title,
+          body: item.body,
+          module: item.module,
+          dateLabel: dateTxt.isEmpty
+              ? gyModuleLabel(item.module)
+              : '${gyModuleLabel(item.module)} · $dateTxt',
+          isRead: item.isRead,
+          onTap: () => unawaited(_onItemTap(item)),
         );
       },
     );

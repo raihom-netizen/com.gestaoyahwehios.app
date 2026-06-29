@@ -11,7 +11,7 @@ Map<String, dynamic> _asStringKeyMap(dynamic raw) {
   return <String, dynamic>{};
 }
 
-/// Troca de escala entre membros (convite â†’ aceite â†’ escala atualizada + aviso ao lÃ­der).
+/// Troca de escala entre membros (convite → aceite → escala atualizada + aviso ao líder).
 class ScheduleSwapCandidate {
   final String cpf;
   final String nome;
@@ -23,8 +23,8 @@ abstract final class ScheduleSwapService {
 
   static String _normCpf(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
-  /// Membros do departamento livres no [escalaDay] para o horÃ¡rio [escalaTime]
-  /// (sem outra escala sobreposta, sem indisponibilidade no calendÃ¡rio, fora da escala atual).
+  /// Membros do departamento livres no [escalaDay] para o horário [escalaTime]
+  /// (sem outra escala sobreposta, sem indisponibilidade no calendário, fora da escala atual).
   static Future<List<ScheduleSwapCandidate>> filterFreeCandidates({
     required String tenantId,
     required String departmentId,
@@ -53,7 +53,7 @@ abstract final class ScheduleSwapService {
       return [];
     }
 
-    /// normCpf -> true se estÃ¡ ocupado em alguma escala com horÃ¡rio sobreposto a [escalaTime].
+    /// normCpf -> true se está ocupado em alguma escala com horário sobreposto a [escalaTime].
     final busyNorm = <String, bool>{};
 
     for (final doc in daySnap.docs) {
@@ -96,7 +96,7 @@ abstract final class ScheduleSwapService {
     return out;
   }
 
-  /// Aceitar ou recusar convite de troca (Cloud Function aplica a troca e notifica lÃ­deres).
+  /// Aceitar ou recusar convite de troca (Cloud Function aplica a troca e notifica líderes).
   static Future<Map<String, dynamic>> respondSwap({
     required String tenantId,
     required String trocaId,

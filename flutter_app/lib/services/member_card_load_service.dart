@@ -13,7 +13,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Pedido de carga da carteirinha digital (membro ou gestor com alvo explÃ­cito).
+/// Pedido de carga da carteirinha digital (membro ou gestor com alvo explícito).
 class MemberCardLoadRequest {
   const MemberCardLoadRequest({
     required this.churchIdHint,
@@ -30,7 +30,7 @@ class MemberCardLoadRequest {
   final bool restrictedMember;
 }
 
-/// Dados mÃ­nimos para pintar o cartÃ£o CNH (tenant + membro).
+/// Dados mínimos para pintar o cartão CNH (tenant + membro).
 class MemberCardLoadPayload {
   const MemberCardLoadPayload({
     required this.igrejaDocId,
@@ -45,7 +45,7 @@ class MemberCardLoadPayload {
   final Map<String, dynamic> tenant;
 }
 
-/// Cache-first + seed da lista â€” timeouts alinhados ao painel (90s web).
+/// Cache-first + seed da lista — timeouts alinhados ao painel (90s web).
 abstract final class MemberCardLoadService {
   MemberCardLoadService._();
 
@@ -73,7 +73,7 @@ abstract final class MemberCardLoadService {
       ]).timeout(
         _queryCap,
         onTimeout: () => throw TimeoutException(
-          'Tempo esgotado ao carregar a carteirinha. Verifique a conexÃ£o.',
+          'Tempo esgotado ao carregar a carteirinha. Verifique a conexão.',
         ),
       );
       final t = results[0];

@@ -34,7 +34,7 @@ abstract final class ChurchChatModeration {
         }.contains(normalized);
   }
 
-  /// Apagar mensagem de **outro** no grupo â€” pastoral/gestÃ£o ou lÃ­der deste departamento.
+  /// Apagar mensagem de **outro** no grupo — pastoral/gestão ou líder deste departamento.
   static bool canDeleteChatMessage({
     required String memberRole,
     required String memberCpfDigits,
@@ -77,8 +77,8 @@ abstract final class ChurchChatModeration {
   }
 
   /// Apagar para **todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras):
-  /// **DM** â€” qualquer participante pode apagar qualquer mensagem (estilo Â«limpar conversaÂ»).
-  /// **Grupo** â€” o autor apaga a prÃ³pria; moderadores (pastor/gestor/ADM/lÃ­der depto) apagam as dos outros.
+  /// **DM** — qualquer participante pode apagar qualquer mensagem (estilo «limpar conversa»).
+  /// **Grupo** — o autor apaga a própria; moderadores (pastor/gestor/ADM/líder depto) apagam as dos outros.
   static bool canDeleteMessageForEveryone({
     required String senderUid,
     required bool isDepartmentThread,
@@ -98,7 +98,7 @@ abstract final class ChurchChatModeration {
     );
   }
 
-  /// Excluir **grupo** de departamento (thread + histÃ³rico) â€” moderadores do grupo.
+  /// Excluir **grupo** de departamento (thread + histórico) — moderadores do grupo.
   static bool canDeleteGroupConversation(
     String memberRole, {
     Map<String, dynamic>? departmentData,

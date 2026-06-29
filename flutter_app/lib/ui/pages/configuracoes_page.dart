@@ -56,6 +56,7 @@ class ConfiguracoesPage extends StatefulWidget {
   final List<String>? permissions;
   /// Doc `subscriptions` mais recente (mesmo do shell) — exibir estado da licença da igreja.
   final Map<String, dynamic>? subscription;
+  final bool embeddedInShell;
 
   const ConfiguracoesPage({
     super.key,
@@ -63,6 +64,7 @@ class ConfiguracoesPage extends StatefulWidget {
     required this.role,
     this.permissions,
     this.subscription,
+    this.embeddedInShell = false,
   });
 
   @override
@@ -466,8 +468,12 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final padding = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: isMobile ? null : AppBar(
+      backgroundColor: widget.embeddedInShell
+          ? Colors.transparent
+          : ThemeCleanPremium.surfaceVariant,
+      appBar: widget.embeddedInShell || isMobile
+          ? null
+          : AppBar(
         title: const Text('Configurações'),
         backgroundColor: ThemeCleanPremium.primary,
         foregroundColor: Colors.white,

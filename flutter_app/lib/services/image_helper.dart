@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -208,10 +208,8 @@ class ImageHelper {
     return null;
   }
 
-  static Future<Uint8List> _fallbackLogoBytes() async {
-    final byteData = await rootBundle.load('assets/LOGO_GESTAO_YAHWEH.png');
-    return byteData.buffer.asUint8List();
-  }
+  static Future<Uint8List> _fallbackLogoBytes() =>
+      GestaoYahwehBrandAssetService.loadPngBytes();
 }
 
 class _WebpCompressPass {

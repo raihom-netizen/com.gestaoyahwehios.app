@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/utils/utf8_mojibake_fix.dart';
 
 /// Leitura tolerante de campos Firestore — UPPERCASE, camelCase, legado.
 ///
@@ -15,7 +16,7 @@ abstract final class FirestoreMapFields {
     for (final k in keys) {
       final v = map[k];
       if (v == null) continue;
-      final s = v.toString().trim();
+      final s = Utf8MojibakeFix.repair(v.toString().trim());
       if (s.isNotEmpty) return s;
     }
     return fallback;
@@ -116,7 +117,7 @@ abstract final class FirestoreMapFields {
       final v = map[k];
       if (v is! List) continue;
       final out = v
-          .map((e) => e.toString().trim())
+          .map((e) => Utf8MojibakeFix.repair(e.toString().trim()))
           .where((s) => s.isNotEmpty)
           .toList();
       if (out.isNotEmpty) return out;

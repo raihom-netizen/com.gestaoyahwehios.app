@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -388,9 +389,34 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
+    final seedId = widget.tenantId.trim();
+    final cacheChurchId = ChurchRepository.churchId(seedId);
+    if (!forceRefresh && !_formHydrated && cacheChurchId.isNotEmpty) {
+      await YahwehModuleCaches.igrejaRoot.warmUp(cacheChurchId);
+      final cachedDocs = YahwehModuleCaches.igrejaRoot.docs;
+      if (cachedDocs.isNotEmpty && mounted) {
+        final doc = cachedDocs.first;
+        final data = Map<String, dynamic>.from(doc.data());
+        if (data.isNotEmpty &&
+            TenantResolverService.churchProfileRichnessScore(data) >=
+                ChurchCadastroLoadService.kMinProfileScore) {
+          _applyChurchDataResult(
+            ChurchCadastroLoadResult(
+              seedTenantId: seedId,
+              churchId: doc.id.trim().isNotEmpty ? doc.id : cacheChurchId,
+              data: ChurchCadastroLoadService.sliceCadastroFormFields(data),
+              logoStoragePath:
+                  ChurchBrandService.logoPathFromData(data, churchId: cacheChurchId) ??
+                      ChurchStorageLayout.churchIdentityLogoPath(cacheChurchId),
+              readSource: YahwehModuleCaches.igrejaRoot.readSource,
+            ).toChurchDataLoadResult(),
+          );
+        }
+      }
+    }
     if (!forceRefresh && !_formHydrated) {
       final local = await ChurchCadastroLoadService.tryLocalSources(
-        seedTenantId: widget.tenantId.trim(),
+        seedTenantId: seedId,
       );
       if (local != null && local.data.isNotEmpty && mounted) {
         _applyChurchDataResult(

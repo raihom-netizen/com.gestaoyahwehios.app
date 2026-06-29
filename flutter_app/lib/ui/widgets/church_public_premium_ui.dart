@@ -414,6 +414,7 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   final String imageUrl;
   /// Path Storage (`igrejas/.../eventos/{id}/banner_evento.jpg`) — exibição sem URL https.
   final String photoStoragePath;
+  final List<String> photoStorageFallbackPaths;
   final Color accent;
   final VoidCallback? onTap;
 
@@ -428,6 +429,7 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
     this.churchDefaultAddress = '',
     required this.imageUrl,
     this.photoStoragePath = '',
+    this.photoStorageFallbackPaths = const [],
     required this.accent,
     this.onTap,
   });
@@ -435,6 +437,9 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   bool get _hasPhoto {
     final path = photoStoragePath.trim();
     if (path.isNotEmpty && firebaseStorageMediaUrlLooksLike(path)) {
+      return true;
+    }
+    if (photoStorageFallbackPaths.any((p) => p.trim().isNotEmpty)) {
       return true;
     }
     return imageUrl.trim().isNotEmpty && isValidImageUrl(imageUrl.trim());
@@ -508,6 +513,7 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                                     isValidImageUrl(imageUrl.trim())
                                 ? imageUrl.trim()
                                 : null,
+                            fallbackStoragePaths: photoStorageFallbackPaths,
                             width: 74,
                             height: 74,
                             fit: BoxFit.cover,

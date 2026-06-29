@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/carteirinha_pdf_signature_enhance.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -68,15 +69,13 @@ class _SubtleCredentialWatermark extends StatelessWidget {
               Center(
                 child: Opacity(
                   opacity: 0.04,
-                  child: Transform.rotate(
-                    angle: -0.35,
-                    child: Image.asset(
-                      'assets/LOGO_GESTAO_YAHWEH.png',
-                      width: 130,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    child: Transform.rotate(
+                      angle: -0.35,
+                      child: const GestaoYahwehBrandLogo(
+                        width: 130,
+                        height: 130,
+                      ),
                     ),
-                  ),
                 ),
               ),
               Center(

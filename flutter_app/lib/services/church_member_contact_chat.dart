@@ -21,7 +21,7 @@ abstract final class ChurchMemberContactChat {
   static String faleComigoDraft([DateTime? at]) =>
       YahwehContactGreeting.faleComigoDraft(at);
 
-  /// Fecha dialog/sheet/ficha empilhada antes de ir ao mÃ³dulo Chat (web painel).
+  /// Fecha dialog/sheet/ficha empilhada antes de ir ao módulo Chat (web painel).
   static void _popPanelOverlayIfNeeded(BuildContext context) {
     if (!context.mounted) return;
     final route = ModalRoute.of(context);
@@ -50,7 +50,7 @@ abstract final class ChurchMemberContactChat {
     return null;
   }
 
-  /// Igual Ã  ficha em [MembersPage] â€” `authUid` ou doc id em formato Firebase UID.
+  /// Igual à ficha em [MembersPage] — `authUid` ou doc id em formato Firebase UID.
   static String? peerAuthUidFromMember(
     Map<String, dynamic> data, {
     String? memberDocId,
@@ -85,7 +85,7 @@ abstract final class ChurchMemberContactChat {
     return read();
   }
 
-  /// Resolve `authUid` do destinatÃ¡rio â€” doc directo `igrejas/{churchId}/membros`.
+  /// Resolve `authUid` do destinatário — doc directo `igrejas/{churchId}/membros`.
   static Future<
       ({
         Map<String, dynamic> data,
@@ -168,7 +168,7 @@ abstract final class ChurchMemberContactChat {
     return (data: data, memberDocId: docId, peerUid: peerFromData());
   }
 
-  /// Atalhos do painel / membros â€” nÃ£o bloqueia o botÃ£o (Future em background).
+  /// Atalhos do painel / membros — não bloqueia o botão (Future em background).
   static void openChatIgrejaUnawaited({
     required BuildContext context,
     required String tenantId,
@@ -214,7 +214,7 @@ abstract final class ChurchMemberContactChat {
     return v.toString().replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  /// DÃ­gitos do telefone/WhatsApp na ficha do membro (â‰¥10 dÃ­gitos).
+  /// Dígitos do telefone/WhatsApp na ficha do membro (≥10 dígitos).
   static String phoneDigitsFromMember(Map<String, dynamic> data) {
     const keys = [
       'TELEFONES',
@@ -248,7 +248,7 @@ abstract final class ChurchMemberContactChat {
     return '';
   }
 
-  /// Completa [memberData] com a ficha em Firestore quando o mapa leve nÃ£o traz telefone.
+  /// Completa [memberData] com a ficha em Firestore quando o mapa leve não traz telefone.
   static Future<Map<String, dynamic>> enrichMemberDataWithPhone({
     required String tenantId,
     required String memberDocId,

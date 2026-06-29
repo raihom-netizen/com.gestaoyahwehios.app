@@ -1,6 +1,6 @@
 import 'dart:async' show unawaited;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Entrada unificada — líderes de departamento ou corpo administrativo.
@@ -47,22 +48,49 @@ abstract final class ChurchPanelLeadershipLoadService {
     PanelDashboardSnapshot? panelHint,
     MembersDirectorySnapshot? directoryHint,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
     final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) return const [];
 
-    final panel =
-        panelHint ?? await PanelDashboardSnapshotService.readOnce(churchId);
-
-    if (section == ChurchPanelLeadershipSection.departmentLeaders) {
-      if (panel.homeLeaders.isNotEmpty) {
+    List<ChurchPanelLeaderEntry> fromPanel(PanelDashboardSnapshot panel) {
+      if (section == ChurchPanelLeadershipSection.departmentLeaders) {
         return _fromPanelLeaders(panel.homeLeaders);
       }
-      final computed = await _computeDepartmentLeaders(
+      return _fromPanelCorpo(panel.homeCorpoAdmin);
+    }
+
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+
+      final panel =
+          panelHint ?? await PanelDashboardSnapshotService.readOnce(churchId);
+      final cached = fromPanel(panel);
+      if (cached.isNotEmpty) return cached;
+
+      if (section == ChurchPanelLeadershipSection.departmentLeaders) {
+        final computed = await _computeDepartmentLeaders(
+          churchId,
+          directoryHint: directoryHint,
+        ).timeout(
+          PanelResilientLoad.queryCap,
+          onTimeout: () => const <ChurchPanelLeaderEntry>[],
+        );
+        if (computed.isEmpty) {
+          unawaited(
+            PanelDashboardSnapshotService.warmFromCallableIfStale(churchId),
+          );
+        }
+        return computed;
+      }
+
+      final computed = await _computeCorpoAdmin(
         churchId,
+        corpoAdminRoles: corpoAdminRoles,
         directoryHint: directoryHint,
+      ).timeout(
+        PanelResilientLoad.queryCap,
+        onTimeout: () => const <ChurchPanelLeaderEntry>[],
       );
       if (computed.isEmpty) {
         unawaited(
@@ -70,22 +98,30 @@ abstract final class ChurchPanelLeadershipLoadService {
         );
       }
       return computed;
+    } catch (e, st) {
+      debugPrint('ChurchPanelLeadershipLoadService.load: $e\n$st');
+      if (panelHint != null) {
+        final fallback = fromPanel(panelHint);
+        if (fallback.isNotEmpty) return fallback;
+      }
+      try {
+        final panel = await PanelDashboardSnapshotService.readOnce(churchId);
+        final fallback = fromPanel(panel);
+        if (fallback.isNotEmpty) return fallback;
+      } catch (_) {}
+      return const [];
     }
+  }
 
-    if (panel.homeCorpoAdmin.isNotEmpty) {
-      return _fromPanelCorpo(panel.homeCorpoAdmin);
+  /// Entradas imediatas a partir do `_panel_cache` (sem rede).
+  static List<ChurchPanelLeaderEntry> fromPanelSnapshot({
+    required PanelDashboardSnapshot panel,
+    required ChurchPanelLeadershipSection section,
+  }) {
+    if (section == ChurchPanelLeadershipSection.departmentLeaders) {
+      return _fromPanelLeaders(panel.homeLeaders);
     }
-    final computed = await _computeCorpoAdmin(
-      churchId,
-      corpoAdminRoles: corpoAdminRoles,
-      directoryHint: directoryHint,
-    );
-    if (computed.isEmpty) {
-      unawaited(
-        PanelDashboardSnapshotService.warmFromCallableIfStale(churchId),
-      );
-    }
-    return computed;
+    return _fromPanelCorpo(panel.homeCorpoAdmin);
   }
 
   static List<ChurchPanelLeaderEntry> _fromPanelLeaders(

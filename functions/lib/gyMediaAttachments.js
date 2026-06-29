@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.gyPublicMemberSignup = exports.gyAdminDeleteFeedPosts = exports.gyAdminUpsertFeedPost = exports.gyUploadFinanceComprovante = void 0;
+exports.gyPublicSignupStatus = exports.gyPublicMemberSignup = exports.gyAdminDeleteFeedPosts = exports.gyAdminUpsertChurchRoot = exports.gyAdminUpsertFeedPost = exports.gyUploadFinanceComprovante = void 0;
 /**
  * Cloud Functions — anexos padronizados (WISDOMAPP → GESTAOYAHWEH).
  * Web instável: Admin SDK grava Storage + Firestore sem conflito com snapshots().
@@ -41,6 +41,7 @@ exports.gyPublicMemberSignup = exports.gyAdminDeleteFeedPosts = exports.gyAdminU
 const functions = __importStar(require("firebase-functions/v1"));
 const adminDb_1 = require("./adminDb");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
+const panelPublicSiteCache_1 = require("./panelPublicSiteCache");
 const CF_DELETE = "__DELETE__";
 const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_FEED_COLLECTIONS = new Set([
@@ -282,6 +283,30 @@ exports.gyAdminUpsertFeedPost = functions
         path: docRef.path,
     };
 });
+/**
+ * Web: merge doc raiz `igrejas/{churchId}` via Admin SDK.
+ * Espelho WISDOMAPP — evita INTERNAL ASSERTION no Firestore JS ao gravar cadastro.
+ */
+exports.gyAdminUpsertChurchRoot = functions
+    .region("us-central1")
+    .runWith({ timeoutSeconds: 60, memory: "256MB" })
+    .https.onCall(async (data, context) => {
+    const body = (data || {});
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const rawData = (body.data || {});
+    const merge = body.merge !== false;
+    const auth = await requireChurchAccess(context, churchId);
+    const decoded = decodeAdminFirestoreMap(rawData);
+    decoded.updatedAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
+    const docRef = (0, adminDb_1.fs)().collection("igrejas").doc(auth.churchId);
+    if (merge) {
+        await docRef.set(decoded, { merge: true });
+    }
+    else {
+        await docRef.set(decoded);
+    }
+    return { ok: true, path: docRef.path };
+});
 /** Exclusão em lote de posts aviso/evento (admin). */
 exports.gyAdminDeleteFeedPosts = functions
     .region("us-central1")
@@ -351,5 +376,78 @@ exports.gyPublicMemberSignup = functions
         .doc(docId);
     await docRef.set(decoded, { merge: true });
     return { ok: true, docId, path: docRef.path };
+});
+function pickPublicString(data, keys) {
+    for (const k of keys) {
+        const v = data[k];
+        if (v != null && String(v).trim())
+            return String(v).trim();
+    }
+    return "";
+}
+/** Status de cadastro público — visitante anónimo (sem leitura directa de `membros`). */
+exports.gyPublicSignupStatus = functions
+    .region("us-central1")
+    .runWith({ timeoutSeconds: 30, memory: "256MB" })
+    .https.onCall(async (data) => {
+    const body = (data || {});
+    const protocolo = String(body.protocolo || body.docId || "").trim();
+    if (!protocolo) {
+        throw new functions.https.HttpsError("invalid-argument", "protocolo ausente.");
+    }
+    const churchId = await (0, panelPublicSiteCache_1.resolvePublicChurchIdFromInput)(body.churchId ?? body.tenantId ?? body.slug);
+    if (!churchId) {
+        throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+    }
+    const churchSnap = await (0, adminDb_1.fs)().collection("igrejas").doc(churchId).get();
+    if (!churchSnap.exists) {
+        throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+    }
+    const church = (churchSnap.data() ?? {});
+    const churchName = pickPublicString(church, ["nome", "name", "NOME_IGREJA", "nomeIgreja"]) ||
+        "Igreja";
+    const membros = (0, adminDb_1.fs)()
+        .collection("igrejas")
+        .doc(churchId)
+        .collection("membros");
+    let memberSnap = await membros.doc(protocolo).get();
+    if (!memberSnap.exists) {
+        const legacy = await membros
+            .where("legacyMemberDocId", "==", protocolo)
+            .limit(1)
+            .get();
+        if (!legacy.empty)
+            memberSnap = legacy.docs[0];
+    }
+    if (!memberSnap.exists) {
+        return {
+            ok: false,
+            found: false,
+            churchId,
+            churchName,
+            error: "Cadastro não localizado para o protocolo informado.",
+        };
+    }
+    const member = (memberSnap.data() ?? {});
+    if (member.publicSignup !== true) {
+        return {
+            ok: false,
+            found: false,
+            churchId,
+            churchName,
+            error: "Protocolo inválido para acompanhamento público.",
+        };
+    }
+    const nome = pickPublicString(member, ["NOME_COMPLETO", "nome", "name"]) || "Membro";
+    const status = String(member.status ?? member.STATUS ?? "pendente").trim();
+    return {
+        ok: true,
+        found: true,
+        churchId,
+        churchName,
+        protocolo: memberSnap.id,
+        nome,
+        status,
+    };
 });
 //# sourceMappingURL=gyMediaAttachments.js.map

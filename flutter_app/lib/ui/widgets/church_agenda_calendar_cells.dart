@@ -61,9 +61,10 @@ abstract final class ChurchAgendaCalendarCells {
     required bool isOutside,
   }) {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final cellFs = isMobile ? 17.0 : 15.5;
+    final cellFs = isMobile ? 22.0 : 19.0;
     final isWeekend =
         day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
+    final isSunday = day.weekday == DateTime.sunday;
     final isHoliday = HolidayHelper.holidayNameOn(day) != null;
     const outerPad = EdgeInsets.all(1.85);
     final radius = ControleTotalCalendarTheme.cellRadius;
@@ -120,6 +121,20 @@ abstract final class ChurchAgendaCalendarCells {
         fontSize: cellFs,
         fontWeight: FontWeight.w700,
         color: const Color(0xFF9F1239),
+      );
+    } else if (isSunday && !isOutside) {
+      deco = BoxDecoration(
+        color: const Color(0xFF92400E).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(radius * 1.15),
+        border: Border.all(
+          color: const Color(0xFF92400E).withValues(alpha: 0.42),
+          width: 1.2,
+        ),
+      );
+      textStyle = TextStyle(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w800,
+        color: const Color(0xFF78350F),
       );
     } else if (isWeekend) {
       deco = BoxDecoration(
@@ -204,7 +219,7 @@ abstract final class ChurchAgendaCalendarCells {
     }
 
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final cellFs = isMobile ? 17.0 : 15.5;
+    final cellFs = isMobile ? 22.0 : 19.0;
     final n = eventCount;
     final dim = isOutside ? 0.45 : 1.0;
     const outerPad = EdgeInsets.all(1.85);

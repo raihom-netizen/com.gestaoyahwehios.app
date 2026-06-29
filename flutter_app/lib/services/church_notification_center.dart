@@ -101,7 +101,7 @@ abstract final class ChurchNotificationCenter {
         r == 'secretario' ||
         r == 'secretaria' ||
         r == 'lider' ||
-        r == 'lÃ­der';
+        r == 'líder';
   }
 
   static String moduleForType(String type) {
@@ -209,8 +209,8 @@ abstract final class ChurchNotificationCenter {
             source: ChurchNotificationSource.live,
             type: 'novo_membro',
             title: panel.pendingMembersCount == 1
-                ? '1 membro aguardando aprovaÃ§Ã£o'
-                : '${panel.pendingMembersCount} membros aguardando aprovaÃ§Ã£o',
+                ? '1 membro aguardando aprovação'
+                : '${panel.pendingMembersCount} membros aguardando aprovação',
             body: 'Cadastros pendentes no painel.',
             createdAt: now,
             isRead: true,
@@ -225,9 +225,9 @@ abstract final class ChurchNotificationCenter {
             source: ChurchNotificationSource.live,
             type: 'pedido_oracao',
             title: panel.openPrayerRequestsCount == 1
-                ? '1 pedido de oraÃ§Ã£o aberto'
-                : '${panel.openPrayerRequestsCount} pedidos de oraÃ§Ã£o abertos',
-            body: 'A igreja aguarda intercessÃ£o pastoral.',
+                ? '1 pedido de oração aberto'
+                : '${panel.openPrayerRequestsCount} pedidos de oração abertos',
+            body: 'A igreja aguarda intercessão pastoral.',
             createdAt: now,
             isRead: true,
             shellIndex: ChurchShellIndices.pedidosOracao,
@@ -266,10 +266,10 @@ abstract final class ChurchNotificationCenter {
             id: 'live_evt_${raw['id'] ?? title}',
             source: ChurchNotificationSource.live,
             type: 'novo_evento',
-            title: title.isEmpty ? 'PrÃ³ximo evento' : title,
+            title: title.isEmpty ? 'Próximo evento' : title,
             body: start == null
                 ? 'Confira a agenda da igreja.'
-                : DateFormat('dd/MM Â· HH:mm', 'pt_BR').format(start),
+                : DateFormat('dd/MM · HH:mm', 'pt_BR').format(start),
             createdAt: start ?? now,
             isRead: true,
             shellIndex: kChurchShellIndexEvents,
@@ -288,7 +288,7 @@ abstract final class ChurchNotificationCenter {
           id: 't_${d.id}',
           source: ChurchNotificationSource.tenant,
           type: type.isEmpty ? 'generico' : type,
-          title: (m['title'] ?? 'NotificaÃ§Ã£o').toString(),
+          title: (m['title'] ?? 'Notificação').toString(),
           body: (m['body'] ?? '').toString(),
           createdAt: created,
           isRead: read,
@@ -305,7 +305,7 @@ abstract final class ChurchNotificationCenter {
           id: 'p_${d.id}',
           source: ChurchNotificationSource.inbox,
           type: type.isEmpty ? 'generico' : type,
-          title: (m['title'] ?? 'NotificaÃ§Ã£o').toString(),
+          title: (m['title'] ?? 'Notificação').toString(),
           body: (m['body'] ?? '').toString(),
           createdAt: _ts(m['createdAt']),
           isRead: m['read'] == true,

@@ -2,7 +2,240 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+/// Asterisco vermelho — campos obrigatórios (padrão WISDOMAPP).
+const Color kMemberSignupRequiredRed = Color(0xFFDC2626);
+
+/// Rótulo com asterisco vermelho quando [required].
+Widget memberSignupFieldLabel(String label, {bool required = false}) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(
+        child: Text(
+          label,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: Colors.grey.shade800,
+            fontSize: 14,
+          ),
+        ),
+      ),
+      if (required)
+        const Text(
+          ' *',
+          style: TextStyle(
+            color: kMemberSignupRequiredRed,
+            fontWeight: FontWeight.w900,
+            fontSize: 15,
+          ),
+        ),
+    ],
+  );
+}
+
+/// Card de aviso — campos obrigatórios (WISDOMAPP).
+class MemberSignupRequiredFieldsAlert extends StatelessWidget {
+  const MemberSignupRequiredFieldsAlert({super.key});
+
+  static const List<String> requiredItems = [
+    'Nome completo',
+    'CPF',
+    'Data de nascimento',
+    'E-mail',
+    'Foto de perfil',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFFFF7ED),
+            const Color(0xFFFFFBEB).withValues(alpha: 0.9),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFDBA74).withValues(alpha: 0.65),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFEA580C).withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEA580C).withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.info_outline_rounded,
+              color: Color(0xFFC2410C),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Campos obrigatórios',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFF9A3412),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Itens com asterisco vermelho (*) são obrigatórios. '
+                  'Os demais campos são opcionais.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: requiredItems
+                      .map(
+                        (t) => Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: const Color(0xFFFED7AA),
+                            ),
+                          ),
+                          child: Text(
+                            '$t *',
+                            style: GoogleFonts.poppins(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF9A3412),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Cartão premium para foto obrigatória.
+class MemberSignupPhotoRequiredCard extends StatelessWidget {
+  const MemberSignupPhotoRequiredCard({
+    super.key,
+    required this.hasPhoto,
+    required this.photoPreview,
+    required this.onGallery,
+    required this.onCamera,
+  });
+
+  final bool hasPhoto;
+  final Widget photoPreview;
+  final VoidCallback onGallery;
+  final VoidCallback onCamera;
+
+  @override
+  Widget build(BuildContext context) {
+    return YahwehWisdomSectionCard(
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.all(16),
+      borderTint: hasPhoto
+          ? const Color(0xFF10B981)
+          : kMemberSignupRequiredRed,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          memberSignupFieldLabel('Foto de perfil', required: true),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              photoPreview,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: onGallery,
+                      icon: const Icon(Icons.photo_library_rounded, size: 20),
+                      label: const Text('Galeria'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: onCamera,
+                      icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                      label: const Text('Selfie'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hasPhoto
+                ? 'Foto selecionada. Toque em Finalizar para enviar.'
+                : 'Envie uma foto nítida do rosto — usada no cartão de membro e no painel.',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: hasPhoto ? const Color(0xFF047857) : Colors.grey.shade700,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Estilo unificado: cadastro público e cadastro interno de membro.
 class MemberSignupPremiumUi {
@@ -94,6 +327,7 @@ InputDecoration memberSignupInputDecoration({
   Widget? suffixIcon,
   String? counterText,
   Color? accentColor,
+  bool required = false,
 }) {
   final accent = accentColor ?? ThemeCleanPremium.primary;
   final fill = Color.lerp(accent, Colors.white, 0.92)!;
@@ -102,7 +336,7 @@ InputDecoration memberSignupInputDecoration({
     borderSide: BorderSide(color: accent.withValues(alpha: 0.18)),
   );
   return InputDecoration(
-    labelText: label,
+    label: memberSignupFieldLabel(label, required: required),
     hintText: hint,
     prefixIcon: icon == null
         ? null
@@ -120,11 +354,7 @@ InputDecoration memberSignupInputDecoration({
         width: 1.8,
       ),
     ),
-    labelStyle: TextStyle(
-      fontWeight: FontWeight.w700,
-      color: Colors.grey.shade800,
-      fontSize: 14,
-    ),
+    floatingLabelBehavior: FloatingLabelBehavior.auto,
   );
 }
 
@@ -186,7 +416,7 @@ class MemberSignupWizardProgress extends StatelessWidget {
 
   const MemberSignupWizardProgress({super.key, required this.step});
 
-  static const _labels = ['Seus dados', 'Endereço', 'Família e foto'];
+  static const _labels = ['Seus dados *', 'Endereço', 'Foto *'];
   static const _stepColors = [
     Color(0xFF6366F1),
     Color(0xFF10B981),

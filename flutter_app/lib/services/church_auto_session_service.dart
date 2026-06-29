@@ -17,14 +17,14 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// MantÃ©m login do painel Â«automÃ¡ticoÂ» nas prÃ³ximas aberturas (web + Android):
-/// rota salva, Google silencioso, cache de perfil e prÃ©-carga de dados.
+/// Mantém login do painel «automático» nas próximas aberturas (web + Android):
+/// rota salva, Google silencioso, cache de perfil e pré-carga de dados.
 class ChurchAutoSessionService {
   ChurchAutoSessionService._();
 
   static const kAutoPainelPrefsKey = kAutoPainelLogin;
 
-  /// Chamado apÃ³s login bem-sucedido no painel (`/painel`).
+  /// Chamado após login bem-sucedido no painel (`/painel`).
   static Future<void> persistAfterSuccessfulPainelLogin() async {
     final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;
@@ -53,12 +53,12 @@ class ChurchAutoSessionService {
     if (firebaseDefaultAuth.currentUser == null) return false;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(kAutoPainelPrefsKey) == true) return true;
-    // Utilizadores que jÃ¡ abriam o painel antes desta flag existir.
+    // Utilizadores que já abriam o painel antes desta flag existir.
     final last = (prefs.getString('last_route') ?? '').trim();
     return last == '/painel' || last.startsWith('/painel/');
   }
 
-  /// SessÃ£o Firebase persistida â€” garante reabertura directa no painel (estilo apps bancÃ¡rios).
+  /// Sessão Firebase persistida — garante reabertura directa no painel (estilo apps bancários).
   static Future<void> ensureAutoPainelFlagForPersistedSession() async {
     final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;
@@ -113,11 +113,11 @@ class ChurchAutoSessionService {
     );
   }
 
-  /// Delega ao coordenador â€” uma onda de callable por tenant/sessÃ£o.
+  /// Delega ao coordenador — uma onda de callable por tenant/sessão.
   static Future<void> preheatPanelCachesCoordinated({String? tenantIdHint}) =>
       PanelPreheatCoordinator.preheatOnce(tenantIdHint: tenantIdHint);
 
-  /// Tenant da sessÃ£o atual â€” usado no prÃ©-aquecimento do splash.
+  /// Tenant da sessão atual — usado no pré-aquecimento do splash.
   static Future<String> resolveTenantIdForSession() =>
       _resolveTenantIdFromUserDoc();
 
@@ -134,7 +134,7 @@ class ChurchAutoSessionService {
     }
   }
 
-  /// Android: restaura sessÃ£o Google sem UI (apÃ³s login bem-sucedido anterior).
+  /// Android: restaura sessão Google sem UI (após login bem-sucedido anterior).
   @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
   static Future<bool> trySilentGoogleRestore() async {
     return PersistentAuthSessionService.hasPersistedSession();
@@ -152,11 +152,11 @@ class ChurchAutoSessionService {
     return last == '/painel' || last.startsWith('/painel/');
   }
 
-  /// `main.dart`: antes de escolher rota inicial â€” evita ecrÃ£ Entrar com sessÃ£o Google/Apple no telemÃ³vel.
+  /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.
   static Future<bool> tryRestoreSessionOnColdStart() async =>
       PersistentAuthSessionService.warmColdStart();
 
-  /// `main.dart`: abrir direto o painel se jÃ¡ houve login com sucesso.
+  /// `main.dart`: abrir direto o painel se já houve login com sucesso.
   static Future<String?> painelRouteIfSessionRestored(String currentRoute) async {
     if (await LoginPreferences.isAccountSwitchPending()) return null;
     var user = await PersistentAuthSessionService.currentPersistedUser();
@@ -175,7 +175,7 @@ class ChurchAutoSessionService {
     return '/painel';
   }
 
-  /// ApÃ³s restaurar OAuth no arranque: garante flag de auto-login do painel.
+  /// Após restaurar OAuth no arranque: garante flag de auto-login do painel.
   static Future<void> markAutoPainelAfterOAuthRestore() async {
     final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return;

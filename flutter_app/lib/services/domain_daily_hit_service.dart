@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Regista um acesso ao domÃ­nio por dia (Flutter web) via Cloud Function â†’ `config/analytics.daily`.
+/// Regista um acesso ao domínio por dia (Flutter web) via Cloud Function → `config/analytics.daily`.
 abstract final class DomainDailyHitService {
   DomainDailyHitService._();
 
@@ -13,7 +13,7 @@ abstract final class DomainDailyHitService {
   static final FirebaseFunctions _fn =
       FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
-  /// No mÃ¡ximo um envio por dia por navegador; ignora Painel Master (`/admin`, `/login_admin`).
+  /// No máximo um envio por dia por navegador; ignora Painel Master (`/admin`, `/login_admin`).
   static Future<void> recordIfEligible() async {
     if (!kIsWeb) return;
     final path = Uri.base.path.toLowerCase();

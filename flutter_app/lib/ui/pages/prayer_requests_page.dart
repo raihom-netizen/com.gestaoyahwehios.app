@@ -1151,9 +1151,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     final padding = ThemeCleanPremium.pagePadding(context);
     final tt = Theme.of(context).textTheme;
 
-    final showAppBar = !isMobile || Navigator.canPop(context);
+    final showAppBar =
+        !widget.embeddedInShell && (!isMobile || Navigator.canPop(context));
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor:
+          widget.embeddedInShell ? Colors.transparent : const Color(0xFFF8FAFC),
       appBar: !showAppBar
           ? null
           : AppBar(

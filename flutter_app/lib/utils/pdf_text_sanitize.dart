@@ -1,8 +1,10 @@
+import 'package:gestao_yahweh/utils/utf8_mojibake_fix.dart';
+
 /// Normaliza texto para PDFs gerados com `package:pdf` e fontes Latin base:
 /// travessões e alguns Unicode viram quadrados ("tofu") se o glifo não existir na fonte.
 String pdfSafeText(String? input) {
   if (input == null) return '';
-  var s = input;
+  var s = Utf8MojibakeFix.repair(input);
   // Travessões / hífens Unicode → ASCII
   s = s.replaceAll('\u2014', ' - '); // em dash —
   s = s.replaceAll('\u2013', '-'); // en dash –

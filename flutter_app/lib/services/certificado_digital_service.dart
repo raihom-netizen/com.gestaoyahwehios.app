@@ -5,10 +5,10 @@ import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
-/// Upload do certificado (.p12 / .pfx) para o Storage **restrito** e referÃªncia no perfil do usuÃ¡rio logado.
+/// Upload do certificado (.p12 / .pfx) para o Storage **restrito** e referência no perfil do usuário logado.
 ///
-/// **SeguranÃ§a:** nÃ£o gravar senha do certificado no Firestore. Use [FlutterSecureStorage] apenas no dispositivo
-/// se o gestor optar por â€œlembrar PINâ€ (opcional na UI).
+/// **Segurança:** não gravar senha do certificado no Firestore. Use [FlutterSecureStorage] apenas no dispositivo
+/// se o gestor optar por "lembrar PIN" (opcional na UI).
 class CertificadoDigitalService {
   CertificadoDigitalService._();
 
@@ -101,16 +101,16 @@ class CertificadoDigitalService {
     }
   }
 
-  /// Faz upload e grava metadados em `users/{uid}` (o prÃ³prio usuÃ¡rio pode atualizar).
+  /// Faz upload e grava metadados em `users/{uid}` (o próprio usuário pode atualizar).
   static Future<void> uploadPfxForCurrentUser({
     required String tenantId,
     required Uint8List bytes,
     required String originalFileName,
   }) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
-    if (uid == null || uid.isEmpty) throw StateError('UsuÃ¡rio nÃ£o autenticado');
+    if (uid == null || uid.isEmpty) throw StateError('Usuário não autenticado');
     final tid = ChurchRepository.churchId(tenantId.trim());
-    if (tid.isEmpty) throw StateError('Igreja invÃ¡lida');
+    if (tid.isEmpty) throw StateError('Igreja inválida');
     if (bytes.isEmpty) throw StateError('Arquivo vazio');
     final safeName = originalFileName.replaceAll(RegExp(r'[^\w.\-]'), '_');
     final ts = DateTime.now().millisecondsSinceEpoch;

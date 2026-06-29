@@ -6,11 +6,19 @@ import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 /// Tela de informações do sistema, resumo geral e sugestões/críticas.
 class SistemaInformacoesPage extends StatefulWidget {
   final String tenantId;
+  final bool embeddedInShell;
 
-  const SistemaInformacoesPage({super.key, required this.tenantId});
+  const SistemaInformacoesPage({
+    super.key,
+    required this.tenantId,
+    this.embeddedInShell = false,
+  });
 
   @override
   State<SistemaInformacoesPage> createState() => _SistemaInformacoesPageState();
@@ -70,38 +78,53 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final padding = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
-      appBar: isMobile ? null : AppBar(
-        title: const Text('Informações do Sistema'),
+      backgroundColor:
+          widget.embeddedInShell ? Colors.transparent : ThemeCleanPremium.surfaceVariant,
+      appBar: widget.embeddedInShell || isMobile
+          ? null
+          : AppBar(
+        title: const Text('Informações'),
         backgroundColor: const Color(0xFF1E40AF),
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
+        top: !widget.embeddedInShell,
         child: SingleChildScrollView(
           padding: padding,
           child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.info_outline_rounded, size: 40, color: Colors.blue.shade700),
-                            const SizedBox(width: 16),
-                            const Expanded(
-                              child: Text(
-                                'Gestão YAHWEH',
-                                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF1E293B)),
+                YahwehWisdomSectionCard(
+                  borderTint: const Color(0xFF38BDF8),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(Icons.feedback_rounded,
+                                size: 32, color: Color(0xFF0284C7)),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(
+                              'Gestão YAHWEH',
+                              style: GoogleFonts.inter(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: const Color(0xFF1E293B),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
                         const Text(
                           'Resumo do sistema',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1E40AF)),
@@ -109,10 +132,11 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                         const SizedBox(height: 12),
                         _buildFeatureItem(Icons.people_rounded, 'Membros', 'Cadastro completo, carteirinha digital com QR Code'),
                         _buildFeatureItem(Icons.groups_rounded, 'Departamentos', 'Organização por áreas e lideranças'),
-                        _buildFeatureItem(Icons.event_rounded, 'Eventos e Escalas', 'Calendário, escalas semanais/mensais'),
+                        _buildFeatureItem(Icons.edit_calendar_rounded, 'Escalas', 'Minha escala e escala geral'),
                         _buildFeatureItem(Icons.account_balance_wallet_rounded, 'Financeiro', 'Receitas, despesas e gráficos'),
                         _buildFeatureItem(Icons.inventory_2_rounded, 'Patrimônio', 'Controle de bens e equipamentos'),
-                        _buildFeatureItem(Icons.view_quilt_rounded, 'Mural', 'Avisos e notícias estilo feed'),
+                        _buildFeatureItem(Icons.view_quilt_rounded, 'Avisos', 'Mural e comunicados oficiais'),
+                        _buildFeatureItem(Icons.celebration_rounded, 'Eventos', 'Cultos, programação e feed'),
                         _buildFeatureItem(Icons.notifications_rounded, 'Notificações', 'Comunicados e lembretes'),
                         _buildFeatureItem(Icons.payment_rounded, 'Assinaturas', 'Planos, PIX e cartão via Mercado Pago'),
                         const SizedBox(height: 24),
@@ -153,15 +177,12 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                         ),
                       ],
                     ),
-                  ),
                 ),
                 const SizedBox(height: 28),
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
+                YahwehWisdomSectionCard(
+                  borderTint: const Color(0xFF38BDF8),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
@@ -222,7 +243,6 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                         _MinhasSugestoes(tenantId: widget.tenantId),
                       ],
                     ),
-                  ),
                 ),
               ],
             ),

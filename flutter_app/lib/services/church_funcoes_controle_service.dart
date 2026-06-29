@@ -6,54 +6,54 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// FunÃ§Ãµes do painel da igreja â€” catÃ¡logo em `igrejas/{tenantId}/funcoesControle/{key}`.
-/// O gestor pode adicionar/remover entradas e restaurar padrÃµes. O campo [permissionTemplate]
-/// define o nÃºcleo de permissÃµes (AppPermissions); [key] Ã© o valor gravado em FUNCAO no membro.
+/// Funções do painel da igreja — catálogo em `igrejas/{tenantId}/funcoesControle/{key}`.
+/// O gestor pode adicionar/remover entradas e restaurar padrões. O campo [permissionTemplate]
+/// define o núcleo de permissões (AppPermissions); [key] é o valor gravado em FUNCAO no membro.
 class ChurchFuncoesControleService {
   ChurchFuncoesControleService._();
 
-  /// Chaves que nÃ£o podem ser excluÃ­das (acesso base do sistema).
+  /// Chaves que não podem ser excluídas (acesso base do sistema).
   static const Set<String> protectedKeys = {'membro', 'adm', 'gestor', 'master'};
 
-  /// [tenantId] deve ser o ID operacional (jÃ¡ resolvido pelo painel).
+  /// [tenantId] deve ser o ID operacional (já resolvido pelo painel).
   static CollectionReference<Map<String, dynamic>> collection(String tenantId) =>
       ChurchOperationalPaths.churchDoc(tenantId).collection('funcoesControle');
 
-  /// Documentos padrÃ£o (mesmo conjunto que a tela informativa original).
+  /// Documentos padrão (mesmo conjunto que a tela informativa original).
   static List<Map<String, dynamic>> defaultRoleDocuments() => [
-        _doc('membro', 'Membro / Congregado', 'Mural, eventos, agenda, perfil e cartÃ£o.', 0),
+        _doc('membro', 'Membro / Congregado', 'Mural, eventos, agenda, perfil e cartão.', 0),
         _doc('adm', 'Administrador', 'Acesso total ao painel da igreja.', 1),
-        _doc('gestor', 'Gestor', 'Acesso total: cadastro, membros, financeiro, patrimÃ´nio, etc.', 2),
+        _doc('gestor', 'Gestor', 'Acesso total: cadastro, membros, financeiro, patrimônio, etc.', 2),
         _doc(
             'pastor_presidente',
             'Pastor Presidente',
-            'LideranÃ§a mÃ¡xima: equivalente a gestor no painel.',
+            'Liderança máxima: equivalente a gestor no painel.',
             3),
         _doc(
             'pastor_auxiliar',
             'Pastor Auxiliar / Ministerial',
-            'Membros, agenda e escalas â€” sem financeiro ou patrimÃ´nio.',
+            'Membros, agenda e escalas — sem financeiro ou patrimônio.',
             4),
         _doc(
             'secretario',
-            'SecretÃ¡rio(a)',
-            'Cadastros, certificados, documentos, departamentos e visitantes â€” sem financeiro.',
+            'Secretário(a)',
+            'Cadastros, certificados, documentos, departamentos e visitantes — sem financeiro.',
             5),
         _doc(
             'tesoureiro',
             'Tesoureiro(a)',
-            'Financeiro e relatÃ³rios â€” sem lista geral de membros ou patrimÃ´nio.',
+            'Financeiro e relatórios — sem lista geral de membros ou patrimônio.',
             6),
         _doc(
             'lider_departamento',
-            'LÃ­der de Departamento',
-            'Agenda, mural (avisos), eventos e escalas dos departamentos em que Ã© lÃ­der (pode ser vÃ¡rios). Sem financeiro.',
+            'Líder de Departamento',
+            'Agenda, mural (avisos), eventos e escalas dos departamentos em que é líder (pode ser vários). Sem financeiro.',
             7),
-        _doc('pastor', 'Pastor (legado)', 'Amplo acesso (igrejas antigas): mantÃ©m financeiro e patrimÃ´nio.', 8),
-        _doc('presbitero', 'PresbÃ­tero', 'Membros, escalas, departamentos, financeiro, patrimÃ´nio.', 9),
-        _doc('diacono', 'DiÃ¡cono', 'Painel, mural, agenda e escalas.', 10),
+        _doc('pastor', 'Pastor (legado)', 'Amplo acesso (igrejas antigas): mantém financeiro e patrimônio.', 8),
+        _doc('presbitero', 'Presbítero', 'Membros, escalas, departamentos, financeiro, patrimônio.', 9),
+        _doc('diacono', 'Diácono', 'Painel, mural, agenda e escalas.', 10),
         _doc('evangelista', 'Evangelista', 'Painel, mural, agenda e escalas.', 11),
-        _doc('musico', 'MÃºsico', 'Painel, mural, agenda e escalas.', 12),
+        _doc('musico', 'Músico', 'Painel, mural, agenda e escalas.', 12),
       ];
 
   static Map<String, dynamic> _doc(String key, String label, String descricao, int order) => {
@@ -65,7 +65,7 @@ class ChurchFuncoesControleService {
         'permissionTemplate': key,
       };
 
-  /// RÃ³tulos de mÃ³dulos exibidos na UI (igual Ã  pÃ¡gina de funÃ§Ãµes).
+  /// Rótulos de módulos exibidos na UI (igual à página de funções).
   static List<String> permissoesLabelsParaFuncao(String funcaoId) {
     final r = funcaoId.toLowerCase();
     final list = <String>[];
@@ -78,20 +78,20 @@ class ChurchFuncoesControleService {
         'Visitantes',
         'Mural',
         'Eventos',
-        'Pedidos de OraÃ§Ã£o',
+        'Pedidos de Oração',
         'Agenda',
         'Escalas',
         'Certificados',
         'Financeiro',
-        'PatrimÃ´nio',
-        'RelatÃ³rios',
-        'ConfiguraÃ§Ãµes',
+        'Patrimônio',
+        'Relatórios',
+        'Configurações',
       ]);
       return list;
     }
-    list.addAll(['Painel', 'Mural de Avisos', 'Mural de Eventos', 'Minha Escala', 'Certificados', 'RelatÃ³rios']);
+    list.addAll(['Painel', 'Mural de Avisos', 'Mural de Eventos', 'Minha Escala', 'Certificados', 'Relatórios']);
     if (AppPermissions.canViewFinance(r)) list.add('Financeiro');
-    if (AppPermissions.canViewPatrimonio(r)) list.add('PatrimÃ´nio');
+    if (AppPermissions.canViewPatrimonio(r)) list.add('Patrimônio');
     if (AppPermissions.canViewSensitiveMembers(r)) list.add('Membros');
     if (AppPermissions.canEditSchedules(r)) {
       list.add('Escala Geral');
@@ -102,19 +102,19 @@ class ChurchFuncoesControleService {
     return list;
   }
 
-  /// Templates vÃ¡lidos para nova funÃ§Ã£o (heranÃ§a de permissÃµes).
+  /// Templates válidos para nova função (herança de permissões).
   static const List<({String key, String label})> permissionTemplates = [
     (key: 'membro', label: 'Membro (acesso limitado)'),
     (key: 'pastor_presidente', label: 'Pastor Presidente / Admin'),
     (key: 'pastor_auxiliar', label: 'Pastor Auxiliar'),
-    (key: 'secretario', label: 'SecretÃ¡rio'),
+    (key: 'secretario', label: 'Secretário'),
     (key: 'tesoureiro', label: 'Tesoureiro'),
-    (key: 'lider_departamento', label: 'LÃ­der de Departamento'),
+    (key: 'lider_departamento', label: 'Líder de Departamento'),
     (key: 'pastor', label: 'Pastor (legado amplo)'),
-    (key: 'presbitero', label: 'PresbÃ­tero'),
-    (key: 'diacono', label: 'DiÃ¡cono'),
+    (key: 'presbitero', label: 'Presbítero'),
+    (key: 'diacono', label: 'Diácono'),
     (key: 'evangelista', label: 'Evangelista'),
-    (key: 'musico', label: 'MÃºsico'),
+    (key: 'musico', label: 'Músico'),
     (key: 'adm', label: 'Administrador'),
     (key: 'gestor', label: 'Gestor'),
   ];
@@ -124,7 +124,7 @@ class ChurchFuncoesControleService {
     return direct.isNotEmpty ? direct : tenantId.trim();
   }
 
-  /// Remove toda a coleÃ§Ã£o e grava os padrÃµes.
+  /// Remove toda a coleção e grava os padrões.
   static Future<void> restoreDefaults(String tenantId) async {
     await firebaseDefaultAuth.currentUser?.getIdToken(true);
     final tid = await resolveEffectiveTenantId(tenantId);
@@ -146,7 +146,7 @@ class ChurchFuncoesControleService {
     await batch.commit();
   }
 
-  /// Garante padrÃµes se a coleÃ§Ã£o estiver vazia (primeiro acesso).
+  /// Garante padrões se a coleção estiver vazia (primeiro acesso).
   static Future<void> seedDefaultsIfEmpty(String tenantId) async {
     final tid = await resolveEffectiveTenantId(tenantId);
     final col = collection(tid);
@@ -155,11 +155,11 @@ class ChurchFuncoesControleService {
     await restoreDefaults(tenantId);
   }
 
-  /// NÃºcleo de permissÃ£o usado em AppPermissions / login (FUNCAO_PERMISSOES).
+  /// Núcleo de permissão usado em AppPermissions / login (FUNCAO_PERMISSOES).
   static Future<String> resolvePermissionBase(String tenantId, String funcaoKey) async {
     var key = funcaoKey.trim().toLowerCase();
     if (key.isEmpty) return 'membro';
-    // RÃ³tulo gravado no lugar da chave (ex.: "Administrador") â†’ doc `igrejas/.../funcoesControle/adm`
+    // Rótulo gravado no lugar da chave (ex.: "Administrador") → doc `igrejas/.../funcoesControle/adm`
     if (key == 'administrador' || key == 'administradora') key = 'adm';
     final tid = await resolveEffectiveTenantId(tenantId);
     final d = await collection(tid).doc(key).get();
@@ -167,7 +167,7 @@ class ChurchFuncoesControleService {
       final t = (d.data()?['permissionTemplate'] ?? key).toString().trim().toLowerCase();
       return t.isEmpty ? key : t;
     }
-    // ColeÃ§Ã£o cargos: [permissionTemplate] ou [key] como nÃºcleo de permissÃ£o
+    // Coleção cargos: [permissionTemplate] ou [key] como núcleo de permissão
     try {
       final cargosSnap = await ChurchTenantResilientReads.cargos(tid, limit: 120);
       for (final d in cargosSnap.docs) {
@@ -185,13 +185,13 @@ class ChurchFuncoesControleService {
     return key;
   }
 
-  /// Ordem de privilÃ©gio (Ã­ndice 0 = mÃ¡ximo) â€” alinhado a [AppPermissions].
+  /// Ordem de privilégio (índice 0 = máximo) — alinhado a [AppPermissions].
   static const List<List<String>> _roleTierKeys = [
     ['master'],
     ['adm', 'admin', 'administrador', 'administradora'],
     ['gestor', 'pastor_presidente'],
     ['pastor', 'pastora'],
-    ['secretario', 'secretÃ¡rio', 'secretÃ¡ria'],
+    ['secretario', 'secretário', 'secretária'],
     ['presbitero', 'presbitera'],
     ['pastor_auxiliar'],
     ['tesoureiro', 'tesouraria'],
@@ -203,7 +203,7 @@ class ChurchFuncoesControleService {
     ['visitante'],
   ];
 
-  /// Maior valor = mais privilÃ©gio no painel (departamentos, financeiro, etc.).
+  /// Maior valor = mais privilégio no painel (departamentos, financeiro, etc.).
   static int roleRank(String role) {
     final x = role.trim().toLowerCase();
     if (x.isEmpty) return 0;
@@ -213,7 +213,7 @@ class ChurchFuncoesControleService {
     return 400;
   }
 
-  /// Escolhe o papel mais alto entre candidatos (ex.: FUNCOES = [adm, gestor] â†’ adm).
+  /// Escolhe o papel mais alto entre candidatos (ex.: FUNCOES = [adm, gestor] → adm).
   static String pickHighestRole(Iterable<String> candidates) {
     var best = 'membro';
     var bestScore = roleRank(best);
@@ -229,8 +229,8 @@ class ChurchFuncoesControleService {
     return best;
   }
 
-  /// Papel efetivo para o shell: [FUNCAO_PERMISSOES] Ã s vezes fica [membro] ou cargo custom
-  /// enquanto [FUNCOES] lista adm+gestor â€” sem isto o bootstrap de departamentos nÃ£o roda.
+  /// Papel efetivo para o shell: [FUNCAO_PERMISSOES] às vezes fica [membro] ou cargo custom
+  /// enquanto [FUNCOES] lista adm+gestor — sem isto o bootstrap de departamentos não roda.
   static Future<String> effectivePanelRoleFromMember(
     String tenantId,
     Map<String, dynamic> memberData,
@@ -271,7 +271,7 @@ class ChurchFuncoesControleService {
     return pickHighestRole(candidates);
   }
 
-  /// OpÃ§Ãµes para o cadastro de membros: prioriza [cargos] (mÃ³dulo Cargos); legado [funcoesControle]; fallback.
+  /// Opções para o cadastro de membros: prioriza [cargos] (módulo Cargos); legado [funcoesControle]; fallback.
   static Future<List<({String key, String label, String permissionTemplate})>> loadOptionsForMemberPicker(
     String tenantId,
     List<String> fallbackKeys,
@@ -323,12 +323,12 @@ class ChurchFuncoesControleService {
     return input
         .trim()
         .toLowerCase()
-        .replaceAll(RegExp(r'[Ã¡Ã Ã¢Ã£]'), 'a')
-        .replaceAll(RegExp(r'[Ã©Ã¨Ãª]'), 'e')
-        .replaceAll(RegExp(r'[Ã­Ã¬]'), 'i')
-        .replaceAll(RegExp(r'[Ã³Ã²Ã´Ãµ]'), 'o')
-        .replaceAll(RegExp(r'[ÃºÃ¹]'), 'u')
-        .replaceAll(RegExp(r'Ã§'), 'c')
+        .replaceAll(RegExp(r'[áàâã]'), 'a')
+        .replaceAll(RegExp(r'[éèê]'), 'e')
+        .replaceAll(RegExp(r'[íì]'), 'i')
+        .replaceAll(RegExp(r'[óòôõ]'), 'o')
+        .replaceAll(RegExp(r'[úù]'), 'u')
+        .replaceAll(RegExp(r'ç'), 'c')
         .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
         .replaceAll(RegExp(r'_+'), '_')
         .replaceAll(RegExp(r'^_|_$'), '');

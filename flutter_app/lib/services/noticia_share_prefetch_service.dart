@@ -2,7 +2,7 @@
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
-/// Pacote de URLs de mÃ­dia para partilha â€” gerado no servidor ([getNoticiaSharePack]).
+/// Pacote de URLs de mídia para partilha — gerado no servidor ([getNoticiaSharePack]).
 class NoticiaSharePack {
   const NoticiaSharePack({
     this.photoUrls = const [],
@@ -48,7 +48,7 @@ class NoticiaSharePack {
   }
 }
 
-/// Cache RAM + callable CF â€” partilha sem resolver Storage no cliente.
+/// Cache RAM + callable CF — partilha sem resolver Storage no cliente.
 abstract final class NoticiaSharePrefetchService {
   NoticiaSharePrefetchService._();
 
@@ -100,7 +100,7 @@ abstract final class NoticiaSharePrefetchService {
     return out;
   }
 
-  /// PrÃ©-aquece pack no servidor (fire-and-forget ao abrir folha de partilha).
+  /// Pré-aquece pack no servidor (fire-and-forget ao abrir folha de partilha).
   static Future<NoticiaSharePack?> warm({
     required String tenantId,
     required String postId,

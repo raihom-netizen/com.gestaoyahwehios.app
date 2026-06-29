@@ -1605,7 +1605,9 @@ class _CargosPageState extends State<CargosPage> {
     );
     // Alinhado a [DepartmentsPage]: shell com [ModuleHeaderPremium] — sem AppBar duplicada.
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: widget.embeddedInShell
+          ? Colors.transparent
+          : ThemeCleanPremium.surfaceVariant,
       appBar: null,
       body: SafeArea(
         top: !widget.embeddedInShell,

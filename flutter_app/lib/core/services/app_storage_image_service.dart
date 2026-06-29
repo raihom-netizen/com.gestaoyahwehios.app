@@ -38,8 +38,13 @@ class AppStorageImageService {
     String? storagePath,
     String? imageUrl,
     String? gsUrl,
+    List<String> fallbackStoragePaths = const [],
   }) {
-    return '${_norm(storagePath)}§${_norm(gsUrl)}§${_norm(imageUrl)}';
+    final fb = fallbackStoragePaths
+        .map(_norm)
+        .where((e) => e.isNotEmpty)
+        .join('|');
+    return '${_norm(storagePath)}§${_norm(gsUrl)}§${_norm(imageUrl)}§$fb';
   }
 
   /// Chave estável para cache da logo (muda quando o Firestore altera URL/path/processada).
@@ -133,6 +138,7 @@ class AppStorageImageService {
     String? storagePath,
     String? imageUrl,
     String? gsUrl,
+    List<String> fallbackStoragePaths = const [],
   }) async {
     await ensureFirebaseInitialized();
     var pathNorm = _norm(storagePath);
@@ -186,6 +192,19 @@ class AppStorageImageService {
       if (out != null) return out;
     }
 
+    for (final rawFb in fallbackStoragePaths) {
+      final fb = _norm(rawFb);
+      if (fb.isEmpty || fb == pathNorm) continue;
+      final out = await _twice(() async {
+        final ref = FirebaseStorage.instance.ref(fb);
+        final u =
+            await ref.getDownloadURL().timeout(const Duration(seconds: 15));
+        final s = sanitizeImageUrl(u);
+        return isValidImageUrl(s) ? s : null;
+      });
+      if (out != null) return out;
+    }
+
     final u = _norm(imageUrl);
     if (u.isEmpty) return null;
     final s = sanitizeImageUrl(u);
@@ -227,16 +246,19 @@ class AppStorageImageService {
     String? storagePath,
     String? imageUrl,
     String? gsUrl,
+    List<String> fallbackStoragePaths = const [],
   }) async {
     if (_norm(storagePath).isEmpty &&
         _norm(gsUrl).isEmpty &&
-        _norm(imageUrl).isEmpty) {
+        _norm(imageUrl).isEmpty &&
+        fallbackStoragePaths.every((e) => _norm(e).isEmpty)) {
       return null;
     }
     final key = cacheKey(
       storagePath: storagePath,
       imageUrl: imageUrl,
       gsUrl: gsUrl,
+      fallbackStoragePaths: fallbackStoragePaths,
     );
 
     if (_resolved.containsKey(key)) {
@@ -249,6 +271,7 @@ class AppStorageImageService {
       storagePath: storagePath,
       imageUrl: imageUrl,
       gsUrl: gsUrl,
+      fallbackStoragePaths: fallbackStoragePaths,
     ).timeout(const Duration(seconds: 20), onTimeout: () => null).then((url) {
       _pending.remove(key);
       if (url != null && url.isNotEmpty) {

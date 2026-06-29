@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -193,6 +194,12 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
         }
       } catch (_) {}
     }
+  }
+
+  if (bytes == null) {
+    try {
+      bytes = await GestaoYahwehBrandAssetService.loadPngBytes();
+    } catch (_) {}
   }
 
   return ReportPdfBranding(

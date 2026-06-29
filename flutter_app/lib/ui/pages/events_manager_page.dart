@@ -96,6 +96,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaMediaCacheRevision;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
+import 'package:gestao_yahweh/ui/widgets/painel_programacao_event_leading.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveMuralFeedWebpQuality;
@@ -586,7 +587,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final igrejaId = ChurchRepository.churchId(_tid);
     final noticias = ChurchUiCollections.eventos(igrejaId);
     if (!mounted) return;
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<dynamic>(
         context,
         MaterialPageRoute(
             builder: (_) => _EventoFormPage(
@@ -594,7 +595,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                 resolvedTenantId: igrejaId,
                 noticias: noticias,
                 doc: doc)));
-    if (result == true && mounted) {
+    final published = result == true ||
+        (result is Map && (result['ok'] == true || result['ok'] == 'true'));
+    if (published && mounted) {
       _feedTabKey.currentState?._refresh();
       setState(() {});
       _feedTabKey.currentState?._refresh();
@@ -687,6 +690,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
     final defaultPhotoUrl = ValueNotifier<String>(initialPhoto);
     final tenantId = _tid;
+    final stableTemplateId = doc?.id ?? _templates.doc().id;
 
     Future<void> fillLocationFromCadastro() async {
       try {
@@ -945,10 +949,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                                 quality: 70,
                                                               );
                                                     final templateStorageId =
-                                                        doc?.id ??
-                                                            DateTime.now()
-                                                                .millisecondsSinceEpoch
-                                                                .toString();
+                                                        stableTemplateId;
                                                     final storagePath =
                                                         ChurchStorageLayout
                                                             .eventTemplateCoverPath(
@@ -1031,10 +1032,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                       minHeight: 600,
                                       quality: 70,
                                     );
-                              final templateStorageId = doc?.id ??
-                                  DateTime.now()
-                                      .millisecondsSinceEpoch
-                                      .toString();
+                              final templateStorageId = stableTemplateId;
                               final storagePath =
                                   ChurchStorageLayout.eventTemplateCoverPath(
                                 tenantId,
@@ -1185,11 +1183,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       payload['imageUrls'] = <String>[u];
       payload['imagemUrl'] = u;
       payload['imagem_url'] = u;
+      payload['coverStoragePath'] = ChurchStorageLayout.eventTemplateCoverPath(
+        tenantId,
+        stableTemplateId,
+      );
     }
     if (doc == null) {
       payload['createdAt'] = now;
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
-      await _templates.add(payload);
+      await _templates.doc(stableTemplateId).set(payload);
     } else {
       await doc.reference.update(payload);
     }
@@ -1497,6 +1499,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               controller: _tab,
               child: _FixosTab(
                   key: _fixosTabKey,
+                  tenantId: _tid,
                   templates: _templates,
                   noticias: _noticias,
                   canWrite: _canWrite,
@@ -3366,17 +3369,6 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _bootstrapFeed() async {
-    if (!await _awaitEventosFirebasePanelReady()) {
-      if (mounted) {
-        setState(() {
-          _isInitialLoading = false;
-          _feedLoadError = StateError(
-            'A sincronizar com o servidor… tente de novo em instantes.',
-          );
-        });
-      }
-      return;
-    }
     final seed = ChurchRepository.churchId(widget.tenantId.trim());
     if (seed.isNotEmpty) {
       final ram = ChurchEventosLoadService.peekRam(seed, limit: _feedPageSize) ??
@@ -3394,11 +3386,24 @@ class _FeedTabState extends State<_FeedTab> {
             _hasMoreFeedPages = ram.length > _feedPageSize;
             _isInitialLoading = false;
             _lastGoodEventsSnap = MergedFirestoreQuerySnapshot(docs);
+            _feedLoadError = null;
           });
         }
       }
     }
     unawaited(_primeEventsFromCache());
+
+    if (!await _awaitEventosFirebasePanelReady()) {
+      if (mounted && _loadedDocs.isEmpty) {
+        setState(() {
+          _isInitialLoading = false;
+          _feedLoadError = StateError(
+            'A sincronizar com o servidor… tente de novo em instantes.',
+          );
+        });
+      }
+      return;
+    }
     if (_loadedDocs.isEmpty) {
       await _loadInitialEvents();
     } else {
@@ -3521,7 +3526,11 @@ class _FeedTabState extends State<_FeedTab> {
     } catch (e) {
       if (!mounted) return;
       if (_loadedDocs.isNotEmpty) {
-        setState(() => _showingOfflineEvents = true);
+        setState(() {
+          _showingOfflineEvents = true;
+          _feedLoadError = null;
+          _isInitialLoading = false;
+        });
         return;
       }
       try {
@@ -3841,7 +3850,6 @@ class _FeedTabState extends State<_FeedTab> {
                     isSyncing: _isInitialLoading,
                     showStaleCache: !_isInitialLoading,
                     errorTitle: 'Não foi possível carregar avisos e eventos',
-                    error: _feedLoadError,
                     onRetry: _refresh,
                   ),
                 );
@@ -8537,10 +8545,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               : 'Evento atualizado.',
           closeEditor: () {
             if (!mounted) return;
-            Navigator.pop(context, <String, dynamic>{
-              'ok': true,
-              'docId': postId,
-            });
+            Navigator.pop(context, true);
           },
           formatError: formatUploadErrorForUser,
           action: (reportProgress) async {
@@ -10151,6 +10156,7 @@ class _UpcomingCustomPeriodDialogState extends State<_UpcomingCustomPeriodDialog
 // Aba Eventos Fixos — leitura pontual para evitar INTERNAL ASSERTION FAILED.
 // ═══════════════════════════════════════════════════════════════════════════════
 class _FixosTab extends StatefulWidget {
+  final String tenantId;
   final CollectionReference<Map<String, dynamic>> templates;
   final CollectionReference<Map<String, dynamic>> noticias;
   final bool canWrite;
@@ -10161,6 +10167,7 @@ class _FixosTab extends StatefulWidget {
       onOpenNoticiaEvento;
   const _FixosTab(
       {super.key,
+      required this.tenantId,
       required this.templates,
       required this.noticias,
       required this.canWrite,
@@ -11433,7 +11440,7 @@ class _FixosTabState extends State<_FixosTab> {
                 final time = (m['time'] ?? '').toString();
                 final rec = (m['recurrence'] ?? 'weekly').toString();
                 final dayName = weekday > 0 && weekday < 8 ? _wn[weekday] : '?';
-                final photoUrl = _templateImageUrl(m);
+                final coverData = <String, dynamic>{...m, 'templateId': d.id};
                 return Container(
                     margin: const EdgeInsets.only(bottom: 10),
                     decoration: BoxDecoration(
@@ -11518,40 +11525,15 @@ class _FixosTabState extends State<_FixosTab> {
                                   SizedBox(
                                     width: 52,
                                     height: 52,
-                                    child: photoUrl.isNotEmpty
-                                        ? ClipOval(
-                                            child: SafeNetworkImage(
-                                              imageUrl: photoUrl,
-                                              width: 52,
-                                              height: 52,
-                                              fit: BoxFit.cover,
-                                              placeholder: Container(
-                                                  color: Colors.grey.shade200,
-                                                  child: Icon(
-                                                      Icons.event_rounded,
-                                                      color: ThemeCleanPremium
-                                                          .primary,
-                                                      size: 26)),
-                                              errorWidget: Container(
-                                                  color: ThemeCleanPremium
-                                                      .primary
-                                                      .withOpacity(0.12),
-                                                  child: Icon(
-                                                      Icons.event_rounded,
-                                                      color: ThemeCleanPremium
-                                                          .primary,
-                                                      size: 26)),
-                                            ),
-                                          )
-                                        : CircleAvatar(
-                                            radius: 26,
-                                            backgroundColor: ThemeCleanPremium
-                                                .primary
-                                                .withOpacity(0.12),
-                                            child: Icon(Icons.event_rounded,
-                                                color:
-                                                    ThemeCleanPremium.primary,
-                                                size: 26)),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: PainelProgramacaoEventLeading(
+                                        churchId: widget.tenantId,
+                                        data: coverData,
+                                        size: 52,
+                                        memCacheSize: 104,
+                                      ),
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
                                   if (widget.canWrite && !_selectMode)

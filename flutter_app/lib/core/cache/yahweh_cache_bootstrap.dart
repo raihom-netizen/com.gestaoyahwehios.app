@@ -24,16 +24,16 @@ abstract final class YahwehCacheBootstrap {
     try {
       await YahwehModuleCaches.warmUpTenant(cid).timeout(kWarmCap);
     } catch (_) {}
-    unawaited(_ensurePhase1Background(cid));
+    unawaited(_ensureProductionBackground(cid));
   }
 
-  static Future<void> _ensurePhase1Background(String churchId) async {
+  static Future<void> _ensureProductionBackground(String churchId) async {
     try {
-      await YahwehModuleCaches.ensurePhase1(churchId).timeout(
-        const Duration(seconds: 12),
+      await YahwehModuleCaches.ensureProductionModules(churchId).timeout(
+        const Duration(seconds: 14),
       );
     } catch (e) {
-      if (kDebugMode) debugPrint('YahwehCacheBootstrap phase1: $e');
+      if (kDebugMode) debugPrint('YahwehCacheBootstrap production: $e');
     }
   }
 

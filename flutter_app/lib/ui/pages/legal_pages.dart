@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/legal_document_models.dart';
 import 'package:gestao_yahweh/services/legal_documents_defaults.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 export 'package:gestao_yahweh/services/legal_documents_defaults.dart'
@@ -95,17 +96,10 @@ class _LegalAppBarBrand extends StatelessWidget {
     final narrow = MediaQuery.sizeOf(context).width < 520;
     return Row(
       children: [
-        Image.asset(
-          'assets/LOGO_GESTAO_YAHWEH.png',
+        GestaoYahwehBrandLogo(
           height: narrow ? 24 : 28,
           width: narrow ? 24 : 28,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-          errorBuilder: (_, __, ___) => Icon(
-            Icons.church_rounded,
-            color: Colors.white,
-            size: narrow ? 24 : 28,
-          ),
+          fallbackIconColor: Colors.white,
         ),
         const SizedBox(width: 10),
         Expanded(

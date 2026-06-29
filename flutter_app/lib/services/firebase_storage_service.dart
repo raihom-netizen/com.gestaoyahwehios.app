@@ -18,17 +18,17 @@ import 'storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show firebaseStorageObjectPathFromHttpUrl;
 
-/// ServiÃ§o de upload de mÃ­dia para Firebase Storage em alta resoluÃ§Ã£o (Full HD).
-/// Faz: seleÃ§Ã£o â†’ compressÃ£o (90%, 1920Ã—1080) â†’ upload â†’ retorna URL com token (getDownloadURL).
-/// A URL retornada deve ser a Ãºnica salva no Firestore para evitar "foto indisponÃ­vel".
+/// Serviço de upload de mídia para Firebase Storage em alta resolução (Full HD).
+/// Faz: seleção → compressão (90%, 1920×1080) → upload → retorna URL com token (getDownloadURL).
+/// A URL retornada deve ser a única salva no Firestore para evitar "foto indisponível".
 class FirebaseStorageService {
   FirebaseStorageService._();
   static final FirebaseStorageService instance = FirebaseStorageService._();
 
   FirebaseStorage get _storage => firebaseDefaultStorage;
 
-  /// Caminho completo no bucket (`igrejas/.../foto.jpg`), nÃ£o encadear [Reference.child]
-  /// com pastas que contÃªm `/` â€” em alguns SDKs isso grava no sÃ­tio errado.
+  /// Caminho completo no bucket (`igrejas/.../foto.jpg`), não encadear [Reference.child]
+  /// com pastas que contêm `/` — em alguns SDKs isso grava no sítio errado.
   Reference _refFullObjectPath(String folderPath, String fileName) {
     final dir = folderPath.trim().replaceAll(RegExp(r'/+$'), '');
     final name = fileName.trim().replaceAll(RegExp(r'^/+'), '');
@@ -42,7 +42,7 @@ class FirebaseStorageService {
   static final Map<String, String?> _churchLogoUrlCache = {};
   static const int _churchLogoCacheMax = 64;
 
-  /// Resolve nome da igreja para montar `logo/logo_{nome}_{id}.jpg` quando [tenantData] nÃ£o veio preenchido.
+  /// Resolve nome da igreja para montar `logo/logo_{nome}_{id}.jpg` quando [tenantData] não veio preenchido.
   static Future<String?> _churchDisplayNameForLogoPath(
     String tenantId,
     Map<String, dynamic>? tenantData,
@@ -86,7 +86,7 @@ class FirebaseStorageService {
     return <String>[norm, ...base];
   }
 
-  /// Logo institucional quando o Firestore nÃ£o tem URL â€” tenta identidade em `configuracoes/`, depois legados.
+  /// Logo institucional quando o Firestore não tem URL — tenta identidade em `configuracoes/`, depois legados.
   static Future<String?> getChurchLogoDownloadUrl(
     String tenantId, {
     Map<String, dynamic>? tenantData,
@@ -122,7 +122,7 @@ class FirebaseStorageService {
         final ref = firebaseDefaultStorage.ref(p);
         final meta = await ref.getMetadata().timeout(timeout);
         final sz = meta.size ?? 0;
-        // Ignora placeholder 1Ã—1 / ficheiros corrompidos (~67 B) â€” URL vÃ¡lida mas imagem invisÃ­vel no site.
+        // Ignora placeholder 1×1 / ficheiros corrompidos (~67 B) — URL válida mas imagem invisível no site.
         if (sz > 0 &&
             sz < ChurchStorageLayout.kChurchIdentityLogoMinBytesForFirestoreSync) {
           debugPrint(
@@ -141,7 +141,7 @@ class FirebaseStorageService {
         debugPrint('FirebaseStorageService.getChurchLogoDownloadUrl ($p): $e');
       }
     }
-    // NÃ£o cachear falha: upload/regras/rede podem passar a permitir leitura na sessÃ£o seguinte.
+    // Não cachear falha: upload/regras/rede podem passar a permitir leitura na sessão seguinte.
     return null;
   }
 
@@ -151,7 +151,7 @@ class FirebaseStorageService {
     _churchLogoUrlCache.remove(t);
   }
 
-  /// URL vinda de `_panel_cache/media_prefetch` (servidor jÃ¡ resolveu o Storage).
+  /// URL vinda de `_panel_cache/media_prefetch` (servidor já resolveu o Storage).
   static void seedChurchLogoDownloadUrl(
     String tenantId,
     String downloadUrl, {
@@ -166,7 +166,7 @@ class FirebaseStorageService {
     _churchLogoUrlCache[tid] = url;
   }
 
-  /// URL vinda de `_panel_cache/media_prefetch` â€” lista / aniversariantes / lÃ­deres.
+  /// URL vinda de `_panel_cache/media_prefetch` — lista / aniversariantes / líderes.
   static void seedMemberProfilePhotoDownloadUrl({
     required String tenantId,
     required String memberId,
@@ -194,9 +194,9 @@ class FirebaseStorageService {
     _memberPhotoUrlCache[key] = url;
   }
 
-  /// Materializa `igrejas/{id}/configuracoes/` no bucket com [logo_igreja.png] mÃ­nimo **sÃ³ se** ainda nÃ£o
-  /// existir PNG nem JPG canÃ³nicos. O upload pelo cadastro substitui o mesmo path (overwrite).
-  /// NÃ£o grava Firestore â€” o painel sÃ³ fica OK apÃ³s URL/`logoPath` no doc ou logo real (> [kChurchIdentityLogoMinBytesForFirestoreSync]).
+  /// Materializa `igrejas/{id}/configuracoes/` no bucket com [logo_igreja.png] mínimo **só se** ainda não
+  /// existir PNG nem JPG canónicos. O upload pelo cadastro substitui o mesmo path (overwrite).
+  /// Não grava Firestore — o painel só fica OK após URL/`logoPath` no doc ou logo real (> [kChurchIdentityLogoMinBytesForFirestoreSync]).
   static Future<void> ensureChurchConfigFolderPlaceholderIfAbsent(
       String tenantId) async {
     final tid = tenantId.trim();
@@ -227,7 +227,7 @@ class FirebaseStorageService {
     }
   }
 
-  /// Materializa `igrejas/{id}/financeiro/` no bucket (comprovantes â€” Controle Total).
+  /// Materializa `igrejas/{id}/financeiro/` no bucket (comprovantes — Controle Total).
   static Future<void> ensureFinanceiroFolderPlaceholderIfAbsent(
       String tenantId) async {
     final tid = tenantId.trim();
@@ -289,14 +289,14 @@ class FirebaseStorageService {
     return null;
   }
 
-  /// ApÃ³s upload/remoÃ§Ã£o de `configuracoes/assinatura.png` no cadastro da igreja.
+  /// Após upload/remoção de `configuracoes/assinatura.png` no cadastro da igreja.
   static void invalidatePastorSignatureCache(String tenantId) {
     final t = tenantId.trim();
     if (t.isEmpty) return;
     _pastorSigConfigUrlCache.remove(t);
   }
 
-  /// Pasta no Storage â€” **authUid** quando existir; senÃ£o id do doc Firestore.
+  /// Pasta no Storage — **authUid** quando existir; senão id do doc Firestore.
   static String memberProfileStorageFolderId(
     String memberDocId,
     String? authUid,
@@ -306,8 +306,8 @@ class FirebaseStorageService {
     return memberDocId.trim();
   }
 
-  /// Caminho canÃ³nico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).
-  /// [pasta] = [authUid] se preenchido; caso contrÃ¡rio [memberDocId].
+  /// Caminho canónico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).
+  /// [pasta] = [authUid] se preenchido; caso contrário [memberDocId].
   static String memberProfilePhotoPath({
     required String tenantId,
     required String memberDocId,
@@ -319,10 +319,10 @@ class FirebaseStorageService {
         tenantId, folder);
   }
 
-  /// URL com token para a foto padrÃ£o do membro em Storage (`igrejas/{tenant}/membros/{id}.jpg` legado
-  /// ou `.../foto_perfil.jpg`). Usado quando a URL no Firestore estÃ¡ vazia
-  /// ou expirada â€” padrÃ£o alinhado ao Ecofire (fallback apÃ³s falha de rede/cache).
-  /// Cache em memÃ³ria para evitar chamadas repetidas (lista de membros, modal, etc.).
+  /// URL com token para a foto padrão do membro em Storage (`igrejas/{tenant}/membros/{id}.jpg` legado
+  /// ou `.../foto_perfil.jpg`). Usado quando a URL no Firestore está vazia
+  /// ou expirada — padrão alinhado ao Ecofire (fallback após falha de rede/cache).
+  /// Cache em memória para evitar chamadas repetidas (lista de membros, modal, etc.).
   static String _memberProfilePhotoUrlCacheKey({
     required String tenantId,
     required String memberId,
@@ -352,7 +352,7 @@ class FirebaseStorageService {
     return '$tid:$mid:$cpfNorm:${authNorm.isEmpty ? '-' : authNorm}:$stemNamed:$hintKey:${preferListThumbnail ? 't' : 'f'}';
   }
 
-  /// URL jÃ¡ resolvida nesta sessÃ£o (lista de lÃ­deres / corpo admin).
+  /// URL já resolvida nesta sessão (lista de líderes / corpo admin).
   static String? peekMemberProfilePhotoDownloadUrl({
     required String tenantId,
     required String memberId,
@@ -380,9 +380,9 @@ class FirebaseStorageService {
     String? cpfDigits,
     /// Quando o doc em `membros` usa outro id (ex.: CPF) mas a foto foi salva com `authUid`.
     String? authUid,
-    /// [NOME_COMPLETO] para pasta `PrimeiroNome_uid` (padrÃ£o atual).
+    /// [NOME_COMPLETO] para pasta `PrimeiroNome_uid` (padrão atual).
     String? nomeCompleto,
-    /// Qualquer campo do doc com URL/path `.../membros/{id}/foto_perfil...` â€” prioriza essa pasta.
+    /// Qualquer campo do doc com URL/path `.../membros/{id}/foto_perfil...` — prioriza essa pasta.
     Map<String, dynamic>? memberFirestoreHint,
     /// Listas/galerias: tenta miniaturas `thumb_foto_perfil.jpg` antes do full HD.
     bool preferListThumbnail = false,
@@ -421,7 +421,7 @@ class FirebaseStorageService {
     if (_memberPhotoUrlCache.containsKey(cacheKey)) {
       return _memberPhotoUrlCache[cacheKey];
     }
-    // Web: sem URL/path no Firestore â€” nÃ£o sondar dezenas de caminhos legados (404 em massa).
+    // Web: sem URL/path no Firestore — não sondar dezenas de caminhos legados (404 em massa).
     if (kIsWeb && memberFirestoreHint != null) {
       final hasHttps = MemberImageFields.photoDownloadUrl(memberFirestoreHint) !=
               null ||
@@ -451,7 +451,7 @@ class FirebaseStorageService {
       if (!paths.contains(p)) paths.add(p);
     }
 
-    // 1) Path/URL gravados no Firestore â€” https antes de path desatualizado.
+    // 1) Path/URL gravados no Firestore — https antes de path desatualizado.
     if (memberFirestoreHint != null) {
       final httpsFull = MemberImageFields.photoDownloadUrl(memberFirestoreHint);
       if (httpsFull != null) {
@@ -467,7 +467,7 @@ class FirebaseStorageService {
       }
       addPath(MemberImageFields.photoStoragePath(memberFirestoreHint));
     }
-    // 2) CanÃ³nico desta igreja/membro (authUid ou doc id).
+    // 2) Canónico desta igreja/membro (authUid ou doc id).
     if (preferListThumbnail) {
       addPath(
         ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(tid, folderId),
@@ -552,7 +552,7 @@ class FirebaseStorageService {
         ]);
       }
     }
-    // VÃ¡rios caminhos legados: falha (objeto inexistente) costuma ser rÃ¡pida â€” timeout curto.
+    // Vários caminhos legados: falha (objeto inexistente) costuma ser rápida — timeout curto.
     final perTimeout =
         Duration(seconds: kIsWeb ? 1 : 2);
     final batchSize = kIsWeb ? 3 : 8;
@@ -585,12 +585,12 @@ class FirebaseStorageService {
         }
       }
     }
-    // NÃ£o cachear falha: antes ficava null permanente e a lista nunca tentava de novo
-    // (rede lenta, regras recÃ©m-publicadas, upload concluÃ­do depois).
+    // Não cachear falha: antes ficava null permanente e a lista nunca tentava de novo
+    // (rede lenta, regras recém-publicadas, upload concluído depois).
     return null;
   }
 
-  /// ApÃ³s novo upload de foto do membro ou gestor â€” evita URL antiga em cache na lista/detalhes.
+  /// Após novo upload de foto do membro ou gestor — evita URL antiga em cache na lista/detalhes.
   static void invalidateMemberPhotoCache({
     required String tenantId,
     String? memberId,
@@ -635,14 +635,14 @@ class FirebaseStorageService {
     }
   }
 
-  /// Caminho tÃ­pico: "igrejas/{igrejaId}/membros" ou "members/{tenantId}" ou "tenants/{tenantId}/eventos".
+  /// Caminho típico: "igrejas/{igrejaId}/membros" ou "members/{tenantId}" ou "tenants/{tenantId}/eventos".
   static const int quality = 90;
   static const int maxWidth = 1920;
   static const int maxHeight = 1080;
 
-  /// Seleciona imagem da galeria, comprime em alta resoluÃ§Ã£o e envia para [folderPath].
-  /// Retorna a URL pÃºblica com token (getDownloadURL) para salvar no Firestore.
-  /// Sempre use essa URL no banco â€” evita erro de fotos nÃ£o carregando.
+  /// Seleciona imagem da galeria, comprime em alta resolução e envia para [folderPath].
+  /// Retorna a URL pública com token (getDownloadURL) para salvar no Firestore.
+  /// Sempre use essa URL no banco — evita erro de fotos não carregando.
   Future<String?> uploadChurchMedia(
     String folderPath, {
     ImageSource source = ImageSource.gallery,
@@ -672,7 +672,7 @@ class FirebaseStorageService {
     }
   }
 
-  /// Upload a partir de bytes (ex.: jÃ¡ processado por MediaHandlerService em outro fluxo).
+  /// Upload a partir de bytes (ex.: já processado por MediaHandlerService em outro fluxo).
   /// Retorna a URL com token para salvar no Firestore.
   Future<String?> uploadBytes(
     String folderPath,

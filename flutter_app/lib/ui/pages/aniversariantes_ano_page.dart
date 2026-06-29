@@ -8,12 +8,16 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_birthday_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap, isValidImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// «Aniversariantes do ano» — grelha colorida mês a mês, dia a dia, com Chat e WhatsApp.
 class AniversariantesAnoPage extends StatefulWidget {
@@ -117,13 +121,23 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
     final grouped = ChurchBirthdayYearLoadService.groupByMonthAndDay(_entries);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FB),
+      backgroundColor: Colors.transparent,
       appBar: AppBar(
+        leadingWidth: 64,
+        leading: YahwehSuperPremiumBackButton.appBarLeading(context),
+        automaticallyImplyLeading: false,
+        title: Text(
+          'Aniversariantes do ano',
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.2,
+            fontSize: 17,
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        title: const Text('Aniversariantes do ano'),
         actions: [
           IconButton(
             onPressed: _loading ? null : _load,
@@ -131,47 +145,83 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
             tooltip: 'Atualizar',
           ),
         ],
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                kChurchBirthdayAccent,
+                Color.lerp(kChurchBirthdayAccent, Colors.white, 0.22)!,
+              ],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: kChurchBirthdayAccent.withValues(alpha: 0.28),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
       ),
-      body: SafeArea(
-        child: _loading
-            ? const Center(
-                child: SizedBox(
-                  width: 32,
-                  height: 32,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                ),
-              )
-            : _error != null
-                ? _ErrorBody(message: _error!, onRetry: _load)
-                : ListView(
-                    padding: padding,
-                    children: [
-                      _YearSummaryHeader(
-                        total: _entries.length,
-                        monthName: _meses[now.month - 1],
-                        monthCount: grouped[now.month]?.values
-                                .fold<int>(0, (a, b) => a + b.length) ??
-                            0,
-                      ),
-                      const SizedBox(height: ThemeCleanPremium.spaceLg),
-                      if (_entries.isEmpty)
-                        _EmptyYearCard()
-                      else
-                        for (var m = 1; m <= 12; m++) ...[
-                          _MonthBirthdaySection(
-                            month: m,
-                            monthName: _meses[m - 1],
-                            gradient: _monthGradients[m - 1],
-                            daysMap: grouped[m] ?? const {},
-                            isCurrentMonth: m == now.month,
-                            tenantId: _effectiveTenantId,
-                            memberRole: widget.memberRole,
-                            viewerCpfDigits: widget.viewerCpfDigits,
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                        ],
-                    ],
+      body: DecoratedBox(
+        decoration: churchModuleBodyGradient(kChurchBirthdayAccent),
+        child: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(
+                  child: SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
                   ),
+                )
+              : _error != null
+                  ? _ErrorBody(message: _error!, onRetry: _load)
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: padding,
+                        children: [
+                          _YearSummaryHeader(
+                            total: _entries.length,
+                            monthName: _meses[now.month - 1],
+                            monthCount: grouped[now.month]?.values
+                                    .fold<int>(0, (a, b) => a + b.length) ??
+                                0,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          if (_entries.isEmpty)
+                            const ChurchWisdomModuleEmptyState(
+                              icon: Icons.calendar_month_outlined,
+                              title: 'Nenhum aniversariante cadastrado',
+                              message:
+                                  'Cadastre a data de nascimento dos membros em Membros > Editar.',
+                              accent: kChurchBirthdayAccent,
+                            )
+                          else
+                            for (var m = 1; m <= 12; m++) ...[
+                              _MonthBirthdaySection(
+                                month: m,
+                                monthName: _meses[m - 1],
+                                gradient: _monthGradients[m - 1],
+                                daysMap: grouped[m] ?? const {},
+                                isCurrentMonth: m == now.month,
+                                tenantId: _effectiveTenantId,
+                                memberRole: widget.memberRole,
+                                viewerCpfDigits: widget.viewerCpfDigits,
+                              ),
+                              const SizedBox(
+                                  height: ThemeCleanPremium.spaceMd),
+                            ],
+                        ],
+                      ),
+                    ),
+        ),
       ),
     );
   }
@@ -190,39 +240,15 @@ class _YearSummaryHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return YahwehWisdomSectionCard(
+      borderTint: kChurchBirthdayAccent,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ThemeCleanPremium.primary,
-            ThemeCleanPremium.primaryLight,
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
-            blurRadius: 24,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: const Icon(
-              Icons.cake_rounded,
-              color: Colors.white,
-              size: 32,
-            ),
+          churchWisdomModuleIconLeading(
+            icon: Icons.cake_rounded,
+            accent: kChurchBirthdayAccent,
+            size: 52,
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -231,56 +257,24 @@ class _YearSummaryHeader extends StatelessWidget {
               children: [
                 Text(
                   '$total aniversariantes no ano',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: GoogleFonts.inter(
                     fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                    color: const Color(0xFF0F172A),
                   ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   '$monthName: $monthCount ${monthCount == 1 ? 'pessoa' : 'pessoas'}',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.92),
+                  style: GoogleFonts.inter(
                     fontSize: 14,
                     height: 1.3,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
                   ),
                 ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptyYearCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        children: [
-          Icon(
-            Icons.calendar_month_outlined,
-            size: 48,
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Nenhum membro com data de nascimento cadastrada.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: ThemeCleanPremium.onSurfaceVariant,
-              fontSize: 15,
-              height: 1.35,
             ),
           ),
         ],
@@ -348,20 +342,12 @@ class _MonthBirthdaySection extends StatelessWidget {
   Widget build(BuildContext context) {
     final sortedDays = daysMap.keys.toList()..sort();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: isCurrentMonth
-            ? Border.all(
-                color: gradient.first.withValues(alpha: 0.45),
-                width: 2,
-              )
-            : null,
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+      child: YahwehWisdomSectionCard(
+        borderTint: gradient.first,
+        padding: EdgeInsets.zero,
+        child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
@@ -424,15 +410,8 @@ class _MonthBirthdaySection extends StatelessWidget {
             ),
           ),
           if (_total == 0)
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Text(
-                'Nenhum aniversariante em $monthName.',
-                style: TextStyle(
-                  color: ThemeCleanPremium.onSurfaceVariant,
-                  fontSize: 14,
-                ),
-              ),
+            ChurchWisdomBirthdayEmptyRow(
+              message: 'Nenhum aniversariante em $monthName.',
             )
           else
             Padding(
@@ -462,6 +441,7 @@ class _MonthBirthdaySection extends StatelessWidget {
               ),
             ),
         ],
+        ),
       ),
     );
   }
@@ -631,13 +611,9 @@ class _BirthdayPersonTile extends StatelessWidget {
       ),
     );
 
-    return Container(
+    return YahwehWisdomSectionCard(
+      borderTint: accent,
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: accent.withValues(alpha: 0.06),
-        border: Border.all(color: accent.withValues(alpha: 0.14)),
-      ),
       child: compact
           ? Row(
               children: [

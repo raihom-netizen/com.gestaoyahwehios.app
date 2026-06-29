@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_notification_center.dart';
 import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_bank_notification_tile.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -320,7 +321,6 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final body = (m['body'] ?? '').toString();
         final type = (m['type'] ?? '').toString();
         final module = _moduleFromType(type);
-        final accent = gyModuleAccentColor(module);
         DateTime? dt;
         try {
           dt = (m['createdAt'] as Timestamp).toDate();
@@ -343,50 +343,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
               : null,
           meta: Map<String, dynamic>.from(m),
         );
-        return Card(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: accent.withValues(alpha: 0.22)),
-          ),
-          child: ListTile(
-            onTap: () => _onNotificationTap(context, item),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            leading: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(_iconForType(type), color: accent),
-            ),
-            title: Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w800),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (body.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(body, maxLines: 3, overflow: TextOverflow.ellipsis),
-                ],
-                if (dateTxt.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    '${gyModuleLabel(module)} • $dateTxt',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+        return GestaoBankNotificationTile(
+          title: title,
+          body: body,
+          module: module,
+          dateLabel: dateTxt.isEmpty
+              ? gyModuleLabel(module)
+              : '${gyModuleLabel(module)} · $dateTxt',
+          isRead: m['read'] == true,
+          onTap: () => _onNotificationTap(context, item),
         );
       },
     );

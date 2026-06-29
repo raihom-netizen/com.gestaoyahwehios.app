@@ -22,13 +22,13 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 
 
-/// Contexto de igreja da sessÃ£o â€” expÃµe [currentChurchId] a partir de `users/{uid}`.
+/// Contexto de igreja da sessão — expõe [currentChurchId] a partir de `users/{uid}`.
 
 ///
 
-/// SaaS multi-tenant: path **directo** `igrejas/{churchId}/â€¦` â€” sem alias, slug resolver
+/// SaaS multi-tenant: path **directo** `igrejas/{churchId}/…` — sem alias, slug resolver
 
-/// nem coleÃ§Ã£o `church_aliases`.
+/// nem coleção `church_aliases`.
 
 abstract final class ChurchContextService {
 
@@ -114,7 +114,7 @@ abstract final class ChurchContextService {
 
 
 
-  /// ID do painel â€” contexto bound ou hint do shell (com mapa BPC/slug sÃ­ncrono).
+  /// ID do painel — contexto bound ou hint do shell (com mapa BPC/slug síncrono).
   static String panelChurchId([String? shellTenantId]) {
     final ctx = currentChurchId;
     if (ctx != null && ctx.isNotEmpty) {
@@ -281,7 +281,7 @@ abstract final class ChurchContextService {
 
   }
 
-  /// Hidrata perfil da igreja apÃ³s bind â€” cadastro e mÃ³dulos leem [currentChurchData].
+  /// Hidrata perfil da igreja após bind — cadastro e módulos leem [currentChurchData].
   static Future<void> _ensureChurchProfileLoaded(String churchId) async {
     final id = _canonicalizePanelId(churchId);
     if (id.isEmpty) return;
@@ -318,7 +318,7 @@ abstract final class ChurchContextService {
 
 
 
-  /// Bind sÃ­ncrono no 1.Âº frame (shell) â€” mÃ³dulos leem [currentChurchId] antes do async.
+  /// Bind síncrono no 1.º frame (shell) — módulos leem [currentChurchId] antes do async.
   static void bindPanelIdImmediate({
     required String seed,
     String? canonicalId,
@@ -335,7 +335,7 @@ abstract final class ChurchContextService {
     unawaited(_ensureChurchProfileLoaded(id));
   }
 
-  /// Resolve e fixa [currentChurchId] â€” sÃ³ aceita doc existente em `igrejas/{churchId}`.
+  /// Resolve e fixa [currentChurchId] — só aceita doc existente em `igrejas/{churchId}`.
 
   static Future<String> resolveAndBind({
 
@@ -403,7 +403,7 @@ abstract final class ChurchContextService {
       for (final candidate in tryOrder) {
         var id = candidate.trim();
         if (id.isEmpty) continue;
-        // Sempre preferir doc canÃ³nico (BPC/slug legado â†’ igreja_â€¦).
+        // Sempre preferir doc canónico (BPC/slug legado → igreja_…).
         final mapped = TenantResolverService.mapLegacySeedToCanonical(id);
         if (mapped != null && mapped.isNotEmpty) id = mapped;
         if (!await _igrejaDocExists(id)) continue;
@@ -442,7 +442,7 @@ abstract final class ChurchContextService {
       }
 
       _lastError =
-          'Igreja nÃ£o encontrada em igrejas/$s. O ID deve ser o documento real (ex.: igreja_nome_da_igreja).';
+          'Igreja não encontrada em igrejas/$s. O ID deve ser o documento real (ex.: igreja_nome_da_igreja).';
       return '';
     } catch (e) {
 
@@ -512,7 +512,7 @@ abstract final class ChurchContextService {
 
       throw StateError(
 
-        'ChurchContext nÃ£o inicializado. Chame resolveAndBind apÃ³s login.',
+        'ChurchContext não inicializado. Chame resolveAndBind após login.',
 
       );
 

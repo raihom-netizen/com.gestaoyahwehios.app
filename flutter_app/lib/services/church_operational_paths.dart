@@ -5,9 +5,9 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Caminhos Firestore `igrejas/{churchId}/â€¦` â€” SaaS directo (Web = Android = iOS).
+/// Caminhos Firestore `igrejas/{churchId}/…` — SaaS directo (Web = Android = iOS).
 ///
-/// Sem `church_aliases`, alias, slug resolver ou cluster de docs irmÃ£os.
+/// Sem `church_aliases`, alias, slug resolver ou cluster de docs irmãos.
 abstract final class ChurchOperationalPaths {
   ChurchOperationalPaths._();
 
@@ -45,7 +45,7 @@ abstract final class ChurchOperationalPaths {
       invalidateResolved(s, userUid: userUid);
     }
 
-    // ResoluÃ§Ã£o sÃ­ncrona â€” sessÃ£o bound + mapa BPC/slug (Web = Android = iOS).
+    // Resolução síncrona — sessão bound + mapa BPC/slug (Web = Android = iOS).
     final op = ChurchRepository.churchId(s);
     if (op.isNotEmpty) {
       rememberResolved(s, op, userUid: userUid);
@@ -99,7 +99,7 @@ abstract final class ChurchOperationalPaths {
     return ChurchPanelTenant.resolve(seedOrOperational);
   }
 
-  /// Alias sÃ­ncrono â€” preferir em caminhos quentes (chat, preload, Storage).
+  /// Alias síncrono — preferir em caminhos quentes (chat, preload, Storage).
   static String syncResolve(String seed) => syncEffectiveChurchId(seed);
 
   static DocumentReference<Map<String, dynamic>> churchDoc(String operationalId) =>
@@ -157,7 +157,7 @@ abstract final class ChurchOperationalPaths {
     return Future.value(id.isNotEmpty ? id : seed.trim());
   }
 
-  /// Painel master/igreja â€” uma igreja = um doc (sem cluster).
+  /// Painel master/igreja — uma igreja = um doc (sem cluster).
   static Future<List<String>> clusterDocIds(String seed) async {
     final id = await resolve(seed);
     if (id.isEmpty) return const [];

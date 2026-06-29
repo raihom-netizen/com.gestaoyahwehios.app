@@ -306,7 +306,7 @@ abstract final class ChurchFeedLinearPublishService {
     }
 
     _report(onUploadProgress, 0.92);
-    await PublicationEngine.runDistributionAwait(
+    PublicationEngine.scheduleDistribution(
       tenantId: churchId,
       kind: kind,
       postId: docId,

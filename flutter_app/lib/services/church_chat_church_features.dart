@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:intl/intl.dart';
 
-/// IntegraÃ§Ãµes do chat com o ecossistema da igreja (pastoral, escalas, etc.).
+/// Integrações do chat com o ecossistema da igreja (pastoral, escalas, etc.).
 abstract final class ChurchChatChurchFeatures {
   ChurchChatChurchFeatures._();
 
@@ -56,7 +56,7 @@ abstract final class ChurchChatChurchFeatures {
     }
   }
 
-  /// TransmissÃ£o nos grupos `dept_*` (paralelo limitado).
+  /// Transmissão nos grupos `dept_*` (paralelo limitado).
   static Future<int> postBroadcastToDepartmentThreads({
     required String tenantId,
     required String title,
@@ -81,7 +81,7 @@ abstract final class ChurchChatChurchFeatures {
     return ok;
   }
 
-  /// Aviso automÃ¡tico no grupo quando uma escala Ã© criada/gerada.
+  /// Aviso automático no grupo quando uma escala é criada/gerada.
   static Future<void> notifyDepartmentEscalaCreated({
     required String tenantId,
     required String departmentId,
@@ -104,12 +104,12 @@ abstract final class ChurchChatChurchFeatures {
       final dateFmt = DateFormat('dd/MM/yyyy', 'pt_BR');
       final hour = (timeLabel ?? '').trim();
       final whenLine = hour.isNotEmpty
-          ? '${dateFmt.format(when)} Ã s $hour'
+          ? '${dateFmt.format(when)} às $hour'
           : dateFmt.format(when);
       final sender =
           firebaseDefaultAuth.currentUser?.displayName?.trim() ?? 'Escalas';
       final text =
-          'ðŸ“… Nova escala â€” $escalaTitle\n$whenLine\nConfirme a sua presenÃ§a no mÃ³dulo Escalas.';
+          '📅 Nova escala — $escalaTitle\n$whenLine\nConfirme a sua presença no módulo Escalas.';
       await ChurchChatService.sendTextMessage(
         tenantId: tenantId,
         threadId: threadId,

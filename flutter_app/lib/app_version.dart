@@ -1,6 +1,15 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
-/// 11.2.305+2017: Paridade WISDOMAPP total — gate mídia todos módulos, polling web 12s, índices ativo+publicado, public_church_slugs, cache público anónimo, warmup web 16/40 membros.
+/// 11.2.305+2033: Site público + cadastro WISDOMAPP rápido — cache feed imediato, CF warmup SA, gyPublicSignupStatus, rules public_site.
+/// 11.2.305+2031: Painel WISDOMAPP rápido — sem skeleton de página inteira; líderes/corpo cache-first; secções colapsáveis premium.
+/// 11.2.305+2030: Correção global UTF-8 — mojibake no painel, master, PDFs e strings Firestore.
+/// 11.2.305+2025: Marca unificada escudo 4K (login, painel, PDF, notificações banco); sync ícones PWA.
+/// 11.2.305+2024: WISDOMAPP total — CF gyAdminUpsertChurchRoot (cadastro igreja Web), cache phase3, site público warm P0.
+/// 11.2.305+2023: Verificação sistema — correção UTF-8 painel/shell/dept; gráficos demografia sem skeleton infinito.
+/// 11.2.305+2022: Eventos/Avisos — gravação linear Web (CF + fallback Firestore), feed cache-first, refresh pós-publicar.
+/// 11.2.305+2021: Site público igreja + cadastro membro WISDOMAPP — campos obrigatórios (*), foto perfil, card alerta laranja.
+/// 11.2.305+2020: Rodapé WISDOMAPP compacto; cache-first membros/chat/rodapé; warmup P0+P1 (cargos, dept, cert, patrimônio, financeiro).
+/// 11.2.305+2019: Site divulgação — logo 4K Retina [GestaoYahwehBrandLogo]; deploy web hosting.
 /// 11.2.305+2016: Deploy completo — padrão WISDOMAPP cache-first (YahwehModuleCaches), CF gyPublicMemberSignup, chat/membros/fornecedores bridge Web, avisos SWR, shell lazy 2 módulos.
 /// 11.2.305+2015: Deploy completo — anexos padronizados (CF gyUploadFinanceComprovante, gyAdminUpsertFeedPost), bridge Web, viewer comprovante iframe, regras eventos unificadas.
 /// 11.2.305+2014: Deploy completo — chat áudio/mídia CT, saudação WhatsApp, gate mídia módulos, Firestore sem terminate.
@@ -422,7 +431,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2018';
+const String appBuildNumber = '2033';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

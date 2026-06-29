@@ -13,6 +13,8 @@ class ChurchShellNavIcon3D extends StatelessWidget {
     this.shape = ChurchShellIconShape.roundedSquare,
     this.size = 40,
     this.iconSize,
+    /// Rodapé mobile — sombras mais leves (WISDOMAPP).
+    this.compact = false,
   });
 
   final IconData icon;
@@ -21,18 +23,20 @@ class ChurchShellNavIcon3D extends StatelessWidget {
   final ChurchShellIconShape shape;
   final double size;
   final double? iconSize;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final isCircle = shape == ChurchShellIconShape.circle;
     final radius = isCircle ? size / 2 : size * 0.3;
-    final iSz = iconSize ?? (size * (isCircle ? 0.5 : 0.52));
+    final iSz = iconSize ?? (size * (isCircle ? 0.48 : 0.52));
     final top = Color.lerp(accent, Colors.white, selected ? 0.38 : 0.32)!;
     final mid = accent;
     final bottom = Color.lerp(accent, const Color(0xFF0F172A), selected ? 0.45 : 0.35)!;
 
+    final lift = compact ? (selected ? -1.0 : 0.0) : (selected ? -2.5 : 0.0);
     return Transform.translate(
-      offset: Offset(0, selected ? -2.5 : 0),
+      offset: Offset(0, lift),
       child: Container(
         width: size,
         height: size,
@@ -65,16 +69,21 @@ class ChurchShellNavIcon3D extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: accent.withValues(alpha: selected ? 0.58 : 0.36),
-              blurRadius: selected ? 18 : 12,
-              spreadRadius: selected ? 0.5 : 0,
-              offset: Offset(0, selected ? 7 : 5),
+              color: accent.withValues(
+                alpha: compact
+                    ? (selected ? 0.34 : 0.22)
+                    : (selected ? 0.58 : 0.36),
+              ),
+              blurRadius: compact ? (selected ? 8 : 6) : (selected ? 18 : 12),
+              spreadRadius: compact ? 0 : (selected ? 0.5 : 0),
+              offset: Offset(0, compact ? (selected ? 3 : 2) : (selected ? 7 : 5)),
             ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.14),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
+            if (!compact)
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.14),
+                blurRadius: 5,
+                offset: const Offset(0, 2),
+              ),
           ],
         ),
         child: ClipRRect(

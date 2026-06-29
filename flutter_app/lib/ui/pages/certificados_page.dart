@@ -328,9 +328,13 @@ const _certificadoCores = [
 class CertificadosPage extends StatefulWidget {
   final String tenantId;
   final String role;
+  final bool embeddedInShell;
 
-  const CertificadosPage(
-      {super.key, required this.tenantId, required this.role});
+  const CertificadosPage({
+      super.key,
+      required this.tenantId,
+      required this.role,
+      this.embeddedInShell = false});
 
   @override
   State<CertificadosPage> createState() => _CertificadosPageState();

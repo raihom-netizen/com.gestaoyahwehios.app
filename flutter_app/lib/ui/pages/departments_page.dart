@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -54,9 +54,9 @@ import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
   final String role;
-  /// MÃ³dulos extras (ex.: `departamentos`) vindos de `users.permissions` / painel do gestor.
+  /// Módulos extras (ex.: `departamentos`) vindos de `users.permissions` / painel do gestor.
   final List<String>? permissions;
-  /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartÃ£o do mÃ³dulo.
+  /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartão do módulo.
   final bool embeddedInShell;
   const DepartmentsPage({
     super.key,
@@ -71,40 +71,40 @@ class DepartmentsPage extends StatefulWidget {
 }
 
 class _DepartmentsPageState extends State<DepartmentsPage> {
-  /// Carregamento explÃ­cito: na web + IndexedStack o FutureBuilder Ã s vezes nÃ£o reconstrÃ³i apÃ³s o .get() â€” Ã¡rea ficava em branco.
+  /// Carregamento explícito: na web + IndexedStack o FutureBuilder às vezes não reconstrói após o .get() — área ficava em branco.
   bool _deptLoading = true;
   Object? _deptError;
   bool _deptShowingStaleCache = false;
 
-  /// Snapshot do Ãºltimo `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
-  /// popular â€” evita hub sem cards atÃ© o stream alinhar.
+  /// Snapshot do último `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
+  /// popular — evita hub sem cards até o stream alinhar.
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _hydratedDeptDocs;
 
-  /// Evita loop em [StreamBuilder] quando cache veio vazio: uma leitura forÃ§ada no servidor.
+  /// Evita loop em [StreamBuilder] quando cache veio vazio: uma leitura forçada no servidor.
   bool _emptyServerDeptFetchTried = false;
 
-  /// O [snapshots] falhou (comum na web/offline) e o `.get()` de recuperaÃ§Ã£o tambÃ©m falhou.
+  /// O [snapshots] falhou (comum na web/offline) e o `.get()` de recuperação também falhou.
   bool _streamRecoveryFailed = false;
 
   bool _deptStreamRecoveryInFlight = false;
 
-  /// ID do documento da igreja (resolve slug/alias) â€” mesmo path do dashboard.
+  /// ID do documento da igreja (resolve slug/alias) — mesmo path do dashboard.
   String _effectiveTenantId = '';
 
-  /// Nomes de membros por CPF (11 dÃ­gitos) para exibir lÃ­deres nos cards.
+  /// Nomes de membros por CPF (11 dígitos) para exibir líderes nos cards.
   Map<String, String> _cpfToMemberName = const {};
 
-  /// [true] apÃ³s a primeira tentativa de montar o mapa (mesmo se vazio).
+  /// [true] após a primeira tentativa de montar o mapa (mesmo se vazio).
   bool _memberLookupDone = false;
 
   /// 0 = ativos, 1 = arquivados (inativos).
   int _deptListTab = 0;
 
-  /// Membros por id do documento do departamento (prÃ©-visualizaÃ§Ã£o na lista).
+  /// Membros por id do documento do departamento (pré-visualização na lista).
   Map<String, List<ChurchDepartmentMemberRow>> _membersByDeptId =
       const {};
 
-  /// CPF canÃ³nico (11 dÃ­gitos) â†’ dados do membro (foto/nome do lÃ­der na lista).
+  /// CPF canónico (11 dígitos) → dados do membro (foto/nome do líder na lista).
   Map<String, Map<String, dynamic>> _memberDataByNormCpf = const {};
 
   Timer? _webLoadCap;
@@ -212,7 +212,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// RAM + Ãºltimo snapshot Firestore â€” mesmo 1.Âº frame que Cargos/Android.
+  /// RAM + último snapshot Firestore — mesmo 1.º frame que Cargos/Android.
   void _hydrateDepartmentsFromInstantCache() {
     final seed = _loadChurchId;
     if (seed.isEmpty) return;
@@ -278,7 +278,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   void _ensureReadTenantResolved() => _bindPanelChurchId();
 
-  /// 1.Âº frame: cache RAM/memÃ³ria; rede via [ChurchRepository.listCacheFirst] (igual Android/iOS).
+  /// 1.º frame: cache RAM/memória; rede via [ChurchRepository.listCacheFirst] (igual Android/iOS).
   Future<void> _openDepartmentsFast() async {
     _ensureReadTenantResolved();
     final seed = _loadChurchId;
@@ -384,7 +384,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Leitura directa `igrejas/{churchId}/departamentos` â€” mesmo path Android/iOS.
+  /// Leitura directa `igrejas/{churchId}/departamentos` — mesmo path Android/iOS.
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad({
     bool forceServer = false,
   }) async {
@@ -444,7 +444,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Sem permissÃ£o para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
+              'Sem permissão para criar o kit de departamentos. Atualize o app, publique as regras do Firebase e confira seu papel (Gestor/Pastor).',
               style: TextStyle(color: Colors.white),
             ),
             backgroundColor: const Color(0xFFB45309),
@@ -455,7 +455,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Garante os 11 padrÃµes no servidor: subcoleÃ§Ã£o vazia (welcome kit) + ids de preset em falta + metadados.
+  /// Garante os 11 padrões no servidor: subcoleção vazia (welcome kit) + ids de preset em falta + metadados.
   Future<void> _bootstrapDefaultDepartmentsIfAllowed(String tid) async {
     if (!AppPermissions.canEditDepartments(widget.role,
         permissions: widget.permissions)) {
@@ -490,7 +490,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Cria no Firestore cada preset cujo id ainda nÃ£o existe (lÃ³gica compartilhada com Escalas).
+  /// Cria no Firestore cada preset cujo id ainda não existe (lógica compartilhada com Escalas).
   Future<bool> _ensureMissingPresetDocuments() async {
     if (!_canWrite) return false;
     try {
@@ -500,7 +500,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         refreshToken: false);
   }
 
-  /// UniÃ£o stream + hidrataÃ§Ã£o: evita lista sÃ³ com o banner â€œHubâ€ quando o cache do stream vem vazio ou parcial.
+  /// União stream + hidratação: evita lista só com o banner "Hub" quando o cache do stream vem vazio ou parcial.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDeptStreamAndHydrated(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> streamDocs,
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? hydrated,
@@ -651,8 +651,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// [LayoutBuilder] + [SizedBox] com altura 0 (web/shell) deixava a lista invisÃ­vel â€” ocupa todo o [Expanded].
-  /// Na web nÃ£o usa pull-to-refresh (hÃ¡ botÃ£o Atualizar).
+  /// [LayoutBuilder] + [SizedBox] com altura 0 (web/shell) deixava a lista invisível — ocupa todo o [Expanded].
+  /// Na web não usa pull-to-refresh (há botão Atualizar).
   Widget _webSafeDeptScroller({
     required Future<void> Function() onRefresh,
     required List<Widget> slivers,
@@ -693,7 +693,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Lista vazia / sem presets â€” mensagem estÃ¡vel (evita sensaÃ§Ã£o de â€œtela quebradaâ€).
+  /// Lista vazia / sem presets — mensagem estável (evita sensação de "tela quebrada").
   Widget _emptyDepartmentsMessage() {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -716,7 +716,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ),
         const SizedBox(height: 10),
         Text(
-          'Toque em Atualizar ou em Gravar padrÃµes.',
+          'Toque em Atualizar ou em Gravar padrões.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: ThemeCleanPremium.onSurfaceVariant,
@@ -728,8 +728,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Hub com cards â€” [CustomScrollView] + slivers (web + [IndexedStack]: mais estÃ¡vel que
-  /// [SingleChildScrollView] + [SizedBox.expand], que Ã s vezes deixava a Ã¡rea dos cards em branco).
+  /// Hub com cards — [CustomScrollView] + slivers (web + [IndexedStack]: mais estável que
+  /// [SingleChildScrollView] + [SizedBox.expand], que às vezes deixava a área dos cards em branco).
   Widget _deptHubCustomScrollView({
     required Future<void> Function() onRefresh,
     required List<Widget> slivers,
@@ -776,20 +776,20 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
           added
-              ? 'CatÃ¡logo sincronizado: documentos criados ou atualizados.'
-              : 'Metadados do catÃ¡logo atualizados nos departamentos existentes.',
+              ? 'Catálogo sincronizado: documentos criados ou atualizados.'
+              : 'Metadados do catálogo atualizados nos departamentos existentes.',
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-            'Todos os departamentos padrÃ£o jÃ¡ estÃ£o cadastrados.'),
+            'Todos os departamentos padrão já estão cadastrados.'),
       );
     }
     await _startDeptLoad(forceServer: true);
   }
 
-  /// Abre sheet com lista de membros do departamento; permite remover membro (lanÃ§ado errado).
+  /// Abre sheet com lista de membros do departamento; permite remover membro (lançado errado).
   Future<void> _verMembrosDoDepartamento({
     required BuildContext context,
     required String deptId,
@@ -820,7 +820,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Exclui o departamento e remove o vÃ­nculo de todos os membros.
+  /// Exclui o departamento e remove o vínculo de todos os membros.
   Future<void> _excluirDepartamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
     if (!_canWrite) return;
@@ -854,8 +854,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ]),
         content: Text(
             'Excluir o departamento "$name"?\n\n'
-            '${vinculados > 0 ? 'HÃ¡ $vinculados membro(s) vinculado(s). ' : ''}'
-            'Os vÃ­nculos serÃ£o removidos automaticamente.'),
+            '${vinculados > 0 ? 'Há $vinculados membro(s) vinculado(s). ' : ''}'
+            'Os vínculos serão removidos automaticamente.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -895,7 +895,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       await batch.commit();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Departamento excluÃ­do.',
+            content: Text('Departamento excluído.',
                 style: TextStyle(color: Colors.white)),
             backgroundColor: Colors.green));
         _refreshDepartments(forceServer: true);
@@ -941,13 +941,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Convidar â€” $deptName',
+                  'Convidar — $deptName',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'O membro abre o link jÃ¡ logado na mesma igreja; a ficha (CPF) Ã© vinculada a este departamento.',
+                  'O membro abre o link já logado na mesma igreja; a ficha (CPF) é vinculada a este departamento.',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey.shade700,
@@ -990,8 +990,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () => Share.share(
-                    'Entre no departamento "$deptName" pela GestÃ£o YAHWEH:\n$link',
-                    subject: 'Convite â€” $deptName',
+                    'Entre no departamento "$deptName" pela Gestão YAHWEH:\n$link',
+                    subject: 'Convite — $deptName',
                   ),
                   icon: const Icon(Icons.share_rounded),
                   label: const Text('Compartilhar'),
@@ -1072,7 +1072,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Membros atualizados. Use esse vÃ­nculo para escalas e reuniÃµes.',
+              'Membros atualizados. Use esse vínculo para escalas e reuniões.',
               style: TextStyle(color: Colors.white),
             ),
             backgroundColor: Colors.green,
@@ -1115,8 +1115,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   bool _deptIdPreferCanonical(String id) =>
       !RegExp(r'_\d+$').hasMatch(id.trim());
 
-  /// Evita `add()` com ID aleatÃ³rio e duplicatas (ex.: criancas + criancas_2 com o mesmo nome).
-  /// Retorna `true` se atualizou documento jÃ¡ existente (mesmo nome ou id estÃ¡vel ocupado com nome vazio).
+  /// Evita `add()` com ID aleatório e duplicatas (ex.: criancas + criancas_2 com o mesmo nome).
+  /// Retorna `true` se atualizou documento já existente (mesmo nome ou id estável ocupado com nome vazio).
   Future<bool> _persistNewDepartment({
     required Map<String, dynamic> payload,
     required String iconKey,
@@ -1175,7 +1175,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return false;
   }
 
-  /// OpÃ§Ãµes de Ã­cone para departamentos â€” ordem alfabÃ©tica via _iconOptionsSorted.
+  /// Opções de ícone para departamentos — ordem alfabética via _iconOptionsSorted.
   /// Inclui keys legadas (kids, men, women, welcome, youth, worship, prayer) para compatibilidade.
   static const _iconOptions = <Map<String, dynamic>>[
     {
@@ -1186,13 +1186,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'kids',
-      'label': 'CrianÃ§as',
+      'label': 'Crianças',
       'icon': Icons.child_care_rounded,
       'color': 0xFF4FC3F7
     },
     {
       'key': 'men',
-      'label': 'VarÃµes',
+      'label': 'Varões',
       'icon': Icons.groups_rounded,
       'color': 0xFF81C784
     },
@@ -1204,7 +1204,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'welcome',
-      'label': 'RecepÃ§Ã£o',
+      'label': 'Recepção',
       'icon': Icons.waving_hand_rounded,
       'color': 0xFFFF8A65
     },
@@ -1222,19 +1222,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'prayer',
-      'label': 'OraÃ§Ã£o',
+      'label': 'Oração',
       'icon': Icons.auto_awesome_rounded,
       'color': 0xFFAED581
     },
     {
       'key': 'comunicacao',
-      'label': 'ComunicaÃ§Ã£o',
+      'label': 'Comunicação',
       'icon': Icons.campaign_rounded,
       'color': 0xFF0097A7
     },
     {
       'key': 'criancas',
-      'label': 'CrianÃ§as',
+      'label': 'Crianças',
       'icon': Icons.child_care_rounded,
       'color': 0xFF4FC3F7
     },
@@ -1258,14 +1258,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'escola_biblica',
-      'label': 'Escola BÃ­blica',
-      // `menu_book_rounded` pode nÃ£o renderizar em alguns builds web (Ã­cone vazio).
+      'label': 'Escola Bíblica',
+      // `menu_book_rounded` pode não renderizar em alguns builds web (ícone vazio).
       'icon': Icons.auto_stories_rounded,
       'color': 0xFF00897B
     },
     {
       'key': 'intercessao',
-      'label': 'IntercessÃ£o',
+      'label': 'Intercessão',
       'icon': Icons.favorite_rounded,
       'color': 0xFFD32F2F
     },
@@ -1283,13 +1283,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'media',
-      'label': 'MÃ­dia',
+      'label': 'Mídia',
       'icon': Icons.videocam_rounded,
       'color': 0xFF64B5F6
     },
     {
       'key': 'missionarios',
-      'label': 'MissionÃ¡rios',
+      'label': 'Missionários',
       'icon': Icons.public_rounded,
       'color': 0xFF607D8B
     },
@@ -1307,7 +1307,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'oracao',
-      'label': 'OraÃ§Ã£o',
+      'label': 'Oração',
       'icon': Icons.auto_awesome_rounded,
       'color': 0xFFAED581
     },
@@ -1319,19 +1319,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'presbiteros',
-      'label': 'PresbÃ­teros',
+      'label': 'Presbíteros',
       'icon': Icons.gavel_rounded,
       'color': 0xFF1565C0
     },
     {
       'key': 'recepcao',
-      'label': 'RecepÃ§Ã£o',
+      'label': 'Recepção',
       'icon': Icons.waving_hand_rounded,
       'color': 0xFFFF8A65
     },
     {
       'key': 'secretarios',
-      'label': 'SecretÃ¡rios',
+      'label': 'Secretários',
       'icon': Icons.description_rounded,
       'color': 0xFF3949AB
     },
@@ -1349,13 +1349,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     },
     {
       'key': 'varoes',
-      'label': 'VarÃµes',
+      'label': 'Varões',
       'icon': Icons.groups_rounded,
       'color': 0xFF81C784
     },
   ];
 
-  /// Keys legadas em inglÃªs â€” mesma figura que a opÃ§Ã£o em PT; nÃ£o repetir no grid.
+  /// Keys legadas em inglês — mesma figura que a opção em PT; não repetir no grid.
   static const _legacyIconKeys = {
     'kids',
     'men',
@@ -1366,7 +1366,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     'prayer'
   };
 
-  /// Uma opÃ§Ã£o por rÃ³tulo (evita CrianÃ§as/Jovens/etc. duplicados); prioriza chave em portuguÃªs.
+  /// Uma opção por rótulo (evita Crianças/Jovens/etc. duplicados); prioriza chave em português.
   static List<Map<String, dynamic>> get _iconOptionsSorted {
     final byLabel = <String, Map<String, dynamic>>{};
     for (final e in _iconOptions) {
@@ -1435,8 +1435,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Firestore Ã s vezes grava sÃ³ RGB 24 bits (ex. 0xFFFFFF) â†’ em Flutter vira ARGB com **alpha 0**
-  /// (gradiente invisÃ­vel + texto branco no fundo branco). ForÃ§a opaco e valida contraste.
+  /// Firestore às vezes grava só RGB 24 bits (ex. 0xFFFFFF) → em Flutter vira ARGB com **alpha 0**
+  /// (gradiente invisível + texto branco no fundo branco). Força opaco e valida contraste.
   static int _opaqueArgb32(int v) {
     if ((v & 0xFF000000) == 0) return 0xFF000000 | (v & 0xFFFFFF);
     return v;
@@ -1446,7 +1446,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return Color(_opaqueArgb32(argb)).computeLuminance() > 0.74;
   }
 
-  /// Evita cast `as int` quebrar o card (Firestore Ã s vezes devolve String ou double).
+  /// Evita cast `as int` quebrar o card (Firestore às vezes devolve String ou double).
   (int, int) _deptCardGradientInts(Map<String, dynamic> m, String themeKey) {
     final th = _themeByKey(themeKey);
     final fallback1 = th['c1'] as int;
@@ -1481,7 +1481,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
     var a = _opaqueArgb32(parse(m['bgColor1'], fallback1));
     var b = _opaqueArgb32(parse(m['bgColor2'], fallback2));
-    // SÃ³ se **as duas** pontas forem claras (ex. branco no Firestore): usa tema do Ã­cone.
+    // Só se **as duas** pontas forem claras (ex. branco no Firestore): usa tema do ícone.
     if (_luminanceTooHighForWhiteText(a) && _luminanceTooHighForWhiteText(b)) {
       a = _opaqueArgb32(fallback1);
       b = _opaqueArgb32(fallback2);
@@ -1489,7 +1489,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return (a, b);
   }
 
-  /// Cores/Ã­cones vindos do Firestore ou do mapa podem ter ARGB invÃ¡lido â€” nunca deixar transparente.
+  /// Cores/ícones vindos do Firestore ou do mapa podem ter ARGB inválido — nunca deixar transparente.
   int _safeIconChipArgb(Map<String, dynamic> opt) {
     final raw = opt['color'];
     final base = raw is int ? raw : 0xFF0C3B8A;
@@ -1501,8 +1501,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return raw is IconData ? raw : Icons.groups_rounded;
   }
 
-  /// Ãcone do departamento com gradiente, brilho suave e sombra na cor do tema
-  /// (Material em todas as plataformas â€” glifos estÃ¡veis na web).
+  /// Ícone do departamento com gradiente, brilho suave e sombra na cor do tema
+  /// (Material em todas as plataformas — glifos estáveis na web).
   Widget _iconChip(String key, {double radius = 20}) {
     final opt = _iconOptions.firstWhere((e) => e['key'] == key,
         orElse: () => _iconOptions.first);
@@ -1576,7 +1576,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Alinha Ã­cone do Firestore ao catÃ¡logo e ao nome exibÃ­vel (aliases temÃ¡ticos).
+  /// Alinha ícone do Firestore ao catálogo e ao nome exibível (aliases temáticos).
   String _resolveVisualIconKey({
     required String iconKeyRaw,
     required String docId,
@@ -1641,27 +1641,27 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final n = (displayName ?? '').toLowerCase();
     if (n.contains('financeir') || n.contains('tesourar')) return 'finance';
     if (n.contains('infantil') ||
-        n.contains('crianÃ§a') ||
+        n.contains('criança') ||
         n.contains('crianca')) return 'criancas';
     if (n.contains('escola') && n.contains('bibl')) return 'escola_biblica';
     if (n.contains('evangel')) return 'evangelismo';
-    if (n.contains('intercess') || n.contains('oraÃ§Ã£o') || n.contains('oracao')) {
+    if (n.contains('intercess') || n.contains('oração') || n.contains('oracao')) {
       return 'intercessao';
     }
-    if (n.contains('louvor') || n.contains('mÃºsica') || n.contains('musica')) {
+    if (n.contains('louvor') || n.contains('música') || n.contains('musica')) {
       return 'louvor';
     }
     if (n.contains('jovens')) return 'jovens';
     if (n.contains('mulher')) return 'mulheres';
-    if (n.contains('varÃ£o') || n.contains('varao') || n.contains('homens')) {
+    if (n.contains('varão') || n.contains('varao') || n.contains('homens')) {
       return 'varoes';
     }
-    if (n.contains('recepÃ§') || n.contains('recepc')) return 'recepcao';
-    if (n.contains('mÃ­dia') || n.contains('midia') || n.contains('som')) {
+    if (n.contains('recepç') || n.contains('recepc')) return 'recepcao';
+    if (n.contains('mídia') || n.contains('midia') || n.contains('som')) {
       return 'media';
     }
-    if (n.contains('diÃ¡con') || n.contains('diacon')) return 'diaconal';
-    if (n.contains('siÃ£o') ||
+    if (n.contains('diácon') || n.contains('diacon')) return 'diaconal';
+    if (n.contains('sião') ||
         n.contains('siao') ||
         (n.contains('filhas') && n.contains('si'))) {
       return 'mulheres';
@@ -1747,13 +1747,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             });
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('LÃ­der vinculado.'),
+                ThemeCleanPremium.successSnackBar('Líder vinculado.'),
               );
             }
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Erro ao vincular lÃ­der: $e')),
+                SnackBar(content: Text('Erro ao vincular líder: $e')),
               );
             }
           }
@@ -1763,7 +1763,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Barra de aÃ§Ãµes premium: sempre visÃ­vel (editar, incluir, membros, excluir).
+  /// Barra de ações premium: sempre visível (editar, incluir, membros, excluir).
   Widget _departmentActionRow({
     required BuildContext context,
     required DocumentSnapshot<Map<String, dynamic>> doc,
@@ -1872,7 +1872,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     ),
   ];
 
-  /// RodapÃ© quando o departamento Ã© sÃ³ sugestÃ£o (ainda nÃ£o existe doc no Firestore).
+  /// Rodapé quando o departamento é só sugestão (ainda não existe doc no Firestore).
   Widget _presetSuggestionActionRow({
     required BuildContext context,
     required String deptKey,
@@ -1918,8 +1918,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         const SizedBox(height: 8),
         Text(
           _canWrite
-              ? 'SugestÃ£o: ainda nÃ£o estÃ¡ gravada nesta igreja. Use â€œGravar padrÃµes no sistemaâ€ no topo.'
-              : 'SugestÃ£o de referÃªncia. Um gestor pode gravar no sistema para usar em escalas e cadastros.',
+              ? 'Sugestão: ainda não está gravada nesta igreja. Use "Gravar padrões no sistema" no topo.'
+              : 'Sugestão de referência. Um gestor pode gravar no sistema para usar em escalas e cadastros.',
           style: const TextStyle(color: Colors.white70, fontSize: 11, height: 1.35),
           textAlign: TextAlign.center,
         ),
@@ -1927,7 +1927,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Intro + grelha/lista de presets (lista vazia no Firestore ou â€œsÃ³ registros sem nomeâ€).
+  /// Intro + grelha/lista de presets (lista vazia no Firestore ou "só registros sem nome").
   List<Widget> _suggestedPresetsSlivers({
     required EdgeInsets padding,
     required EdgeInsets listPad,
@@ -1970,8 +1970,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 const SizedBox(height: 10),
                 Text(
                   _canWrite
-                      ? 'Lista enxuta para igrejas novas: Pastoral, Louvor, Jovens, CrianÃ§as, Evangelismo, IntercessÃ£o, MÃ­dia, RecepÃ§Ã£o, Financeiro, Escola BÃ­blica e VarÃµes. Toque em gravar para criar no Firestore (escalas e membros).'
-                      : 'ReferÃªncia do sistema. Um gestor pode gravar estes departamentos na igreja.',
+                      ? 'Lista enxuta para igrejas novas: Pastoral, Louvor, Jovens, Crianças, Evangelismo, Intercessão, Mídia, Recepção, Financeiro, Escola Bíblica e Varões. Toque em gravar para criar no Firestore (escalas e membros).'
+                      : 'Referência do sistema. Um gestor pode gravar estes departamentos na igreja.',
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.4,
@@ -2047,7 +2047,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     ];
   }
 
-  /// Mesmo visual do card real, para lista padrÃ£o quando `departamentos` estÃ¡ vazio (todas as igrejas).
+  /// Mesmo visual do card real, para lista padrão quando `departamentos` está vazio (todas as igrejas).
   Widget _buildPresetSuggestionCard(
     Map<String, dynamic> preset,
   ) {
@@ -2119,7 +2119,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Text(
-                        'SugestÃ£o',
+                        'Sugestão',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 11,
@@ -2185,7 +2185,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
-                      'Equipe e escalas no painel apÃ³s gravar',
+                      'Equipe e escalas no painel após gravar',
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -2346,7 +2346,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Card temÃ¡tico premium (gradiente + Ã­cone da categoria; sem foto de fundo).
+  /// Card temático premium (gradiente + ícone da categoria; sem foto de fundo).
   Widget _buildDepartmentCard(
     QueryDocumentSnapshot<Map<String, dynamic>> d,
   ) {
@@ -2384,7 +2384,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'NÃ£o foi possÃ­vel montar o card (dados invÃ¡lidos). Toque para tentar abrir ou edite no Firebase.',
+                    'Não foi possível montar o card (dados inválidos). Toque para tentar abrir ou edite no Firebase.',
                     style: TextStyle(fontSize: 12.5, color: Colors.grey.shade700, height: 1.3),
                   ),
                   if (kDebugMode) Text('$e', style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
@@ -2974,7 +2974,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                             labelText: 'Nome',
                             prefixIcon: Icon(Icons.group_rounded))),
                     const SizedBox(height: 16),
-                    Text('Escolher Ã­cone',
+                    Text('Escolher ícone',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
@@ -3025,7 +3025,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'LÃ­deres do departamento',
+                      'Líderes do departamento',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -3035,7 +3035,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Podem ser vÃ¡rios. Usados no painel, escalas e permissÃµes de gestÃ£o do grupo.',
+                    'Podem ser vários. Usados no painel, escalas e permissões de gestão do grupo.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 10),
@@ -3144,7 +3144,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (user == null) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('FaÃ§a login para salvar.')));
+            const SnackBar(content: Text('Faça login para salvar.')));
       return;
     }
 
@@ -3252,7 +3252,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
-  /// Lista de departamentos sÃ³ via `.get()` em [initState] â€” **sem** `StreamBuilder`/`snapshots()`.
+  /// Lista de departamentos só via `.get()` em [initState] — **sem** `StreamBuilder`/`snapshots()`.
   Widget _buildDepartmentsHubFromHydrated({
     required BuildContext context,
     required EdgeInsets padding,
@@ -3352,7 +3352,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             hasLocalData: hasLocalDepts,
             isSyncing: _deptLoading && hasLocalDepts,
             showStaleCache: _deptShowingStaleCache && !_deptLoading,
-            errorTitle: 'NÃ£o foi possÃ­vel carregar os departamentos',
+            errorTitle: 'Não foi possível carregar os departamentos',
             error: hasLocalDepts ? null : _deptError?.toString(),
             onRetry: _canWrite
                 ? () => _refreshDepartments(forceServer: true)
@@ -3392,7 +3392,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'HÃ¡ departamentos com o mesmo nome. Exclua ou renomeie os duplicados â€” assim a Escala deixa de listar a mesma opÃ§Ã£o vÃ¡rias vezes.',
+                      'Há departamentos com o mesmo nome. Exclua ou renomeie os duplicados — assim a Escala deixa de listar a mesma opção várias vezes.',
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.35,
@@ -3423,7 +3423,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      '$orphanNamelessCount departamento(s) sem campo de nome reconhecido â€” edite e preencha o nome.',
+                      '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — edite e preencha o nome.',
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.35,
@@ -3488,18 +3488,18 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final mq = MediaQuery.paddingOf(context);
     final pagePad = ThemeCleanPremium.pagePadding(context);
-    /// No painel (shell): corpo edge-to-edge â€” sem margens laterais do mÃ³dulo.
+    /// No painel (shell): corpo edge-to-edge — sem margens laterais do módulo.
     final padding = widget.embeddedInShell
         ? EdgeInsets.fromLTRB(0, 0, 0, mq.bottom + (isMobile ? 80 : 12))
         : pagePad;
-    /// No shell, [VersionFooter] jÃ¡ estÃ¡ na barra inferior â€” nÃ£o usar 88px extra no fim da lista
-    /// (evita faixa branca entre o Ãºltimo departamento e o rodapÃ©).
+    /// No shell, [VersionFooter] já está na barra inferior — não usar 88px extra no fim da lista
+    /// (evita faixa branca entre o último departamento e o rodapé).
     final listBottomInset = widget.embeddedInShell
         ? (isMobile ? 8.0 : padding.bottom)
         : (isMobile ? 88.0 : padding.bottom);
-    /// Mesmo tom suave do [VersionFooter] â€” preenche o espaÃ§o sem â€œbloco brancoâ€ Ã³bvio.
+    /// Mesmo tom suave do [VersionFooter] — preenche o espaço sem "bloco branco" óbvio.
     final shellBodyTint = const Color(0xFF1565C0).withValues(alpha: 0.035);
-    // Shell jÃ¡ exibe [ModuleHeaderPremium] com tÃ­tulo â€” sem AppBar/barra duplicada.
+    // Shell já exibe [ModuleHeaderPremium] com título — sem AppBar/barra duplicada.
     return Scaffold(
       backgroundColor: widget.embeddedInShell
           ? shellBodyTint
@@ -3544,7 +3544,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                         hasLocalData: false,
                         isSyncing: false,
                         errorTitle:
-                            'NÃ£o foi possÃ­vel carregar os departamentos',
+                            'Não foi possível carregar os departamentos',
                         error: _deptError,
                         onRetry: _canWrite
                             ? () =>
@@ -3560,7 +3560,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                             horizontal: padding.horizontal,
                             vertical: ThemeCleanPremium.spaceLg),
                         child: Text(
-                          'Igreja nÃ£o identificada. Entre novamente no painel ou selecione a igreja correta.',
+                          'Igreja não identificada. Entre novamente no painel ou selecione a igreja correta.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                               color: ThemeCleanPremium.onSurfaceVariant,
@@ -3584,7 +3584,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 }
 
-/// Hub do departamento â€” `.get()` Ãºnico em [initState] (sem `snapshots()` no build).
+/// Hub do departamento — `.get()` único em [initState] (sem `snapshots()` no build).
 class _DepartmentHubSheet extends StatefulWidget {
   final String tenantId;
   final String deptId;
@@ -3776,9 +3776,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Remover lÃ­der'),
+        title: const Text('Remover líder'),
         content: const Text(
-            'Este CPF deixa de constar como lÃ­der do departamento. O vÃ­nculo como membro permanece, salvo se vocÃª removÃª-lo da lista abaixo.'),
+            'Este CPF deixa de constar como líder do departamento. O vínculo como membro permanece, salvo se você removê-lo da lista abaixo.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -3807,7 +3807,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('LÃ­der removido.'),
+          ThemeCleanPremium.successSnackBar('Líder removido.'),
         );
         unawaited(_loadHubData(forceRefresh: true));
       }
@@ -3951,7 +3951,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           ],
         ),
         subtitle: Text(
-          'LÃ­der',
+          'Líder',
           style: TextStyle(
             fontSize: 12,
             color: Colors.grey.shade800,
@@ -3989,7 +3989,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             ),
             if (widget.canWrite && cpf.length == 11)
               IconButton(
-                tooltip: 'Remover da lideranÃ§a',
+                tooltip: 'Remover da liderança',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
                 icon: const Icon(Icons.star_outline_rounded,
                     color: Color(0xFF92400E)),
@@ -4031,12 +4031,12 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         ),
         subtitle: Text(
           denormName.isNotEmpty
-              ? 'LÃ­der Â· CPF ${_cpfMask(cpf)} Â· membro nÃ£o listado neste dept.'
-              : 'LÃ­der gravado, mas sem membro vinculado a este departamento.',
+              ? 'Líder · CPF ${_cpfMask(cpf)} · membro não listado neste dept.'
+              : 'Líder gravado, mas sem membro vinculado a este departamento.',
         ),
         trailing: widget.canWrite
             ? IconButton(
-                tooltip: 'Remover da lideranÃ§a',
+                tooltip: 'Remover da liderança',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
                 icon: const Icon(Icons.close_rounded),
               )
@@ -4138,7 +4138,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             CircularProgressIndicator(color: _cA),
             const SizedBox(height: 16),
             Text(
-              'Carregando membrosâ€¦',
+              'Carregando membros…',
               style: TextStyle(color: Colors.grey.shade600),
             ),
           ],
@@ -4199,15 +4199,15 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: [
-        _sectionTitle('LideranÃ§a'),
+        _sectionTitle('Liderança'),
         const SizedBox(height: 8),
         if (leaderRows.isEmpty && orphanCpfs.isEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               widget.canWrite
-                  ? 'Nenhum lÃ­der. Use o botÃ£o â€œLÃ­derâ€ acima.'
-                  : 'Nenhum lÃ­der definido neste departamento.',
+                  ? 'Nenhum líder. Use o botão "Líder" acima.'
+                  : 'Nenhum líder definido neste departamento.',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.grey.shade600,
@@ -4256,7 +4256,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             otherRows.isEmpty &&
             filteredLeaderRows.isEmpty)
           Text(
-            'Nenhum membro corresponde Ã  busca.',
+            'Nenhum membro corresponde à busca.',
             style: TextStyle(color: Colors.grey.shade600),
           ),
         ...otherRows.map((row) => _memberRow(context, row)),
@@ -4410,7 +4410,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: 'Buscar membro por nomeâ€¦',
+                    hintText: 'Buscar membro por nome…',
                     prefixIcon: const Icon(Icons.search_rounded, size: 22),
                     suffixIcon: _memberSearchCtrl.text.isEmpty
                         ? null
@@ -4457,7 +4457,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   }
 }
 
-/// Sheet para ver membros do departamento e remover (quando lanÃ§ado errado).
+/// Sheet para ver membros do departamento e remover (quando lançado errado).
 class _VerMembrosSheet extends StatefulWidget {
   final String tenantId;
   final String deptId;

@@ -20,6 +20,7 @@ import "package:gestao_yahweh/core/app_constants.dart";
 import "package:gestao_yahweh/core/marketing_storage_layout.dart";
 import "package:gestao_yahweh/services/marketing_public_site_service.dart";
 import "package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart";
+import "package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart";
 import "package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart";
 import "package:gestao_yahweh/ui/widgets/modern_store_download_button.dart";
 
@@ -348,7 +349,7 @@ class _SitePublicPageState extends State<SitePublicPage>
     final narrow = MediaQuery.sizeOf(context).width < _kAppBarCompactWidth;
     return Row(
       children: [
-        _PublicSiteGestaoYahwehLogo(size: narrow ? 22 : 26),
+        GestaoYahwehBrandLogo(height: narrow ? 34 : 42),
         SizedBox(width: narrow ? 6 : 8),
         Expanded(
           child: Text(
@@ -786,84 +787,6 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
   }
 }
 
-/// Logo da marca no site público: PNG → ícone do app → identidade tipográfica (nunca área vazia).
-class _PublicSiteGestaoYahwehLogo extends StatelessWidget {
-  final double size;
-
-  const _PublicSiteGestaoYahwehLogo({required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = ThemeCleanPremium.primary;
-    return Image.asset(
-      'assets/LOGO_GESTAO_YAHWEH.png',
-      height: size,
-      width: size,
-      fit: BoxFit.contain,
-      filterQuality: FilterQuality.high,
-      errorBuilder: (_, __, ___) => Image.asset(
-        'assets/icon/app_icon.png',
-        height: size * 0.88,
-        width: size * 0.88,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.medium,
-        errorBuilder: (_, __, ___) =>
-            _PublicSiteGestaoYahwehTextMark(maxSide: size, color: primary),
-      ),
-    );
-  }
-}
-
-class _PublicSiteGestaoYahwehTextMark extends StatelessWidget {
-  final double maxSide;
-  final Color color;
-
-  const _PublicSiteGestaoYahwehTextMark({
-    required this.maxSide,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: maxSide,
-        maxWidth: maxSide * 1.35,
-        minHeight: 72,
-      ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.church_rounded, size: maxSide * 0.22, color: color),
-            const SizedBox(height: 8),
-            Text(
-              'Gestão',
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w800,
-                fontSize: 22,
-                height: 1.05,
-              ),
-            ),
-            Text(
-              'YAHWEH',
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w900,
-                fontSize: 26,
-                height: 1.05,
-                letterSpacing: 1.2,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _LeftHero extends StatelessWidget {
   final VoidCallback onGoAdmin;
   const _LeftHero({required this.onGoAdmin});
@@ -941,9 +864,12 @@ class _LeftHero extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final logoSize = isMobile
-                    ? (constraints.maxWidth < 400 ? 104.0 : 132.0)
-                    : 228.0;
-                return _PublicSiteGestaoYahwehLogo(size: logoSize);
+                    ? (constraints.maxWidth < 400 ? 168.0 : 200.0)
+                    : 320.0;
+                return GestaoYahwehBrandLogo(
+                  height: logoSize,
+                  showHeroGlow: true,
+                );
               },
             ),
           ),

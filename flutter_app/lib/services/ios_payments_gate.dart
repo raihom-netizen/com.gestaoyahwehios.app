@@ -12,18 +12,18 @@ import 'package:gestao_yahweh/ui/widgets/ios_license_reader_blocked_view.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Gate Apple Guideline 3.1.1 â€” app iOS como **espelho** da licenÃ§a no Firestore.
+/// Gate Apple Guideline 3.1.1 — app iOS como **espelho** da licença no Firestore.
 ///
 /// **iOS nativo** (`exibir_pagamento_ios` = false, default):
-///   - Sem checkout Mercado Pago, preÃ§os, PIX/cartÃ£o ou botÃµes de assinar.
+///   - Sem checkout Mercado Pago, preços, PIX/cartão ou botões de assinar.
 ///   - **Sem** links externos para site de vendas / `/atualizar-plano`.
-///   - LicenÃ§a vencida â†’ ecrÃ£ neutro; gestor regulariza no **painel web** (Safari/PC).
+///   - Licença vencida → ecrã neutro; gestor regulariza no **painel web** (Safari/PC).
 ///
-/// **Android / Web / Desktop:** checkout e Â«Alterar planoÂ» â†’ fluxo web Mercado Pago
-/// (PIX + cartÃ£o atÃ© 6x) conforme produto.
+/// **Android / Web / Desktop:** checkout e «Alterar plano» → fluxo web Mercado Pago
+/// (PIX + cartão até 6x) conforme produto.
 ///
-/// Remote Config `exibir_pagamento_ios`: sÃ³ alterar para `true` se a Apple autorizar
-/// IAP ou novo modelo â€” default conservador = `false`.
+/// Remote Config `exibir_pagamento_ios`: só alterar para `true` se a Apple autorizar
+/// IAP ou novo modelo — default conservador = `false`.
 class IosPaymentsGate {
   IosPaymentsGate._();
 
@@ -83,11 +83,11 @@ class IosPaymentsGate {
   /// Atalho semantico: esta em iOS com a flag desligada (modo Reader/SaaS).
   static bool get shouldHidePayments => !paymentsAllowed;
 
-  /// Sem menu Â«Alterar planoÂ», checkout nem links de vendas no binÃ¡rio iOS.
+  /// Sem menu «Alterar plano», checkout nem links de vendas no binário iOS.
   static bool get hideInAppPlanPurchaseUi => shouldHidePayments;
 
   /// Inicializa Remote Config com defaults e busca a flag.
-  /// Nunca propaga excecao â€” em qualquer falha mantem o default conservador
+  /// Nunca propaga excecao — em qualquer falha mantem o default conservador
   /// ([_defaultIosShowPayments] = false em iOS).
   static Future<void> initialize() async {
     if (_initialized) return;
@@ -125,8 +125,8 @@ class IosPaymentsGate {
     }
   }
 
-  /// Rota expressa web `/atualizar-plano` â€” se jÃ¡ houver sessÃ£o no Safari, vai
-  /// direto aos planos; senÃ£o mostra Google, Apple e e-mail/senha na mesma pÃ¡gina.
+  /// Rota expressa web `/atualizar-plano` — se já houver sessão no Safari, vai
+  /// direto aos planos; senão mostra Google, Apple e e-mail/senha na mesma página.
   static Uri churchAtualizarPlanoExpressUri({
     String utmMedium = 'manage_subscription',
     String? email,
@@ -144,14 +144,14 @@ class IosPaymentsGate {
     );
   }
 
-  /// CompatÃ­vel com chamadas antigas â€” mesmo destino que [churchAtualizarPlanoExpressUri].
+  /// Compatível com chamadas antigas — mesmo destino que [churchAtualizarPlanoExpressUri].
   static Uri churchWebLoginThenAtualizarPlanoUri({
     String utmMedium = 'manage_subscription',
     String? email,
   }) =>
       churchAtualizarPlanoExpressUri(utmMedium: utmMedium, email: email);
 
-  /// iOS: ecrÃ£ informativo neutro (sem pagamento). Android: abre web MP. Web: [RenewPlanPage].
+  /// iOS: ecrã informativo neutro (sem pagamento). Android: abre web MP. Web: [RenewPlanPage].
   static void navigateToUpgradePlans(BuildContext context) {
     if (!context.mounted) return;
     if (shouldHidePayments && !kIsWeb) {
@@ -169,7 +169,7 @@ class IosPaymentsGate {
     );
   }
 
-  /// Abre `/atualizar-plano` no navegador â€” **Android/Web**; bloqueado no iOS Reader.
+  /// Abre `/atualizar-plano` no navegador — **Android/Web**; bloqueado no iOS Reader.
   static Future<bool> openUpgradePlansExternally({
     String source = 'android_app',
   }) async {
@@ -184,8 +184,8 @@ class IosPaymentsGate {
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  /// Site pÃºblico da igreja â€” dÃ­zimos/ofertas (PIX e cartÃ£o) no **navegador**.
-  /// Apple Guideline 3.2.2(iv): doaÃ§Ãµes beneficentes nÃ£o no binÃ¡rio iOS.
+  /// Site público da igreja — dízimos/ofertas (PIX e cartão) no **navegador**.
+  /// Apple Guideline 3.2.2(iv): doações beneficentes não no binário iOS.
   static Uri churchPublicDonationSafariUri({
     required String churchSlug,
     Map<String, dynamic>? churchData,
@@ -204,7 +204,7 @@ class IosPaymentsGate {
     );
   }
 
-  /// Cadastro de nova igreja/organizaÃ§Ã£o â€” apenas no site (Apple 3.1.1).
+  /// Cadastro de nova igreja/organização — apenas no site (Apple 3.1.1).
   static Uri organizationSignupWebUri() {
     final base = AppConstants.publicWebBaseUrl.trim();
     final root =
@@ -226,7 +226,7 @@ class IosPaymentsGate {
     );
   }
 
-  /// NavegaÃ§Ã£o unificada: iOS â†’ ecrÃ£/link web; demais plataformas â†’ `/signup`.
+  /// Navegação unificada: iOS → ecrã/link web; demais plataformas → `/signup`.
   static void navigateToOrganizationSignup(BuildContext context) {
     if (hideOrganizationSignup) {
       Navigator.of(context).push(
@@ -239,7 +239,7 @@ class IosPaymentsGate {
     Navigator.of(context).pushNamed('/signup');
   }
 
-  /// Abre o site da igreja no Safari (botÃ£o Â«DoaÃ§Ã£oÂ» / dÃ­zimos e ofertas).
+  /// Abre o site da igreja no Safari (botão «Doação» / dízimos e ofertas).
   static Future<bool> openChurchDonationsExternally({
     required String churchSlug,
     Map<String, dynamic>? churchData,

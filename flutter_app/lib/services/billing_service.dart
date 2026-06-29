@@ -1,10 +1,10 @@
 ﻿import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Ciclo de cobranÃ§a: mensal ou anual.
+/// Ciclo de cobrança: mensal ou anual.
 enum BillingCycle { monthly, annual }
 
-/// Forma de pagamento: PIX ou cartÃ£o (parcelado).
+/// Forma de pagamento: PIX ou cartão (parcelado).
 enum PaymentMethod { pix, card }
 
 /// Resposta do checkout Mercado Pago (assinatura / preapproval).
@@ -18,7 +18,7 @@ class MpCheckoutSession {
   bool get isValid => initPoint.isNotEmpty;
 }
 
-/// Dados PIX para pagamento instantÃ¢neo (copia e cola + QR).
+/// Dados PIX para pagamento instantâneo (copia e cola + QR).
 class MpPixSession {
   final String paymentId;
   final String qrCode;
@@ -47,17 +47,17 @@ class BillingService {
     await callable.call({'planId': planId});
   }
 
-  /// Cria preferÃªncia de pagamento no Mercado Pago.
+  /// Cria preferência de pagamento no Mercado Pago.
   /// [billingCycle]: 'monthly' ou 'annual'
-  /// [paymentMethod]: 'pix' ou 'card' (anual: cartÃ£o em atÃ© 6x conforme [installments])
-  /// [installments]: parcelas no cartÃ£o (ex.: 1â€“6 no anual). Ignorado se paymentMethod for PIX.
-  /// O backend retorna [init_point] e [back_url] (retorno pÃ³s-pagamento).
+  /// [paymentMethod]: 'pix' ou 'card' (anual: cartão em até 6x conforme [installments])
+  /// [installments]: parcelas no cartão (ex.: 1–6 no anual). Ignorado se paymentMethod for PIX.
+  /// O backend retorna [init_point] e [back_url] (retorno pós-pagamento).
   Future<MpCheckoutSession> createMpCheckout({
     required String planId,
     BillingCycle billingCycle = BillingCycle.monthly,
     PaymentMethod paymentMethod = PaymentMethod.pix,
     int installments = 10,
-    /// SÃ³ [createMpPreapproval]: volta do MP para esta rota (ex. `/atualizar-plano`).
+    /// Só [createMpPreapproval]: volta do MP para esta rota (ex. `/atualizar-plano`).
     String? returnPath,
   }) async {
     final callable = _functions.httpsCallable(
@@ -69,7 +69,7 @@ class BillingService {
       'billingCycle': billingCycle == BillingCycle.annual ? 'annual' : 'monthly',
       'paymentMethod': paymentMethod == PaymentMethod.card ? 'card' : 'pix',
     };
-    // Sempre enviar parcelas no cartÃ£o (1â€“6 anual, 1 mensal) para o backend nÃ£o assumir default errado.
+    // Sempre enviar parcelas no cartão (1–6 anual, 1 mensal) para o backend não assumir default errado.
     if (paymentMethod == PaymentMethod.card) {
       final n = installments.clamp(1, 12);
       payload['installments'] = billingCycle == BillingCycle.annual
@@ -88,7 +88,7 @@ class BillingService {
     );
   }
 
-  /// Cria cobranÃ§a PIX avulsa e retorna QR + cÃ³digo copia-e-cola.
+  /// Cria cobrança PIX avulsa e retorna QR + código copia-e-cola.
   Future<MpPixSession> createMpPixPayment({
     required String planId,
     BillingCycle billingCycle = BillingCycle.monthly,
@@ -110,7 +110,7 @@ class BillingService {
     );
   }
 
-  /// Compatibilidade: mantÃ©m createMpPreapproval apenas com planId.
+  /// Compatibilidade: mantém createMpPreapproval apenas com planId.
   Future<String> createMpPreapproval(String planId) async {
     final s = await createMpCheckout(planId: planId);
     return s.initPoint;

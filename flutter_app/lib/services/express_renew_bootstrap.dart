@@ -4,8 +4,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart'
     show EffectivePlanConfig, PlanPriceService;
 
-/// PrÃ©-aquece tenant, igreja e catÃ¡logo de planos antes de [RenewPlanPage]
-/// (web, Android, `/atualizar-plano`) para checkout anual + cartÃ£o mais rÃ¡pido.
+/// Pré-aquece tenant, igreja e catálogo de planos antes de [RenewPlanPage]
+/// (web, Android, `/atualizar-plano`) para checkout anual + cartão mais rápido.
 class ExpressRenewBootstrap {
   ExpressRenewBootstrap._();
   static final ExpressRenewBootstrap instance = ExpressRenewBootstrap._();
@@ -30,7 +30,7 @@ class ExpressRenewBootstrap {
     if (t.isNotEmpty) _cachedTenantId = t;
   }
 
-  /// Claims em cache; sÃ³ forÃ§a refresh se [forceRefresh] ou ainda vazio.
+  /// Claims em cache; só força refresh se [forceRefresh] ou ainda vazio.
   Future<String?> resolveTenantId({bool forceRefresh = false}) async {
     if (!forceRefresh &&
         _cachedTenantId != null &&
@@ -53,7 +53,7 @@ class ExpressRenewBootstrap {
     return null;
   }
 
-  /// Paraleliza preÃ§os + tenant + doc da igreja (cache Firestore quando possÃ­vel).
+  /// Paraleliza preços + tenant + doc da igreja (cache Firestore quando possível).
   Future<void> warmUp() {
     final existing = _warmInFlight;
     if (existing != null) return existing;

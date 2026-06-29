@@ -1,8 +1,9 @@
 import 'dart:async' show TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/services/church_functions_service.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Serializa payloads Firestore para Cloud Functions (Admin SDK).
 /// Web: evita assert Firestore quando há listeners concorrentes na mesma coleção.
@@ -69,6 +70,43 @@ abstract final class AdminFeedFirestoreBridge {
     );
   }
 
+  /// Doc raiz `igrejas/{churchId}` — Cadastro da Igreja (Web → CF Admin SDK).
+  static Future<void> upsertChurchRoot({
+    required String churchId,
+    required Map<String, dynamic> data,
+    required Future<void> Function() directWrite,
+    bool merge = true,
+  }) async {
+    if (kIsWeb) {
+      try {
+        await ChurchFunctionsService.adminUpsertChurchRoot(
+          churchId: churchId,
+          data: encodeMap(data),
+          merge: merge,
+        ).timeout(
+          kWebCfTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Gravação do cadastro demorou demais (servidor). Tente novamente.',
+            kWebCfTimeout,
+          ),
+        );
+        return;
+      } catch (cfError) {
+        debugPrint(
+          'AdminFeedFirestoreBridge: CF church root falhou — '
+          'fallback Firestore directo: $cfError',
+        );
+        await runFirestorePublishWithRecovery(
+          directWrite,
+          maxAttempts: 4,
+          criticalWrite: true,
+        );
+        return;
+      }
+    }
+    await directWrite();
+  }
+
   /// Grava via CF na Web; mobile mantém Firestore directo.
   static Future<void> upsertTenantDoc({
     required String churchId,
@@ -84,25 +122,39 @@ abstract final class AdminFeedFirestoreBridge {
   }) async {
     if (kIsWeb) {
       onProgress?.call(0.80);
-      await ChurchFunctionsService.adminUpsertFeedPost(
-        churchId: churchId,
-        collection: collection,
-        docId: docId,
-        subCollection: subCollection,
-        subDocId: subDocId,
-        data: encodeMap(data),
-        create: isNewDoc,
-        merge: !isNewDoc,
-        useUpdate: useUpdate,
-      ).timeout(
-        kWebCfTimeout,
-        onTimeout: () => throw TimeoutException(
-          'Gravação demorou demais (servidor). Tente novamente.',
+      try {
+        await ChurchFunctionsService.adminUpsertFeedPost(
+          churchId: churchId,
+          collection: collection,
+          docId: docId,
+          subCollection: subCollection,
+          subDocId: subDocId,
+          data: encodeMap(data),
+          create: isNewDoc,
+          merge: !isNewDoc,
+          useUpdate: useUpdate,
+        ).timeout(
           kWebCfTimeout,
-        ),
-      );
-      onProgress?.call(0.86);
-      return;
+          onTimeout: () => throw TimeoutException(
+            'Gravação demorou demais (servidor). Tente novamente.',
+            kWebCfTimeout,
+          ),
+        );
+        onProgress?.call(0.86);
+        return;
+      } catch (cfError) {
+        debugPrint(
+          'AdminFeedFirestoreBridge: CF falhou ($collection/$docId) — '
+          'fallback Firestore directo: $cfError',
+        );
+        await runFirestorePublishWithRecovery(
+          directWrite,
+          maxAttempts: 4,
+          criticalWrite: true,
+        );
+        onProgress?.call(0.86);
+        return;
+      }
     }
     await directWrite();
   }

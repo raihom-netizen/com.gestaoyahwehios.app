@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -1272,9 +1273,7 @@ class _TopBar extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                'assets/LOGO_GESTAO_YAHWEH.png',
-                fit: BoxFit.contain,
+              child: GestaoYahwehBrandLogo(
                 height: isNarrow ? 30 : 36,
                 width: isNarrow ? 30 : 36,
               ),

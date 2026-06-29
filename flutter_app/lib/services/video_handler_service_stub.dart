@@ -34,8 +34,8 @@ class VideoHandlerService implements IVideoHandlerService {
       final sizeMb = (bytes.length / (1024 * 1024)).toStringAsFixed(1);
       final limitMb = (pickLimit / (1024 * 1024)).round();
       throw StateError(
-        'O vÃ­deo pesa ${sizeMb}MB. Para manter a velocidade igual Ã  Web, '
-        'selecione vÃ­deos de atÃ© ${limitMb}MB ou grave em qualidade menor.',
+        'O vídeo pesa ${sizeMb}MB. Para manter a velocidade igual à Web, '
+        'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
       );
     }
     await firebaseDefaultAuth.currentUser?.getIdToken();

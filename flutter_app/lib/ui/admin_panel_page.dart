@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
@@ -729,13 +730,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                   children: [
                     SizedBox(
                       height: 36,
-                      child: Image.asset(
-                        'assets/LOGO_GESTAO_YAHWEH.png',
-                        fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(
-                            Icons.admin_panel_settings_rounded,
-                            color: Colors.white,
-                            size: 32),
+                      child: GestaoYahwehBrandLogo(
+                        height: 36,
+                        fallbackIconColor: Colors.white,
                       ),
                     ),
                     const SizedBox(width: ThemeCleanPremium.spaceSm),

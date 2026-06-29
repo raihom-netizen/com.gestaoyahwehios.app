@@ -52,7 +52,7 @@ class SystemHealthSnapshot {
   final String? tenantId;
 }
 
-/// Central de SaÃºde â€” probes runtime (painel Master ADM).
+/// Central de Saúde — probes runtime (painel Master ADM).
 abstract final class SystemHealthService {
   SystemHealthService._();
 
@@ -93,7 +93,7 @@ abstract final class SystemHealthService {
       SystemHealthCheck(
         label: 'Firebase Core',
         ok: firebase.coreInitialized,
-        detail: firebase.coreInitialized ? 'OK' : 'NÃ£o inicializado',
+        detail: firebase.coreInitialized ? 'OK' : 'Não inicializado',
         severity: firebase.coreInitialized
             ? SystemHealthSeverity.ok
             : SystemHealthSeverity.critical,
@@ -105,7 +105,7 @@ abstract final class SystemHealthService {
       SystemHealthCheck(
         label: 'Firebase Auth',
         ok: firebase.authOk,
-        detail: firebase.authDetail ?? (firebase.authOk ? 'SessÃ£o OK' : 'Sem sessÃ£o'),
+        detail: firebase.authDetail ?? (firebase.authOk ? 'Sessão OK' : 'Sem sessão'),
         severity:
             firebase.authOk ? SystemHealthSeverity.ok : SystemHealthSeverity.warn,
       ),
@@ -143,7 +143,7 @@ abstract final class SystemHealthService {
         label: 'FCM',
         ok: firebase.fcmOk,
         detail: firebase.fcmDetail ??
-            (firebase.fcmOk ? 'Push OK' : 'FCM indisponÃ­vel'),
+            (firebase.fcmOk ? 'Push OK' : 'FCM indisponível'),
         severity:
             firebase.fcmOk ? SystemHealthSeverity.ok : SystemHealthSeverity.warn,
       ),
@@ -166,10 +166,10 @@ abstract final class SystemHealthService {
     final avgMs = SessionPerformanceMetrics.averageLastMs;
     addCheck(
       SystemHealthCheck(
-        label: 'Tempo mÃ©dio consultas',
+        label: 'Tempo médio consultas',
         ok: avgMs == null || avgMs < 2500,
         detail: avgMs == null
-            ? 'Sem amostras nesta sessÃ£o'
+            ? 'Sem amostras nesta sessão'
             : '${avgMs.round()} ms (Firestore)',
         severity: avgMs != null && avgMs >= 4000
             ? SystemHealthSeverity.warn
@@ -198,7 +198,7 @@ abstract final class SystemHealthService {
         const SystemHealthCheck(
           label: 'Chat / Avisos / Eventos',
           ok: true,
-          detail: 'Sem tenant â€” teste com igreja vinculada',
+          detail: 'Sem tenant — teste com igreja vinculada',
           severity: SystemHealthSeverity.warn,
         ),
       );
@@ -217,10 +217,10 @@ abstract final class SystemHealthService {
 
     addCheck(
       SystemHealthCheck(
-        label: 'Backup automÃ¡tico',
+        label: 'Backup automático',
         ok: true,
         detail:
-            'CF backupDailyToGcs (Firestore) + backupDailyToDrive â€” ver Firebase Console',
+            'CF backupDailyToGcs (Firestore) + backupDailyToDrive — ver Firebase Console',
         severity: SystemHealthSeverity.info,
       ),
     );
@@ -238,7 +238,7 @@ abstract final class SystemHealthService {
 
     addCheck(
       SystemHealthCheck(
-        label: 'Modo emergÃªncia',
+        label: 'Modo emergência',
         ok: !EmergencyModeService.isActive,
         detail: EmergencyModeService.userMessage,
         severity: EmergencyModeService.isActive
@@ -252,11 +252,11 @@ abstract final class SystemHealthService {
         .toList();
     addCheck(
       SystemHealthCheck(
-        label: 'DegradaÃ§Ã£o automÃ¡tica',
+        label: 'Degradação automática',
         ok: degraded.isEmpty,
         detail: degraded.isEmpty
-            ? 'Todos os serviÃ§os opcionais OK'
-            : 'Degradados: ${degraded.map((s) => s.name).join(', ')} â€” app continua',
+            ? 'Todos os serviços opcionais OK'
+            : 'Degradados: ${degraded.map((s) => s.name).join(', ')} — app continua',
         severity: degraded.isEmpty ? SystemHealthSeverity.ok : SystemHealthSeverity.warn,
       ),
     );
@@ -268,7 +268,7 @@ abstract final class SystemHealthService {
     ServiceDegradationRegistry.applyHealth(
       storageOk: firebase.storageOk,
       fcmOk: firebase.fcmOk,
-      publicSiteOk: checks.any((c) => c.label == 'Site PÃºblico' && c.ok),
+      publicSiteOk: checks.any((c) => c.label == 'Site Público' && c.ok),
       firestoreOk: firebase.firestoreOk,
       functionsOk: firebase.functionsOk,
     );
@@ -303,10 +303,10 @@ abstract final class SystemHealthService {
     final online = AppConnectivityService.instance.isOnline;
     final pending = await HiveLocalStore.instance.listTasks();
     if (!online) {
-      return 'Offline â€” ${pending.length} tarefa(s) na fila Hive';
+      return 'Offline — ${pending.length} tarefa(s) na fila Hive';
     }
-    if (pending.isEmpty) return 'Online â€” fila Hive vazia';
-    return 'Online â€” ${pending.length} tarefa(s) pendente(s)';
+    if (pending.isEmpty) return 'Online — fila Hive vazia';
+    return 'Online — ${pending.length} tarefa(s) pendente(s)';
   }
 
   static Future<SystemHealthCheck> _chatCheck(String tenantId) async {
@@ -329,7 +329,7 @@ abstract final class SystemHealthService {
       return const SystemHealthCheck(
         label: 'Chat',
         ok: true,
-        detail: 'Leitura chats OK (regras + Ã­ndice)',
+        detail: 'Leitura chats OK (regras + índice)',
         severity: SystemHealthSeverity.ok,
       );
     } on FirebaseException catch (e) {
@@ -337,7 +337,7 @@ abstract final class SystemHealthService {
         return SystemHealthCheck(
           label: 'Chat',
           ok: false,
-          detail: 'permission-denied â€” publicar firestore.rules',
+          detail: 'permission-denied — publicar firestore.rules',
           severity: SystemHealthSeverity.critical,
         );
       }
@@ -449,16 +449,16 @@ abstract final class SystemHealthService {
     );
     if (warmed) {
       return const SystemHealthCheck(
-        label: 'Site PÃºblico',
+        label: 'Site Público',
         ok: true,
-        detail: 'Cache pÃºblico aquecido',
+        detail: 'Cache público aquecido',
         severity: SystemHealthSeverity.ok,
       );
     }
     return const SystemHealthCheck(
-      label: 'Site PÃºblico',
+      label: 'Site Público',
       ok: false,
-      detail: 'Degradado â€” painel e app continuam',
+      detail: 'Degradado — painel e app continuam',
       severity: SystemHealthSeverity.warn,
     );
   }
@@ -474,7 +474,7 @@ abstract final class SystemHealthService {
     if (total < 15) {
       return (ok: true, detail: '$total job(s) em fila local (normal)');
     }
-    return (ok: false, detail: '$total jobs presos â€” usar reenvio');
+    return (ok: false, detail: '$total jobs presos — usar reenvio');
   }
 
   static const Duration periodicInterval = Duration(minutes: 5);
@@ -484,7 +484,7 @@ abstract final class SystemHealthService {
   static SystemHealthSnapshot? lastPeriodicSnapshot;
   static String? lastPeriodicError;
 
-  /// Health check automÃ¡tico a cada 5 minutos (logs em YahwehFlowLog + Telemetry).
+  /// Health check automático a cada 5 minutos (logs em YahwehFlowLog + Telemetry).
   static void bindPeriodicProbe() {
     _periodicTimer?.cancel();
     unawaited(_runPeriodicProbe(reason: 'startup'));

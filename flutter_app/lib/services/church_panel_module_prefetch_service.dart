@@ -16,9 +16,9 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// PrÃ©-carrega **todos** os mÃ³dulos do painel apÃ³s login/dashboard â€” cache Hive + Firestore.
+/// Pré-carrega **todos** os módulos do painel após login/dashboard — cache Hive + Firestore.
 ///
-/// Antes: sÃ³ 3 mÃ³dulos em background e timeouts de 10â€“16s na web (listas vazias).
+/// Antes: só 3 módulos em background e timeouts de 10–16s na web (listas vazias).
 abstract final class ChurchPanelModulePrefetchService {
   ChurchPanelModulePrefetchService._();
 
@@ -32,7 +32,7 @@ abstract final class ChurchPanelModulePrefetchService {
     _warmedKeys.clear();
   }
 
-  /// Dispara prefetch completo (nÃ£o bloqueia UI).
+  /// Dispara prefetch completo (não bloqueia UI).
   static void scheduleFullPrefetch(String seedTenantId, {bool force = false}) {
     final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) return;
@@ -45,7 +45,7 @@ abstract final class ChurchPanelModulePrefetchService {
     unawaited(_runFullPrefetch(churchId, force: force));
   }
 
-  /// Um mÃ³dulo ao abrir no menu â€” idempotente por sessÃ£o.
+  /// Um módulo ao abrir no menu — idempotente por sessão.
   static void scheduleModule(String seedTenantId, String moduleKey) {
     final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty || moduleKey.trim().isEmpty) return;
@@ -61,7 +61,7 @@ abstract final class ChurchPanelModulePrefetchService {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 
-      // Doc raiz + doaÃ§Ã£o (paths especiais) em paralelo leve.
+      // Doc raiz + doação (paths especiais) em paralelo leve.
       unawaited(
         ChurchCadastroLoadService.load(seedTenantId: churchId).then(
           (_) {},

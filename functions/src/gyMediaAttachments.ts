@@ -5,6 +5,7 @@
 import * as functions from "firebase-functions/v1";
 import { admin, fs, storageBucket } from "./adminDb";
 import { resolveTenantIdForCallable, userCanAccessTenant } from "./tenantCallableResolve";
+import { resolvePublicChurchIdFromInput } from "./panelPublicSiteCache";
 
 const CF_DELETE = "__DELETE__";
 const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
@@ -297,6 +298,33 @@ export const gyAdminUpsertFeedPost = functions
     };
   });
 
+/**
+ * Web: merge doc raiz `igrejas/{churchId}` via Admin SDK.
+ * Espelho WISDOMAPP — evita INTERNAL ASSERTION no Firestore JS ao gravar cadastro.
+ */
+export const gyAdminUpsertChurchRoot = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 60, memory: "256MB" })
+  .https.onCall(async (data, context) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const churchId = String(body.churchId || body.tenantId || "").trim();
+    const rawData = (body.data || {}) as Record<string, unknown>;
+    const merge = body.merge !== false;
+
+    const auth = await requireChurchAccess(context, churchId);
+    const decoded = decodeAdminFirestoreMap(rawData);
+    decoded.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+    const docRef = fs().collection("igrejas").doc(auth.churchId);
+    if (merge) {
+      await docRef.set(decoded, { merge: true });
+    } else {
+      await docRef.set(decoded);
+    }
+
+    return { ok: true, path: docRef.path };
+  });
+
 /** Exclusão em lote de posts aviso/evento (admin). */
 export const gyAdminDeleteFeedPosts = functions
   .region("us-central1")
@@ -377,4 +405,92 @@ export const gyPublicMemberSignup = functions
 
     await docRef.set(decoded, { merge: true });
     return { ok: true, docId, path: docRef.path };
+  });
+
+function pickPublicString(data: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = data[k];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return "";
+}
+
+/** Status de cadastro público — visitante anónimo (sem leitura directa de `membros`). */
+export const gyPublicSignupStatus = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 30, memory: "256MB" })
+  .https.onCall(async (data) => {
+    const body = (data || {}) as Record<string, unknown>;
+    const protocolo = String(body.protocolo || body.docId || "").trim();
+    if (!protocolo) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "protocolo ausente.",
+      );
+    }
+
+    const churchId = await resolvePublicChurchIdFromInput(
+      body.churchId ?? body.tenantId ?? body.slug,
+    );
+    if (!churchId) {
+      throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+    }
+
+    const churchSnap = await fs().collection("igrejas").doc(churchId).get();
+    if (!churchSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+    }
+    const church = (churchSnap.data() ?? {}) as Record<string, unknown>;
+    const churchName =
+      pickPublicString(church, ["nome", "name", "NOME_IGREJA", "nomeIgreja"]) ||
+      "Igreja";
+
+    const membros = fs()
+      .collection("igrejas")
+      .doc(churchId)
+      .collection("membros");
+
+    let memberSnap = await membros.doc(protocolo).get();
+    if (!memberSnap.exists) {
+      const legacy = await membros
+        .where("legacyMemberDocId", "==", protocolo)
+        .limit(1)
+        .get();
+      if (!legacy.empty) memberSnap = legacy.docs[0];
+    }
+
+    if (!memberSnap.exists) {
+      return {
+        ok: false,
+        found: false,
+        churchId,
+        churchName,
+        error: "Cadastro não localizado para o protocolo informado.",
+      };
+    }
+
+    const member = (memberSnap.data() ?? {}) as Record<string, unknown>;
+    if (member.publicSignup !== true) {
+      return {
+        ok: false,
+        found: false,
+        churchId,
+        churchName,
+        error: "Protocolo inválido para acompanhamento público.",
+      };
+    }
+
+    const nome =
+      pickPublicString(member, ["NOME_COMPLETO", "nome", "name"]) || "Membro";
+    const status = String(member.status ?? member.STATUS ?? "pendente").trim();
+
+    return {
+      ok: true,
+      found: true,
+      churchId,
+      churchName,
+      protocolo: memberSnap.id,
+      nome,
+      status,
+    };
   });

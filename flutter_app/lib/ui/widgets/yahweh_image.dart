@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -36,7 +37,7 @@ class YahwehImage extends StatelessWidget {
     this.isLogo = false,
   });
 
-  static const String _brandAsset = 'assets/LOGO_GESTAO_YAHWEH.png';
+  static const String _brandAsset = kGestaoYahwehBrandLogoAsset;
 
   Widget _brandFallback() {
     return Image.asset(

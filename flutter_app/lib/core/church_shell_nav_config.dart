@@ -7,64 +7,166 @@ const IconData kFornecedoresModuleIcon = Icons.local_shipping_rounded;
 /// Entrada do menu lateral do painel da igreja ([IgrejaCleanShell]).
 /// A ordem define os **índices** (`_selectedIndex`, cache de páginas, etc.).
 /// [accent] — cor do módulo (chips do menu, rodapé, identidade visual moderna).
+/// [subtitle] — descrição curta no cabeçalho mobile e no drawer (padrão WISDOMAPP).
 class ChurchShellNavEntry {
   final IconData icon;
   final String label;
   final Color accent;
-  const ChurchShellNavEntry(this.icon, this.label, this.accent);
+  final String subtitle;
+  const ChurchShellNavEntry(
+    this.icon,
+    this.label,
+    this.accent, {
+    this.subtitle = '',
+  });
 }
 
 /// Menu completo — única fonte para labels + ícones + cores + warmup de fonte Material na web.
 const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(
-      Icons.insights_rounded, 'Painel', Color(0xFF3B82F6)),
+    Icons.insights_rounded,
+    'Painel',
+    Color(0xFF3B82F6),
+    subtitle: 'Visão geral e atalhos da igreja',
+  ),
   ChurchShellNavEntry(
-      Icons.domain_rounded, 'Cadastro da Igreja', Color(0xFF6366F1)),
+    Icons.domain_rounded,
+    'Cadastro da Igreja',
+    Color(0xFF6366F1),
+    subtitle: 'Logo, endereço e dados oficiais',
+  ),
   ChurchShellNavEntry(
-      Icons.settings_suggest_rounded, 'Configurações', Color(0xFF64748B)),
+    Icons.settings_suggest_rounded,
+    'Configurações',
+    Color(0xFF64748B),
+    subtitle: 'Conta, notificações e preferências',
+  ),
   ChurchShellNavEntry(
-      Icons.people_alt_rounded, 'Membros', Color(0xFF14B8A6)),
+    Icons.people_alt_rounded,
+    'Membros',
+    Color(0xFF14B8A6),
+    subtitle: 'Cadastro, fotos e carteirinha',
+  ),
   ChurchShellNavEntry(
-      Icons.groups_3_rounded, 'Departamentos', Color(0xFF8B5CF6)),
+    Icons.groups_3_rounded,
+    'Departamentos',
+    Color(0xFF8B5CF6),
+    subtitle: 'Ministérios e equipes de serviço',
+  ),
   ChurchShellNavEntry(
-      Icons.person_add_alt_1_rounded, 'Visitantes', Color(0xFFF59E0B)),
-  ChurchShellNavEntry(Icons.badge_rounded, 'Cargos', Color(0xFFF43F5E)),
+    Icons.person_add_alt_1_rounded,
+    'Visitantes',
+    Color(0xFFF59E0B),
+    subtitle: 'Primeira visita e acompanhamento',
+  ),
   ChurchShellNavEntry(
-      Icons.campaign_rounded, 'Mural de Avisos', Color(0xFF0EA5E9)),
+    Icons.badge_rounded,
+    'Cargos',
+    Color(0xFFF43F5E),
+    subtitle: 'Funções e liderança ministerial',
+  ),
   ChurchShellNavEntry(
-      Icons.celebration_rounded, 'Mural de Eventos', Color(0xFFF97316)),
+    Icons.campaign_rounded,
+    'Avisos',
+    Color(0xFF0EA5E9),
+    subtitle: 'Mural e comunicados oficiais',
+  ),
   ChurchShellNavEntry(
-      Icons.volunteer_activism_rounded, 'Pedidos de Oração', Color(0xFFEC4899)),
+    Icons.celebration_rounded,
+    'Eventos',
+    Color(0xFFF97316),
+    subtitle: 'Cultos, programação e feed',
+  ),
   ChurchShellNavEntry(
-      Icons.event_available_rounded, 'Agenda', Color(0xFF2563EB)),
+    Icons.volunteer_activism_rounded,
+    'Pedidos de Oração',
+    Color(0xFFEC4899),
+    subtitle: 'Pedidos e acompanhamento pastoral',
+  ),
   ChurchShellNavEntry(
-      Icons.edit_calendar_rounded, 'Minha Escala', Color(0xFF06B6D4)),
+    Icons.event_available_rounded,
+    'Agenda',
+    Color(0xFF2563EB),
+    subtitle: 'Calendário e cultos fixos',
+  ),
   ChurchShellNavEntry(
-      Icons.view_timeline_rounded, 'Escala Geral', Color(0xFF14B8A6)),
+    Icons.edit_calendar_rounded,
+    'Minha Escala',
+    Color(0xFF06B6D4),
+    subtitle: 'Seus compromissos na igreja',
+  ),
   ChurchShellNavEntry(
-      Icons.badge_rounded, 'Cartão do membro', Color(0xFF10B981)),
+    Icons.view_timeline_rounded,
+    'Escala Geral',
+    Color(0xFF14B8A6),
+    subtitle: 'Escalas de todos os departamentos',
+  ),
   ChurchShellNavEntry(
-      Icons.verified_rounded, 'Certificados', Color(0xFF7C3AED)),
-  ChurchShellNavEntry(Icons.mail_rounded, 'Cartas e transferências',
-      Color(0xFFA78BFA)),
+    Icons.badge_rounded,
+    'Cartão membro',
+    Color(0xFF10B981),
+    subtitle: 'Carteirinha digital do membro',
+  ),
   ChurchShellNavEntry(
-      Icons.analytics_rounded, 'Relatórios', Color(0xFFCA8A04)),
-  /// `info_rounded` pode sair vazio na web (subset Material tree-shake); `feedback_rounded` cobre bem “informações / sugestões”.
+    Icons.verified_rounded,
+    'Certificados',
+    Color(0xFF7C3AED),
+    subtitle: 'Emissão e histórico de certificados',
+  ),
   ChurchShellNavEntry(
-      Icons.feedback_rounded, 'Informações', Color(0xFF38BDF8)),
+    Icons.mail_rounded,
+    'Cartas e transferências',
+    Color(0xFFA78BFA),
+    subtitle: 'Cartas oficiais e mudança de igreja',
+  ),
   ChurchShellNavEntry(
-      Icons.fact_check_rounded, 'Aprovações rápidas', Color(0xFF22C55E)),
+    Icons.analytics_rounded,
+    'Relatórios',
+    Color(0xFFCA8A04),
+    subtitle: 'Indicadores e exportações',
+  ),
   ChurchShellNavEntry(
-      Icons.account_balance_wallet_rounded, 'Financeiro', Color(0xFF16A34A)),
+    Icons.feedback_rounded,
+    'Informações',
+    Color(0xFF38BDF8),
+    subtitle: 'Ajuda, versão e atualizações do app',
+  ),
   ChurchShellNavEntry(
-      Icons.inventory_2_rounded, 'Patrimônio', Color(0xFFD97706)),
+    Icons.fact_check_rounded,
+    'Aprovações rápidas',
+    Color(0xFF22C55E),
+    subtitle: 'Membros pendentes de aprovação',
+  ),
   ChurchShellNavEntry(
-      kFornecedoresModuleIcon, 'Fornecedores', Color(0xFF475569)),
+    Icons.account_balance_wallet_rounded,
+    'Financeiro',
+    Color(0xFF16A34A),
+    subtitle: 'Entradas, saídas e saldo',
+  ),
   ChurchShellNavEntry(
-      Icons.favorite_rounded, 'Doação', Color(0xFFDC2626)),
-  /// Chat entre membros / grupos por departamento (estilo WhatsApp).
+    Icons.inventory_2_rounded,
+    'Patrimônio',
+    Color(0xFFD97706),
+    subtitle: 'Bens e inventário da igreja',
+  ),
   ChurchShellNavEntry(
-      Icons.chat_rounded, 'Chat - Igreja', Color(0xFF0D9488)),
+    kFornecedoresModuleIcon,
+    'Fornecedores',
+    Color(0xFF475569),
+    subtitle: 'Cadastro e compromissos',
+  ),
+  ChurchShellNavEntry(
+    Icons.favorite_rounded,
+    'Doação',
+    Color(0xFFDC2626),
+    subtitle: 'Contribua com a igreja',
+  ),
+  ChurchShellNavEntry(
+    Icons.chat_rounded,
+    'Chat Igreja',
+    Color(0xFF0D9488),
+    subtitle: 'Mensagens e grupos por departamento',
+  ),
 ];
 
 /// Acentos derivados de [kChurchShellNavEntries] — login, marketing e Torre Master SaaS

@@ -21,7 +21,7 @@ class MultiTenantCheckResult {
   });
 }
 
-/// DiagnÃ³stico Multi-Tenant â€” Regra 7 (Painel Master).
+/// Diagnóstico Multi-Tenant — Regra 7 (Painel Master).
 abstract final class MultiTenantDiagnosticService {
   MultiTenantDiagnosticService._();
 
@@ -73,7 +73,7 @@ abstract final class MultiTenantDiagnosticService {
         id: 'auth',
         label: 'Firebase Auth',
         status: MultiTenantCheckStatus.error,
-        detail: 'Sem sessÃ£o ativa.',
+        detail: 'Sem sessão ativa.',
       );
     }
     return MultiTenantCheckResult(
@@ -106,7 +106,7 @@ abstract final class MultiTenantDiagnosticService {
         id: 'users',
         label: 'users/{uid}',
         status: ig.isNotEmpty ? MultiTenantCheckStatus.ok : MultiTenantCheckStatus.warn,
-        detail: 'igrejaId=$ig Â· tenantId=$tn Â· canonical=$canon',
+        detail: 'igrejaId=$ig · tenantId=$tn · canonical=$canon',
       );
     } catch (e) {
       return MultiTenantCheckResult(
@@ -145,7 +145,7 @@ abstract final class MultiTenantDiagnosticService {
         id: 'direct_path',
         label: 'igrejas/{churchId}',
         status: MultiTenantCheckStatus.warn,
-        detail: 'Doc nÃ£o encontrado: igrejas/$id',
+        detail: 'Doc não encontrado: igrejas/$id',
       );
     } catch (e) {
       return MultiTenantCheckResult(
@@ -182,8 +182,8 @@ abstract final class MultiTenantDiagnosticService {
         id: 'canonical',
         label: 'canonicalId',
         status: MultiTenantCheckStatus.ok,
-        detail: '${ctx.seedId} â†’ ${ctx.canonicalId}'
-            '${synced ? ' Â· users sincronizado' : ''}',
+        detail: '${ctx.seedId} → ${ctx.canonicalId}'
+            '${synced ? ' · users sincronizado' : ''}',
       );
     } catch (e) {
       return MultiTenantCheckResult(
@@ -270,7 +270,7 @@ abstract final class MultiTenantDiagnosticService {
         id: 'departamentos',
         label: 'Departamentos',
         status: n > 0 ? MultiTenantCheckStatus.ok : MultiTenantCheckStatus.warn,
-        detail: n > 0 ? '$n departamento(s).' : 'Lista vazia apÃ³s resolver.',
+        detail: n > 0 ? '$n departamento(s).' : 'Lista vazia após resolver.',
       );
     } catch (e) {
       return MultiTenantCheckResult(
@@ -290,7 +290,7 @@ abstract final class MultiTenantDiagnosticService {
         id: 'cargos',
         label: 'Cargos',
         status: n > 0 ? MultiTenantCheckStatus.ok : MultiTenantCheckStatus.warn,
-        detail: n > 0 ? '$n cargo(s).' : 'Lista vazia apÃ³s resolver.',
+        detail: n > 0 ? '$n cargo(s).' : 'Lista vazia após resolver.',
       );
     } catch (e) {
       return MultiTenantCheckResult(

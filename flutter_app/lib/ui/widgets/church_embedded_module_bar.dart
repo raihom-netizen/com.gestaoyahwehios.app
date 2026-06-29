@@ -25,7 +25,7 @@ class ChurchEmbeddedModuleBar extends StatelessWidget {
     final narrow = MediaQuery.sizeOf(context).width < 400;
     return Material(
       color: Colors.transparent,
-      child: Container(
+        child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -42,6 +42,14 @@ class ChurchEmbeddedModuleBar extends StatelessWidget {
               offset: const Offset(0, 3),
             ),
           ],
+        ),
+        foregroundDecoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Color(0x66FFE082),
+              width: 2,
+            ),
+          ),
         ),
         child: SafeArea(
           bottom: false,

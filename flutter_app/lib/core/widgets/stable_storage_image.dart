@@ -29,6 +29,7 @@ class StableStorageImage extends StatefulWidget {
     this.onLoadError,
     /// `false` = renovar token Storage na web antes dos bytes (painel avisos/eventos com URL antiga).
     this.skipFreshDisplayUrl = true,
+    this.fallbackStoragePaths = const [],
   });
 
   final String? storagePath;
@@ -45,6 +46,7 @@ class StableStorageImage extends StatefulWidget {
   /// Diagnóstico (ex.: mural): falha ao resolver URL ou carregar bytes.
   final void Function(String url, Object? error)? onLoadError;
   final bool skipFreshDisplayUrl;
+  final List<String> fallbackStoragePaths;
 
   @override
   State<StableStorageImage> createState() => _StableStorageImageState();
@@ -66,11 +68,13 @@ class _StableStorageImageState extends State<StableStorageImage> {
           storagePath: oldWidget.storagePath,
           imageUrl: oldWidget.imageUrl,
           gsUrl: oldWidget.gsUrl,
+          fallbackStoragePaths: oldWidget.fallbackStoragePaths,
         ) !=
         AppStorageImageService.cacheKey(
           storagePath: widget.storagePath,
           imageUrl: widget.imageUrl,
           gsUrl: widget.gsUrl,
+          fallbackStoragePaths: widget.fallbackStoragePaths,
         ) ||
         oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl) {
       _future = _load();
@@ -81,6 +85,7 @@ class _StableStorageImageState extends State<StableStorageImage> {
         storagePath: widget.storagePath,
         imageUrl: widget.imageUrl,
         gsUrl: widget.gsUrl,
+        fallbackStoragePaths: widget.fallbackStoragePaths,
       );
 
   @override

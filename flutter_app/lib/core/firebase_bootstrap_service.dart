@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
@@ -338,16 +339,38 @@ abstract final class FirebaseBootstrapService {
 
   static Reference storageRef(String path) => storage.ref(path);
 
-  static Never _throwSessionExpired() {
-    if (kIsWeb) WebPanelStability.markSessionExpired();
+  static Never _throwSessionUnavailable() {
     throw FirebaseBootstrapException.from(
       StateError(
-        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+        'Sessão indisponível no momento. O painel continua em cache — '
+        'se persistir, use Configurações → Trocar de conta.',
       ),
       StackTrace.current,
-      code: 'auth_session_expired',
+      code: 'auth_session_unavailable',
     );
   }
+
+  /// Firebase Auth em memória ou disco — sem marcar «sessão expirada» na UI.
+  static Future<User?> resolveAuthenticatedUser({
+    Duration waitCap = const Duration(seconds: 2),
+  }) async {
+    final sync = auth.currentUser;
+    if (sync != null && !sync.isAnonymous) {
+      if (kIsWeb) WebPanelStability.bindLoginSession(sync);
+      return sync;
+    }
+    try {
+      final restored = await SessionRestoreService.waitForPersistedFirebaseUser()
+          .timeout(waitCap, onTimeout: () => null);
+      if (restored != null && !restored.isAnonymous) {
+        if (kIsWeb) WebPanelStability.bindLoginSession(restored);
+        return restored;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Never _throwSessionExpired() => _throwSessionUnavailable();
 
   /// Arranque obrigatório — chamar em [main] **antes** de [runApp].
   static Future<FirebaseBootstrapResult> initialize() async {
@@ -513,9 +536,9 @@ abstract final class FirebaseBootstrapService {
       return;
     }
     if (isStorageUploadBootstrapFresh) return;
-    final user = auth.currentUser;
-    if (user == null || user.isAnonymous) {
-      _throwSessionExpired();
+    final user = await resolveAuthenticatedUser();
+    if (user == null) {
+      _throwSessionUnavailable();
     }
     await FirebaseAuthTokenGuard.refreshIfStale();
     _storageUploadBootstrapAt = DateTime.now();
@@ -569,17 +592,12 @@ abstract final class FirebaseBootstrapService {
 
     try {
       final a = FirebaseAuth.instanceFor(app: app);
-      final user = a.currentUser;
       if (requireAuthSession) {
+        final user = await resolveAuthenticatedUser();
         if (user == null) {
           authOk = false;
           authDetail = 'no_user';
-          _throwSessionExpired();
-        }
-        if (user.isAnonymous) {
-          authOk = false;
-          authDetail = 'anonymous';
-          _throwSessionExpired();
+          _throwSessionUnavailable();
         }
         try {
           await FirebaseAuthTokenGuard.refreshIfStale(force: false);
@@ -594,7 +612,8 @@ abstract final class FirebaseBootstrapService {
       }
     } catch (e) {
       if (e is FirebaseBootstrapException &&
-          e.code == 'auth_session_expired') {
+          (e.code == 'auth_session_expired' ||
+              e.code == 'auth_session_unavailable')) {
         rethrow;
       }
       if (e is StateError && e.message.contains('Sessão')) rethrow;

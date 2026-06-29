@@ -49,11 +49,10 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
         try {
           FirebaseBootstrapService.probeStorageLinked();
           if (!requireAuth) return;
-          final user = FirebaseBootstrapService.auth.currentUser;
-          if (user == null || user.isAnonymous) {
-            if (kIsWeb) WebPanelStability.markSessionExpired();
+          final user = await FirebaseBootstrapService.resolveAuthenticatedUser();
+          if (user == null) {
             throw StateError(
-              'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+              'Sessão indisponível no momento. Tente novamente em instantes.',
             );
           }
           try {
@@ -80,11 +79,10 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
       }
 
       if (requireAuth) {
-        final user = FirebaseBootstrapService.auth.currentUser;
-        if (user == null || user.isAnonymous) {
-          if (kIsWeb) WebPanelStability.markSessionExpired();
+        final user = await FirebaseBootstrapService.resolveAuthenticatedUser();
+        if (user == null) {
           throw StateError(
-            'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+            'Sessão indisponível no momento. Tente novamente em instantes.',
           );
         }
       }

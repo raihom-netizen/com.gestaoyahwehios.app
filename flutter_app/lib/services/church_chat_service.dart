@@ -43,7 +43,7 @@ import 'media_upload_service.dart';
 import 'storage_media_service.dart';
 import 'upload_storage_task.dart' show formatUploadErrorForUser;
 
-/// Indicadores Â«a digitar / a gravarÂ» num thread (polling leve).
+/// Indicadores «a digitar / a gravar» num thread (polling leve).
 class ChurchChatTypingActivity {
   const ChurchChatTypingActivity({
     this.names = const [],
@@ -60,24 +60,24 @@ class ChurchChatTypingActivity {
   String get label {
     if (recording > 0 && names.isEmpty && unnamed == 0) {
       return recording == 1
-          ? 'A gravar Ã¡udioâ€¦'
-          : '$recording pessoas a gravar Ã¡udioâ€¦';
+          ? 'A gravar áudio…'
+          : '$recording pessoas a gravar áudio…';
     }
     if (names.isEmpty) {
       return unnamed == 1
-          ? 'A digitarâ€¦'
-          : '$unnamed pessoas a digitarâ€¦';
+          ? 'A digitar…'
+          : '$unnamed pessoas a digitar…';
     }
     if (unnamed == 0) {
       return names.length == 1
-          ? '${names.first} estÃ¡ a digitarâ€¦'
-          : '${names.join(', ')} estÃ£o a digitarâ€¦';
+          ? '${names.first} está a digitar…'
+          : '${names.join(', ')} estão a digitar…';
     }
-    return '${names.join(', ')} e mais $unnamed a digitarâ€¦';
+    return '${names.join(', ')} e mais $unnamed a digitar…';
   }
 }
 
-/// Chat entre membros / grupos por departamento â€” retenÃ§Ã£o: texto 30 dias, mÃ­dia 3 dias.
+/// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
 class ChurchChatService {
   ChurchChatService._();
 
@@ -88,7 +88,7 @@ class ChurchChatService {
   static const String deliveryLocal = 'local';
   static const String deliverySending = 'sending';
   static const String deliveryUploading = 'uploading';
-  /// Aguardando rede / fila de reenvio (stub mantÃ©m-se; nÃ£o apagar mensagem).
+  /// Aguardando rede / fila de reenvio (stub mantém-se; não apagar mensagem).
   static const String deliveryQueued = 'queued';
   static const String deliverySent = 'sent';
   static const String deliveryDelivered = 'delivered';
@@ -125,10 +125,10 @@ class ChurchChatService {
     return ChurchOperationalPaths.churchDoc(tenantId).collection('chat_stickers');
   }
 
-  /// HistÃ³rico por pÃ¡ginas no cliente (`startAfter` + stream da pÃ¡gina recente).
+  /// Histórico por páginas no cliente (`startAfter` + stream da página recente).
   ///
-  /// **Realtime (Â§11):** `snapshots()` em [recentMessagesStream] com
-  /// `orderBy(createdAt, descending: true)` â€” campo canÃ³nico = Â«timestampÂ» da mensagem.
+  /// **Realtime (§11):** `snapshots()` em [recentMessagesStream] com
+  /// `orderBy(createdAt, descending: true)` — campo canónico = «timestamp» da mensagem.
   static const String messageTimestampField = 'createdAt';
 
   static const int defaultMessagePageSize =
@@ -148,7 +148,7 @@ class ChurchChatService {
         .limit(pageSize);
   }
 
-  /// Leitura pontual estÃ¡vel (Controle Total) â€” cache â†’ rede com retry.
+  /// Leitura pontual estável (Controle Total) — cache → rede com retry.
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       fetchRecentMessagesPage({
     required String tenantId,
@@ -163,7 +163,7 @@ class ChurchChatService {
     );
   }
 
-  /// Stream da cauda recente â€” resiliente a rede/`INTERNAL ASSERTION` (web).
+  /// Stream da cauda recente — resiliente a rede/`INTERNAL ASSERTION` (web).
   static Stream<QuerySnapshot<Map<String, dynamic>>> recentMessagesStream({
     required String tenantId,
     required String threadId,
@@ -185,7 +185,7 @@ class ChurchChatService {
     );
   }
 
-  /// PÃ¡gina mais antiga (`startAfterDocument`) para scroll infinito.
+  /// Página mais antiga (`startAfterDocument`) para scroll infinito.
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       loadOlderMessagesPage({
     required String tenantId,
@@ -206,8 +206,8 @@ class ChurchChatService {
     return threadRef(tenantId, threadId).collection('typing');
   }
 
-  /// Threads em que o utilizador participa â€” ordenadas por atividade.
-  /// Usa o Ã­ndice composto em `firestore.indexes.json` (`participantUids` + `lastMessageAt`).
+  /// Threads em que o utilizador participa — ordenadas por atividade.
+  /// Usa o índice composto em `firestore.indexes.json` (`participantUids` + `lastMessageAt`).
   static Query<Map<String, dynamic>> chatThreadsQueryForUser(
     String tenantId,
     String uid,
@@ -219,7 +219,7 @@ class ChurchChatService {
     );
   }
 
-  /// Threads com `participantUids` mas sem `lastMessageAt` (nÃ£o entram na query ordenada).
+  /// Threads com `participantUids` mas sem `lastMessageAt` (não entram na query ordenada).
   static Query<Map<String, dynamic>> chatThreadsParticipantQuery(
     String tenantId,
     String uid,
@@ -230,8 +230,8 @@ class ChurchChatService {
         .limit(YahwehPerformanceV4.chatThreadsFallbackLimit);
   }
 
-  /// NÃ£o usar `limit(N)` sem filtro em listeners â€” as regras Firestore rejeitam a query
-  /// inteira (permission-denied) se algum doc da igreja nÃ£o for legÃ­vel ao utilizador.
+  /// Não usar `limit(N)` sem filtro em listeners — as regras Firestore rejeitam a query
+  /// inteira (permission-denied) se algum doc da igreja não for legível ao utilizador.
   @Deprecated('Usar chatThreadsParticipantQuery + fallback por id dm_*')
   static Query<Map<String, dynamic>> chatThreadsBroadScanQuery(String tenantId) {
     return chatThreadsParticipantQuery(
@@ -258,7 +258,7 @@ class ChurchChatService {
     return null;
   }
 
-  /// ParticipaÃ§Ã£o no thread â€” Ã­ndice `participantUids` ou id `dm_{uid}_â€¦` (Firestore rules).
+  /// Participação no thread — índice `participantUids` ou id `dm_{uid}_…` (Firestore rules).
   static bool userParticipatesInThread({
     required String threadId,
     required Map<String, dynamic> data,
@@ -273,7 +273,7 @@ class ChurchChatService {
     return userInDmThreadId(threadId, uid);
   }
 
-  /// DM sÃ³ entra na lista Â«ConversasÂ» depois da primeira mensagem real (evita Â«Toque para conversarÂ» de quem nunca falou).
+  /// DM só entra na lista «Conversas» depois da primeira mensagem real (evita «Toque para conversar» de quem nunca falou).
   ///
   /// Equivalente Firestore ao spec `conversations/{id}`: doc em `chat_threads/{id}`.
   static bool threadHasListableConversation(
@@ -296,7 +296,7 @@ class ChurchChatService {
     if (mc is num && mc > 0) return true;
     final lm = data['lastMessageAt'];
     if (lm is Timestamp) return true;
-    // Threads DM indexados mas metadados incompletos (legado / web) â€” manter na lista.
+    // Threads DM indexados mas metadados incompletos (legado / web) — manter na lista.
     if (id.startsWith('dm_') && data['participantUids'] is List) {
       final peerCount = (data['participantUids'] as List)
           .map((e) => e.toString().trim())
@@ -330,11 +330,11 @@ class ChurchChatService {
         current.map((e) => e.toString()).contains(u2);
     if (!hasBoth) patch['participantUids'] = [u1, u2];
     if (data['type'] != 'dm') patch['type'] = 'dm';
-    // lastMessageAt sÃ³ a partir de mensagem real â€” nÃ£o usar createdAt (senÃ£o DM vazio ocupa o top-220).
+    // lastMessageAt só a partir de mensagem real — não usar createdAt (senão DM vazio ocupa o top-220).
     return patch.isEmpty ? null : patch;
   }
 
-  /// Ãndice DM (`participantUids`, `type`) â€” escrita separada (regras Firestore).
+  /// Índice DM (`participantUids`, `type`) — escrita separada (regras Firestore).
   static Future<void> mergeDmThreadIndexIfNeeded(
     String tenantId,
     String threadId,
@@ -348,14 +348,14 @@ class ChurchChatService {
     } catch (_) {}
   }
 
-  /// Atualiza `chat_threads` (= conversations no spec) â€” ordenaÃ§Ã£o por `lastMessageAt`.
+  /// Atualiza `chat_threads` (= conversations no spec) — ordenação por `lastMessageAt`.
   static Map<String, dynamic> threadLastMessageIndexPatch({
     required String preview,
     required String senderUid,
     required String messageType,
   }) {
     final p = preview.trim();
-    final short = p.length > 120 ? '${p.substring(0, 117)}â€¦' : p;
+    final short = p.length > 120 ? '${p.substring(0, 117)}…' : p;
     return {
       'lastMessageAt': FieldValue.serverTimestamp(),
       'lastMessage': short,
@@ -367,7 +367,7 @@ class ChurchChatService {
     };
   }
 
-  /// Garante doc DM antes do 1.Âº envio (regras exigem `exists` no thread).
+  /// Garante doc DM antes do 1.º envio (regras exigem `exists` no thread).
   static Future<void> _ensureDmThreadDocBeforeSend(
     String tenantId,
     String threadId,
@@ -400,7 +400,7 @@ class ChurchChatService {
     );
   }
 
-  /// Mensagem + Ã­ndice do thread no mesmo commit (evita conversa invisÃ­vel na lista).
+  /// Mensagem + índice do thread no mesmo commit (evita conversa invisível na lista).
   static Future<void> _commitMessageAndThreadIndex({
     required String tenantId,
     required String threadId,
@@ -499,7 +499,7 @@ class ChurchChatService {
       if (t == 'text') {
         preview = (msg['text'] ?? '').toString().trim();
       }
-      if (preview.length > 120) preview = '${preview.substring(0, 117)}â€¦';
+      if (preview.length > 120) preview = '${preview.substring(0, 117)}…';
 
       final patch = <String, dynamic>{
         'hasConversation': true,
@@ -570,7 +570,7 @@ class ChurchChatService {
         patch ??= <String, dynamic>{};
         patch.addAll(msgPatch);
       }
-      // SÃ³ remove Ã­ndice de ordenaÃ§Ã£o se o thread nÃ£o tem mensagens (evita sumir da lista).
+      // Só remove índice de ordenação se o thread não tem mensagens (evita sumir da lista).
       final hasMessages = await doc.reference
           .collection('messages')
           .limit(1)
@@ -607,7 +607,7 @@ class ChurchChatService {
     return n;
   }
 
-  /// Fallback quando a query ampla falha na web: lÃª threads DM por id (`dm_{uid}_peer`).
+  /// Fallback quando a query ampla falha na web: lê threads DM por id (`dm_{uid}_peer`).
   static Future<QuerySnapshot<Map<String, dynamic>>> loadDmThreadsSnapshotFallback({
     required String tenantId,
     required String uid,
@@ -629,7 +629,7 @@ class ChurchChatService {
       }
     } catch (_) {}
 
-    // Queries vÃ¡lidas nas regras (participant + indexada).
+    // Queries válidas nas regras (participant + indexada).
     try {
       for (final doc
           in (await firestoreQueryGetReliable(
@@ -740,7 +740,7 @@ class ChurchChatService {
     _chatThreadsStreamByKey.clear();
   }
 
-  /// Stream de conversas: uma instÃ¢ncia por igreja+utilizador (estÃ¡vel como WhatsApp).
+  /// Stream de conversas: uma instância por igreja+utilizador (estável como WhatsApp).
   static Stream<QuerySnapshot<Map<String, dynamic>>> chatThreadsSnapshotsForUser(
     String tenantId,
     String uid,
@@ -753,7 +753,7 @@ class ChurchChatService {
     return stream;
   }
 
-  /// Web: lista de conversas sÃ³ via cache + `.get()` â€” evita 2Ã— `snapshots()` paralelos.
+  /// Web: lista de conversas só via cache + `.get()` — evita 2× `snapshots()` paralelos.
   static Stream<QuerySnapshot<Map<String, dynamic>>>
       _chatThreadsWebCacheFirstStream(
     String tenantId,
@@ -1006,10 +1006,10 @@ class ChurchChatService {
     return controller.stream;
   }
 
-  /// RÃ³tulo interno para Â«a gravar Ã¡udioâ€¦Â» na lista de conversas.
+  /// Rótulo interno para «a gravar áudio…» na lista de conversas.
   static const String typingLabelRecording = '__recording__';
 
-  /// Indicador Â«a digitarâ€¦Â» â€” um doc por utilizador (`typing/{uid}`) + prÃ©via no thread.
+  /// Indicador «a digitar…» — um doc por utilizador (`typing/{uid}`) + prévia no thread.
   static Future<void> setTypingActive({
     required String tenantId,
     required String threadId,
@@ -1052,10 +1052,10 @@ class ChurchChatService {
       SetOptions(merge: true),
     );
     final preview = label == typingLabelRecording
-        ? '${senderDisplayNameForNewMessage()} estÃ¡ a gravar Ã¡udioâ€¦'
+        ? '${senderDisplayNameForNewMessage()} está a gravar áudio…'
         : label.isNotEmpty
-            ? '$label estÃ¡ a digitarâ€¦'
-            : 'A digitarâ€¦';
+            ? '$label está a digitar…'
+            : 'A digitar…';
     await thread.set(
       {
         'typingPreview': preview,
@@ -1077,7 +1077,7 @@ class ChurchChatService {
     );
   }
 
-  /// Leitura pontual de Â«a digitarÂ» â€” evita `snapshots()` na conversa (teclado mais fluido).
+  /// Leitura pontual de «a digitar» — evita `snapshots()` na conversa (teclado mais fluido).
   static Future<ChurchChatTypingActivity> fetchActiveTyping({
     required String tenantId,
     required String threadId,
@@ -1123,7 +1123,7 @@ class ChurchChatService {
     var type = (r['type'] ?? 'text').toString().trim();
     if (mid.isEmpty || sid.isEmpty) return null;
     if (preview.length > 240) {
-      preview = '${preview.substring(0, 237)}â€¦';
+      preview = '${preview.substring(0, 237)}…';
     }
     if (type.isEmpty) type = 'text';
     return {
@@ -1145,7 +1145,7 @@ class ChurchChatService {
     final fromThread = (f['fromThreadId'] ?? '').toString().trim();
     if (mid.isEmpty || preview.isEmpty) return null;
     if (preview.length > 240) {
-      preview = '${preview.substring(0, 237)}â€¦';
+      preview = '${preview.substring(0, 237)}…';
     }
     if (type.isEmpty) type = 'text';
     return {
@@ -1179,11 +1179,11 @@ class ChurchChatService {
     };
   }
 
-  /// Motivo pelo qual a mensagem nÃ£o pode ser reencaminhada (`null` = OK).
+  /// Motivo pelo qual a mensagem não pode ser reencaminhada (`null` = OK).
   static String? forwardBlockReason(Map<String, dynamic> messageData) {
     final type = (messageData['type'] ?? 'text').toString().trim();
     if (type == 'video') {
-      return 'VÃ­deos nÃ£o podem ser reencaminhados no chat.';
+      return 'Vídeos não podem ser reencaminhados no chat.';
     }
     if (type == 'text') {
       final text = (messageData['text'] ?? '').toString().trim();
@@ -1195,7 +1195,7 @@ class ChurchChatService {
     }
     final sp = _storagePathForForward(messageData);
     if (sp.isEmpty) {
-      return 'MÃ­dia ainda nÃ£o disponÃ­vel para reencaminhar.';
+      return 'Mídia ainda não disponível para reencaminhar.';
     }
     return null;
   }
@@ -1210,7 +1210,7 @@ class ChurchChatService {
     return sp.trim();
   }
 
-  /// Reencaminha cÃ³pia para outro thread (texto ou mÃ­dia jÃ¡ no Storage).
+  /// Reencaminha cópia para outro thread (texto ou mídia já no Storage).
   static Future<bool> forwardMessageToThread({
     required String tenantId,
     required String sourceThreadId,
@@ -1271,7 +1271,7 @@ class ChurchChatService {
     return 'Membro';
   }
 
-  /// Membros ativos do departamento (menÃ§Ãµes, listas).
+  /// Membros ativos do departamento (menções, listas).
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       fetchActiveDepartmentMembers({
     required String tenantId,
@@ -1331,7 +1331,7 @@ class ChurchChatService {
     }
   }
 
-  /// ReaÃ§Ã£o do utilizador atual (`emoji` vazio remove).
+  /// Reação do utilizador atual (`emoji` vazio remove).
   static Future<bool> setMyReactionOnMessage({
     required String tenantId,
     required String threadId,
@@ -1411,8 +1411,8 @@ class ChurchChatService {
   static Timer? _appPresenceHeartbeat;
   static String? _appPresenceTenantId;
 
-  /// Atualiza `chat_presence` em ciclo enquanto o painel da igreja estÃ¡ aberto,
-  /// para o membro aparecer Â«onlineÂ» sem abrir o mÃ³dulo Chat (alinhado a [isOnlineFromSnapshot] ~45s).
+  /// Atualiza `chat_presence` em ciclo enquanto o painel da igreja está aberto,
+  /// para o membro aparecer «online» sem abrir o módulo Chat (alinhado a [isOnlineFromSnapshot] ~45s).
   static void startAppWidePresenceHeartbeat(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) {
@@ -1440,7 +1440,7 @@ class ChurchChatService {
     _appPresenceTenantId = null;
   }
 
-  /// Volta ao primeiro plano â€” refresca jÃ¡ o indicador Â«onlineÂ».
+  /// Volta ao primeiro plano — refresca já o indicador «online».
   static Future<void> appWidePresencePingIfActive() async {
     final tid = _appPresenceTenantId;
     if (tid == null || tid.isEmpty) return;
@@ -1453,7 +1453,7 @@ class ChurchChatService {
     return DateTime.now().difference(ts.toDate()).inSeconds < 45;
   }
 
-  /// PresenÃ§a em lote (evita N listeners `chat_presence/{uid}` na lista de conversas).
+  /// Presença em lote (evita N listeners `chat_presence/{uid}` na lista de conversas).
   static Future<Map<String, bool>> fetchPresenceOnlineMap({
     required String tenantId,
     required Iterable<String> authUids,
@@ -1477,7 +1477,7 @@ class ChurchChatService {
     }
   }
 
-  /// Â«Apagar para mimÂ» â€” mantÃ©m o documento; outros continuam a ver.
+  /// «Apagar para mim» — mantém o documento; outros continuam a ver.
   static Future<bool> hideMessageForMe({
     required String tenantId,
     required String threadId,
@@ -1502,7 +1502,7 @@ class ChurchChatService {
     return h.map((e) => e.toString()).contains(uid);
   }
 
-  /// Contagem agregada (Firestore `count`) â€” nÃ£o lidas = mensagens com `createdAt` depois da Ãºltima leitura do utilizador no thread.
+  /// Contagem agregada (Firestore `count`) — não lidas = mensagens com `createdAt` depois da última leitura do utilizador no thread.
   static Future<({int unread, int total})> threadMessageUnreadAndTotalCounts({
     required String tenantId,
     required String threadId,
@@ -1533,7 +1533,7 @@ class ChurchChatService {
     }
   }
 
-  /// Mensagens recebidas (nÃ£o enviadas por [myUid]) desde a Ãºltima leitura â€” badge estilo WhatsApp.
+  /// Mensagens recebidas (não enviadas por [myUid]) desde a última leitura — badge estilo WhatsApp.
   static Future<int> threadUnreadInboundCount({
     required String tenantId,
     required String threadId,
@@ -1700,7 +1700,7 @@ class ChurchChatService {
     });
   }
 
-  /// Atalhos do painel / membros â€” bootstrap + atÃ© 3 tentativas antes de abrir o hub.
+  /// Atalhos do painel / membros — bootstrap + até 3 tentativas antes de abrir o hub.
   static Future<bool> ensureDmThreadResilient({
     required String tenantId,
     required String uidA,
@@ -1741,7 +1741,7 @@ class ChurchChatService {
     return false;
   }
 
-  /// Legado sÃ­ncrono â€” preferir [ChurchChatInstantSendService.enqueueText].
+  /// Legado síncrono — preferir [ChurchChatInstantSendService.enqueueText].
   static Future<bool> sendTextMessage({
     required String tenantId,
     required String threadId,
@@ -1765,7 +1765,7 @@ class ChurchChatService {
     return true;
   }
 
-  /// Texto: **uma** gravaÃ§Ã£o Firestore (`status: sent`) â€” sem fila intermÃ©dia.
+  /// Texto: **uma** gravação Firestore (`status: sent`) — sem fila intermédia.
   static Future<({String messageId, bool allowed})> writeTextMessageFirestoreOnce({
     required String tenantId,
     required String threadId,
@@ -1804,8 +1804,8 @@ class ChurchChatService {
         .take(24)
         .toList();
     final preview = nf != null
-        ? 'â†ª ${nf['preview']}'
-        : (text.length > 120 ? '${text.substring(0, 117)}â€¦' : text);
+        ? '↪ ${nf['preview']}'
+        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
 
     Future<void> commitOnce({required String deliveryStatus}) =>
         _commitMessageAndThreadIndex(
@@ -1871,8 +1871,8 @@ class ChurchChatService {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
-        ? 'â†ª ${nf['preview']}'
-        : (text.length > 120 ? '${text.substring(0, 117)}â€¦' : text);
+        ? '↪ ${nf['preview']}'
+        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
     Object? last;
     for (var attempt = 1; attempt <= 5; attempt++) {
       try {
@@ -1908,7 +1908,7 @@ class ChurchChatService {
         await Future.delayed(Duration(milliseconds: 280 * attempt));
       }
     }
-    throw last ?? StateError('NÃ£o foi possÃ­vel concluir o envio da mensagem.');
+    throw last ?? StateError('Não foi possível concluir o envio da mensagem.');
   }
 
   static Future<void> abandonTextMessage({
@@ -2019,7 +2019,7 @@ class ChurchChatService {
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
     if (nf != null) {
-      preview = 'â†ª ${nf['preview']}';
+      preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
     await msgRef.set({
@@ -2050,7 +2050,7 @@ class ChurchChatService {
     return true;
   }
 
-  /// Mensagem do tipo figurinha (PNG/WebP â€” mesma retenÃ§Ã£o que mÃ­dia).
+  /// Mensagem do tipo figurinha (PNG/WebP — mesma retenção que mídia).
   static Future<bool> sendStickerMessage({
     required String tenantId,
     required String threadId,
@@ -2174,7 +2174,7 @@ class ChurchChatService {
     return true;
   }
 
-  /// Caminho Storage determinÃ­stico (stub Firestore + upload usam o mesmo path).
+  /// Caminho Storage determinístico (stub Firestore + upload usam o mesmo path).
   static String buildChatMediaStoragePath({
     required String tenantId,
     required String threadId,
@@ -2286,7 +2286,7 @@ class ChurchChatService {
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
     if (nf != null) {
-      preview = 'â†ª ${nf['preview']}';
+      preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
     await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
@@ -2331,7 +2331,7 @@ class ChurchChatService {
     return (messageId: msgRef.id, storagePath: storagePath);
   }
 
-  /// MÃ­dia: **upload Storage concluÃ­do** â†’ uma gravaÃ§Ã£o Firestore (`status: sent`).
+  /// Mídia: **upload Storage concluído** → uma gravação Firestore (`status: sent`).
   /// Sem stub `uploading`, sem `pendingMedia`, sem `downloadURL`.
   static Future<({String messageId, bool allowed})> writeMediaMessageFirestoreOnce({
     required String tenantId,
@@ -2392,7 +2392,7 @@ class ChurchChatService {
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
     if (nf != null) {
-      preview = 'â†ª ${nf['preview']}';
+      preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
     final sp = storagePath.trim();
@@ -2459,11 +2459,11 @@ class ChurchChatService {
         if (attempt >= 5) break;
       }
     }
-    throw last ?? StateError('NÃ£o foi possÃ­vel gravar a mensagem no servidor.');
+    throw last ?? StateError('Não foi possível gravar a mensagem no servidor.');
   }
 
   /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).
-  /// **NÃ£o** grava `mediaUrl` â€” sÃ³ `storagePath` (+ miniatura por path).
+  /// **Não** grava `mediaUrl` — só `storagePath` (+ miniatura por path).
   static Map<String, dynamic> mediaUploadFinalizePatch({
     required String storagePath,
     String? thumbStoragePath,
@@ -2507,7 +2507,7 @@ class ChurchChatService {
     );
   }
 
-  /// Completa o stub apÃ³s upload no Storage (upload + metadata jÃ¡ concluÃ­dos).
+  /// Completa o stub após upload no Storage (upload + metadata já concluídos).
   static Future<bool> completeMediaUploadMessage({
     required String tenantId,
     required String threadId,
@@ -2536,7 +2536,7 @@ class ChurchChatService {
     );
   }
 
-  /// Grava `sent` no doc jÃ¡ resolvido (sem re-verificar Storage â€” caller validou).
+  /// Grava `sent` no doc já resolvido (sem re-verificar Storage — caller validou).
   static Future<bool> completeMediaUploadMessageDirect({
     required String resolvedTenant,
     required String threadId,
@@ -2614,7 +2614,7 @@ class ChurchChatService {
     return true;
   }
 
-  /// Android/iOS: rede instÃ¡vel pode falhar o `update` apÃ³s o Storage jÃ¡ ter recebido o ficheiro.
+  /// Android/iOS: rede instável pode falhar o `update` após o Storage já ter recebido o ficheiro.
   static Future<bool> completeMediaUploadMessageWithRetry({
     required String tenantId,
     required String threadId,
@@ -2665,7 +2665,7 @@ class ChurchChatService {
         errorMessage: last?.toString(),
       );
     } catch (_) {}
-    throw last ?? StateError('NÃ£o foi possÃ­vel concluir o envio no servidor.');
+    throw last ?? StateError('Não foi possível concluir o envio no servidor.');
   }
 
   static String _defaultFileNameForKind(String kind) => switch (kind) {
@@ -2675,7 +2675,7 @@ class ChurchChatService {
         _ => 'media',
       };
 
-  /// Marca stub como aguardando rede (reenvio automÃ¡tico).
+  /// Marca stub como aguardando rede (reenvio automático).
   static Future<void> markMediaUploadQueued({
     required String tenantId,
     required String threadId,
@@ -2718,7 +2718,7 @@ class ChurchChatService {
 
   static final Map<String, double> _uploadProgressPatchCache = {};
 
-  /// Atualiza progresso no stub (0â€“1; regras: sÃ³ `uploadProgress` enquanto `uploading`).
+  /// Atualiza progresso no stub (0–1; regras: só `uploadProgress` enquanto `uploading`).
   static Future<void> patchMediaUploadProgress({
     required String tenantId,
     required String threadId,
@@ -2753,14 +2753,14 @@ class ChurchChatService {
     } catch (_) {}
   }
 
-  /// Falha definitiva â€” nunca deixar `uploading` eterno.
+  /// Falha definitiva — nunca deixar `uploading` eterno.
   static Future<void> markMediaUploadFailed({
     required String tenantId,
     required String threadId,
     required String messageId,
     String? errorMessage,
   }) async {
-    final msg = (errorMessage ?? 'Falha ao enviar mÃ­dia.').trim();
+    final msg = (errorMessage ?? 'Falha ao enviar mídia.').trim();
     final short = msg.length > 240 ? msg.substring(0, 240) : msg;
     try {
       final ref = await _messageDocResolved(
@@ -2797,7 +2797,7 @@ class ChurchChatService {
     );
   }
 
-  /// Remove stub se o upload falhar de forma irrecuperÃ¡vel.
+  /// Remove stub se o upload falhar de forma irrecuperável.
   static Future<void> abandonMediaUploadMessage({
     required String tenantId,
     required String threadId,
@@ -2813,7 +2813,7 @@ class ChurchChatService {
     } catch (_) {}
   }
 
-  /// Upload para `chat_media/` â€” compressÃ£o JPEG/PNG leve (via [MediaUploadService]),
+  /// Upload para `chat_media/` — compressão JPEG/PNG leve (via [MediaUploadService]),
   /// sem fila offline (envio imediato). [onUploadTaskCreated] permite cancelar o [UploadTask].
   static Future<({String url, String path})> uploadChatBytes({
     required String tenantId,
@@ -2872,7 +2872,7 @@ class ChurchChatService {
     return (url: url, path: path);
   }
 
-  /// Upload por ficheiro no disco (vÃ­deos/PDF grandes â€” evita `readAsBytes` completo na RAM).
+  /// Upload por ficheiro no disco (vídeos/PDF grandes — evita `readAsBytes` completo na RAM).
   static Future<({String url, String path})> uploadChatFile({
     required String tenantId,
     required String threadId,
@@ -2885,7 +2885,7 @@ class ChurchChatService {
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     if (kIsWeb) {
-      throw UnsupportedError('uploadChatFile nÃ£o suportado na web.');
+      throw UnsupportedError('uploadChatFile não suportado na web.');
     }
     await ensureFirebaseReadyForChatSend();
     final path = storagePathOverride ??
@@ -2927,7 +2927,7 @@ class ChurchChatService {
     );
   }
 
-  /// Apaga thread de grupo (`dept_*`) e mensagens â€” sÃ³ roles autorizados (regras Firestore).
+  /// Apaga thread de grupo (`dept_*`) e mensagens — só roles autorizados (regras Firestore).
   static Future<bool> deleteGroupThread({
     required String tenantId,
     required String threadId,

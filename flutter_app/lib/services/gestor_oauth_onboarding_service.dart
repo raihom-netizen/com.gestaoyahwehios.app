@@ -23,7 +23,7 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-/// Login social no onboarding: painel se jÃ¡ tem igreja; senÃ£o `/signup/completar-dados` (perfil + igreja).
+/// Login social no onboarding: painel se já tem igreja; senão `/signup/completar-dados` (perfil + igreja).
 class GestorOAuthOnboardingService {
   GestorOAuthOnboardingService._();
 
@@ -54,7 +54,7 @@ class GestorOAuthOnboardingService {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Conta jÃ¡ vinculada. Redirecionando ao painel.'),
+          content: Text('Conta já vinculada. Redirecionando ao painel.'),
           backgroundColor: Colors.green,
         ),
       );
@@ -66,10 +66,10 @@ class GestorOAuthOnboardingService {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Esta conta ainda nÃ£o estÃ¡ vinculada a uma igreja. '
-              'No app iOS sÃ³ Ã© possÃ­vel entrar com conta existente. '
+              'Esta conta ainda não está vinculada a uma igreja. '
+              'No app iOS só é possível entrar com conta existente. '
               'Cadastro de nova igreja: gestaoyahweh.com.br (navegador). '
-              'Se jÃ¡ Ã© gestor, use o e-mail da igreja cadastrada.',
+              'Se já é gestor, use o e-mail da igreja cadastrada.',
             ),
             duration: Duration(seconds: 7),
           ),
@@ -89,7 +89,7 @@ class GestorOAuthOnboardingService {
     }
   }
 
-  /// [forceAccountPicker] â€” cadastro / troca de conta; senÃ£o tenta silencioso primeiro.
+  /// [forceAccountPicker] — cadastro / troca de conta; senão tenta silencioso primeiro.
   static Future<UserCredential> signInWithGoogleNative({
     bool forceAccountPicker = false,
   }) async {
@@ -99,12 +99,12 @@ class GestorOAuthOnboardingService {
     final forcePicker = forceAccountPicker ||
         await LoginPreferences.shouldForceGoogleAccountPicker();
 
-    // Silencioso sÃ³ no botÃ£o manual e sem sessÃ£o Firebase (nunca no arranque).
+    // Silencioso só no botão manual e sem sessão Firebase (nunca no arranque).
     if (!forcePicker && firebaseDefaultAuth.currentUser == null) {
       final silent = await ExpressLoginService.tryGoogleSilentOnly();
       if (silent != null) return silent;
     } else if (forcePicker) {
-      // SÃ³ apÃ³s Â«Trocar contaÂ»: limpa sessÃ£o local para o Play Services abrir o seletor.
+      // Só após «Trocar conta»: limpa sessão local para o Play Services abrir o seletor.
       await appGoogleSignOutForAccountPicker();
     }
 
@@ -139,14 +139,14 @@ class GestorOAuthOnboardingService {
     ).join();
   }
 
-  /// SHA256 em hex minÃºsculo (exigÃªncia Apple + Firebase `nonce`).
+  /// SHA256 em hex minúsculo (exigência Apple + Firebase `nonce`).
   static String _sha256ofString(String input) {
     final bytes = utf8.encode(input);
     final digest = sha256.convert(bytes);
     return digest.toString();
   }
 
-  /// SÃ³ **iPhone/iPad** (nÃ£o Android/macOS/web). Em outros ambientes retorna null.
+  /// Só **iPhone/iPad** (não Android/macOS/web). Em outros ambientes retorna null.
   static Future<UserCredential?> signInWithAppleIfAvailable() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) {
       return null;
@@ -169,7 +169,7 @@ class GestorOAuthOnboardingService {
     if (idToken == null || idToken.isEmpty) {
       throw FirebaseAuthException(
         code: 'missing-id-token',
-        message: 'Apple nÃ£o retornou token. Tente de novo.',
+        message: 'Apple não retornou token. Tente de novo.',
       );
     }
 

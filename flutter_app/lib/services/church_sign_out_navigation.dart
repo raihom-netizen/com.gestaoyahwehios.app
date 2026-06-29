@@ -16,7 +16,7 @@ import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Logout do painel da igreja â€” web/PWA vai Ã  [SitePublicPage] (`/`) sem sobrepor o shell.
+/// Logout do painel da igreja — web/PWA vai à [SitePublicPage] (`/`) sem sobrepor o shell.
 abstract final class ChurchSignOutNavigation {
   ChurchSignOutNavigation._();
 
@@ -28,7 +28,7 @@ abstract final class ChurchSignOutNavigation {
     } catch (_) {}
   }
 
-  /// Substitui a pilha raiz pela landing (path `/` no histÃ³rico).
+  /// Substitui a pilha raiz pela landing (path `/` no histórico).
   static void navigateWebToPublicLanding() {
     if (!kIsWeb) return;
     final nav = appRootNavigatorKey.currentState;
@@ -54,7 +54,7 @@ abstract final class ChurchSignOutNavigation {
     nav.pushNamedAndRemoveUntil(dest, (_) => false);
   }
 
-  /// ApÃ³s `signOut` â€” destino `/` (divulgaÃ§Ã£o) ou override (`/igreja/login`, etc.).
+  /// Após `signOut` — destino `/` (divulgação) ou override (`/igreja/login`, etc.).
   static Future<void> redirectAfterSignOut() async {
     await _clearWebLastRoute();
     await ChurchAutoSessionService.clearAutoPainel();
@@ -79,14 +79,14 @@ abstract final class ChurchSignOutNavigation {
     nav.pushNamedAndRemoveUntil(dest, (_) => false);
   }
 
-  /// ConfiguraÃ§Ãµes â†’ Â«Trocar e-mail de loginÂ»: limpa Firebase + Google no aparelho.
+  /// Configurações → «Trocar e-mail de login»: limpa Firebase + Google no aparelho.
   static Future<void> signOutForAccountSwitch() async {
     await LoginPreferences.prepareChurchAccountSwitch();
     await signOutFromChurchPanel();
   }
 
-  /// SÃ³ desloga de facto apÃ³s [prepareChurchAccountSwitch] (igual Controle Total).
-  /// Outros botÃµes Â«SairÂ» nÃ£o devem chamar isto sem a flag â€” a sessÃ£o permanece.
+  /// Só desloga de facto após [prepareChurchAccountSwitch] (igual Controle Total).
+  /// Outros botões «Sair» não devem chamar isto sem a flag — a sessão permanece.
   static Future<void> signOutFromChurchPanel() async {
     if (!await LoginPreferences.isAccountSwitchPending()) {
       return;
@@ -99,7 +99,7 @@ abstract final class ChurchSignOutNavigation {
 
     await _clearWebLastRoute();
 
-    // Web: troca a pilha ANTES do signOut â€” evita AuthGate com SitePublicPage sob o shell (tela esbranquiÃ§ada).
+    // Web: troca a pilha ANTES do signOut — evita AuthGate com SitePublicPage sob o shell (tela esbranquiçada).
     if (kIsWeb && preNav != null) {
       if (preNav == '/') {
         navigateWebToPublicLanding();
@@ -128,7 +128,7 @@ abstract final class ChurchSignOutNavigation {
     if (!kIsWeb) {
       await redirectAfterSignOut();
     } else {
-      // SeguranÃ§a: se ainda estiver em /painel, forÃ§a landing de novo.
+      // Segurança: se ainda estiver em /painel, força landing de novo.
       await redirectAfterSignOut();
     }
   }

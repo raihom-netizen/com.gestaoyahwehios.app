@@ -95,7 +95,7 @@ class MemberDirectoryEntry {
     );
   }
 
-  /// Mapa compatÃ­vel com filtros / [FotoMembroWidget] da lista de membros.
+  /// Mapa compatível com filtros / [FotoMembroWidget] da lista de membros.
   Map<String, dynamic> toMemberDataMap() {
     final thumb = (photoThumbUrl != null && photoThumbUrl!.isNotEmpty)
         ? photoThumbUrl
@@ -131,7 +131,7 @@ class MemberDirectoryEntry {
     };
   }
 
-  /// Mescla campos gravados no Firestore â€” lista/painel actualizam sem reload.
+  /// Mescla campos gravados no Firestore — lista/painel actualizam sem reload.
   MemberDirectoryEntry mergeFirestoreFields(Map<String, dynamic> fields) {
     final name = FirestoreMapFields.pickString(
       fields,
@@ -212,7 +212,7 @@ class MemberDirectoryEntry {
   }
 }
 
-/// Totais agregados â€” vÃ¡lidos mesmo quando `entries` ainda estÃ¡ a sincronizar.
+/// Totais agregados — válidos mesmo quando `entries` ainda está a sincronizar.
 class MembersDirectorySummary {
   const MembersDirectorySummary({
     this.total = 0,
@@ -249,7 +249,7 @@ class MembersDirectorySummary {
   bool get hasCounts => total > 0 || ativos > 0 || homens > 0 || mulheres > 0;
 }
 
-/// Cache `_panel_cache/members_directory` â€” lista instantÃ¢nea no mÃ³dulo Membros.
+/// Cache `_panel_cache/members_directory` — lista instantânea no módulo Membros.
 class MembersDirectorySnapshot {
   final int totalCount;
   final List<MemberDirectoryEntry> entries;
@@ -434,7 +434,7 @@ class MembersDirectorySnapshotService {
     return const MembersDirectorySnapshot();
   }
 
-  /// Converte entradas do cache em snapshot compatÃ­vel com grÃ¡ficos / stats do painel.
+  /// Converte entradas do cache em snapshot compatível com gráficos / stats do painel.
   static MergedFirestoreQuerySnapshot toMergedQuerySnapshot(
     String tenantId,
     MembersDirectorySnapshot snap,
@@ -456,7 +456,7 @@ class MembersDirectorySnapshotService {
   }
 }
 
-// ignore: subtype_of_sealed_class â€” paint instantÃ¢neo a partir de `_panel_cache/members_directory`.
+// ignore: subtype_of_sealed_class — paint instantâneo a partir de `_panel_cache/members_directory`.
 class _DirectoryMemberQueryDocumentSnapshot
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
   _DirectoryMemberQueryDocumentSnapshot({

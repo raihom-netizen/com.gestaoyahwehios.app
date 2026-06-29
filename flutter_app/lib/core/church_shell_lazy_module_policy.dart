@@ -33,10 +33,10 @@ abstract final class ChurchShellLazyModulePolicy {
     ChurchShellIndices.fornecedores,
   };
 
-  /// Máximo de módulos materializados em RAM (WISDOMAPP home_shell = 2).
-  static const int kMaxRetainedMaterializedModules = 2;
+  /// Máximo de módulos materializados em RAM (WISDOMAPP — rodapé + 1 lateral).
+  static const int kMaxRetainedMaterializedModules = 8;
 
-  /// Evicta páginas antigas do [pageCache] — mantém dashboard + ativo + LRU.
+  /// Evicta páginas antigas do [pageCache] — mantém dashboard + rodapé + ativo.
   static void evictStaleModules({
     required List<Widget?> pageCache,
     required int activeIndex,
@@ -45,7 +45,9 @@ abstract final class ChurchShellLazyModulePolicy {
     if (lruIndices.length <= kMaxRetainedMaterializedModules) return;
     while (lruIndices.length > kMaxRetainedMaterializedModules) {
       final evict = lruIndices.removeAt(0);
-      if (evict == activeIndex || evict == dashboardIndex) {
+      if (evict == activeIndex ||
+          evict == dashboardIndex ||
+          isMobileFooterTab(evict)) {
         lruIndices.add(evict);
         if (lruIndices.length <= kMaxRetainedMaterializedModules) break;
         continue;

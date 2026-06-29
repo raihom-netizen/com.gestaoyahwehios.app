@@ -92,7 +92,7 @@ export async function recomputePanelPublicSiteCache(tenantId: string): Promise<v
   await mirrorPublicSitePanelCache(tid);
 }
 
-async function resolvePublicChurchIdFromInput(raw: unknown): Promise<string> {
+export async function resolvePublicChurchIdFromInput(raw: unknown): Promise<string> {
   const db = admin.firestore();
   const seed = String(raw || "").trim();
   if (!seed) return "";

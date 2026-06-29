@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Contexto do painel: apenas igrejas (licenças/usuários controlados pelo Gestão Frotas à parte).
@@ -85,10 +86,9 @@ class AdminMenuLateral extends StatelessWidget {
           const SizedBox(height: 20),
           SizedBox(
             height: isCollapsed ? 28 : 40,
-            child: Image.asset(
-              'assets/LOGO_GESTAO_YAHWEH.png',
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) => Icon(Icons.admin_panel_settings_rounded, color: Colors.white, size: isCollapsed ? 28 : 36),
+            child: GestaoYahwehBrandLogo(
+              height: isCollapsed ? 28 : 40,
+              fallbackIconColor: Colors.white,
             ),
           ),
           if (!isCollapsed) ...[

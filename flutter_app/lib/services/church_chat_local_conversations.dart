@@ -5,10 +5,10 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Cache local da lista Â«ConversasÂ» â€” equivalente a `userChats/{uid}` no spec.
+/// Cache local da lista «Conversas» — equivalente a `userChats/{uid}` no spec.
 ///
-/// Garante que threads com mensagens enviadas **permanecem visÃ­veis** mesmo se o
-/// stream Firestore falhar temporariamente. SÃ³ some com Â«Apagar conversaÂ» (hidden).
+/// Garante que threads com mensagens enviadas **permanecem visíveis** mesmo se o
+/// stream Firestore falhar temporariamente. Só some com «Apagar conversa» (hidden).
 class ChurchChatLocalConversationEntry {
   const ChurchChatLocalConversationEntry({
     required this.threadId,
@@ -66,7 +66,7 @@ abstract final class ChurchChatLocalConversations {
   static String _prefsKey(String tenantId, String uid) =>
       'church_chat_local_conv_v1_${tenantId}_$uid';
 
-  /// Grava/atualiza apÃ³s qualquer envio (texto, foto, vÃ­deo, Ã¡udio).
+  /// Grava/atualiza após qualquer envio (texto, foto, vídeo, áudio).
   static Future<void> recordFromOutbound({
     required String tenantId,
     required String myUid,
@@ -94,7 +94,7 @@ abstract final class ChurchChatLocalConversations {
       threadId: tid,
       peerUid: peer,
       displayName: name.isNotEmpty ? name : (byId[tid]?.displayName ?? peer),
-      lastMessage: msg.length > 120 ? '${msg.substring(0, 117)}â€¦' : msg,
+      lastMessage: msg.length > 120 ? '${msg.substring(0, 117)}…' : msg,
       lastMessageType: messageType,
       lastMessageAtMs: now,
       lastSenderUid: uid,

@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 
-/// PrÃ©-publicaÃ§Ã£o â€” sÃ³ nÃºcleo Firebase (padrÃ£o Controle Total, sem warmup/fila).
+/// Pré-publicação — só núcleo Firebase (padrão Controle Total, sem warmup/fila).
 abstract final class FeedPublishPreflight {
   FeedPublishPreflight._();
 
@@ -20,7 +20,7 @@ abstract final class FeedPublishPreflight {
     } catch (e, st) {
       final user = firebaseDefaultAuth.currentUser;
       if (user != null && !user.isAnonymous) {
-        YahwehFlowLog.success('AVISOS_PREFLIGHT (sessÃ£o em cache)');
+        YahwehFlowLog.success('AVISOS_PREFLIGHT (sessão em cache)');
         return;
       }
       if (kDebugMode) {

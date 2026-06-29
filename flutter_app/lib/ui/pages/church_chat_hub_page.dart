@@ -63,6 +63,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
@@ -4397,6 +4398,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       _rows = _rowsFromDirectory(mem);
       _loading = false;
     }
+    unawaited(_warmContatosFromModuleCache());
     _directorySub =
         MembersDirectorySnapshotService.watch(widget.tenantId).listen((dir) {
       if (dir.hasEntries) _applyDirectoryRows(dir);
@@ -4410,6 +4412,26 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     });
     unawaited(_loadInstantFromCache());
     unawaited(_load());
+  }
+
+  /// RAM/prefs — lista de contatos sem esperar repair de acesso.
+  Future<void> _warmContatosFromModuleCache() async {
+    try {
+      await YahwehModuleCaches.membros.warmUp(widget.tenantId);
+      if (!mounted || _rows.isNotEmpty) return;
+      final docs = YahwehModuleCaches.membros.docs;
+      if (docs.isEmpty) return;
+      final rows = docs
+          .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+          .toList();
+      if (!mounted || rows.isEmpty) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+        _loadFailed = false;
+      });
+      _schedulePresencePoll();
+    } catch (_) {}
   }
 
   /// Nomes + fotos do `_panel_cache/members_directory` — sem esperar `membrosRecent(600)`.

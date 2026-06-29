@@ -1,10 +1,12 @@
 import 'dart:async' show Stream, StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -26,6 +28,8 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaExternalVideoUrl,
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaFeedCoverHintUrl,
+        resolveProgramacaoEventCover,
+        ProgramacaoEventCover,
         eventNoticiaImageStoragePath,
         eventNoticiaPostHasFeedCoverRow,
         eventNoticiaThumbStoragePath,
@@ -282,12 +286,14 @@ class _ChurchPublicMuralStreamSliver extends StatefulWidget {
 
 class _ChurchPublicMuralStreamSliverState
     extends State<_ChurchPublicMuralStreamSliver> {
-  StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _sub;
+  StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _liveSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _cacheSub;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _items;
   List<Map<String, dynamic>> _cachedRows = const [];
   Object? _error;
   bool _didWarmup = false;
   int _skeletonPlaceholderCount = 0;
+  bool _liveFallbackScheduled = false;
 
   bool _mapIsAviso(Map<String, dynamic> m) {
     final col = (m['collection'] ?? '').toString().trim();
@@ -330,19 +336,29 @@ class _ChurchPublicMuralStreamSliverState
       });
     }
 
-    final results = await Future.wait([
-      YahwehPublicFeedRepository.readInstantFeed(
+    final user = FirebaseAuth.instance.currentUser;
+    final isVisitor = user == null || user.isAnonymous;
+    List<Map<String, dynamic>> seedRows = const [];
+    if (isVisitor) {
+      seedRows = await YahwehPublicFeedRepository.readInstantFeed(
         widget.igrejaId,
         refreshServerCacheInBackground: true,
-      ),
-      PanelPublicSiteSnapshotService.readOnce(widget.igrejaId),
-    ]);
-    final cached = results[0] as List<Map<String, dynamic>>;
-    final panel = results[1] as PanelPublicSiteSnapshot;
-    final panelRows = panel.feedData.isNotEmpty
-        ? panel.feedData
-        : panel.feedPreview;
-    final seedRows = cached.isNotEmpty ? cached : panelRows;
+      );
+    } else {
+      final results = await Future.wait([
+        YahwehPublicFeedRepository.readInstantFeed(
+          widget.igrejaId,
+          refreshServerCacheInBackground: true,
+        ),
+        PanelPublicSiteSnapshotService.readOnce(widget.igrejaId),
+      ]);
+      final cached = results[0] as List<Map<String, dynamic>>;
+      final panel = results[1] as PanelPublicSiteSnapshot;
+      final panelRows = panel.feedData.isNotEmpty
+          ? panel.feedData
+          : panel.feedPreview;
+      seedRows = cached.isNotEmpty ? cached : panelRows;
+    }
     if (!mounted) return;
     if (seedRows.isNotEmpty && _items == null) {
       setState(() {
@@ -363,13 +379,61 @@ class _ChurchPublicMuralStreamSliverState
     }
   }
 
+  bool get _preferCacheFeed {
+    final user = FirebaseAuth.instance.currentUser;
+    return kIsWeb || user == null || user.isAnonymous;
+  }
+
   void _subscribe() {
-    _sub?.cancel();
-    _sub = _churchPublicMergedPublicacoesStream(
+    _liveSub?.cancel();
+    _cacheSub?.cancel();
+    _liveFallbackScheduled = false;
+
+    if (_preferCacheFeed) {
+      _cacheSub = YahwehPublicFeedRepository.watchServerFeed(widget.igrejaId)
+          .listen(
+        (rows) {
+          if (!mounted) return;
+          setState(() {
+            _cachedRows = rows;
+            _error = null;
+            if (rows.isNotEmpty) {
+              _skeletonPlaceholderCount = rows.length.clamp(
+                1,
+                YahwehPublicFeedRepository.pageSize,
+              );
+            }
+          });
+          if (!_didWarmup && rows.isNotEmpty) {
+            _didWarmup = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              unawaited(scheduleFeedMediaWarmup(context, rows, maxDocs: 8));
+            });
+          }
+        },
+        onError: (e) {
+          if (mounted) setState(() => _error = e);
+        },
+      );
+      if (!_liveFallbackScheduled) {
+        _liveFallbackScheduled = true;
+        Future.delayed(const Duration(seconds: 12), () {
+          if (!mounted || _cachedRows.isNotEmpty || _items != null) return;
+          _subscribeLive();
+        });
+      }
+      return;
+    }
+    _subscribeLive();
+  }
+
+  void _subscribeLive() {
+    _liveSub?.cancel();
+    _liveSub = _churchPublicMergedPublicacoesStream(
       widget.igrejaId,
       limit: YahwehPublicFeedRepository.pageSize,
-    )
-        .listen(
+    ).listen(
       (list) {
         if (!mounted) return;
         setState(() {
@@ -413,7 +477,8 @@ class _ChurchPublicMuralStreamSliverState
 
   @override
   void dispose() {
-    _sub?.cancel();
+    _liveSub?.cancel();
+    _cacheSub?.cancel();
     super.dispose();
   }
 
@@ -2417,11 +2482,9 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                               10),
-                                                      child: Image.asset(
-                                                        'assets/LOGO_GESTAO_YAHWEH.png',
+                                                      child: const GestaoYahwehBrandLogo(
                                                         width: 54,
                                                         height: 54,
-                                                        fit: BoxFit.contain,
                                                       ),
                                                     ),
                                                     const SizedBox(width: 12),
@@ -3566,6 +3629,12 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                 final videoUrl = (m['videoUrl'] ?? '').toString().trim();
                 final photoPath =
                     (m['photoStoragePath'] ?? '').toString().trim();
+                final photoFallbacks = (m['photoStorageFallbackPaths'] is List)
+                    ? (m['photoStorageFallbackPaths'] as List)
+                        .map((e) => e.toString().trim())
+                        .where((e) => e.isNotEmpty)
+                        .toList()
+                    : const <String>[];
                 final itemId = (m['id'] ?? '').toString().trim();
                 DateTime? dt = m['startAt'] is Timestamp
                     ? (m['startAt'] as Timestamp).toDate()
@@ -3590,6 +3659,7 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                     churchDefaultAddress: widget.churchVenueAddress,
                     imageUrl: imageUrl,
                     photoStoragePath: photoPath,
+                    photoStorageFallbackPaths: photoFallbacks,
                     accent: accentEvento,
                     onTap: () {
                       final hasSchedule = dayName.isNotEmpty ||
@@ -3653,13 +3723,19 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
   }
 }
 
-/// Capa do evento fixo — mesma lógica do feed (`eventNoticiaFeedCoverHintUrl`).
-String _publicEventTemplateCoverUrl(Map<String, dynamic> m) {
-  final hint = eventNoticiaFeedCoverHintUrl(m);
-  if (hint.isNotEmpty) return sanitizeImageUrl(hint);
-  final photos = eventNoticiaPhotoUrls(m);
-  if (photos.isNotEmpty) return sanitizeImageUrl(photos.first);
-  return '';
+/// Capa do evento fixo — mesma lógica do feed (`resolveProgramacaoEventCover`).
+ProgramacaoEventCover _publicEventTemplateCover(
+  String churchId,
+  String templateId,
+  Map<String, dynamic> m,
+) {
+  return resolveProgramacaoEventCover(
+    churchId: churchId,
+    data: <String, dynamic>{
+      ...m,
+      'templateId': templateId,
+    },
+  );
 }
 
 Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
@@ -3727,16 +3803,18 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
         final dk = '${d.id}_${DateFormat('yyyy-MM-dd').format(dt)}';
         if (seenTplDay.contains(dk)) continue;
         seenTplDay.add(dk);
-        final img = _publicEventTemplateCoverUrl(m);
+        final cover = _publicEventTemplateCover(op, d.id, m);
         itens.add(<String, dynamic>{
           'id': 'virt_${d.id}_${DateFormat('yyyy-MM-dd').format(dt)}',
           'title': title,
           'text': (m['description'] ?? '').toString(),
           'location': (m['location'] ?? '').toString().trim(),
           'startAt': Timestamp.fromDate(dt),
-          'imageUrl': img,
+          'templateId': d.id,
+          'imageUrl': cover.imageUrl,
           'videoUrl': '',
-          'photoStoragePath': '',
+          'photoStoragePath': cover.photoStoragePath,
+          'photoStorageFallbackPaths': cover.fallbackStoragePaths,
         });
       }
     }
@@ -4515,8 +4593,7 @@ class _Logo extends StatelessWidget {
       ),
       child: Padding(
         padding: EdgeInsets.all(s * 0.16),
-        child:
-            Image.asset('assets/LOGO_GESTAO_YAHWEH.png', fit: BoxFit.contain),
+        child: const GestaoYahwehBrandLogo(height: 48),
       ),
     );
   }
@@ -5843,7 +5920,7 @@ class _NotFound extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Image.asset('assets/LOGO_GESTAO_YAHWEH.png', height: 54),
+                  const GestaoYahwehBrandLogo(height: 54),
                   const SizedBox(height: 14),
                   Text(
                     'Igreja não encontrada',

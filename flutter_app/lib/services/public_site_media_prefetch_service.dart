@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, preloadNetworkImages, sanitizeImageUrl;
 
-/// Cache `_performance_cache/public_feed` â€” logo + URLs de mÃ­dia jÃ¡ resolvidas no servidor.
+/// Cache `_performance_cache/public_feed` — logo + URLs de mídia já resolvidas no servidor.
 abstract final class PublicSiteMediaPrefetchService {
   PublicSiteMediaPrefetchService._();
 
@@ -47,7 +47,7 @@ abstract final class PublicSiteMediaPrefetchService {
     return DateTime.now().difference(updatedAt.toDate()) > _staleAfter;
   }
 
-  /// Sementeia logo no cache RAM e prÃ©-carrega imagens (web/iOS/Android).
+  /// Sementeia logo no cache RAM e pré-carrega imagens (web/iOS/Android).
   static Future<void> applyAndPreload(
     BuildContext context,
     String tenantId, {
@@ -110,7 +110,7 @@ abstract final class PublicSiteMediaPrefetchService {
     await preloadNetworkImages(context, urls, maxItems: 40);
   }
 
-  /// Callable para visitante anÃ³nimo (apÃ³s [PublicSiteMediaAuth]).
+  /// Callable para visitante anónimo (após [PublicSiteMediaAuth]).
   static Future<void> warmFromCallableIfStale(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
@@ -137,7 +137,7 @@ abstract final class PublicSiteMediaPrefetchService {
     }
   }
 
-  /// Abertura do site: aquece servidor em background + prÃ©-carrega quando hÃ¡ cache.
+  /// Abertura do site: aquece servidor em background + pré-carrega quando há cache.
   static void scheduleOnPublicSiteOpen(
     BuildContext context,
     String tenantId, {

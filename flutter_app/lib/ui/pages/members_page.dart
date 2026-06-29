@@ -73,6 +73,7 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -703,6 +704,13 @@ class _MembersPageState extends State<MembersPage> {
               : (widget.subscription?['planId'] ?? '').toString().trim(),
     );
     _warmMembrosCacheFirst(_forceCanonicalTenantId(widget.tenantId));
+    final tidBootstrap = _forceCanonicalTenantId(widget.tenantId);
+    final memPeek = MembersDirectorySnapshotService.peekMemory(tidBootstrap);
+    if (memPeek != null && memPeek.hasEntries) {
+      _directoryCache = memPeek;
+      _membersVisibleCount =
+          memPeek.entries.length.clamp(_membersPageSize, _membersListInstantCap);
+    }
     _membersDataFuture = _initialMembersLoad();
     _deptsFuture = _loadDeptsForFilter();
     unawaited(_hydrateMembersDirectoryCache());
@@ -1236,13 +1244,80 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   Future<List<QuerySnapshot<Map<String, dynamic>>>> _initialMembersLoad() async {
+    final tid = _forceCanonicalTenantId(widget.tenantId);
+    final instant = await _tryInstantMembersSnapshots(tid);
+    if (instant != null) {
+      unawaited(_repairMembersAccessInBackground());
+      return instant;
+    }
     await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
-      churchIdHint: _forceCanonicalTenantId(widget.tenantId),
+      churchIdHint: tid,
     ).timeout(
       Duration(seconds: kIsWeb ? 38 : 46),
       onTimeout: () {},
     );
     return _loadMembersDataWithCap();
+  }
+
+  bool get _selfOnlyMemberList =>
+      AppPermissions.isRestrictedMember(widget.role) &&
+      !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
+
+  Future<List<QuerySnapshot<Map<String, dynamic>>>?>
+      _tryInstantMembersSnapshots(String tid) async {
+    if (tid.isEmpty) return null;
+
+    final memPeek = MembersDirectorySnapshotService.peekMemory(tid);
+    if (memPeek != null && memPeek.hasEntries) {
+      if (mounted) _applyDirectoryCacheState(memPeek);
+      return _snapshotsFromDirectoryCache(
+        memPeek,
+        selfOnlyMemberList: _selfOnlyMemberList,
+      );
+    }
+
+    await YahwehModuleCaches.membros.warmUp(tid);
+    final moduleDocs = YahwehModuleCaches.membros.docs;
+    if (moduleDocs.isNotEmpty) {
+      return _snapshotsFromMemberDocs(moduleDocs);
+    }
+
+    try {
+      final directory = await MembersDirectorySnapshotService.readOnce(tid)
+          .timeout(const Duration(milliseconds: 500));
+      if (directory.hasEntries) {
+        if (mounted) _applyDirectoryCacheState(directory);
+        return _snapshotsFromDirectoryCache(
+          directory,
+          selfOnlyMemberList: _selfOnlyMemberList,
+        );
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  Future<void> _repairMembersAccessInBackground() async {
+    final tid = _effectiveTenantId.trim().isNotEmpty
+        ? _effectiveTenantId.trim()
+        : _forceCanonicalTenantId(widget.tenantId);
+    if (tid.isEmpty) return;
+    try {
+      await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+        churchIdHint: tid,
+      ).timeout(
+        Duration(seconds: kIsWeb ? 38 : 46),
+        onTimeout: () {},
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    unawaited(YahwehModuleCaches.membros.ensureLoaded(tid));
+    try {
+      final serverSnaps = await _loadMembersDataWithCap();
+      if (mounted) {
+        setState(() => _membersDataFuture = Future.value(serverSnaps));
+      }
+    } catch (_) {}
   }
 
   Future<void> _repairAccessAndRefreshMembers({bool forceServer = true}) async {

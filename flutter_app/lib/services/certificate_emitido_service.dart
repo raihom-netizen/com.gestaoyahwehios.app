@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_document_version_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Estado partilhado â€” abas Â«Painel de emissÃµesÂ» + Â«HistÃ³ricoÂ» (uma carga).
+/// Estado partilhado — abas «Painel de emissões» + «Histórico» (uma carga).
 class CertificadosHistoricoState {
   const CertificadosHistoricoState({
     this.docs = const [],
@@ -50,8 +50,8 @@ class CertificadosHistoricoState {
 
 /// Certificados emitidos: **dados completos** em `igrejas/{churchId}/certificados_emitidos/{id}`.
 ///
-/// HistÃ³rico leve (legado): `igrejas/{churchId}/certificados_historico/{id}`.
-/// ValidaÃ§Ã£o pÃºblica (QR): `igrejas/{churchId}/certificados_protocol_index/{id}`.
+/// Histórico leve (legado): `igrejas/{churchId}/certificados_historico/{id}`.
+/// Validação pública (QR): `igrejas/{churchId}/certificados_protocol_index/{id}`.
 class CertificateEmitidoService {
   CertificateEmitidoService._();
 
@@ -218,7 +218,7 @@ class CertificateEmitidoService {
     }, maxAttempts: 4);
   }
 
-  /// HistÃ³rico no painel â€” `igrejas/{churchId}/certificados_emitidos` (+ fallback histÃ³rico).
+  /// Histórico no painel — `igrejas/{churchId}/certificados_emitidos` (+ fallback histórico).
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadHistorico(
     String tenantHint, {
     int limit = kHistoricoPageSize,
@@ -302,7 +302,7 @@ class CertificateEmitidoService {
     return const [];
   }
 
-  /// Atualiza o estado partilhado das abas Painel/HistÃ³rico.
+  /// Atualiza o estado partilhado das abas Painel/Histórico.
   static Future<void> refreshHistoricoPanel(
     String tenantHint, {
     bool forceRefresh = false,
@@ -311,7 +311,7 @@ class CertificateEmitidoService {
     final churchId = _churchId(tenantHint);
     if (churchId.isEmpty) {
       historicoNotifier(tenantHint).value = const CertificadosHistoricoState(
-        error: 'Igreja nÃ£o identificada.',
+        error: 'Igreja não identificada.',
       );
       return;
     }
@@ -390,7 +390,7 @@ class CertificateEmitidoService {
     final op = _churchId(tid);
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) {
-      throw StateError('Utilizador nÃ£o autenticado');
+      throw StateError('Utilizador não autenticado');
     }
     final id = (certificadoId ?? '').trim();
     final certificadoIdResolved =
@@ -437,7 +437,7 @@ class CertificateEmitidoService {
     return certificadoIdResolved;
   }
 
-  /// VÃ¡rias emissÃµes num Ãºnico batch (ex.: PDF Ãºnico em lote).
+  /// Várias emissões num único batch (ex.: PDF único em lote).
   static Future<List<String>> registerEmissaoBatch({
     required String tenantId,
     required List<Map<String, dynamic>> snapshots,
@@ -447,11 +447,11 @@ class CertificateEmitidoService {
     if (tid.isEmpty) throw ArgumentError('tenantId vazio');
     final op = _churchId(tid);
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    if (uid.isEmpty) throw StateError('Utilizador nÃ£o autenticado');
+    if (uid.isEmpty) throw StateError('Utilizador não autenticado');
     final email = firebaseDefaultAuth.currentUser?.email ?? '';
     if (snapshots.isEmpty) return [];
 
-    /// Firestore limita 500 operaÃ§Ãµes por batch; cada emissÃ£o = 2 sets.
+    /// Firestore limita 500 operações por batch; cada emissão = 2 sets.
     const chunkSize = 200;
     final ids = <String>[];
     for (var offset = 0; offset < snapshots.length; offset += chunkSize) {
@@ -490,7 +490,7 @@ class CertificateEmitidoService {
     return ids;
   }
 
-  /// Leitura pÃºblica (validaÃ§Ã£o QR): Ã­ndice â†’ documento na igreja; fallback raiz legado.
+  /// Leitura pública (validação QR): índice → documento na igreja; fallback raiz legado.
   static Future<DocumentSnapshot<Map<String, dynamic>>> getPublic(
     String certificadoId,
   ) async {
@@ -538,7 +538,7 @@ class CertificateEmitidoService {
     return firebaseDefaultFirestore.collection('certificados_emitidos').doc(id).get();
   }
 
-  /// ReemissÃ£o no painel: leitura directa em `igrejas/{churchId}/certificados_emitidos`.
+  /// Reemissão no painel: leitura directa em `igrejas/{churchId}/certificados_emitidos`.
   static Future<DocumentSnapshot<Map<String, dynamic>>> getForTenant(
     String tenantId,
     String certificadoId,

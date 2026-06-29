@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -41,10 +41,10 @@ abstract final class MasterChurchesListService {
           .collection('config')
           .doc('master_churches_index');
 
-  /// Contagem instantÃ¢nea para badge do header (sem await).
+  /// Contagem instantânea para badge do header (sem await).
   static int peekCount() => _memCache?.length ?? 0;
 
-  /// Lista em RAM â€” outras telas master reutilizam sem novo round-trip.
+  /// Lista em RAM — outras telas master reutilizam sem novo round-trip.
   static List<MasterChurchListItem>? peekMemory() => _memCache;
 
   static void invalidateMemory() {
@@ -161,7 +161,7 @@ abstract final class MasterChurchesListService {
     return const [];
   }
 
-  /// Ãndice â†’ callable â†’ query directa (servidor). MemÃ³ria compartilhada entre telas.
+  /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
   static Future<List<MasterChurchListItem>> loadFast({bool force = false}) async {
     await MasterAdminFirestore.ensureReady();
     if (force) invalidateMemory();
@@ -173,7 +173,7 @@ abstract final class MasterChurchesListService {
       return _memCache!;
     }
 
-    // ApÃ³s licenÃ§a/bloqueio: ler documentos reais (Ã­ndice pode estar defasado).
+    // Após licença/bloqueio: ler documentos reais (índice pode estar defasado).
     if (force) {
       final direct = await _loadDirectFallback(forceServer: true);
       if (direct.isNotEmpty) return direct;

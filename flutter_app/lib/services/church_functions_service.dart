@@ -54,6 +54,19 @@ abstract final class ChurchFunctionsService {
     );
   }
 
+  /// Merge doc raiz `igrejas/{churchId}` via Admin SDK (Web — Cadastro da Igreja).
+  static Future<void> adminUpsertChurchRoot({
+    required String churchId,
+    required Map<String, dynamic> data,
+    bool merge = true,
+  }) async {
+    await _call('gyAdminUpsertChurchRoot', {
+      'churchId': churchId.trim(),
+      'data': data,
+      'merge': merge,
+    });
+  }
+
   /// Upsert documento tenant via Admin SDK (Web — avisos, eventos, patrimônio, finance, chat, membros).
   static Future<String> adminUpsertFeedPost({
     required String churchId,
@@ -96,6 +109,21 @@ abstract final class ChurchFunctionsService {
     return (res['docId'] ?? docId).toString();
   }
 
+  /// Acompanhar cadastro público (visitante — sem leitura directa de `membros`).
+  static Future<PublicSignupStatusCfResult> publicSignupStatus({
+    String? slug,
+    String? churchId,
+    required String protocolo,
+  }) async {
+    final res = await _call('gyPublicSignupStatus', {
+      'protocolo': protocolo.trim(),
+      if (slug != null && slug.trim().isNotEmpty) 'slug': slug.trim(),
+      if (churchId != null && churchId.trim().isNotEmpty)
+        'churchId': churchId.trim(),
+    });
+    return PublicSignupStatusCfResult.fromMap(res);
+  }
+
   /// Exclusão em lote avisos/eventos (admin Web).
   static Future<int> adminDeleteFeedPosts({
     required String churchId,
@@ -109,6 +137,51 @@ abstract final class ChurchFunctionsService {
       'docIds': docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
     });
     return (res['deleted'] as num?)?.toInt() ?? docIds.length;
+  }
+}
+
+class PublicSignupStatusCfResult {
+  const PublicSignupStatusCfResult({
+    required this.ok,
+    required this.found,
+    required this.churchName,
+    this.churchId,
+    this.protocolo,
+    this.nome,
+    this.status,
+    this.error,
+  });
+
+  final bool ok;
+  final bool found;
+  final String churchName;
+  final String? churchId;
+  final String? protocolo;
+  final String? nome;
+  final String? status;
+  final String? error;
+
+  factory PublicSignupStatusCfResult.fromMap(Map<String, dynamic> m) {
+    return PublicSignupStatusCfResult(
+      ok: m['ok'] == true,
+      found: m['found'] == true,
+      churchName: (m['churchName'] ?? 'Igreja').toString(),
+      churchId: (m['churchId'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['churchId'] ?? '').toString().trim(),
+      protocolo: (m['protocolo'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['protocolo'] ?? '').toString().trim(),
+      nome: (m['nome'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['nome'] ?? '').toString().trim(),
+      status: (m['status'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['status'] ?? '').toString().trim(),
+      error: (m['error'] ?? '').toString().trim().isEmpty
+          ? null
+          : (m['error'] ?? '').toString().trim(),
+    );
   }
 }
 

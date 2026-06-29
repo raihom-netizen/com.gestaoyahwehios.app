@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
-/// Logs centralizados multi-tenant (`system_logs`) â€” Regra 9.
+/// Logs centralizados multi-tenant (`system_logs`) — Regra 9.
 abstract final class SystemLogService {
   SystemLogService._();
 

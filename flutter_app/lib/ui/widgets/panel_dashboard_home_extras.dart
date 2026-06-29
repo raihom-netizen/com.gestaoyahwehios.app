@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/panel_section_prefs.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 /// Atalhos rápidos no topo do painel — chips coloridos (padrão WISDOMAPP).
@@ -149,7 +150,7 @@ class PanelCacheUpdatedBadge extends StatelessWidget {
   }
 }
 
-/// Envolve uma secção do painel com expandir/recolher.
+/// Envolve uma secção do painel com expandir/recolher (cabeçalho WISDOMAPP).
 class PanelCollapsibleSection extends StatefulWidget {
   const PanelCollapsibleSection({
     super.key,
@@ -157,6 +158,7 @@ class PanelCollapsibleSection extends StatefulWidget {
     required this.title,
     required this.child,
     this.icon,
+    this.accent,
     this.initiallyExpanded = true,
   });
 
@@ -164,6 +166,7 @@ class PanelCollapsibleSection extends StatefulWidget {
   final String title;
   final Widget child;
   final IconData? icon;
+  final Color? accent;
   final bool initiallyExpanded;
 
   @override
@@ -173,6 +176,8 @@ class PanelCollapsibleSection extends StatefulWidget {
 
 class _PanelCollapsibleSectionState extends State<PanelCollapsibleSection> {
   bool? _expanded;
+
+  Color get _accent => widget.accent ?? ThemeCleanPremium.primary;
 
   @override
   void initState() {
@@ -204,38 +209,92 @@ class _PanelCollapsibleSectionState extends State<PanelCollapsibleSection> {
                 !next,
               );
             },
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [
+                    Color.lerp(Colors.white, _accent, 0.08)!,
+                    Colors.white,
+                  ],
+                ),
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                border: Border.all(color: _accent.withValues(alpha: 0.12)),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+              ),
               child: Row(
                 children: [
                   if (widget.icon != null) ...[
-                    Icon(widget.icon,
-                        size: 20, color: ThemeCleanPremium.primary),
-                    const SizedBox(width: 8),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            _accent,
+                            Color.lerp(_accent, Colors.white, 0.3)!,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _accent.withValues(alpha: 0.28),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(
+                          widget.icon,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                   ],
                   Expanded(
                     child: Text(
                       widget.title,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: Color(0xFF64748B),
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: const Color(0xFF1E293B),
+                        letterSpacing: -0.2,
                       ),
                     ),
                   ),
-                  Icon(
-                    expanded
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    color: const Color(0xFF94A3B8),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      color: _accent.withValues(alpha: 0.75),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
         ),
-        if (expanded) widget.child,
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: widget.child,
+          ),
+          crossFadeState: expanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 220),
+          sizeCurve: Curves.easeOutCubic,
+        ),
       ],
     );
   }

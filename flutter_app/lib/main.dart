@@ -65,6 +65,7 @@ import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/login_credentials_cache.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/window_close_handler_stub.dart'
     if (dart.library.io) 'package:gestao_yahweh/window_close_handler_io.dart'
@@ -487,6 +488,7 @@ void main() async {
 
   await Future.wait<void>([
     LoginPreferences.warmUpForStartup(),
+    LoginCredentialsCache.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
     AuthProfileCacheService.warmUpForStartup(),
     YahwehCacheBootstrap.warmUpPrefs(),

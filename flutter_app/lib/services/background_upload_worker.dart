@@ -69,10 +69,6 @@ abstract final class BackgroundUploadWorker {
       }
     } catch (e, st) {
       YahwehFlowLog.error('UPLOAD_QUEUE', e, st);
-      if (kIsWeb &&
-          (e is StateError && e.message.contains('Sessão expirada'))) {
-        WebPanelStability.markSessionExpired();
-      }
       if (kDebugMode) {
         debugPrint('BackgroundUploadWorker.drainAll: $e\n$st');
       }

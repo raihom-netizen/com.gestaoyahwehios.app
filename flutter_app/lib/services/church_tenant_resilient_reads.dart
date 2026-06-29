@@ -33,9 +33,9 @@ import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Leituras Firestore do tenant (padrÃ£o Controle Total): cache â†’ retry â†’ Ãºltimo bom.
+/// Leituras Firestore do tenant (padrão Controle Total): cache → retry → último bom.
 ///
-/// Usar em **todos** os mÃ³dulos do painel em vez de `.get()` directo.
+/// Usar em **todos** os módulos do painel em vez de `.get()` directo.
 abstract final class ChurchTenantResilientReads {
   ChurchTenantResilientReads._();
 
@@ -45,7 +45,7 @@ abstract final class ChurchTenantResilientReads {
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       ChurchRepository.churchDoc(tenantId);
 
-  /// Doc canÃ³nico em `igrejas/{churchId}` â€” ID directo (sem resolver/alias no painel).
+  /// Doc canónico em `igrejas/{churchId}` — ID directo (sem resolver/alias no painel).
   static Future<String> _readTenantId(String tenantId, {String? userUid}) async {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     if (bound.isNotEmpty) return bound;
@@ -55,7 +55,7 @@ abstract final class ChurchTenantResilientReads {
     return id.isNotEmpty ? id : hint;
   }
 
-  /// Regra 8 â€” permission-denied / rede: re-resolve tenant e refaz leitura.
+  /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
   static Future<T> withTenantRecovery<T>({
     required String tenantId,
     required String module,
@@ -112,7 +112,7 @@ abstract final class ChurchTenantResilientReads {
     }
   }
 
-  /// Doc operacional da igreja â€” path directo `igrejas/{churchId}` (sem resolver).
+  /// Doc operacional da igreja — path directo `igrejas/{churchId}` (sem resolver).
   static Future<String> operationalTenantId(
     String seed, {
     String? userUid,
@@ -121,7 +121,7 @@ abstract final class ChurchTenantResilientReads {
     return id.isNotEmpty ? id : seed.trim();
   }
 
-  /// EndereÃ§o / formulÃ¡rio â€” tenant operacional + cache, sem desligar rede.
+  /// Endereço / formulário — tenant operacional + cache, sem desligar rede.
   static Future<({
     String firestoreTenantId,
     Map<String, dynamic> tenantData,
@@ -162,7 +162,7 @@ abstract final class ChurchTenantResilientReads {
     );
   }
 
-  /// Iglesia + slug (mural, site pÃºblico, formulÃ¡rios).
+  /// Iglesia + slug (mural, site público, formulários).
   static Future<({
     String firestoreTenantId,
     String churchSlug,
@@ -227,7 +227,7 @@ abstract final class ChurchTenantResilientReads {
     return MergedFirestoreQuerySnapshot(sorted);
   }
 
-  /// Sem [preparePanelRead] â€” cache-first; plain query se faltar Ã­ndice/campo createdAt.
+  /// Sem [preparePanelRead] — cache-first; plain query se faltar índice/campo createdAt.
   static Future<QuerySnapshot<Map<String, dynamic>>> _avisosFeedQueryResilient(
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
@@ -360,7 +360,7 @@ abstract final class ChurchTenantResilientReads {
     );
   }
 
-  /// Modelos de culto/evento fixo â€” doc operacional + irmÃ£os; sem [preparePanelRead].
+  /// Modelos de culto/evento fixo — doc operacional + irmãos; sem [preparePanelRead].
   static Future<QuerySnapshot<Map<String, dynamic>>> eventTemplates(
     String tenantId,
   ) =>
@@ -383,7 +383,7 @@ abstract final class ChurchTenantResilientReads {
         ),
       );
 
-  /// Leitura directa `igrejas/{churchId}/â€¦` â€” **sem** fallback para docs irmÃ£os.
+  /// Leitura directa `igrejas/{churchId}/…` — **sem** fallback para docs irmãos.
   static Future<QuerySnapshot<Map<String, dynamic>>> _queryWithSiblingFallback(
     String tenantId,
     Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor, {
@@ -622,7 +622,7 @@ abstract final class ChurchTenantResilientReads {
     return MergedFirestoreQuerySnapshot(sorted);
   }
 
-  /// Sem [preparePanelRead] â€” cache-first; plain query se faltar Ã­ndice/campo name.
+  /// Sem [preparePanelRead] — cache-first; plain query se faltar índice/campo name.
   static Future<QuerySnapshot<Map<String, dynamic>>> _cargosQueryResilient(
     String tenantId, {
     int limit = 120,
@@ -665,7 +665,7 @@ abstract final class ChurchTenantResilientReads {
     return MergedFirestoreQuerySnapshot(sorted);
   }
 
-  /// Plain query se faltar Ã­ndice/campo createdAt â€” crÃ­tico no Web.
+  /// Plain query se faltar índice/campo createdAt — crítico no Web.
   static Future<QuerySnapshot<Map<String, dynamic>>> _financeQueryResilient(
     String tenantId, {
     required int limit,
@@ -695,7 +695,7 @@ abstract final class ChurchTenantResilientReads {
         limit: limit,
       );
 
-  /// Rede directa â€” apÃ³s mutaÃ§Ã£o financeira (sem Hive stale).
+  /// Rede directa — após mutação financeira (sem Hive stale).
   static Future<QuerySnapshot<Map<String, dynamic>>> financeRecentNetwork(
     String tenantId, {
     int limit = 250,
@@ -749,7 +749,7 @@ abstract final class ChurchTenantResilientReads {
     return MergedFirestoreQuerySnapshot(docs);
   }
 
-  /// ColeÃ§Ã£o completa (dashboard, inventÃ¡rio/conferÃªncia) â€” cache â†’ rede com retry.
+  /// Coleção completa (dashboard, inventário/conferência) — cache → rede com retry.
   static Future<QuerySnapshot<Map<String, dynamic>>> patrimonioAll(
     String tenantId, {
     int limit = 800,
@@ -761,7 +761,7 @@ abstract final class ChurchTenantResilientReads {
     return r.snapshot;
   }
 
-  /// Um bem ao abrir formulÃ¡rio / retomar sessÃ£o â€” cache â†’ rede com retry.
+  /// Um bem ao abrir formulário / retomar sessão — cache → rede com retry.
   static Future<DocumentSnapshot<Map<String, dynamic>>> patrimonioItem(
     String tenantId,
     String itemDocId,
@@ -782,7 +782,7 @@ abstract final class ChurchTenantResilientReads {
     return loadFor(primary);
   }
 
-  /// Categorias extras (`config/patrimonio`) â€” cache â†’ rede com retry.
+  /// Categorias extras (`config/patrimonio`) — cache → rede com retry.
   static Future<DocumentSnapshot<Map<String, dynamic>>> patrimonioConfig(
     String tenantId,
   ) async {
@@ -795,7 +795,7 @@ abstract final class ChurchTenantResilientReads {
     return loadFor(primary);
   }
 
-  /// Doc em `igrejas/{tid}/config/{docId}` â€” directo (MP, payment_receiving).
+  /// Doc em `igrejas/{tid}/config/{docId}` — directo (MP, payment_receiving).
   static Future<DocumentSnapshot<Map<String, dynamic>>> configDoc(
     String tenantId,
     String docId,
@@ -809,7 +809,7 @@ abstract final class ChurchTenantResilientReads {
     return loadFor(primary);
   }
 
-  /// Contas tesouraria â€” directo `igrejas/{churchId}/contas`.
+  /// Contas tesouraria — directo `igrejas/{churchId}/contas`.
   static Future<QuerySnapshot<Map<String, dynamic>>> _contasQueryResilient(
     String tenantId, {
     int limit = 80,
@@ -850,7 +850,7 @@ abstract final class ChurchTenantResilientReads {
     return nome.contains('mercado pago');
   }
 
-  /// Contas MP â€” directo `igrejas/{churchId}/contas`.
+  /// Contas MP — directo `igrejas/{churchId}/contas`.
   static Future<QuerySnapshot<Map<String, dynamic>>> _contasMercadoPagoWithSiblingFallback(
     String tenantId, {
     int limit = 80,
@@ -868,7 +868,7 @@ abstract final class ChurchTenantResilientReads {
     return const MergedFirestoreQuerySnapshot([]);
   }
 
-  /// DoaÃ§Ã£o â€” sÃ³ contas Mercado Pago (323), com fallback em docs irmÃ£os do cluster.
+  /// Doação — só contas Mercado Pago (323), com fallback em docs irmãos do cluster.
   static Future<QuerySnapshot<Map<String, dynamic>>> contasDonation(
     String tenantId, {
     int limit = 80,
@@ -917,7 +917,7 @@ abstract final class ChurchTenantResilientReads {
     }
   }
 
-  /// Membro vinculado ao login â€” tenant + irmÃ£os.
+  /// Membro vinculado ao login — tenant + irmãos.
   static Future<({String docId, String nome})?> memberByAuthUid(
     String tenantId,
     String authUid,
@@ -968,7 +968,7 @@ abstract final class ChurchTenantResilientReads {
     return result.snapshot;
   }
 
-  /// Despesas mensais recorrentes â€” doc operacional + irmÃ£os (ex.: `brasilparacristo_sistema`).
+  /// Despesas mensais recorrentes — doc operacional + irmãos (ex.: `brasilparacristo_sistema`).
   static Future<QuerySnapshot<Map<String, dynamic>>> despesasFixas(
     String tenantId, {
     int limit = 200,
@@ -990,7 +990,7 @@ abstract final class ChurchTenantResilientReads {
         ),
       );
 
-  /// Receitas fixas / recorrentes â€” doc operacional + irmÃ£os.
+  /// Receitas fixas / recorrentes — doc operacional + irmãos.
   static Future<QuerySnapshot<Map<String, dynamic>>> receitasRecorrentes(
     String tenantId, {
     int limit = YahwehPerformanceV4.defaultPageSize * 5,
@@ -1054,7 +1054,7 @@ abstract final class ChurchTenantResilientReads {
     return r.snapshot;
   }
 
-  /// Rede directa â€” diagnÃ³stico / refresh pÃ³s-mutaÃ§Ã£o.
+  /// Rede directa — diagnóstico / refresh pós-mutação.
   static Future<QuerySnapshot<Map<String, dynamic>>> fornecedoresNetwork(
     String tenantId, {
     int limit = YahwehPerformanceV4.defaultPageSize,
@@ -1134,7 +1134,7 @@ abstract final class ChurchTenantResilientReads {
     return MergedFirestoreQuerySnapshot(sorted);
   }
 
-  /// Sem [preparePanelRead] â€” cache-first; plain query se faltar Ã­ndice.
+  /// Sem [preparePanelRead] — cache-first; plain query se faltar índice.
   static Future<QuerySnapshot<Map<String, dynamic>>> _escalaTemplatesQueryResilient(
     String tenantId, {
     int limit = 120,
@@ -1202,7 +1202,7 @@ abstract final class ChurchTenantResilientReads {
         cacheKey: _key(tenantId, 'panel_cache_public_site'),
       );
 
-  /// Stream do painel / feeds â€” cache-first + live sÃ³ fora da web.
+  /// Stream do painel / feeds — cache-first + live só fora da web.
   static Stream<QuerySnapshot<Map<String, dynamic>>> querySnapshotsResilient(
     Query<Map<String, dynamic>> query,
   ) =>
@@ -1277,7 +1277,7 @@ abstract final class ChurchTenantResilientReads {
         }
       });
 
-  /// Cultos no intervalo â€” doc operacional + irmÃ£os.
+  /// Cultos no intervalo — doc operacional + irmãos.
   static Future<QuerySnapshot<Map<String, dynamic>>> cultosByDateRange(
     String tenantId, {
     required Timestamp start,
@@ -1375,7 +1375,7 @@ abstract final class ChurchTenantResilientReads {
         ),
       );
 
-  /// Itens da coleÃ§Ã£o `agenda` no intervalo.
+  /// Itens da coleção `agenda` no intervalo.
   static Future<QuerySnapshot<Map<String, dynamic>>> agendaByStartTimeRange(
     String tenantId, {
     required Timestamp start,
@@ -1389,7 +1389,7 @@ abstract final class ChurchTenantResilientReads {
     return r.snapshot;
   }
 
-  /// Membro por id/CPF/cÃ³digo â€” doc operacional + irmÃ£os (carteirinha, certificados).
+  /// Membro por id/CPF/código — doc operacional + irmãos (carteirinha, certificados).
   static Future<DocumentSnapshot<Map<String, dynamic>>?> membroByHint(
     String tenantId,
     String hint, {
@@ -1418,7 +1418,7 @@ abstract final class ChurchTenantResilientReads {
     return null;
   }
 
-  /// Carteirinha / perfil do membro logado â€” directo `igrejas/{churchId}/membros`.
+  /// Carteirinha / perfil do membro logado — directo `igrejas/{churchId}/membros`.
   static Future<DocumentSnapshot<Map<String, dynamic>>?> resolveSelfMember(
     String tenantId, {
     String? memberId,

@@ -17,7 +17,7 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 
-/// SignatÃ¡rio de carteirinha / certificado (pastor, gestor, etc.).
+/// Signatário de carteirinha / certificado (pastor, gestor, etc.).
 class MemberCardSignatory {
   const MemberCardSignatory({
     required this.memberId,
@@ -60,7 +60,7 @@ class MemberCardSignatory {
       };
 }
 
-/// Item leve para listas / pickers de emissÃ£o em lote.
+/// Item leve para listas / pickers de emissão em lote.
 class MemberCardListEntry {
   const MemberCardListEntry({
     required this.id,
@@ -75,7 +75,7 @@ class MemberCardListEntry {
   final String? photoUrl;
 }
 
-/// Leituras do mÃ³dulo CartÃ£o membro â€” `igrejas/{churchId}/membros` (padrÃ£o Membros).
+/// Leituras do módulo Cartão membro — `igrejas/{churchId}/membros` (padrão Membros).
 abstract final class MemberCardDirectoryService {
   MemberCardDirectoryService._();
 
@@ -111,7 +111,7 @@ abstract final class MemberCardDirectoryService {
     return out;
   }
 
-  /// `igrejas/{churchId}` â€” mesmo resolve que [members_page] / shell.
+  /// `igrejas/{churchId}` — mesmo resolve que [members_page] / shell.
   static String resolveChurchId(String tenantHint) {
     final resolved = ChurchPanelTenant.resolve(tenantHint.trim());
     final churchId = ChurchRepository.churchId(resolved);
@@ -162,7 +162,7 @@ abstract final class MemberCardDirectoryService {
     return snap;
   }
 
-  /// Firestore paginado â€” contorna teto de 50 do scan Ãºnico (lista completa atÃ© [maxTotal]).
+  /// Firestore paginado — contorna teto de 50 do scan único (lista completa até [maxTotal]).
   static Future<List<MemberCardListEntry>> _loadFromFirestorePaginated(
     String churchId,
     int maxTotal,
@@ -198,7 +198,7 @@ abstract final class MemberCardDirectoryService {
     return _docsToEntries(collected, maxTotal);
   }
 
-  /// Lista instantÃ¢nea (RAM partilhada com Membros) â€” zero rede.
+  /// Lista instantânea (RAM partilhada com Membros) — zero rede.
   static List<MemberCardListEntry>? peekMembersSync(
     String tenantId, {
     int limit = YahwehPerformanceV4.adminExportBatchLimit,
@@ -219,7 +219,7 @@ abstract final class MemberCardDirectoryService {
     return _docsToEntries(ram, effectiveLimit);
   }
 
-  /// Lista completa para emissÃ£o em lote â€” `_panel_cache/members_directory` (igual Membros).
+  /// Lista completa para emissão em lote — `_panel_cache/members_directory` (igual Membros).
   static Future<List<MemberCardListEntry>> loadMembers({
     required String tenantId,
     int limit = YahwehPerformanceV4.adminExportBatchLimit,
@@ -228,7 +228,7 @@ abstract final class MemberCardDirectoryService {
     final churchId = resolveChurchId(tenantId);
     if (churchId.isEmpty) {
       throw Exception(
-        'Igreja nÃ£o identificada. Path esperado: igrejas/{churchId}/membros',
+        'Igreja não identificada. Path esperado: igrejas/{churchId}/membros',
       );
     }
 
@@ -331,7 +331,7 @@ abstract final class MemberCardDirectoryService {
         .toList();
   }
 
-  /// SignatÃ¡rios â€” `igrejas/{churchId}/config/carteira_signatories` + CF opcional.
+  /// Signatários — `igrejas/{churchId}/config/carteira_signatories` + CF opcional.
   static Future<List<MemberCardSignatory>> loadSignatories(
     String tenantId, {
     bool forceRefresh = false,

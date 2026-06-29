@@ -287,6 +287,42 @@ abstract final class YahwehModuleCaches {
     );
   }
 
+  static Future<void> ensurePhase2(String churchId, {bool forceServer = false}) {
+    return Future.wait(
+      phase2.map(
+        (c) => c.ensureLoaded(churchId, forceServer: forceServer).catchError((_) {}),
+      ),
+    );
+  }
+
+  static Future<void> ensureProductionModules(String churchId,
+      {bool forceServer = false}) {
+    return Future.wait([
+      ensurePhase1(churchId, forceServer: forceServer),
+      ensurePhase2(churchId, forceServer: forceServer),
+      ensurePhase3(churchId, forceServer: forceServer),
+    ]);
+  }
+
+  static Future<void> ensurePhase3(String churchId, {bool forceServer = false}) {
+    return Future.wait(
+      phase3.map(
+        (c) => c.ensureLoaded(churchId, forceServer: forceServer).catchError((_) {}),
+      ),
+    );
+  }
+
+  /// Site público + cadastro membro — só avisos/eventos/perfil (rápido).
+  static Future<void> warmPublicSiteModules(String churchId) async {
+    final cid = churchId.trim();
+    if (cid.isEmpty) return;
+    await Future.wait([
+      avisos.warmUp(cid),
+      eventos.warmUp(cid),
+      igrejaRoot.warmUp(cid),
+    ]);
+  }
+
   static void invalidateTenant(String churchId) {
     for (final c in all) {
       c.invalidate(churchId);

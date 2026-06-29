@@ -17,15 +17,15 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// CRUD membro â€” grava sÃ³ em `igrejas/{churchId}/membros/{memberId}` com verificaÃ§Ã£o.
+/// CRUD membro — grava só em `igrejas/{churchId}/membros/{memberId}` com verificação.
 abstract final class MembroStrictUpdateService {
   MembroStrictUpdateService._();
 
   static const String kUpdateVerifyFailedMessage =
-      'AlteraÃ§Ã£o nÃ£o confirmada no Firestore. Tente novamente.';
+      'Alteração não confirmada no Firestore. Tente novamente.';
 
   static const String kDeleteVerifyFailedMessage =
-      'NÃ£o foi possÃ­vel excluir o membro no banco.';
+      'Não foi possível excluir o membro no banco.';
 
   static DocumentReference<Map<String, dynamic>> _membroDocRef({
     required String igrejaId,
@@ -47,7 +47,7 @@ abstract final class MembroStrictUpdateService {
     }
     final resolved = ChurchContextService.panelChurchId(seedTenantId.trim());
     if (resolved.isEmpty) {
-      throw StateError('churchId nÃ£o resolvido para gravar membro.');
+      throw StateError('churchId não resolvido para gravar membro.');
     }
     if (kDebugMode) debugPrint('CHURCH_ID (membro write): $resolved');
     return resolved;
@@ -185,7 +185,7 @@ abstract final class MembroStrictUpdateService {
   static bool _isLegacyMembersRef(DocumentReference<Map<String, dynamic>> ref) =>
       ref.path.contains('/members/');
 
-  /// ExclusÃ£o total â€” Storage, todos os docs `membros`, Ã­ndices e login (Admin SDK via callable).
+  /// Exclusão total — Storage, todos os docs `membros`, índices e login (Admin SDK via callable).
   static Future<void> purgeMemberCompletely({
     required String seedTenantId,
     required String memberDocId,
@@ -290,7 +290,7 @@ abstract final class MembroStrictUpdateService {
 
     if (!deletedAny) {
       throw StateError(
-        'Membro nÃ£o encontrado em igrejas/$churchId/membros (jÃ¡ excluÃ­do ou id incorreto).',
+        'Membro não encontrado em igrejas/$churchId/membros (já excluído ou id incorreto).',
       );
     }
 
@@ -361,7 +361,7 @@ abstract final class MembroStrictUpdateService {
     await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
   }
 
-  /// Atualiza ficha e confirma no servidor (sem Â«salvo com sucessoÂ» falso).
+  /// Atualiza ficha e confirma no servidor (sem «salvo com sucesso» falso).
   static Future<void> updateMember({
     required String seedTenantId,
     required String memberDocId,
@@ -424,7 +424,7 @@ abstract final class MembroStrictUpdateService {
     );
   }
 
-  /// ExclusÃ£o real â€” delega a [purgeMemberCompletely].
+  /// Exclusão real — delega a [purgeMemberCompletely].
   static Future<void> deleteMember({
     required String seedTenantId,
     required String memberDocId,

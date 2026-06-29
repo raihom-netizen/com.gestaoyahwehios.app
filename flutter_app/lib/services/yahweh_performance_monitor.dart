@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/services/yahweh_observability.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-/// Medidor interno de tempo de ecrÃ£ (debug + amostra em `performanceLogs`).
+/// Medidor interno de tempo de ecrã (debug + amostra em `performanceLogs`).
 abstract final class YahwehPerformanceMonitor {
   YahwehPerformanceMonitor._();
 
@@ -44,7 +44,7 @@ abstract final class YahwehPerformanceMonitor {
     }
   }
 
-  /// ApÃ³s primeiro frame pintado.
+  /// Após primeiro frame pintado.
   static void markScreenReadyAfterFirstFrame(
     String screen, {
     bool reportToFirestore = false,

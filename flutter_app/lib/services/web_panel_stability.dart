@@ -22,7 +22,7 @@ abstract final class WebPanelStability {
 
   static bool get isWeb => kIsWeb;
 
-  static bool get isSessionExpired => kIsWeb && _sessionExpired;
+  static bool get isSessionExpired => false;
 
   /// Recovery automático (RECOVERY / UPLOAD_QUEUE / chat preso) — desligado no EcoFire e na Web expirada.
   static bool get allowAutomaticRecovery =>
@@ -52,12 +52,11 @@ abstract final class WebPanelStability {
   }
 
   static void markSessionExpired() {
-    if (!kIsWeb) return;
-    if (_sessionExpired) return;
-    _sessionExpired = true;
-    sessionExpiredNotifier.value = true;
+    // Sessão eterna — não bloquear painel. Logout só via «Trocar de conta».
     if (kDebugMode) {
-      debugPrint('WebPanelStability: sessão expirada — recovery automático desligado.');
+      debugPrint(
+        'WebPanelStability: markSessionExpired ignorado (sessão persistente).',
+      );
     }
   }
 

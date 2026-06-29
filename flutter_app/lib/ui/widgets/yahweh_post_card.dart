@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show ChurchPublicConstrainedMedia, ChurchPublicPremiumFeedCard, ChurchPublicPremiumPlayOrb;
@@ -163,13 +164,9 @@ class YahwehPostCard extends StatelessWidget {
       alignment: Alignment.center,
       color: const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(20),
-      child: Image.asset(
-        'assets/LOGO_GESTAO_YAHWEH.png',
-        fit: BoxFit.contain,
+      child: const GestaoYahwehBrandLogo(
         width: 120,
         height: 120,
-        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_rounded,
-            size: 46, color: Color(0xFFCBD5E1)),
       ),
     );
   }

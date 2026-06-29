@@ -764,3 +764,127 @@ String cacheBustImageUrl(String url, {int? revisionMs}) {
   q['v'] = 'cb$revisionMs';
   return uri.replace(queryParameters: q).toString();
 }
+
+/// Paths alternativos (canónico + legado) para capa de `event_templates`.
+List<String> eventTemplateCoverStoragePathFallbacks({
+  required String churchId,
+  required String templateId,
+}) {
+  final tid = churchId.trim();
+  final tpl = templateId.trim();
+  if (tid.isEmpty || tpl.isEmpty) return const [];
+  return [
+    ChurchStorageLayout.eventTemplateCoverPath(tid, tpl),
+    ChurchStorageLayout.legacyEventTemplateCoverPath(tid, tpl),
+  ];
+}
+
+/// Path Storage preferido para capa de culto/evento fixo.
+String? eventTemplateCoverStoragePath({
+  required String churchId,
+  Map<String, dynamic>? data,
+  required String templateId,
+}) {
+  final fromDoc = eventNoticiaPhotoStoragePathAt(data, 0);
+  if (fromDoc != null && fromDoc.trim().isNotEmpty) return fromDoc.trim();
+  final fallbacks = eventTemplateCoverStoragePathFallbacks(
+    churchId: churchId,
+    templateId: templateId,
+  );
+  return fallbacks.isNotEmpty ? fallbacks.first : null;
+}
+
+/// Capa resolvida para linhas de programação (painel, site público, módulo fixos).
+class ProgramacaoEventCover {
+  const ProgramacaoEventCover({
+    required this.imageUrl,
+    required this.photoStoragePath,
+    this.fallbackStoragePaths = const [],
+  });
+
+  final String imageUrl;
+  final String photoStoragePath;
+  final List<String> fallbackStoragePaths;
+
+  bool get hasMedia =>
+      imageUrl.isNotEmpty ||
+      photoStoragePath.isNotEmpty ||
+      fallbackStoragePaths.isNotEmpty;
+}
+
+ProgramacaoEventCover resolveProgramacaoEventCover({
+  required String churchId,
+  required Map<String, dynamic> data,
+}) {
+  final templateId = (data['templateId'] ?? '').toString().trim();
+  final docId = (data['docId'] ?? '').toString().trim();
+
+  var imageUrl = '';
+  final photoUrls = eventNoticiaPhotoUrls(data);
+  if (photoUrls.isNotEmpty) {
+    imageUrl = sanitizeImageUrl(photoUrls.first);
+  }
+  if (imageUrl.isEmpty) {
+    final raw = (data['imageUrl'] ?? '').toString().trim();
+    if (raw.isNotEmpty) imageUrl = sanitizeImageUrl(raw);
+  }
+  if (imageUrl.isEmpty) {
+    final hint = eventNoticiaFeedCoverHintUrl(data);
+    if (hint.isNotEmpty && _isUsableFeedCoverRef(hint)) {
+      imageUrl = sanitizeImageUrl(hint);
+    }
+  }
+
+  var photoPath = (data['photoStoragePath'] ?? '').toString().trim();
+  if (photoPath.isEmpty) {
+    photoPath = eventNoticiaPhotoStoragePathAt(
+          data,
+          0,
+          docIdHint: docId.isNotEmpty ? docId : null,
+          churchIdHint: churchId,
+        )?.trim() ??
+        '';
+  }
+  if (photoPath.isEmpty && templateId.isNotEmpty) {
+    photoPath = eventTemplateCoverStoragePath(
+          churchId: churchId,
+          templateId: templateId,
+          data: data,
+        ) ??
+        '';
+  }
+
+  final fallbacks = <String>[];
+  void addFallback(String? p) {
+    final n = normalizeFirebaseStorageObjectPath(p ?? '');
+    if (n.isEmpty) return;
+    if (n == photoPath) return;
+    if (!fallbacks.contains(n)) fallbacks.add(n);
+  }
+
+  if (templateId.isNotEmpty) {
+    for (final p in eventTemplateCoverStoragePathFallbacks(
+      churchId: churchId,
+      templateId: templateId,
+    )) {
+      addFallback(p);
+    }
+  }
+
+  if (imageUrl.isNotEmpty &&
+      !imageUrl.startsWith('http://') &&
+      !imageUrl.startsWith('https://') &&
+      firebaseStorageMediaUrlLooksLike(imageUrl)) {
+    addFallback(imageUrl);
+    if (photoPath.isEmpty) {
+      photoPath = normalizeFirebaseStorageObjectPath(imageUrl);
+    }
+    imageUrl = '';
+  }
+
+  return ProgramacaoEventCover(
+    imageUrl: imageUrl,
+    photoStoragePath: photoPath,
+    fallbackStoragePaths: fallbacks,
+  );
+}
