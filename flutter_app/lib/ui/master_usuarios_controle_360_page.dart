@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -98,22 +99,24 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       QuerySnapshot<Map<String, dynamic>> usersSnap;
       try {
         usersSnap = await MasterAdminFirestore.query(
-          firebaseDefaultFirestore
-              .collection('users')
+          adminUsersWithEmailQuery(
+            firebaseDefaultFirestore.collection('users'),
+          )
               .orderBy('lastClientPlatformAt', descending: true)
               .limit(_usersQueryLimit),
           cacheKey: 'master_users_360',
         );
       } catch (_) {
         usersSnap = await MasterAdminFirestore.query(
-          firebaseDefaultFirestore
-              .collection('users')
-              .limit(_usersQueryLimit),
+          adminUsersWithEmailQuery(
+            firebaseDefaultFirestore.collection('users'),
+          ).limit(_usersQueryLimit),
           cacheKey: 'master_users_360_fallback',
         );
       }
       final list = usersSnap.docs
           .map((d) => _User360Row(d.id, d.data()))
+          .where((r) => adminUserHasCompleteEmail(r.data))
           .toList()
         ..sort((a, b) {
           final ta = a.platformAt;

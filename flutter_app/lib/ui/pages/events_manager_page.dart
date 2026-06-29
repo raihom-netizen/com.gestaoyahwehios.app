@@ -8527,11 +8527,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       payload.remove('videoUrl');
 
       try {
-        await EcofirePublishProgressUi.runWithProgress<void>(
-          context,
-          uploadLabel: 'Criando evento e enviando capa…',
+        await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
+          context: context,
+          uploadLabel: 'A enviar capa e fotos…',
           saveLabel: 'A gravar evento…',
           distributeLabel: 'A notificar e publicar no site…',
+          successMessage: isNewDoc
+              ? 'Evento publicado com sucesso.'
+              : 'Evento atualizado.',
+          closeEditor: () {
+            if (!mounted) return;
+            Navigator.pop(context, <String, dynamic>{
+              'ok': true,
+              'docId': postId,
+            });
+          },
+          formatError: formatUploadErrorForUser,
           action: (reportProgress) async {
             await EventoCreatePublishService.publish(
               docRef: docRef,
@@ -8571,18 +8582,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         EventosPublishVerificationService.clearLastError();
         _clearPendingEventPhotosAfterPublish();
         unawaited(IosPublishMemory.releaseAfterHeavyWork());
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            isNewDoc
-                ? 'Evento publicado com sucesso.'
-                : 'Evento atualizado.',
-          ),
-        );
-        Navigator.pop(context, <String, dynamic>{
-          'ok': true,
-          'docId': postId,
-        });
       } catch (e, st) {
         EventosPublishVerificationService.rememberLastError(e);
         await CrashlyticsService.record(e, st, reason: 'eventos_publish');

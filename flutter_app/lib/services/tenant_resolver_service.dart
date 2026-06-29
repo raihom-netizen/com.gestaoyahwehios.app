@@ -15,17 +15,23 @@ class TenantResolverService {
   static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
   static const int _scanLimit = 350;
 
-  /// âncora legada desativada (sem tenant fixo hardcoded no app).
-  static const String kBpcCanonicalIgrejaDocId = 'igreja_canonica_desativada';
+  /// Igreja piloto BPC — doc canónico em `igrejas/{churchId}`.
+  static const String kBpcCanonicalIgrejaDocId =
+      'igreja_o_brasil_para_cristo_jardim_goiano';
 
-  /// IDs legados — migrados para [kBpcCanonicalIgrejaDocId]; redirecionados via `church_aliases`.
-  static const List<String> kBpcLegacyTenantIds = [];
+  /// IDs legados — redirecionam para [kBpcCanonicalIgrejaDocId].
+  static const List<String> kBpcLegacyTenantIds = [
+    'brasilparacristo_sistema',
+    'brasilparacristo',
+  ];
 
   /// Cluster operacional — após consolidação BPC, só o doc canónico.
   static const Map<String, List<String>> _anchoredChurchClusters = {};
 
   /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) → doc canónico operacional.
-  static const Map<String, String> _publicSlugToCanonicalDocId = {};
+  static const Map<String, String> _publicSlugToCanonicalDocId = {
+    'o-brasil-cristo-jardim-goiano': kBpcCanonicalIgrejaDocId,
+  };
 
   static bool _looksLikeChurchDocId(String value) {
     final v = value.trim();

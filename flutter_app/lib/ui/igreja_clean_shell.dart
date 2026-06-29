@@ -527,7 +527,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           _moduleTenantId,
           source: 'igreja_clean_shell',
         );
-        reportChurchClientSessionToUserDoc();
+        unawaited(reportChurchClientSessionToUserDoc());
         _runMembersToMembrosMigration();
         _schedulePostTenantWarmups();
         YahwehPerformanceMonitor.markScreenStart('church_shell');
@@ -993,11 +993,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                             ModuleHeaderPremium(
                               title: _items[_selectedIndex].label,
                               icon: _items[_selectedIndex].icon,
+                              accent: _items[_selectedIndex].accent,
                               subtitle:
                                   _isMobile ? _shellUserGreetingName() : null,
                               onPainelBack: _isMobile && _selectedIndex != 0
                                   ? () => setState(() => _selectedIndex = 0)
                                   : null,
+                              variant: _isMobile
+                                  ? ModuleHeaderVariant.wisdomGradient
+                                  : ModuleHeaderVariant.card,
                             ),
                           Expanded(
                             child: Semantics(

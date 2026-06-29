@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/panel_section_prefs.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
-/// Atalhos rápidos no topo do painel.
+/// Atalhos rápidos no topo do painel — chips coloridos (padrão WISDOMAPP).
 class PanelQuickShortcuts extends StatelessWidget {
   const PanelQuickShortcuts({
     super.key,
@@ -21,35 +21,34 @@ class PanelQuickShortcuts extends StatelessWidget {
   final VoidCallback onOpenOrganograma;
   final VoidCallback? onOpenPainelCorpoAdmin;
 
+  static const _items = <(IconData, String, List<Color>)>[
+    (Icons.cake_rounded, 'Ano todo', [Color(0xFFF59E0B), Color(0xFFEA580C)]),
+    (Icons.photo_library_rounded, 'Galeria', [Color(0xFF0EA5E9), Color(0xFF2563EB)]),
+    (Icons.account_tree_rounded, 'Organograma', [Color(0xFF7C3AED), Color(0xFF6366F1)]),
+    (Icons.groups_rounded, 'Corpo admin.', [Color(0xFF10B981), Color(0xFF059669)]),
+  ];
+
   @override
   Widget build(BuildContext context) {
+    final actions = <VoidCallback>[
+      onOpenAniversariantesAno,
+      onOpenGaleriaEventos,
+      onOpenOrganograma,
+      if (onOpenPainelCorpoAdmin != null) onOpenPainelCorpoAdmin!,
+    ];
+    final count = onOpenPainelCorpoAdmin != null ? 4 : 3;
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _Chip(
-            icon: Icons.cake_rounded,
-            label: 'Ano todo',
-            onTap: onOpenAniversariantesAno,
-          ),
-          const SizedBox(width: 8),
-          _Chip(
-            icon: Icons.photo_library_rounded,
-            label: 'Galeria',
-            onTap: onOpenGaleriaEventos,
-          ),
-          const SizedBox(width: 8),
-          _Chip(
-            icon: Icons.account_tree_rounded,
-            label: 'Organograma',
-            onTap: onOpenOrganograma,
-          ),
-          if (onOpenPainelCorpoAdmin != null) ...[
-            const SizedBox(width: 8),
-            _Chip(
-              icon: Icons.groups_rounded,
-              label: 'Corpo admin.',
-              onTap: onOpenPainelCorpoAdmin!,
+          for (var i = 0; i < count; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            _GradientChip(
+              icon: _items[i].$1,
+              label: _items[i].$2,
+              colors: _items[i].$3,
+              onTap: actions[i],
             ),
           ],
         ],
@@ -58,40 +57,49 @@ class PanelQuickShortcuts extends StatelessWidget {
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip({
+class _GradientChip extends StatelessWidget {
+  const _GradientChip({
     required this.icon,
     required this.label,
+    required this.colors,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
+  final List<Color> colors;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Ink(
           decoration: BoxDecoration(
+            gradient: LinearGradient(colors: colors),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: colors.last.withValues(alpha: 0.32),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: ThemeCleanPremium.primary),
+              Icon(icon, size: 18, color: Colors.white),
               const SizedBox(width: 6),
               Text(
                 label,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
                   fontSize: 13,
                 ),
               ),

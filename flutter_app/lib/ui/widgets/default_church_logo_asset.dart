@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 
-/// Logo padrão do app quando a igreja ainda não enviou logo (`assets/icon/app_icon.png`).
+/// Logo/ícone oficial Gestão YAHWEH — escudo em [assets/icon/app_icon.png].
+///
+/// [kGestaoYahwehBrandLogoAsset] e [kDefaultChurchLogoAssetPath] apontam para a mesma arte.
+/// `assets/LOGO_GESTAO_YAHWEH.png` é cópia sincronizada (login, master, sidebar).
+/// Regenerar plataformas: `flutter_app/scripts/atualizar_icone_web.ps1`
 const String kDefaultChurchLogoAssetPath = 'assets/icon/app_icon.png';
+
+/// Alias usado em login, painel master e site de divulgação (PNG sincronizado com [app_icon]).
+const String kGestaoYahwehBrandLogoAsset = 'assets/LOGO_GESTAO_YAHWEH.png';
 
 /// Exibe o ícone Gestão YAHWEH grande no espaço reservado à logo da igreja.
 class DefaultChurchLogoAsset extends StatelessWidget {

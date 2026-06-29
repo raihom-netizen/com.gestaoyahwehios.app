@@ -163,6 +163,21 @@ abstract final class YahwehModuleMediaGate {
     await FirestoreWebGuard.ensureFirestoreClientAlive();
   }
 
+  /// Garante Firebase/Storage antes do `put` (evita core/no-app no meio do upload).
+  static Future<void> assertReadyForUploadAction({
+    bool requireAuth = true,
+    bool withPhotos = true,
+  }) async {
+    await ensureFirebaseCore(requireAuth: requireAuth);
+    await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+      refreshAuthToken: requireAuth,
+      maxAttempts: 5,
+    );
+    if (requireAuth && withPhotos) {
+      await ensureFirebaseReadyForMediaUpload();
+    }
+  }
+
   /// Bootstrap completo antes de publicar com Storage (avisos, eventos, património…).
   ///
   /// Evita `core/no-app` ao publicar — relink Storage + EcoFire + auth.

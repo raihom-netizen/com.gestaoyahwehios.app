@@ -8,6 +8,7 @@ import 'church_chat_member_prefs.dart';
 import 'fcm_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 
 /// Preferências de push do chat da igreja — alinhado a [users/{uid}.pushChat] e FCM `gypush_*_chat`.
 class ChurchChatNotificationPrefs {
@@ -84,9 +85,10 @@ class ChurchChatNotificationPrefs {
     final u = firebaseDefaultAuth.currentUser;
     if (u != null) {
       try {
-        await firebaseDefaultFirestore.collection('users').doc(u.uid).set(
-          {'pushChat': enabled},
-          SetOptions(merge: true),
+        await patchUsersDocIfIdentified(
+          db: firebaseDefaultFirestore,
+          uid: u.uid,
+          patch: {'pushChat': enabled},
         );
       } catch (_) {}
       if (!kIsWeb) {
@@ -248,9 +250,10 @@ class ChurchChatNotificationPrefs {
     final user = firebaseDefaultAuth.currentUser;
     if (user != null) {
       try {
-        await firebaseDefaultFirestore.collection('users').doc(user.uid).set(
-          {_firestoreAlertModeField: norm},
-          SetOptions(merge: true),
+        await patchUsersDocIfIdentified(
+          db: firebaseDefaultFirestore,
+          uid: user.uid,
+          patch: {_firestoreAlertModeField: norm},
         );
       } catch (_) {}
     }

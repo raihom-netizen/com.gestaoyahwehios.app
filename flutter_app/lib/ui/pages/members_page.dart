@@ -315,7 +315,9 @@ class _MembersPageState extends State<MembersPage> {
     required Map<String, dynamic> memberData,
     required Uint8List bytes,
   }) async {
+    GlobalUploadProgress.instance.start('A enviar foto de perfil…');
     try {
+      await YahwehModuleMediaGate.assertReadyForUploadAction(withPhotos: true);
       final result = await YahwehCentralEngineService.executeSingleProfileSave(
         collectionId: 'membros',
         docId: memberDocId,
@@ -323,12 +325,15 @@ class _MembersPageState extends State<MembersPage> {
         payloadFields: const {},
         photoBytes: bytes,
         memberDataHint: memberData,
+        onPhase: (phase) => GlobalUploadProgress.instance.updateLabel(phase),
       );
       if (!mounted) return;
       _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
     } catch (e) {
       await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       rethrow;
+    } finally {
+      GlobalUploadProgress.instance.end();
     }
   }
 

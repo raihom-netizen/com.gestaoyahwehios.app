@@ -39,6 +39,39 @@ abstract final class YahwehDesignSystem {
   /// Ponta escura dos gradientes em chips de ícone (login, shell, Torre Master).
   static const Color chipIconGradientEnd = surfaceVariantDark;
 
+  // ——— WISDOMAPP: gradientes globais ———
+  static const Color wisdomNavyDeep = Color(0xFF0B1B4B);
+  static const Color wisdomNavyMid = Color(0xFF134074);
+  static const Color wisdomTealAccent = Color(0xFF0D9488);
+  static const Color wisdomGold = Color(0xFFD4AF37);
+  static const Color wisdomGoldLight = Color(0xFFF0D878);
+
+  /// Painel igreja — fundo suave navy → superfície.
+  static const LinearGradient panelBodyGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color(0xFFE8EEF8),
+      Color(0xFFF0F4FF),
+      Color(0xFFF8FAFC),
+      surfaceVariant,
+    ],
+    stops: [0.0, 0.18, 0.42, 1.0],
+  );
+
+  /// Site divulgação + site público igreja.
+  static const LinearGradient publicPageGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      navSidebar,
+      brandPrimaryLight,
+      Color(0xFFF0F4FF),
+      surfaceVariant,
+    ],
+    stops: [0.0, 0.14, 0.28, 1.0],
+  );
+
   // ——— Raios (cards 16, modais 20) ———
   static const double radiusSm = 10;
   static const double radiusMd = 16;

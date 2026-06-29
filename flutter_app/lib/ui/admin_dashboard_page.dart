@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Dashboard SaaS Super Premium: KPIs, gráficos de novas igrejas, usuários, recebimentos PIX/cartão, vencimentos e acessos.
@@ -222,11 +223,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     }
 
     try {
-      final usersAgg = await db.collection('users').count().get();
+      final usersAgg =
+          await adminUsersWithEmailQuery(db.collection('users')).count().get();
       usersCount += usersAgg.count ?? 0;
       final usersSnap =
-          await db.collection('users').limit(_kUsersSampleLimit).get();
+          await adminUsersWithEmailQuery(db.collection('users'))
+              .limit(_kUsersSampleLimit)
+              .get();
       for (final d in usersSnap.docs) {
+        if (!adminUserHasCompleteEmail(d.data())) continue;
         final dt = _parseDate(d.data()['createdAt'] ?? d.data()['created_at']);
         if (dt != null) {
           final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}';

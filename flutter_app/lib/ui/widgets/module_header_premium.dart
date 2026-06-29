@@ -1,13 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/yahweh_design_system.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import '../theme_clean_premium.dart';
 
-/// Cabeçalho discreto de módulo no painel da igreja: cartão claro compacto (menos altura que o gradiente antigo).
+/// Variante visual do cabeçalho de módulo.
+enum ModuleHeaderVariant {
+  /// Cartão branco compacto (desktop / módulos leves).
+  card,
+  /// Barra gradiente WISDOMAPP (mobile shell — padrão).
+  wisdomGradient,
+}
+
+/// Cabeçalho de módulo no painel da igreja — padrão WISDOMAPP.
 class ModuleHeaderPremium extends StatelessWidget {
   final String title;
   final IconData icon;
   final String? subtitle;
+  final Color? accent;
+  final ModuleHeaderVariant variant;
   /// No mobile, volta ao Painel (índice 0) sem sair do sistema — preenchido pelo [IgrejaCleanShell].
   final VoidCallback? onPainelBack;
 
@@ -16,15 +28,32 @@ class ModuleHeaderPremium extends StatelessWidget {
     required this.title,
     required this.icon,
     this.subtitle,
+    this.accent,
+    this.variant = ModuleHeaderVariant.wisdomGradient,
     this.onPainelBack,
   });
 
   static const Color _iconTint = Color(0xFF3B82F6);
 
+  Color get _accent => accent ?? ThemeCleanPremium.primary;
+
   @override
   Widget build(BuildContext context) {
+    if (variant == ModuleHeaderVariant.wisdomGradient && onPainelBack != null) {
+      return ChurchEmbeddedModuleBar(
+        title: title,
+        icon: icon,
+        accent: _accent,
+        onBack: onPainelBack!,
+        subtitle: subtitle,
+      );
+    }
+    return _buildCardHeader(context);
+  }
+
+  Widget _buildCardHeader(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    final isPhone = w < ThemeCleanPremium.breakpointMobile; // < 600
+    final isPhone = w < ThemeCleanPremium.breakpointMobile;
     final isVeryNarrow = w < 400;
     final hPad = isVeryNarrow ? 6.0 : (isPhone ? 8.0 : 12.0);
     final vPad = isVeryNarrow ? 4.0 : 5.0;
@@ -42,7 +71,7 @@ class ModuleHeaderPremium extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: hPad, vertical: vPad),
         decoration: BoxDecoration(
           color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusMd),
           border: Border.all(color: const Color(0xFFE8EEF4)),
           boxShadow: ThemeCleanPremium.softUiCardShadow,
         ),
@@ -59,10 +88,10 @@ class ModuleHeaderPremium extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
+                color: _accent.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: _iconTint, size: isVeryNarrow ? 17 : 19),
+              child: Icon(icon, color: _accent, size: isVeryNarrow ? 17 : 19),
             ),
             SizedBox(width: isVeryNarrow ? 6 : 8),
             Expanded(
@@ -78,35 +107,25 @@ class ModuleHeaderPremium extends StatelessWidget {
                               color: ThemeCleanPremium.onSurface,
                               fontWeight: FontWeight.w700,
                               fontSize: titleSize,
-                              letterSpacing: 0.05,
+                              letterSpacing: -0.15,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(
-                            '·',
-                            style: TextStyle(
-                              color: ThemeCleanPremium.onSurfaceVariant
-                                  .withOpacity(0.7),
-                              fontSize: subSize,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
+                        const SizedBox(width: 6),
                         Flexible(
                           flex: 3,
                           child: Text(
                             subtitle!,
                             style: GoogleFonts.inter(
                               color: ThemeCleanPremium.onSurfaceVariant,
-                              fontSize: subSize,
                               fontWeight: FontWeight.w500,
+                              fontSize: subSize,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
                           ),
                         ),
                       ],
@@ -117,7 +136,7 @@ class ModuleHeaderPremium extends StatelessWidget {
                         color: ThemeCleanPremium.onSurface,
                         fontWeight: FontWeight.w700,
                         fontSize: titleSize,
-                        letterSpacing: 0.05,
+                        letterSpacing: -0.15,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

@@ -83,6 +83,7 @@ import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/sync_feedback_listener.dart';
 import 'package:gestao_yahweh/ui/widgets/web_session_expired_overlay.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_upload_progress_overlay.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:gestao_yahweh/core/app_deep_link.dart';
@@ -1122,12 +1123,14 @@ class _AppWithThemeState extends State<_AppWithTheme>
             final bg = Theme.of(context).scaffoldBackgroundColor;
             return WebSessionExpiredOverlay(
               child: SyncFeedbackListener(
-                child: Container(
-                  color: bg,
-                  child: MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(alwaysUse24HourFormat: true),
-                    child: GestaoYahwehSelectableScope(child: c),
+                child: WhatsAppUploadProgressOverlay(
+                  child: Container(
+                    color: bg,
+                    child: MediaQuery(
+                      data: MediaQuery.of(context)
+                          .copyWith(alwaysUse24HourFormat: true),
+                      child: GestaoYahwehSelectableScope(child: c),
+                    ),
                   ),
                 ),
               ),

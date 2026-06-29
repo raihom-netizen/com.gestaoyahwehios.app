@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
@@ -79,13 +80,17 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         // users (raiz) com tenantId/igrejaId apontando para esta igreja
         try {
           final usersT = await db.collection('users').where('tenantId', isEqualTo: tid).get();
-          for (final d in usersT.docs) addDoc(d);
+          for (final d in usersT.docs) {
+            if (adminUserHasCompleteEmail(d.data())) addDoc(d);
+          }
         } catch (e, st) {
           debugPrint('AdminIgrejaUsuarios users tenantId($tid): $e\n$st');
         }
         try {
           final usersI = await db.collection('users').where('igrejaId', isEqualTo: tid).get();
-          for (final d in usersI.docs) addDoc(d);
+          for (final d in usersI.docs) {
+            if (adminUserHasCompleteEmail(d.data())) addDoc(d);
+          }
         } catch (e, st) {
           debugPrint('AdminIgrejaUsuarios users igrejaId($tid): $e\n$st');
         }

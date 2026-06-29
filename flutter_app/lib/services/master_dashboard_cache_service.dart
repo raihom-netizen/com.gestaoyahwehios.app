@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 
 /// Item da fila de aÃ§Ãµes do Command Center.
 class MasterActionItem {
@@ -449,7 +450,8 @@ abstract final class MasterDashboardCacheService {
 
     try {
       final igCount = await db.collection('igrejas').count().get();
-      final userCount = await db.collection('users').count().get();
+      final userCount =
+          await adminUsersWithEmailQuery(db.collection('users')).count().get();
       final alertSnap = await db
           .collection('alertas')
           .limit(YahwehPerformanceV4.masterCacheAlertsLimit)

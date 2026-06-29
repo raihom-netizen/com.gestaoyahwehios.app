@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -467,20 +468,8 @@ enum ChurchPanelPillTabBarStyle {
 /// Usar em mobile dentro do [IgrejaCleanShell] com [embeddedInShell] para alinhar ao cabeçalho do shell sem
 /// duplicar AppBar. [tabs] devem ser [Tab] com texto (e opcionalmente ícone).
 /// Fundo suave do corpo dos módulos Financeiro / Patrimônio / Fornecedores.
-BoxDecoration churchModuleBodyGradient(Color accent) {
-  return BoxDecoration(
-    gradient: LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        Color.lerp(accent, Colors.white, 0.72)!,
-        ThemeCleanPremium.surfaceVariant,
-        const Color(0xFFF8FAFC),
-      ],
-      stops: const [0.0, 0.22, 1.0],
-    ),
-  );
-}
+BoxDecoration churchModuleBodyGradient(Color accent) =>
+    YahwehWisdomVisualKit.moduleBodyGradient(accent);
 
 /// Faixa superior no shell: voltar + abas coloridas do módulo.
 class ChurchModuleShellChrome extends StatelessWidget {

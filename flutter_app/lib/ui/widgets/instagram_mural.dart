@@ -3783,13 +3783,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     );
 
     try {
-      await EcofirePublishProgressUi.runWithProgress<void>(
-        context,
+      await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
+        context: context,
         uploadLabel: hasNewPhotos || localVideoPath != null
             ? 'A enviar fotos e vídeo…'
-            : 'A preparar…',
+            : 'A preparar evento…',
         saveLabel: 'A gravar evento…',
         distributeLabel: 'A notificar e publicar no site…',
+        successMessage:
+            isNewDoc ? 'Evento publicado com sucesso.' : 'Evento atualizado.',
+        closeEditor: () {
+          if (mounted) Navigator.pop(context, true);
+        },
+        formatError: formatUploadErrorForUser,
         action: (reportProgress) async {
           await EventoStrictPublishService.publish(
             docRef: docRef,
@@ -3825,13 +3831,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         },
       );
       EventosPublishVerificationService.clearLastError();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          isNewDoc ? 'Evento publicado com sucesso.' : 'Evento atualizado.',
-        ),
-      );
-      Navigator.pop(context, true);
+      _clearNewPhotosAfterPublish();
     } catch (e, st) {
       EventosPublishVerificationService.rememberLastError(e);
       await CrashlyticsService.record(e, st, reason: 'eventos_publish');
@@ -4879,11 +4879,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     if (!mounted) return;
 
     try {
-      await EcofirePublishProgressUi.runWithProgress<void>(
-        context,
-        uploadLabel: hasNewPhotos ? 'A enviar fotos…' : 'A preparar…',
+      await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
+        context: context,
+        uploadLabel: hasNewPhotos ? 'A enviar imagem…' : 'A preparar aviso…',
         saveLabel: 'A gravar aviso…',
         distributeLabel: 'A notificar e publicar no site…',
+        successMessage:
+            isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
+        closeEditor: () {
+          if (mounted) Navigator.pop(context, true);
+        },
+        formatError: formatUploadErrorForUser,
         action: (reportProgress) async {
           await AvisoStrictPublishService.publish(
             docRef: docRef,
@@ -4915,13 +4921,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         },
       );
       AvisosPublishVerificationService.clearLastError();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
-        ),
-      );
-      Navigator.pop(context, true);
     } catch (e, st) {
       AvisosPublishVerificationService.rememberLastError(e);
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');

@@ -38,6 +38,7 @@ import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -630,16 +631,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _resetCadastroLoadState();
     setState(() {});
     unawaited(_bootstrapCadastro(forceRefresh: true));
-  }
-
-  void _copyAndSnack(BuildContext context, String text) {
-    Clipboard.setData(ClipboardData(text: text));
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-            'Link copiado para a área de transferência.'),
-      );
-    }
   }
 
   @override
@@ -3704,107 +3695,29 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   if (_slugCtrl.text.trim().isNotEmpty) ...[
                                     const SizedBox(
                                         height: ThemeCleanPremium.spaceLg),
-                                    Container(
-                                      width: double.infinity,
-                                      padding: const EdgeInsets.all(
-                                          ThemeCleanPremium.spaceMd),
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.06),
-                                            const Color(0xFFF8FAFC),
-                                          ],
+                                    Builder(builder: (ctx) {
+                                      final slug = _slugCtrl.text.trim();
+                                      return ChurchPublicLinksCard(
+                                        slug: slug,
+                                        compact: true,
+                                        onOpenSite: () =>
+                                            openHttpsUrlInBrowser(
+                                          ctx,
+                                          ChurchPublicLinksCard.siteUrlForSlug(
+                                              slug),
                                         ),
-                                        borderRadius: BorderRadius.circular(
-                                            ThemeCleanPremium.radiusMd),
-                                        border: Border.all(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.18),
-                                        ),
-                                        boxShadow:
-                                            ThemeCleanPremium.softUiCardShadow,
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(Icons.public_rounded,
-                                                  size: 22,
-                                                  color: ThemeCleanPremium
-                                                      .primary),
-                                              const SizedBox(width: 10),
-                                              Text(
-                                                'Seus links públicos',
-                                                style: TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w800,
-                                                    letterSpacing: -0.3,
-                                                    color: ThemeCleanPremium
-                                                        .primary),
-                                              ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Gerados a partir do nome da igreja. Use para divulgar o site e o cadastro de membros.',
-                                            style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700,
-                                                height: 1.35),
-                                          ),
-                                          const SizedBox(height: 14),
-                                          Builder(builder: (ctx) {
-                                            final slug =
-                                                _slugCtrl.text.trim();
-                                            final homeUrl = slug.isEmpty
-                                                ? AppConstants.publicWebBaseUrl
-                                                : '${AppConstants.publicWebBaseUrl}/igreja/${Uri.encodeComponent(slug)}';
-                                            final cadUrl = slug.isEmpty
-                                                ? AppConstants.publicWebBaseUrl
-                                                : AppConstants
-                                                    .publicChurchMemberSignupUrl(
-                                                        slug);
-                                            return Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.stretch,
-                                              children: [
-                                                _LinkRow(
-                                                  label:
-                                                      'Site público (eventos e informações)',
-                                                  url: homeUrl,
-                                                  onOpen: () =>
-                                                      openHttpsUrlInBrowser(
-                                                          ctx, homeUrl),
-                                                  onCopy: () => _copyAndSnack(
-                                                      context, homeUrl),
-                                                ),
-                                                const SizedBox(height: 10),
-                                                _LinkRow(
-                                                  label:
-                                                      'Cadastro de membros (público)',
-                                                  url: cadUrl,
-                                                  onOpen: () {
-                                                    if (!PublicMemberSignupNavigation
-                                                        .tryOpenInAppFromUrl(
-                                                            ctx, cadUrl)) {
-                                                      openHttpsUrlInBrowser(
-                                                          ctx, cadUrl);
-                                                    }
-                                                  },
-                                                  onCopy: () => _copyAndSnack(
-                                                      context, cadUrl),
-                                                ),
-                                              ],
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    ),
+                                        onOpenCadastro: () {
+                                          final cadUrl =
+                                              ChurchPublicLinksCard
+                                                  .signupUrlForSlug(slug);
+                                          if (!PublicMemberSignupNavigation
+                                              .tryOpenInAppFromUrl(
+                                                  ctx, cadUrl)) {
+                                            openHttpsUrlInBrowser(ctx, cadUrl);
+                                          }
+                                        },
+                                      );
+                                    }),
                                   ],
                                   ],
                                 ],
@@ -3822,65 +3735,5 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 ),
               ),
             );
-  }
-}
-
-class _LinkRow extends StatelessWidget {
-  final String label;
-  final String url;
-  final VoidCallback onOpen;
-  final VoidCallback onCopy;
-
-  const _LinkRow({
-    required this.label,
-    required this.url,
-    required this.onOpen,
-    required this.onCopy,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade700)),
-              const SizedBox(height: 2),
-              SelectableText(url,
-                  style:
-                      const TextStyle(fontSize: 13, fontFamily: 'monospace')),
-            ],
-          ),
-        ),
-        const SizedBox(width: 4),
-        IconButton.filled(
-          onPressed: onOpen,
-          icon: const Icon(Icons.open_in_browser_rounded, size: 20),
-          tooltip: 'Abrir',
-          style: IconButton.styleFrom(
-            backgroundColor: ThemeCleanPremium.primary,
-            foregroundColor: Colors.white,
-          ),
-        ),
-        IconButton.filled(
-          onPressed: onCopy,
-          icon: const Icon(Icons.copy_rounded, size: 20),
-          tooltip: 'Copiar link',
-          style: IconButton.styleFrom(
-            backgroundColor:
-                ThemeCleanPremium.primary.withValues(alpha: 0.12),
-            foregroundColor: ThemeCleanPremium.primary,
-          ),
-        ),
-      ],
-    );
   }
 }

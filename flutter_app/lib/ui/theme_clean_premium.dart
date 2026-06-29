@@ -60,18 +60,9 @@ class ThemeCleanPremium {
     ...cardShadow,
   ];
 
-  /// Fundo da área principal do Painel Igreja (site divulgação / Controle Total — azul suave → branco-acinzentado).
-  static LinearGradient get churchPanelBodyGradient => LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          navSidebar.withOpacity(0.07),
-          const Color(0xFFE8EEF8),
-          const Color(0xFFF0F4FF),
-          surfaceVariant,
-        ],
-        stops: const [0.0, 0.1, 0.26, 1.0],
-      );
+  /// Fundo da área principal do Painel Igreja — padrão WISDOMAPP.
+  static LinearGradient get churchPanelBodyGradient =>
+      YahwehDesignSystem.panelBodyGradient;
 
   /// Cores para modo escuro
   static const Color surfaceDark = YahwehDesignSystem.surfaceDark;

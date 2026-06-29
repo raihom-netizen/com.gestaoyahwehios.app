@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, unawaited;
+﻿import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -44,6 +44,7 @@ import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -102,6 +103,8 @@ import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
+import 'package:gestao_yahweh/ui/widgets/panel_home_welcome_banner.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
@@ -147,22 +150,22 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_leadership_cards.dart';
 import 'package:gestao_yahweh/services/church_panel_leadership_load_service.dart'
     show ChurchPanelLeadershipSection;
 
-/// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
+/// Dashboard Clean Premium â€” Aniversariantes, lÃ­deres, stats e grÃ¡ficos (saudaÃ§Ã£o no topo do shell).
 /// Membros via `MembersDirectorySnapshotService` + cache painel (sem N streams `membros`).
 class IgrejaDashboardModerno extends StatefulWidget {
   final String tenantId;
   final String role;
   final String cpf;
-  /// Abre o módulo Membros no shell (atalho a partir do painel de saúde ministerial).
+  /// Abre o mÃ³dulo Membros no shell (atalho a partir do painel de saÃºde ministerial).
   final VoidCallback? onNavigateToMembers;
 
-  /// Mesmas flags do shell — financeiro, patrimônio e fornecedores só no painel para quem pode ver.
+  /// Mesmas flags do shell â€” financeiro, patrimÃ´nio e fornecedores sÃ³ no painel para quem pode ver.
   final bool? podeVerFinanceiro;
   final bool? podeVerPatrimonio;
   final bool? podeVerFornecedores;
   final List<String>? permissions;
 
-  /// Abre módulo pelo índice do menu [IgrejaCleanShell] (1 = cadastro, 2 = membros, …).
+  /// Abre mÃ³dulo pelo Ã­ndice do menu [IgrejaCleanShell] (1 = cadastro, 2 = membros, â€¦).
   final ValueChanged<int> onNavigateToShellModule;
 
   const IgrejaDashboardModerno({
@@ -191,9 +194,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   bool _heavyDashboardStreamsScheduled = false;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _avisosStream;
-  /// Eventos especiais (`noticias`) com data futura / ainda no Feed — nunca o que já caiu para a Galeria.
+  /// Eventos especiais (`noticias`) com data futura / ainda no Feed â€” nunca o que jÃ¡ caiu para a Galeria.
   Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasPainelStream;
-  /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
+  /// ID efetivo da igreja (resolve slug/alias) â€” mesmo usado em Storage `igrejas/{id}/membros/...`.
   String _effectiveTenantId = '';
   String _churchSlug = '';
   String _churchNome = '';
@@ -204,22 +207,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       ChurchDashboardFinancePreset.currentMonth;
   DateTimeRange? _dashCustomFinanceRange;
 
-  /// Cache `_panel_cache/dashboard_summary` — pintura instantânea do topo do painel.
+  /// Cache `_panel_cache/dashboard_summary` â€” pintura instantÃ¢nea do topo do painel.
   PanelDashboardSnapshot _panelCache = const PanelDashboardSnapshot();
 
   final ScrollController _panelScroll = ScrollController();
   final GlobalKey _corpoAdminSectionKey = GlobalKey();
   List<String> _corpoAdminRoles = ChurchCorpoAdminRoles.defaultRoleKeys;
 
-  /// KPIs pré-processados (`_performance_cache/dashboard_current`).
+  /// KPIs prÃ©-processados (`_performance_cache/dashboard_current`).
   ChurchDashboardCurrent _dashboardKpis = const ChurchDashboardCurrent();
 
-  /// 1 leitura — `igrejas/{churchId}/_dashboard_cache/main` (servidor pré-calcula).
+  /// 1 leitura â€” `igrejas/{churchId}/_dashboard_cache/main` (servidor prÃ©-calcula).
   ChurchDashboardCacheSnapshot? _dashboardMainCache;
 
   StreamSubscription<ChurchDashboardCacheSnapshot?>? _dashboardMainSub;
 
-  /// Cache `_panel_cache/members_directory` — fallback quando stream `membros` falha na web.
+  /// Cache `_panel_cache/members_directory` â€” fallback quando stream `membros` falha na web.
   MembersDirectorySnapshot _membersDirectory = const MembersDirectorySnapshot();
 
   StreamSubscription<MembersDirectorySnapshot>? _membersDirectorySub;
@@ -316,7 +319,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   void _attachHeavyDashboardStreamsInline(String churchId) {
     _heavyDashboardStreamsScheduled = true;
-    // Controle Total: directory + one-shot dept — evita 2+ listeners live por tenant no mobile.
+    // Controle Total: directory + one-shot dept â€” evita 2+ listeners live por tenant no mobile.
     _membersStream = null;
     _deptStream = _createDepartmentsOneShotStream(churchId);
     unawaited(_hydrateMembersDirectory(_effectiveTenantId));
@@ -439,7 +442,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// churchId canónico — mesma API Membros/Android/iOS/Web.
+  /// churchId canÃ³nico â€” mesma API Membros/Android/iOS/Web.
   Future<String> _resolveEffectiveTenantId() async {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     if (bound.isNotEmpty) return bound;
@@ -477,7 +480,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     return null;
   }
 
-  /// Slug público da igreja (slug, slugId ou alias).
+  /// Slug pÃºblico da igreja (slug, slugId ou alias).
   static String _slugFromTenantData(Map<String, dynamic>? data) {
     if (data == null || data.isEmpty) return '';
     return (data['slug'] ?? data['slugId'] ?? data['alias'] ?? '')
@@ -584,7 +587,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Cache Firestore local antes do bootstrap — evita skeleton prolongado na web.
+  /// Cache Firestore local antes do bootstrap â€” evita skeleton prolongado na web.
   Future<void> _paintPanelFromLocalCacheFirst(String resolved) async {
     final tid = resolved.trim();
     if (tid.isEmpty) return;
@@ -668,7 +671,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     unawaited(
       ensureFirebaseReadyForPanelRead().catchError((e, st) {
         if (mounted) {
-          debugPrint('Painel: Firebase indisponível: $e\n$st');
+          debugPrint('Painel: Firebase indisponÃ­vel: $e\n$st');
         }
       }),
     );
@@ -733,6 +736,24 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
+      if (churchSlug.isEmpty) {
+        churchSlug = TenantResolverService.knownPublicSlugForChurchDocId(
+          effectiveChurchId,
+        );
+      }
+      if (churchNome.trim().isEmpty || churchSlug.isEmpty) {
+        try {
+          final panelSite =
+              await PanelPublicSiteSnapshotService.readOnce(effectiveChurchId)
+                  .timeout(const Duration(seconds: 2));
+          if (churchSlug.isEmpty) {
+            churchSlug = panelSite.churchSlug.trim();
+          }
+          if (churchNome.trim().isEmpty) {
+            churchNome = panelSite.churchName.trim();
+          }
+        } catch (_) {}
+      }
       if (churchSlug.isEmpty) {
         churchSlug = TenantResolverService.knownPublicSlugForChurchDocId(
           effectiveChurchId,
@@ -861,7 +882,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   static const int _dashboardMembersLimit = 220;
   static const int _dashboardDepartmentsLimit = 80;
 
-  /// Um snapshot ou merge de várias coleções `membros` (mesmo slug). Cancela ouvintes ao cancelar o stream.
+  /// Um snapshot ou merge de vÃ¡rias coleÃ§Ãµes `membros` (mesmo slug). Cancela ouvintes ao cancelar o stream.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createMembersSnapshotStream(
     List<String> allIds,
   ) {
@@ -945,7 +966,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Mesmo padrão de [membros]: slug/alias pode ter vários docs em `igrejas/` — departamentos devem agregar todos.
+  /// Mesmo padrÃ£o de [membros]: slug/alias pode ter vÃ¡rios docs em `igrejas/` â€” departamentos devem agregar todos.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsSnapshotStream(
     List<String> allIds,
   ) {
@@ -1102,6 +1123,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
+                                PanelHomeWelcomeBanner(
+                                  churchName: _churchNome,
+                                  subtitle:
+                                      'Atalhos, links públicos e resumo ministerial',
+                                ),
+                                const SizedBox(
+                                    height: ThemeCleanPremium.spaceMd),
                                 PanelQuickShortcuts(
                                   onOpenAniversariantesAno:
                                       _openAniversariantesAnoPage,
@@ -1161,7 +1189,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                     height: ThemeCleanPremium.spaceLg),
                                 PanelCollapsibleSection(
                                   sectionKey: 'lideres_departamento',
-                                  title: 'Líderes de departamento',
+                                  title: 'LÃ­deres de departamento',
                                   icon: Icons.leaderboard_rounded,
                                   child: ChurchPanelLeadershipCardSection(
                                     tenantId: _effectiveTenantId,
@@ -1376,7 +1404,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   }
 }
 
-/// Botão com animação de scale no toque (feedback tátil).
+/// BotÃ£o com animaÃ§Ã£o de scale no toque (feedback tÃ¡til).
 class _TapScaleTile extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
@@ -1532,7 +1560,7 @@ Color _anivAvatarColor(Map<String, dynamic> d) =>
     avatarColorForMember(d, hasPhoto: _anivFotoUrl(d) != null) ??
     Colors.grey.shade600;
 
-/// Decode proporcional à tela — fotos nítidas sem exagerar na memória.
+/// Decode proporcional Ã  tela â€” fotos nÃ­tidas sem exagerar na memÃ³ria.
 int _anivMemCachePx(BuildContext context, double logicalDiameter) {
   final dpr = MediaQuery.devicePixelRatioOf(context);
   return (logicalDiameter * dpr).round().clamp(120, 360);
@@ -1541,7 +1569,7 @@ int _anivMemCachePx(BuildContext context, double logicalDiameter) {
 String _anivDiaLabel(DateTime? dt, {required bool isToday}) {
   if (dt == null) return '';
   if (isToday) return 'Hoje';
-  const dias = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const dias = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sÃ¡b'];
   final w = dias[dt.weekday % 7];
   return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
 }
@@ -1582,7 +1610,7 @@ String _anivEmail(Map<String, dynamic> d) =>
 
 String _mesAniversarioPt(int month) {
   const meses = [
-    'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+    'janeiro', 'fevereiro', 'marÃ§o', 'abril', 'maio', 'junho',
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
   ];
   if (month < 1 || month > 12) return '';
@@ -1752,7 +1780,7 @@ void _openAniversarianteDetalheSheetCore(
                             const SizedBox(width: 8),
                             Text(
                               isToday
-                                  ? 'Aniversário hoje'
+                                  ? 'AniversÃ¡rio hoje'
                                   : '${dt.day} de ${_mesAniversarioPt(dt.month)}',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
@@ -1882,7 +1910,7 @@ class _AnivDetalheLinha extends StatelessWidget {
   }
 }
 
-/// Avatar com anel em gradiente (estilo Stories premium) + selo de bolo no aniversário do dia.
+/// Avatar com anel em gradiente (estilo Stories premium) + selo de bolo no aniversÃ¡rio do dia.
 class _StoryRingBirthdayAvatar extends StatelessWidget {
   final double radius;
   final Widget child;
@@ -1973,7 +2001,7 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
                   border: Border.all(color: const Color(0xFFFCE7F3), width: 1.5),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
-                child: const Text('🎂', style: TextStyle(fontSize: 15)),
+                child: const Text('ðŸŽ‚', style: TextStyle(fontSize: 15)),
               ),
             ),
         ],
@@ -1982,7 +2010,7 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
   }
 }
 
-/// Lembrete: push diário às 8h (Brasília) no tópico `igreja_{tenantId}` — [dailyBirthdayTopicPush].
+/// Lembrete: push diÃ¡rio Ã s 8h (BrasÃ­lia) no tÃ³pico `igreja_{tenantId}` â€” [dailyBirthdayTopicPush].
 class _AniversariantesPushInfoBanner extends StatelessWidget {
   final int count;
   final List<String> previewNames;
@@ -1996,7 +2024,7 @@ class _AniversariantesPushInfoBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final parts = previewNames.where((s) => s.isNotEmpty).take(4).toList();
     final preview = parts.join(', ');
-    final more = count > parts.length ? '…' : '';
+    final more = count > parts.length ? 'â€¦' : '';
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(14),
@@ -2058,7 +2086,7 @@ class _AniversariantesPushInfoBanner extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   'Quem usa o app nesta igreja recebe um aviso por volta das 8h '
-                  '(horário de Brasília). '
+                  '(horÃ¡rio de BrasÃ­lia). '
                   '${preview.isNotEmpty ? 'Inclui: $preview$more.' : ''}',
                   style: TextStyle(
                     fontSize: 12,
@@ -2076,7 +2104,7 @@ class _AniversariantesPushInfoBanner extends StatelessWidget {
   }
 }
 
-/// Falha ao ler Firestore no painel — permite religar streams sem sair da tela.
+/// Falha ao ler Firestore no painel â€” permite religar streams sem sair da tela.
 class _DashboardPanelLoadError extends StatelessWidget {
   final String message;
   final Future<void> Function() onRetry;
@@ -2126,7 +2154,7 @@ class _DashboardPanelLoadError extends StatelessWidget {
   }
 }
 
-/// Aniversariantes sem `_panel_cache` — queries indexadas (`birthMonth`/`birthDay`), sem scan da coleção.
+/// Aniversariantes sem `_panel_cache` â€” queries indexadas (`birthMonth`/`birthDay`), sem scan da coleÃ§Ã£o.
 class _AniversariantesBirthdayIndexedLoader extends StatefulWidget {
   const _AniversariantesBirthdayIndexedLoader({
     required this.tenantId,
@@ -2218,7 +2246,7 @@ class _AniversariantesBirthdayIndexedLoaderState
                 padding: const EdgeInsets.all(16),
                 child: _DashboardPanelLoadError(
                   message:
-                      'Não foi possível carregar aniversariantes. Verifique a conexão ou toque abaixo para recarregar.',
+                      'NÃ£o foi possÃ­vel carregar aniversariantes. Verifique a conexÃ£o ou toque abaixo para recarregar.',
                   onRetry: widget.onRetry,
                 ),
               );
@@ -2231,9 +2259,9 @@ class _AniversariantesBirthdayIndexedLoaderState
   }
 }
 
-/// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (chat / WhatsApp).
+/// Card Aniversariantes: filtros Hoje / Semana / MÃªs + fileira estilo Stories + Parabenizar (chat / WhatsApp).
 class _AniversariantesCard extends StatelessWidget {
-  /// Raio do círculo interno da foto (anel +3.5px — visual ~93px).
+  /// Raio do cÃ­rculo interno da foto (anel +3.5px â€” visual ~93px).
   static const double kAvatarRadius = 43;
   static const double kRowHeight = 232;
   static const double kColWidth = 116;
@@ -2294,7 +2322,7 @@ class _AniversariantesCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: _DashboardPanelLoadError(
             message:
-                'Não foi possível carregar aniversariantes. Verifique a conexão ou toque abaixo para recarregar.',
+                'NÃ£o foi possÃ­vel carregar aniversariantes. Verifique a conexÃ£o ou toque abaixo para recarregar.',
             onRetry: onRetry,
           ),
         ),
@@ -2345,7 +2373,7 @@ class _AniversariantesCard extends StatelessWidget {
       emptyMsg = 'Nenhum aniversariante nesta semana.';
     } else {
       lista = mes;
-      emptyMsg = 'Nenhum aniversariante neste mês.';
+      emptyMsg = 'Nenhum aniversariante neste mÃªs.';
     }
 
     final preloadUrls = lista
@@ -2423,7 +2451,7 @@ class _AniversariantesCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Celebre com a família da igreja',
+                    'Celebre com a famÃ­lia da igreja',
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -2483,7 +2511,7 @@ class _AniversariantesCard extends StatelessWidget {
                 ),
                 ButtonSegment(
                   value: 2,
-                  label: Text('Mês'),
+                  label: Text('MÃªs'),
                   icon: Icon(Icons.calendar_month_rounded, size: 18),
                 ),
               ],
@@ -2822,7 +2850,7 @@ class _AniversariantesCard extends StatelessWidget {
       emptyMsg = 'Nenhum aniversariante nesta semana.';
     } else {
       lista = mesAtual;
-      emptyMsg = 'Nenhum aniversariante neste mês.';
+      emptyMsg = 'Nenhum aniversariante neste mÃªs.';
     }
 
     final cachePx = _anivMemCachePx(context, kAvatarRadius * 2);
@@ -2876,7 +2904,7 @@ class _AniversariantesCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Celebre com a família da igreja',
+                    'Celebre com a famÃ­lia da igreja',
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -2935,7 +2963,7 @@ class _AniversariantesCard extends StatelessWidget {
                 ),
                 ButtonSegment(
                   value: 2,
-                  label: Text('Mês'),
+                  label: Text('MÃªs'),
                   icon: Icon(Icons.calendar_month_rounded, size: 18),
                 ),
               ],
@@ -3171,7 +3199,7 @@ class _AniversariantesCard extends StatelessWidget {
                     size: 20, color: ThemeCleanPremium.primary),
                 const SizedBox(width: 8),
                 Text(
-                  'Ver ano todo (mês a mês)',
+                  'Ver ano todo (mÃªs a mÃªs)',
                   style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: ThemeCleanPremium.primary,
@@ -3202,7 +3230,7 @@ class _AniversariantesCardMeshPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// Vídeo institucional (Firestore: `institutionalVideoUrl` ou `institutionalVideoStoragePath`) — mesmo padrão EcoFire na web.
+/// VÃ­deo institucional (Firestore: `institutionalVideoUrl` ou `institutionalVideoStoragePath`) â€” mesmo padrÃ£o EcoFire na web.
 class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   final String tenantId;
 
@@ -3220,9 +3248,9 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
         return PremiumInstitutionalVideoCard.fromChurchDoc(
           data,
           height: MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointMobile ? 200 : 260,
-          caption: 'VÍDEO INSTITUCIONAL',
-          hintBelow: 'Toque para reproduzir. Na web: PiP, velocidade e download no menu do vídeo.',
-          // Sem autoplay: libera CPU/rede para fotos (aniversariantes, líderes, destaques) no primeiro scroll.
+          caption: 'VÃDEO INSTITUCIONAL',
+          hintBelow: 'Toque para reproduzir. Na web: PiP, velocidade e download no menu do vÃ­deo.',
+          // Sem autoplay: libera CPU/rede para fotos (aniversariantes, lÃ­deres, destaques) no primeiro scroll.
           heroAutoplay: false,
         );
       },
@@ -3230,8 +3258,8 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   }
 }
 
-/// Links do site público e cadastro público — exibidos no dashboard quando a igreja tem slug configurado.
-/// O atalho «Cadastro da Igreja» só aparece se o cadastro raiz ainda não estiver concluído.
+/// Links do site pÃºblico e cadastro pÃºblico â€” exibidos no dashboard quando a igreja tem slug configurado.
+/// O atalho Â«Cadastro da IgrejaÂ» sÃ³ aparece se o cadastro raiz ainda nÃ£o estiver concluÃ­do.
 bool _isIgrejaCadastroConcluido(Map<String, dynamic>? data) {
   if (data == null || data.isEmpty) return false;
   if (data['registrationComplete'] == false) return false;
@@ -3263,7 +3291,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   String get _effectiveSlug {
     final fromParent = widget.churchSlug.trim();
     if (fromParent.isNotEmpty) return fromParent;
-    return (_slug ?? '').trim();
+    final cached = (_slug ?? '').trim();
+    if (cached.isNotEmpty) return cached;
+    return _slugFromKnownMap() ?? '';
   }
 
   static String _slugFromData(Map<String, dynamic>? data) {
@@ -3334,27 +3364,44 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     try {
       final tenantHint = _resolveTenantHint();
       final readId = ChurchRepository.churchId(tenantHint);
+      final docKey = readId.isNotEmpty ? readId : tenantHint;
+
+      var slug = TenantResolverService.knownPublicSlugForChurchDocId(docKey);
       Map<String, dynamic>? churchData;
-      var slug = TenantResolverService.knownPublicSlugForChurchDocId(
-        readId.isNotEmpty ? readId : tenantHint,
-      );
-      if (slug.isNotEmpty && readId.isNotEmpty) {
+
+      if (slug.isEmpty) {
         try {
-          final snap = await ChurchRepository.churchDoc(readId).get();
-          churchData = snap.data();
+          final panelSite = await PanelPublicSiteSnapshotService.readOnce(docKey)
+              .timeout(const Duration(seconds: 2));
+          slug = panelSite.churchSlug.trim();
         } catch (_) {}
       }
-      if (slug.isNotEmpty && mounted) {
-        setState(() {
-          _slug = slug;
-          _cadastroConcluido = _isIgrejaCadastroConcluido(churchData);
-          _loading = false;
-        });
+
+      if (slug.isNotEmpty) {
+        if (readId.isNotEmpty) {
+          try {
+            final snap = await ChurchRepository.churchDoc(readId).get(
+              const GetOptions(source: Source.cache),
+            );
+            churchData = snap.data();
+          } catch (_) {}
+        }
+        if (mounted) {
+          setState(() {
+            _slug = slug;
+            _cadastroConcluido = _isIgrejaCadastroConcluido(churchData);
+            _loading = false;
+          });
+        }
         return;
       }
-      await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb)
-          .timeout(const Duration(seconds: 4), onTimeout: () {});
-      if (slug.isEmpty && readId.isNotEmpty) {
+
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady()
+            .timeout(const Duration(seconds: 2), onTimeout: () {})
+            .catchError((_) {});
+      }
+      if (readId.isNotEmpty) {
         try {
           final loaded = await ChurchRepository.loadByChurchId(
             readId,
@@ -3363,17 +3410,19 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           churchData = loaded.data;
           slug = _slugFromData(loaded.data);
         } catch (e, st) {
-          debugPrint('Dashboard _loadSlug loadByChurchId fallback: $e\n$st');
+          debugPrint('Dashboard _loadSlug loadByChurchId: $e\n$st');
         }
       }
       if (slug.isEmpty) {
         slug = await TenantResolverService.resolveChurchPublicSlug(
           readId.isNotEmpty ? readId : widget.tenantId,
-        );
+        ).timeout(const Duration(seconds: 6), onTimeout: () => '');
       }
       if (churchData == null && readId.isNotEmpty) {
         try {
-          final snap = await ChurchRepository.churchDoc(readId).get();
+          final snap = await ChurchRepository.churchDoc(readId).get(
+            const GetOptions(source: Source.cache),
+          );
           churchData = snap.data();
         } catch (_) {}
       }
@@ -3385,18 +3434,17 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         });
       }
     } catch (e, st) {
-      debugPrint('Dashboard _loadSlug fallback geral: $e\n$st');
+      debugPrint('Dashboard _loadSlug: $e\n$st');
       if (mounted) {
+        final fallback = TenantResolverService.knownPublicSlugForChurchDocId(
+          ChurchRepository.churchId(_resolveTenantHint()),
+        );
         setState(() {
-          _slug = widget.churchSlug.trim().isNotEmpty
-              ? widget.churchSlug.trim()
-              : TenantResolverService.knownPublicSlugForChurchDocId(
-                  widget.tenantId,
-                ).isNotEmpty
-                  ? TenantResolverService.knownPublicSlugForChurchDocId(
-                      widget.tenantId,
-                    )
-                  : null;
+          _slug = fallback.isNotEmpty
+              ? fallback
+              : (widget.churchSlug.trim().isNotEmpty
+                  ? widget.churchSlug.trim()
+                  : null);
           _cadastroConcluido = true;
           _loading = false;
         });
@@ -3416,24 +3464,14 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     PublicMemberSignupNavigation.open(context, slug: slug, tenantId: widget.tenantId);
   }
 
-  void _shareUrl(String url, String label) {
-    Share.share('$label\n$url', subject: label, sharePositionOrigin: const Rect.fromLTRB(0, 0, 1, 1));
-  }
-
-  void _copyUrl(String url) {
-    Clipboard.setData(ClipboardData(text: url));
-    ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Link copiado!'));
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_loading && _effectiveSlug.isEmpty) {
-      return _LinksPublicosSkeleton();
+    final slug = _effectiveSlug;
+    if (slug.isEmpty && _loading) {
+      return const ChurchPublicLinksSkeleton();
     }
 
-    final slug = _effectiveSlug;
-    final hasSlug = slug.isNotEmpty;
-    if (!hasSlug) {
+    if (slug.isEmpty) {
       return _LinksPublicosSetupCard(
         cadastroConcluido: _cadastroConcluido,
         tenantId: widget.tenantId,
@@ -3442,336 +3480,10 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
       );
     }
 
-    final siteUrl = '${AppConstants.publicWebBaseUrl}/igreja/$slug';
-    final cadastroUrl = AppConstants.publicChurchMemberSignupUrl(slug);
-
-    return _LinksPublicosPremiumCard(
-      siteUrl: siteUrl,
-      cadastroUrl: cadastroUrl,
+    return ChurchPublicLinksCard(
+      slug: slug,
       onOpenSite: _openSitePublico,
       onOpenCadastro: _openCadastroPublico,
-      onCopy: _copyUrl,
-      onShare: _shareUrl,
-    );
-  }
-}
-
-/// Card colorido — links públicos (painel inicial, antes dos aniversariantes).
-class _LinksPublicosPremiumCard extends StatelessWidget {
-  const _LinksPublicosPremiumCard({
-    required this.siteUrl,
-    required this.cadastroUrl,
-    required this.onOpenSite,
-    required this.onOpenCadastro,
-    required this.onCopy,
-    required this.onShare,
-  });
-
-  final String siteUrl;
-  final String cadastroUrl;
-  final VoidCallback onOpenSite;
-  final VoidCallback onOpenCadastro;
-  final void Function(String url) onCopy;
-  final void Function(String url, String label) onShare;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2563EB).withValues(alpha: 0.08),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
-          ),
-        ],
-        border: Border.all(color: const Color(0xFFE0E7FF)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFFEFF6FF),
-                  Color(0xFFEDE9FE),
-                  Color(0xFFF0FDF4),
-                ],
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF2563EB), Color(0xFF7C3AED)],
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF2563EB).withValues(alpha: 0.35),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.public_rounded,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Seus links públicos',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.35,
-                          color: Color(0xFF1E3A8A),
-                        ),
-                      ),
-                      SizedBox(height: 3),
-                      Text(
-                        'Toque para abrir, copiar ou compartilhar',
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-            child: Column(
-              children: [
-                _ModernPublicLinkTile(
-                  title: 'Site público',
-                  subtitle: 'Eventos e informações da igreja',
-                  url: siteUrl,
-                  icon: Icons.language_rounded,
-                  gradient: const [Color(0xFF0EA5E9), Color(0xFF2563EB)],
-                  onTap: onOpenSite,
-                  onCopy: () => onCopy(siteUrl),
-                  onShare: () => onShare(siteUrl, 'Site da igreja'),
-                ),
-                const SizedBox(height: 10),
-                _ModernPublicLinkTile(
-                  title: 'Cadastro de membros',
-                  subtitle: 'Link público para novos membros',
-                  url: cadastroUrl,
-                  icon: Icons.person_add_alt_1_rounded,
-                  gradient: const [Color(0xFF10B981), Color(0xFF059669)],
-                  onTap: onOpenCadastro,
-                  onCopy: () => onCopy(cadastroUrl),
-                  onShare: () => onShare(cadastroUrl, 'Cadastro de membro'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ModernPublicLinkTile extends StatelessWidget {
-  const _ModernPublicLinkTile({
-    required this.title,
-    required this.subtitle,
-    required this.url,
-    required this.icon,
-    required this.gradient,
-    required this.onTap,
-    required this.onCopy,
-    required this.onShare,
-  });
-
-  final String title;
-  final String subtitle;
-  final String url;
-  final IconData icon;
-  final List<Color> gradient;
-  final VoidCallback onTap;
-  final VoidCallback onCopy;
-  final VoidCallback onShare;
-
-  @override
-  Widget build(BuildContext context) {
-    final minTouch = ThemeCleanPremium.minTouchTarget;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: gradient,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 24),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        url,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF475569),
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Column(
-                  children: [
-                    _LinkIconAction(
-                      icon: Icons.open_in_new_rounded,
-                      tooltip: 'Abrir',
-                      color: gradient.first,
-                      onPressed: onTap,
-                      minSize: minTouch,
-                    ),
-                    const SizedBox(height: 4),
-                    _LinkIconAction(
-                      icon: Icons.copy_rounded,
-                      tooltip: 'Copiar',
-                      color: const Color(0xFF64748B),
-                      onPressed: onCopy,
-                      minSize: minTouch,
-                    ),
-                    const SizedBox(height: 4),
-                    _LinkIconAction(
-                      icon: Icons.share_rounded,
-                      tooltip: 'Compartilhar',
-                      color: const Color(0xFF64748B),
-                      onPressed: onShare,
-                      minSize: minTouch,
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LinkIconAction extends StatelessWidget {
-  const _LinkIconAction({
-    required this.icon,
-    required this.tooltip,
-    required this.color,
-    required this.onPressed,
-    required this.minSize,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final Color color;
-  final VoidCallback onPressed;
-  final double minSize;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(12),
-          child: SizedBox(
-            width: minSize * 0.78,
-            height: minSize * 0.78,
-            child: Icon(icon, size: 20, color: color),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LinksPublicosSkeleton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 168,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      alignment: Alignment.center,
-      child: const SizedBox(
-        width: 24,
-        height: 24,
-        child: CircularProgressIndicator(strokeWidth: 2.5),
-      ),
     );
   }
 }
@@ -3800,39 +3512,70 @@ class _LinksPublicosSetupCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFFED7AA)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.link_off_rounded, color: Color(0xFFEA580C), size: 28),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              cadastroConcluido
-                  ? 'Slug público ainda não encontrado. Abra o Cadastro da Igreja e salve o slug, ou toque em atualizar.'
-                  : 'Configure o slug no Cadastro da Igreja para exibir os links do site e do cadastro de membros.',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF9A3412),
-                height: 1.35,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                cadastroConcluido
+                    ? Icons.refresh_rounded
+                    : Icons.link_off_rounded,
+                color: const Color(0xFFEA580C),
+                size: 28,
               ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute<void>(
-                builder: (_) => IgrejaCadastroPage(
-                  tenantId: tenantId,
-                  role: role,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  cadastroConcluido
+                      ? 'Não foi possível carregar os links públicos agora. Toque em Atualizar — o cadastro da igreja já está concluído.'
+                      : 'Configure o slug no Cadastro da Igreja para exibir os links do site e do cadastro de membros.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF9A3412),
+                    height: 1.35,
+                  ),
                 ),
               ),
-            ).then((_) => onRefresh()),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFEA580C),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-            child: const Text('Configurar'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => onRefresh(),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Atualizar'),
+                ),
+              ),
+              if (!cadastroConcluido) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => IgrejaCadastroPage(
+                          tenantId: tenantId,
+                          role: role,
+                        ),
+                      ),
+                    ).then((_) => onRefresh()),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFEA580C),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                    child: const Text('Configurar'),
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -3840,7 +3583,7 @@ class _LinksPublicosSetupCard extends StatelessWidget {
   }
 }
 
-/// UID Firebase do membro (foto no Storage em `membros/{authUid}/…` quando o doc é CPF).
+/// UID Firebase do membro (foto no Storage em `membros/{authUid}/â€¦` quando o doc Ã© CPF).
 String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
   if (data == null) return null;
   for (final k in ['authUid', 'uid', 'userId', 'firebaseUid', 'USER_ID']) {
@@ -3850,7 +3593,7 @@ String? _dashboardMemberAuthUid(Map<String, dynamic>? data) {
   return null;
 }
 
-/// Stats: Membros, Homens, Mulheres, Crianças — recebe snapshot compartilhado; ao toque abre lista filtrada.
+/// Stats: Membros, Homens, Mulheres, CrianÃ§as â€” recebe snapshot compartilhado; ao toque abre lista filtrada.
 class _StatsCards extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final String tenantId;
@@ -3945,7 +3688,7 @@ class _StatsCards extends StatelessWidget {
       );
     }
     if (snap.hasError) {
-      return const SizedBox(height: 120, child: Center(child: Text('Não foi possível carregar estatísticas.')));
+      return const SizedBox(height: 120, child: Center(child: Text('NÃ£o foi possÃ­vel carregar estatÃ­sticas.')));
     }
     if (!snap.hasData) return const SizedBox(height: 120, child: Center(child: Text('0 membros')));
     final docs = snap.data!.docs;
@@ -3988,7 +3731,7 @@ class _StatsCards extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _StatCard(label: 'Crianças', value: criancas, icon: Icons.child_care_rounded, color: Colors.amber.shade700, onTap: onCriancas),
+                  _StatCard(label: 'CrianÃ§as', value: criancas, icon: Icons.child_care_rounded, color: Colors.amber.shade700, onTap: onCriancas),
                 ],
               )
             : Row(
@@ -3999,7 +3742,7 @@ class _StatsCards extends StatelessWidget {
                   const SizedBox(width: 16),
                   Expanded(child: _StatCard(label: 'Mulheres', value: mulheres, icon: Icons.female_rounded, color: Colors.pink.shade600, onTap: onMulheres)),
                   const SizedBox(width: 16),
-                  Expanded(child: _StatCard(label: 'Crianças', value: criancas, icon: Icons.child_care_rounded, color: Colors.amber.shade700, onTap: onCriancas)),
+                  Expanded(child: _StatCard(label: 'CrianÃ§as', value: criancas, icon: Icons.child_care_rounded, color: Colors.amber.shade700, onTap: onCriancas)),
                 ],
               );
       },
@@ -4007,7 +3750,7 @@ class _StatsCards extends StatelessWidget {
   }
 }
 
-/// Card de estatística (Membros, Homens, Mulheres, Crianças) — Super Premium.
+/// Card de estatÃ­stica (Membros, Homens, Mulheres, CrianÃ§as) â€” Super Premium.
 class _StatCard extends StatelessWidget {
   final String label;
   final int value;
@@ -4063,7 +3806,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-/// Gráficos pizza membros: gênero (percentual) e faixa etária (percentual).
+/// GrÃ¡ficos pizza membros: gÃªnero (percentual) e faixa etÃ¡ria (percentual).
 class _GraficosMembrosPizza extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final bool isNarrow;
@@ -4079,17 +3822,17 @@ class _GraficosMembrosPizza extends StatelessWidget {
           return narrow
               ? Column(
                   children: [
-                    _PieCard(title: 'Por gênero', icon: Icons.pie_chart_rounded, child: const _SkeletonBox(height: 200)),
+                    _PieCard(title: 'Por gÃªnero', icon: Icons.pie_chart_rounded, child: const _SkeletonBox(height: 200)),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    _PieCard(title: 'Por faixa etária', icon: Icons.people_rounded, child: const _SkeletonBox(height: 200)),
+                    _PieCard(title: 'Por faixa etÃ¡ria', icon: Icons.people_rounded, child: const _SkeletonBox(height: 200)),
                   ],
                 )
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(child: _PieCard(title: 'Por gênero', icon: Icons.pie_chart_rounded, child: const _SkeletonBox(height: 200))),
+                    Expanded(child: _PieCard(title: 'Por gÃªnero', icon: Icons.pie_chart_rounded, child: const _SkeletonBox(height: 200))),
                     const SizedBox(width: ThemeCleanPremium.spaceMd),
-                    Expanded(child: _PieCard(title: 'Por faixa etária', icon: Icons.people_rounded, child: const _SkeletonBox(height: 200))),
+                    Expanded(child: _PieCard(title: 'Por faixa etÃ¡ria', icon: Icons.people_rounded, child: const _SkeletonBox(height: 200))),
                   ],
                 );
         },
@@ -4133,7 +3876,7 @@ class _GraficosMembrosPizza extends StatelessWidget {
     final demografiaTotal =
         criSoc + jovSoc + homensAdulto + mulheresAdulto + semDadosOutros;
     final demografiaEntries = <MapEntry<String, int>>[
-      if (criSoc > 0) MapEntry('Crianças', criSoc),
+      if (criSoc > 0) MapEntry('CrianÃ§as', criSoc),
       if (jovSoc > 0) MapEntry('Jovens', jovSoc),
       if (homensAdulto > 0) MapEntry('Homens (18+)', homensAdulto),
       if (mulheresAdulto > 0) MapEntry('Mulheres (18+)', mulheresAdulto),
@@ -4141,7 +3884,7 @@ class _GraficosMembrosPizza extends StatelessWidget {
     ];
     final pieDemografia = demografiaTotal > 0 && demografiaEntries.isNotEmpty
         ? _PieMembros(
-            title: 'Demografia (visão social)',
+            title: 'Demografia (visÃ£o social)',
             icon: Icons.donut_large_rounded,
             entries: demografiaEntries,
             total: demografiaTotal,
@@ -4197,10 +3940,10 @@ class _GraficosMembrosPizza extends StatelessWidget {
       if (masculino > 0) MapEntry('Masculino', masculino),
       if (feminino > 0) MapEntry('Feminino', feminino),
       if (outros > 0) MapEntry('Outros', outros),
-      if (generoNaoInformado > 0) MapEntry('Não informado', generoNaoInformado),
+      if (generoNaoInformado > 0) MapEntry('NÃ£o informado', generoNaoInformado),
     ];
     final idadeEntries = <MapEntry<String, int>>[
-      if (criancas > 0) MapEntry('Crianças (<13)', criancas),
+      if (criancas > 0) MapEntry('CrianÃ§as (<13)', criancas),
       if (adolescentes > 0) MapEntry('Adolescentes (13-17)', adolescentes),
       if (adultos > 0) MapEntry('Adultos (18-59)', adultos),
       if (idosos > 0) MapEntry('Idosos (60+)', idosos),
@@ -4208,7 +3951,7 @@ class _GraficosMembrosPizza extends StatelessWidget {
     ];
 
     final pieGenero = _PieMembros(
-      title: 'Por gênero',
+      title: 'Por gÃªnero',
       icon: Icons.pie_chart_rounded,
       entries: generoEntries,
       total: total,
@@ -4220,7 +3963,7 @@ class _GraficosMembrosPizza extends StatelessWidget {
       ],
     );
     final pieIdade = _PieMembros(
-      title: 'Por faixa etária',
+      title: 'Por faixa etÃ¡ria',
       icon: Icons.people_rounded,
       entries: idadeEntries,
       total: total,
@@ -4267,7 +4010,7 @@ class _GraficosMembrosPizza extends StatelessWidget {
   }
 }
 
-/// Card Super Premium para gráficos pizza — padrão moderno (radiusXl, sombras refinadas).
+/// Card Super Premium para grÃ¡ficos pizza â€” padrÃ£o moderno (radiusXl, sombras refinadas).
 class _PieCard extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -4321,7 +4064,7 @@ class _PieCard extends StatelessWidget {
   }
 }
 
-/// Pizza percentual com legenda — dados coerentes com o total, layout mobile em coluna, visual premium.
+/// Pizza percentual com legenda â€” dados coerentes com o total, layout mobile em coluna, visual premium.
 class _PieMembros extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -4385,7 +4128,7 @@ class _PieMembros extends StatelessWidget {
                     ),
                   ),
                   TextSpan(
-                    text: '  ·  $count ${count == 1 ? 'membro' : 'membros'}',
+                    text: '  Â·  $count ${count == 1 ? 'membro' : 'membros'}',
                     style: TextStyle(fontWeight: FontWeight.w500, fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
@@ -4551,7 +4294,7 @@ class _PieMembros extends StatelessWidget {
   }
 }
 
-/// Gráfico de crescimento de membros — recebe snapshot compartilhado
+/// GrÃ¡fico de crescimento de membros â€” recebe snapshot compartilhado
 class _GraficoMembros extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
 
@@ -4707,11 +4450,11 @@ class _DashboardFinancePeriodStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final items = <({ChurchDashboardFinancePreset p, String label})>[
-      (p: ChurchDashboardFinancePreset.previousMonth, label: 'Mês anterior'),
-      (p: ChurchDashboardFinancePreset.currentMonth, label: 'Mês atual'),
+      (p: ChurchDashboardFinancePreset.previousMonth, label: 'MÃªs anterior'),
+      (p: ChurchDashboardFinancePreset.currentMonth, label: 'MÃªs atual'),
       (p: ChurchDashboardFinancePreset.weekly, label: 'Semanal'),
       (p: ChurchDashboardFinancePreset.yearly, label: 'Anual'),
-      (p: ChurchDashboardFinancePreset.custom, label: 'Período'),
+      (p: ChurchDashboardFinancePreset.custom, label: 'PerÃ­odo'),
     ];
 
     return Container(
@@ -4761,7 +4504,7 @@ class _DashboardFinancePeriodStrip extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '${resolvedRange.start.day.toString().padLeft(2, '0')}/${resolvedRange.start.month.toString().padLeft(2, '0')}/${resolvedRange.start.year} — '
+            '${resolvedRange.start.day.toString().padLeft(2, '0')}/${resolvedRange.start.month.toString().padLeft(2, '0')}/${resolvedRange.start.year} â€” '
             '${resolvedRange.end.day.toString().padLeft(2, '0')}/${resolvedRange.end.month.toString().padLeft(2, '0')}/${resolvedRange.end.year}',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
           ),
@@ -4979,7 +4722,7 @@ List<double> _dashboardSaidasFromFinanceDocs({
   return out;
 }
 
-/// Barras horizontais — legível no telemóvel (sem sobrepor eixos do fl_chart).
+/// Barras horizontais â€” legÃ­vel no telemÃ³vel (sem sobrepor eixos do fl_chart).
 class _HorizontalDespesasBarChart extends StatelessWidget {
   const _HorizontalDespesasBarChart({
     required this.labels,
@@ -5008,7 +4751,7 @@ class _HorizontalDespesasBarChart extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Text(
-          'Sem despesas no período selecionado.',
+          'Sem despesas no perÃ­odo selecionado.',
           style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
@@ -5136,7 +4879,7 @@ class _HorizontalDespesasBarChart extends StatelessWidget {
   }
 }
 
-/// Gráfico fluxo financeiro — cache `finance_summary` + refresh após lançamento.
+/// GrÃ¡fico fluxo financeiro â€” cache `finance_summary` + refresh apÃ³s lanÃ§amento.
 class _GraficoFinanceiro extends StatefulWidget {
   final String tenantId;
   final DateTimeRange range;
@@ -5248,7 +4991,7 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
         height: 180,
         child: Center(
           child: Text(
-            'Sem dados financeiros no período.',
+            'Sem dados financeiros no perÃ­odo.',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
         ),
@@ -5286,9 +5029,9 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} · '
+          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} Â· '
           '${widget.range.start.day.toString().padLeft(2, '0')}/${widget.range.start.month.toString().padLeft(2, '0')} '
-          '— ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
+          'â€” ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 8),
@@ -5459,7 +5202,7 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
   }
 }
 
-/// Gráfico de barras (despesas via `finance_summary`) + últimas saídas (fetch leve).
+/// GrÃ¡fico de barras (despesas via `finance_summary`) + Ãºltimas saÃ­das (fetch leve).
 class _PainelDespesasDashboard extends StatefulWidget {
   final DateTimeRange range;
   final ChurchDashboardFinancePreset preset;
@@ -5630,7 +5373,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} · mesmo período do fluxo',
+                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} Â· mesmo perÃ­odo do fluxo',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 8),
@@ -5643,7 +5386,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
               if (chartHasData) const SizedBox(height: 12),
               if (recent.isNotEmpty) ...[
               Text(
-                'Últimas despesas — toque para editar ou anexar comprovante',
+                'Ãšltimas despesas â€” toque para editar ou anexar comprovante',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -5722,7 +5465,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
               OutlinedButton.icon(
                 onPressed: () => openFinanceiro(tab: 1),
                 icon: const Icon(Icons.list_alt_rounded, size: 20),
-                label: const Text('Ver todos os lançamentos'),
+                label: const Text('Ver todos os lanÃ§amentos'),
               ),
               ],
             ],
@@ -5763,7 +5506,7 @@ class _TarefasPendentes extends StatelessWidget {
                 _PendingRow(
                   icon: Icons.person_add_rounded,
                   color: const Color(0xFFE11D48),
-                  label: 'Membros pendentes de aprovação',
+                  label: 'Membros pendentes de aprovaÃ§Ã£o',
                   count: cacheReady ? summary.pendingMembersCount : null,
                   fallbackStream:                       ChurchUiCollections.membros(tenantId)
                       .where('status', isEqualTo: 'pendente')
@@ -5796,7 +5539,7 @@ class _TarefasPendentes extends StatelessWidget {
               _PendingRow(
                 icon: Icons.volunteer_activism_rounded,
                 color: const Color(0xFF7C3AED),
-                label: 'Pedidos de oração ativos',
+                label: 'Pedidos de oraÃ§Ã£o ativos',
                 count: cacheReady ? summary.openPrayerRequestsCount : null,
                 fallbackStream:                     ChurchUiCollections.pedidosOracao(tenantId)
                     .where('respondida', isEqualTo: false)
@@ -5887,12 +5630,12 @@ class _PendingRow extends StatelessWidget {
   }
 }
 
-/// Card Super Premium — gráficos e seções do painel (padrão moderno).
+/// Card Super Premium â€” grÃ¡ficos e seÃ§Ãµes do painel (padrÃ£o moderno).
 class _CleanCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final Widget child;
-  /// Seções tipo feed (Eventos/Avisos): padding menor e mais compacto.
+  /// SeÃ§Ãµes tipo feed (Eventos/Avisos): padding menor e mais compacto.
   final bool compact;
 
   const _CleanCard({
@@ -5952,7 +5695,7 @@ class _CleanCard extends StatelessWidget {
   }
 }
 
-/// Parâmetros para [StableStorageImage] (URL https, `gs://` ou path `igrejas/...`).
+/// ParÃ¢metros para [StableStorageImage] (URL https, `gs://` ou path `igrejas/...`).
 ({String? storagePath, String? imageUrl, String? gsUrl}) _painelDestaqueStableParamsFromRef(
     String raw) {
   final s = sanitizeImageUrl(raw);
@@ -5970,7 +5713,7 @@ class _CleanCard extends StatelessWidget {
   return (storagePath: null, imageUrl: s, gsUrl: null);
 }
 
-/// Legenda do post no painel — trunca com "Veja mais" (estilo feed).
+/// Legenda do post no painel â€” trunca com "Veja mais" (estilo feed).
 class _PainelDestaqueExpandableText extends StatefulWidget {
   final String text;
   final int maxLines;
@@ -6163,7 +5906,7 @@ class _DestaqueAvisoCacheCard extends StatelessWidget {
   }
 }
 
-/// Destaques de avisos (feed vertical). Eventos com mídia / galeria ficam no módulo Eventos e no site.
+/// Destaques de avisos (feed vertical). Eventos com mÃ­dia / galeria ficam no mÃ³dulo Eventos e no site.
 class _DestaqueAvisos extends StatelessWidget {
   final String tenantId;
   final String role;
@@ -6248,7 +5991,7 @@ class _DestaqueAvisos extends StatelessWidget {
                     hasLocalData: true,
                     isSyncing: false,
                     showStaleCache: true,
-                    errorTitle: 'Não foi possível carregar os avisos',
+                    errorTitle: 'NÃ£o foi possÃ­vel carregar os avisos',
                     error: snap.error,
                     onRetry: onRetryStream,
                   ),
@@ -6259,7 +6002,7 @@ class _DestaqueAvisos extends StatelessWidget {
             return ChurchPanelResilientLoadBanner(
               hasLocalData: false,
               isSyncing: false,
-              errorTitle: 'Não foi possível carregar os avisos',
+              errorTitle: 'NÃ£o foi possÃ­vel carregar os avisos',
               error: snap.error,
               onRetry: onRetryStream,
             );
@@ -6328,8 +6071,8 @@ class _DestaqueAvisos extends StatelessWidget {
   }
 }
 
-/// Eventos especiais da coleção [noticias] — **só** os que ainda estão no Feed (data não passou;
-/// os demais ficam na Galeria de Eventos no módulo Mural).
+/// Eventos especiais da coleÃ§Ã£o [noticias] â€” **sÃ³** os que ainda estÃ£o no Feed (data nÃ£o passou;
+/// os demais ficam na Galeria de Eventos no mÃ³dulo Mural).
 class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
   final String tenantId;
   final String role;
@@ -6377,7 +6120,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
                   isSyncing: false,
                   showStaleCache: true,
                   errorTitle:
-                      'Não foi possível carregar os eventos em destaque',
+                      'NÃ£o foi possÃ­vel carregar os eventos em destaque',
                   error: snap.error,
                   onRetry: onRetryStream,
                 ),
@@ -6405,7 +6148,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
           return ChurchPanelResilientLoadBanner(
             hasLocalData: false,
             isSyncing: false,
-            errorTitle: 'Não foi possível carregar os eventos em destaque',
+            errorTitle: 'NÃ£o foi possÃ­vel carregar os eventos em destaque',
             error: snap.error,
             onRetry: onRetryStream,
           );
@@ -6467,15 +6210,15 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
   }
 }
 
-/// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
+/// Tamanho base da mÃ­dia no painel (cartÃ£o lateral em desktop/tablet).
 /// Valor maior para evitar miniatura "achatada" no web.
 const double _kPainelDestaqueThumbSide = 220;
 
-/// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
+/// Largura mÃ­nima para dividir mÃ­dia (esq.) e texto (dir.) no painel â€” web.
 /// Reduzido para ativar mais cedo no dashboard com sidebar.
 const double _kPainelDestaqueWebSplitMinWidth = 620;
 
-/// Mesmo critério do site público / mural: [churchMuralCarouselClipHeight] +
+/// Mesmo critÃ©rio do site pÃºblico / mural: [churchMuralCarouselClipHeight] +
 /// [postFeedCarouselAspectRatioForIndex] (incl. [media_info.aspect_ratio]).
 double _painelDestaqueMediaClipHeight(
   BuildContext context,
@@ -6520,8 +6263,8 @@ List<DateTime> _expandTemplateDates(Map<String, dynamic> data, DateTime rangeSta
 
 /// Carrega eventos do Firestore + expande eventos fixos (templates) no intervalo; retorna lista unificada ordenada por startAt.
 ///
-/// [apenasRotinaGerada] `true` = lista abaixo do painel (só programação fixa / gerada por template).
-/// `false` = comportamento legado (inclui posts do Feed na mesma lista) — não usado no dashboard atual.
+/// [apenasRotinaGerada] `true` = lista abaixo do painel (sÃ³ programaÃ§Ã£o fixa / gerada por template).
+/// `false` = comportamento legado (inclui posts do Feed na mesma lista) â€” nÃ£o usado no dashboard atual.
 Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   String tenantId,
   DateTime rangeStart,
@@ -6590,7 +6333,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     }).toList();
   }
 
-  // Extrai foto do evento: mesma lógica do feed (evita tratar URL de vídeo como imagem).
+  // Extrai foto do evento: mesma lÃ³gica do feed (evita tratar URL de vÃ­deo como imagem).
   final realMaps = realDocs.map((d) {
     final data = d.data();
     final urls = eventNoticiaPhotoUrls(data);
@@ -6708,7 +6451,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     return ta.compareTo(tb);
   });
 
-  // Evita repetir o mesmo horário: um slot (ex.: domingo 09h, sexta 19h30) só aparece uma vez.
+  // Evita repetir o mesmo horÃ¡rio: um slot (ex.: domingo 09h, sexta 19h30) sÃ³ aparece uma vez.
   final seenSlot = <int>{};
   final deduped = <Map<String, dynamic>>[];
   for (final m in merged) {
@@ -6730,7 +6473,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   return deduped;
 }
 
-/// Pré-aquece programação no painel (RAM + Firestore cache) — menos cartão de erro na web.
+/// PrÃ©-aquece programaÃ§Ã£o no painel (RAM + Firestore cache) â€” menos cartÃ£o de erro na web.
 void _prewarmPanelProgramacao(String tenantId) {
   final tid = tenantId.trim();
   if (tid.isEmpty) return;
@@ -6765,11 +6508,11 @@ void _showPainelProgramacaoEventoPreview(
   final DateTime? dt = tsStartAt is Timestamp ? tsStartAt.toDate() : null;
   const wdFull = [
     'Segunda-feira',
-    'Terça-feira',
+    'TerÃ§a-feira',
     'Quarta-feira',
     'Quinta-feira',
     'Sexta-feira',
-    'Sábado',
+    'SÃ¡bado',
     'Domingo',
   ];
   String two(int n) => n.toString().padLeft(2, '0');
@@ -6806,7 +6549,7 @@ void _showPainelProgramacaoEventoPreview(
     backgroundColor: Colors.transparent,
     builder: (_) => ChurchPublicEventDetailSheet(
       title: title.isEmpty ? 'Evento' : title,
-      subtitle: hasSchedule ? '' : '—',
+      subtitle: hasSchedule ? '' : 'â€”',
       weekdayLabel: dayName.isEmpty ? null : dayName,
       dateLabel: dateStr.isEmpty ? null : dateStr,
       timeLabel: time.isEmpty ? null : time,
@@ -6820,7 +6563,7 @@ void _showPainelProgramacaoEventoPreview(
   );
 }
 
-/// Linha premium para programação no painel (próximos dias / eventos da semana).
+/// Linha premium para programaÃ§Ã£o no painel (prÃ³ximos dias / eventos da semana).
 class _PainelAgendaEventoRow extends StatelessWidget {
   final String title;
   final String dateStr;
@@ -6917,14 +6660,14 @@ class _PainelAgendaEventoRow extends StatelessWidget {
   }
 }
 
-/// Eventos da semana (próximos 7 dias) — cultos, atividades e eventos fixos expandidos.
-/// "Ver mais" apenas estende a lista no próprio card; "Recolher" recolhe.
+/// Eventos da semana (prÃ³ximos 7 dias) â€” cultos, atividades e eventos fixos expandidos.
+/// "Ver mais" apenas estende a lista no prÃ³prio card; "Recolher" recolhe.
 class _EventosSemanalCard extends StatefulWidget {
   final String tenantId;
   final String role;
   const _EventosSemanalCard({required this.tenantId, required this.role});
 
-  static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'][w.clamp(0, 7)];
+  static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'SÃ¡b', 'Dom'][w.clamp(0, 7)];
 
   @override
   State<_EventosSemanalCard> createState() => _EventosSemanalCardState();
@@ -6989,7 +6732,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
             return ChurchPanelResilientLoadBanner(
               hasLocalData: false,
               isSyncing: false,
-              errorTitle: 'Não foi possível carregar a programação da semana',
+              errorTitle: 'NÃ£o foi possÃ­vel carregar a programaÃ§Ã£o da semana',
               error: outcome.error,
               onRetry: _reloadSemanal,
             );
@@ -6998,7 +6741,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
           if (items.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(20),
-              child: Text('Nenhum evento nos próximos 7 dias.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              child: Text('Nenhum evento nos prÃ³ximos 7 dias.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             );
           }
           return _buildEventosSemanalList(
@@ -7029,7 +6772,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
           final DateTime? dt =
               tsStartAt is Timestamp ? tsStartAt.toDate() : null;
           final dateStr = dt != null
-              ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} Ã s ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
               : '';
           return _PainelAgendaEventoRow(
             title: title.isEmpty ? 'Evento' : title,
@@ -7063,7 +6806,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
   }
 }
 
-/// Lista em cache enquanto a rede atualiza — evita cartão vermelho no painel (estilo CT).
+/// Lista em cache enquanto a rede atualiza â€” evita cartÃ£o vermelho no painel (estilo CT).
 class _ProgramacaoStaleHint extends StatelessWidget {
   final VoidCallback onRetry;
   const _ProgramacaoStaleHint({required this.onRetry});
@@ -7086,7 +6829,7 @@ class _ProgramacaoStaleHint extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Sem rede agora — mostrando a última programação salva. Toque para atualizar.',
+                    'Sem rede agora â€” mostrando a Ãºltima programaÃ§Ã£o salva. Toque para atualizar.',
                     style: TextStyle(fontSize: 12, color: Colors.blue.shade900, height: 1.25),
                   ),
                 ),
@@ -7100,8 +6843,8 @@ class _ProgramacaoStaleHint extends StatelessWidget {
   }
 }
 
-/// Onboarding curto para quem lidera departamentos / escalas (uma vez, dispensável).
-/// Visual Super Premium (gradiente + cartão sólido) — sem ActionChip «claro».
+/// Onboarding curto para quem lidera departamentos / escalas (uma vez, dispensÃ¡vel).
+/// Visual Super Premium (gradiente + cartÃ£o sÃ³lido) â€” sem ActionChip Â«claroÂ».
 class _DashboardLiderOnboardingBanner extends StatefulWidget {
   final String role;
   final bool? podeVerFinanceiro;
@@ -7292,7 +7035,7 @@ class _DashboardLiderOnboardingBannerState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Primeiros passos na gestão',
+                      'Primeiros passos na gestÃ£o',
                       style: TextStyle(
                         fontSize: 16.5,
                         fontWeight: FontWeight.w900,
@@ -7302,7 +7045,7 @@ class _DashboardLiderOnboardingBannerState
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Atalhos rápidos para o gestor e a equipa organizarem ministério e escala.',
+                      'Atalhos rÃ¡pidos para o gestor e a equipa organizarem ministÃ©rio e escala.',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -7314,7 +7057,7 @@ class _DashboardLiderOnboardingBannerState
                 ),
               ),
               IconButton(
-                tooltip: 'Não mostrar de novo',
+                tooltip: 'NÃ£o mostrar de novo',
                 onPressed: _dismiss,
                 icon: Icon(
                   Icons.close_rounded,
@@ -7442,7 +7185,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Minha escala — hoje e próximos dias',
+                        'Minha escala â€” hoje e prÃ³ximos dias',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -7451,7 +7194,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Confirme presença, peça troca e responda convites em um só lugar.',
+                        'Confirme presenÃ§a, peÃ§a troca e responda convites em um sÃ³ lugar.',
                         style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.3),
                       ),
                     ],
@@ -7484,13 +7227,13 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
   }
 }
 
-/// Programação por período (7, 15 e 30 dias), com lista clicável.
+/// ProgramaÃ§Ã£o por perÃ­odo (7, 15 e 30 dias), com lista clicÃ¡vel.
 class _ProgramacaoDiasCard extends StatefulWidget {
   final String tenantId;
   final String role;
   const _ProgramacaoDiasCard({required this.tenantId, required this.role});
 
-  static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'][w.clamp(0, 7)];
+  static String _wd(int w) => const ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'SÃ¡b', 'Dom'][w.clamp(0, 7)];
 
   @override
   State<_ProgramacaoDiasCard> createState() => _ProgramacaoDiasCardState();
@@ -7541,7 +7284,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
   @override
   Widget build(BuildContext context) {
     return _CleanCard(
-      title: 'Próximos dias (agenda + cultos)',
+      title: 'PrÃ³ximos dias (agenda + cultos)',
       icon: Icons.calendar_month_rounded,
       child: FutureBuilder<PanelProgramacaoLoadOutcome>(
         future: _outcomeFuture,
@@ -7566,7 +7309,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
             return ChurchPanelResilientLoadBanner(
               hasLocalData: false,
               isSyncing: false,
-              errorTitle: 'Não foi possível carregar a programação',
+              errorTitle: 'NÃ£o foi possÃ­vel carregar a programaÃ§Ã£o',
               error: outcome.error,
               onRetry: _reloadProgramacao,
             );
@@ -7601,7 +7344,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                 ),
                 Padding(
                   padding: const EdgeInsets.all(20),
-                  child: Text('Nenhum evento nos próximos $_selectedDays dias.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                  child: Text('Nenhum evento nos prÃ³ximos $_selectedDays dias.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
                 ),
               ],
             );
@@ -7680,7 +7423,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
           final DateTime? dt =
               tsStartAt is Timestamp ? tsStartAt.toDate() : null;
           final dateStr = dt != null
-              ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} Ã s ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
               : '';
           final leadingWidget = hasPhoto
               ? StableStorageImage(
@@ -7741,7 +7484,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
   }
 }
 
-/// Fotos reais no destaque do painel — não duplica a miniatura do vídeo como “foto” extra.
+/// Fotos reais no destaque do painel â€” nÃ£o duplica a miniatura do vÃ­deo como â€œfotoâ€ extra.
 List<String> _painelDestaqueGalleryPhotos(Map<String, dynamic> d) {
   final raw = yahwehPostGalleryRefs(d);
   final t1 = sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(d) ?? '');
@@ -7756,19 +7499,19 @@ List<String> _painelDestaqueGalleryPhotos(Map<String, dynamic> d) {
   return raw.where((s) => !dup(s)).toList();
 }
 
-/// Carrossel estilo Instagram no Painel — fotos (paths Storage) + vídeo embutido (web) ou miniatura + play.
+/// Carrossel estilo Instagram no Painel â€” fotos (paths Storage) + vÃ­deo embutido (web) ou miniatura + play.
 class _PainelDestaqueMediaCarousel extends StatefulWidget {
   final Map<String, dynamic> data;
   final String docId;
   final bool isEvento;
   final String title;
-  /// Toque numa foto: ampliar (site público), sem abrir tela cheia ao tocar no card inteiro.
+  /// Toque numa foto: ampliar (site pÃºblico), sem abrir tela cheia ao tocar no card inteiro.
   final void Function(int photoIndex)? onGalleryPhotoTap;
   /// Dois toques na foto: curtir (estilo Instagram).
   final Future<void> Function()? onLikeDoubleTap;
-  /// Altura do cartão no painel segue o slide atual (site público).
+  /// Altura do cartÃ£o no painel segue o slide atual (site pÃºblico).
   final ValueChanged<int>? onCarouselPageChanged;
-  /// Ação rápida para abrir álbum completo (quando houver várias fotos).
+  /// AÃ§Ã£o rÃ¡pida para abrir Ã¡lbum completo (quando houver vÃ¡rias fotos).
   final VoidCallback? onOpenAlbumTap;
 
   const _PainelDestaqueMediaCarousel({
@@ -7907,7 +7650,7 @@ class _PainelDestaqueMediaCarouselState
     final d = widget.data;
     final refs = _painelDestaqueGalleryPhotos(d);
     final vOpen = _panelVideoOpenUrl(d);
-    // Vídeo como último slide do carrossel (fotos + vídeo — igual ao feed de eventos).
+    // VÃ­deo como Ãºltimo slide do carrossel (fotos + vÃ­deo â€” igual ao feed de eventos).
     final videoSlide = vOpen != null && vOpen.isNotEmpty;
     final n = refs.length + (videoSlide ? 1 : 0);
     if (n == 0) {
@@ -7950,7 +7693,7 @@ class _PainelDestaqueMediaCarouselState
                     docIdHint: widget.docId,
                   );
                   final ps = _painelDestaqueStableParamsFromRef(refs[idx]);
-                  // Path derivado do próprio ref tem prioridade — evita misturar imageStoragePaths[0] com foto[1].
+                  // Path derivado do prÃ³prio ref tem prioridade â€” evita misturar imageStoragePaths[0] com foto[1].
                   final spMerged = (ps.storagePath != null &&
                           ps.storagePath!.trim().isNotEmpty)
                       ? ps.storagePath
@@ -8199,7 +7942,7 @@ Future<void> _painelDestaqueToggleLike(
     debugPrint('Dashboard _painelDestaqueToggleLike: $e\n$st');
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
+        ThemeCleanPremium.feedbackSnackBar('NÃ£o foi possÃ­vel curtir agora.'),
       );
     }
   }
@@ -8250,7 +7993,7 @@ class _DestaqueCard extends StatefulWidget {
   @override
   State<_DestaqueCard> createState() => _DestaqueCardState();
 
-  /// Área de imagem do card: [StableStorageImage] (path + URL renováveis), thumb de vídeo com token fresco, gradiente.
+  /// Ãrea de imagem do card: [StableStorageImage] (path + URL renovÃ¡veis), thumb de vÃ­deo com token fresco, gradiente.
   static Widget _DestaqueCardImage({
     required String displayImageUrl,
     required String? storagePath,
@@ -8464,7 +8207,7 @@ class _DestaqueCard extends StatefulWidget {
     );
   }
 
-  /// Thumbnail para vídeo (YouTube ou Vimeo) quando não há imagem.
+  /// Thumbnail para vÃ­deo (YouTube ou Vimeo) quando nÃ£o hÃ¡ imagem.
   static String? _videoThumbnailUrl(Map<String, dynamic> data) {
     final videoUrl = (data['videoUrl'] ?? '').toString().trim();
     if (videoUrl.isEmpty) return null;
@@ -9097,7 +8840,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
   }
 }
 
-/// Curtir, comentar, compartilhar (e RSVP em eventos) — mesmo fluxo do feed/mural.
+/// Curtir, comentar, compartilhar (e RSVP em eventos) â€” mesmo fluxo do feed/mural.
 class _PainelDestaqueSocialBar extends StatefulWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
   final String tenantId;
@@ -9177,7 +8920,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
       debugPrint('Dashboard _PainelDestaqueSocialBar._toggleLike: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
+          ThemeCleanPremium.feedbackSnackBar('NÃ£o foi possÃ­vel curtir agora.'),
         );
       }
     }
@@ -9207,7 +8950,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Não foi possível atualizar a confirmação.',
+            'NÃ£o foi possÃ­vel atualizar a confirmaÃ§Ã£o.',
           ),
         );
       }
@@ -9447,7 +9190,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                     ),
                   if (rsvpCount > 0 && isFuture)
                     Text(
-                      '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presença',
+                      '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presenÃ§a',
                       style: TextStyle(
                         fontSize: 12,
                         color: ThemeCleanPremium.success,
@@ -9485,8 +9228,8 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                       }
                       final previews = cDocs.take(2).toList();
                       final countTitle = hasManyUnknown
-                          ? 'Comentários'
-                          : '$total comentário${total > 1 ? 's' : ''}';
+                          ? 'ComentÃ¡rios'
+                          : '$total comentÃ¡rio${total > 1 ? 's' : ''}';
                       return Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Column(
@@ -9506,7 +9249,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                               final tx =
                                   (m['text'] ?? m['texto'] ?? '').toString();
                               final line = tx.length > 120
-                                  ? '${tx.substring(0, 117)}…'
+                                  ? '${tx.substring(0, 117)}â€¦'
                                   : tx;
                               if (line.isEmpty) return const SizedBox.shrink();
                               return Padding(
@@ -9537,7 +9280,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                               Padding(
                                 padding: const EdgeInsets.only(top: 6),
                                 child: Text(
-                                  'Toque no ícone de comentários para ver todos',
+                                  'Toque no Ã­cone de comentÃ¡rios para ver todos',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.grey.shade600,

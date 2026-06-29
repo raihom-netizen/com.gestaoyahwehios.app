@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
+import 'package:gestao_yahweh/core/yahweh_design_system.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -1637,7 +1638,7 @@ class ChurchPublicSiteHero extends StatelessWidget {
   }
 }
 
-/// Fundo do site público — gradiente suave alinhado ao Clean Premium (superfície + leve tom de marca).
+/// Fundo do site público — gradiente WISDOMAPP (divulgação + igreja).
 class ChurchPublicSiteScaffoldBackground extends StatelessWidget {
   final Widget child;
 
@@ -1645,21 +1646,11 @@ class ChurchPublicSiteScaffoldBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = ThemeCleanPremium.primary;
     return Container(
       width: double.infinity,
       height: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.lerp(ThemeCleanPremium.surfaceVariant, p, 0.04)!,
-            const Color(0xFFF4F7FD),
-            Color.lerp(ThemeCleanPremium.cardBackground, const Color(0xFFEEF2FF), 0.35)!,
-          ],
-          stops: const [0.0, 0.42, 1.0],
-        ),
+      decoration: const BoxDecoration(
+        gradient: YahwehDesignSystem.publicPageGradient,
       ),
       child: child,
     );

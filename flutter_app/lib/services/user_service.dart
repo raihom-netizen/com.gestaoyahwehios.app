@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/admin_user_search.dart';
 
 class UserService {
   final FirebaseFirestore _db = firebaseDefaultFirestore;
@@ -12,12 +13,18 @@ class UserService {
     final snap = await ref.get();
 
     if (!snap.exists) {
+      final emailTrim = (email ?? '').trim().toLowerCase();
+      if (!adminUserHasCompleteEmail({'email': emailTrim})) {
+        throw StateError(
+          'E-mail é obrigatório para criar o perfil do utilizador.',
+        );
+      }
       final now = DateTime.now();
       final trialEnd = now.add(const Duration(days: 30));
 
       final data = <String, dynamic>{
         'createdAt': FieldValue.serverTimestamp(),
-        'email': email,
+        'email': emailTrim,
         'onboardingCompleted': false,
         'trialStart': Timestamp.fromDate(now),
         'trialEnd': Timestamp.fromDate(trialEnd),

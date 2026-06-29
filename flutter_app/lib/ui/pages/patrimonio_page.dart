@@ -52,8 +52,10 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
@@ -74,7 +76,6 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:image_picker/image_picker.dart' show ImageSource, XFile;
 import 'package:photo_view/photo_view.dart';
@@ -8771,22 +8772,24 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
-      await PatrimonioSaveService.save(
-        churchIdHint: tenantId,
-        itemId: itemId,
-        corePayload: buildCorePayload(),
-        isNewDoc: widget.doc == null,
-        uploadsBySlot: uploadsBySlot,
-        indexedSlotUrls: indexedSlotUrls,
-        indexedSlotPaths: indexedSlotPaths,
-        onProgress: (p, label) {
-          if (!mounted) return;
-          setState(() {
-            _uploadProgress = p;
-            _uploadProgressLabel = label;
-          });
-        },
-      );
+      GlobalUploadProgress.instance.start('A enviar fotos do bem…');
+      try {
+        await PatrimonioSaveService.save(
+          churchIdHint: tenantId,
+          itemId: itemId,
+          corePayload: buildCorePayload(),
+          isNewDoc: widget.doc == null,
+          uploadsBySlot: uploadsBySlot,
+          indexedSlotUrls: indexedSlotUrls,
+          indexedSlotPaths: indexedSlotPaths,
+          onProgress: (p, label) {
+            GlobalUploadProgress.instance.updateLabel(label);
+            GlobalUploadProgress.instance.update(p);
+          },
+        );
+      } finally {
+        GlobalUploadProgress.instance.end();
+      }
 
       YahwehFlowLog.patrimonioSuccess();
       if (!mounted) return;

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatUploadErrorForUser;
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Progresso bloqueante — avisos, eventos, património, etc. (padrão Ecofire).
@@ -41,6 +42,7 @@ abstract final class EcofirePublishProgressUi {
     }
 
     try {
+      await YahwehModuleMediaGate.assertReadyForUploadAction();
       final result = await action(reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),

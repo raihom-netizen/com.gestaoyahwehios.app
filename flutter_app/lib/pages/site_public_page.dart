@@ -20,6 +20,7 @@ import "package:gestao_yahweh/core/app_constants.dart";
 import "package:gestao_yahweh/core/marketing_storage_layout.dart";
 import "package:gestao_yahweh/services/marketing_public_site_service.dart";
 import "package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart";
+import "package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart";
 import "package:gestao_yahweh/ui/widgets/modern_store_download_button.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
@@ -71,6 +72,8 @@ class _SitePublicPageState extends State<SitePublicPage>
   final GlobalKey _keyIncluido = GlobalKey();
   final GlobalKey _keyDownload = GlobalKey();
 
+  int _sectionNavIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -120,6 +123,30 @@ class _SitePublicPageState extends State<SitePublicPage>
       alignment: 0.12,
     );
   }
+
+  void _onPublicSectionNav(int index) {
+    setState(() => _sectionNavIndex = index);
+    final keys = [
+      _keyVideo,
+      _keyClientes,
+      _keyGaleria,
+      _keyPlanos,
+      _keyIncluido,
+      _keyDownload,
+    ];
+    if (index >= 0 && index < keys.length) {
+      _scrollToSection(keys[index]);
+    }
+  }
+
+  List<({String label, IconData icon})> get _publicSectionNavItems => const [
+        (label: 'Vídeo', icon: Icons.play_circle_rounded),
+        (label: 'Igrejas', icon: Icons.church_rounded),
+        (label: 'Galeria', icon: Icons.photo_library_rounded),
+        (label: 'Planos', icon: Icons.workspace_premium_rounded),
+        (label: 'Incluso', icon: Icons.check_circle_rounded),
+        (label: 'Download', icon: Icons.download_rounded),
+      ];
 
   /// Abre o Painel Master (login admin).
   void _goAdmin() {
@@ -346,17 +373,7 @@ class _SitePublicPageState extends State<SitePublicPage>
     final scaffold = Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              topBar,
-              ThemeCleanPremium.primaryLight,
-              const Color(0xFFF0F4FF),
-              ThemeCleanPremium.surfaceVariant,
-            ],
-            stops: const [0.0, 0.12, 0.22, 1.0],
-          ),
+          gradient: YahwehWisdomVisualKit.publicPageGradient,
         ),
         child: SafeArea(
           child: Column(
@@ -402,6 +419,13 @@ class _SitePublicPageState extends State<SitePublicPage>
                 ),
                 actions: _sitePublicAppBarActions(context),
               ),
+              if (!widget.isConviteRoute)
+                YahwehWisdomPublicSectionNav(
+                  sections: _publicSectionNavItems,
+                  selectedIndex: _sectionNavIndex,
+                  compact: MediaQuery.sizeOf(context).width < 520,
+                  onSelected: _onPublicSectionNav,
+                ),
               Expanded(
                 child: _buildBody(context),
               ),
@@ -904,39 +928,30 @@ class _LeftHero extends StatelessWidget {
       ),
     ];
 
-    return Container(
-      decoration: ThemeCleanPremium.premiumSurfaceCard,
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-            horizontal: isMobile ? ThemeCleanPremium.spaceMd : 24,
-            vertical: isMobile ? 12 : 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Center(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final logoSize = isMobile
-                      ? (constraints.maxWidth < 400 ? 104.0 : 132.0)
-                      : 228.0;
-                  return _PublicSiteGestaoYahwehLogo(size: logoSize);
-                },
-              ),
+    return YahwehWisdomSectionCard(
+      margin: EdgeInsets.zero,
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? ThemeCleanPremium.spaceMd : 24,
+        vertical: isMobile ? 12 : 16,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Center(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final logoSize = isMobile
+                    ? (constraints.maxWidth < 400 ? 104.0 : 132.0)
+                    : 228.0;
+                return _PublicSiteGestaoYahwehLogo(size: logoSize);
+              },
             ),
-            const SizedBox(height: 2),
-            Text(
-              "Gestão YAHWEH",
-              style: TextStyle(
-                fontSize: isMobile ? 16 : 19,
-                fontWeight: FontWeight.w900,
-                color: ThemeCleanPremium.primary,
-                letterSpacing: 0.8,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "Padrão Super Premium — excelência para sua igreja",
+          ),
+          const SizedBox(height: 8),
+          const YahwehWisdomGoldTitle(text: 'Gestão YAHWEH'),
+          const SizedBox(height: 6),
+          Text(
+            'Padrão Super Premium — excelência para sua igreja',
               style: TextStyle(
                 fontSize: isMobile ? 13 : 15,
                 color: Colors.black54,
@@ -980,7 +995,6 @@ class _LeftHero extends StatelessWidget {
             ),
           ],
         ),
-      ),
     );
   }
 }
