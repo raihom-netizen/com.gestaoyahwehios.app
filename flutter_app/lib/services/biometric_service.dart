@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 class BiometricService {
   static const _prefEnabled = 'biometric_enabled';
   static const _prefAsked = 'biometric_asked';
+  /// Utilizador desactivou explicitamente em Configurações — nunca reactivar sozinho.
+  static const _prefDisabledByUser = 'biometric_disabled_by_user';
 
   /// Após login na tela de login com biometria do aparelho, evita pedir digital de novo ao abrir o painel.
   static bool _skipNextDashboardBiometricLock = false;
@@ -42,13 +44,21 @@ class BiometricService {
   Future<bool> isEnabled() async {
     if (kIsWeb) return false;
     final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_prefDisabledByUser) == true) return false;
     return prefs.getBool(_prefEnabled) == true;
+  }
+
+  Future<bool> isDisabledByUser() async {
+    if (kIsWeb) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_prefDisabledByUser) == true;
   }
 
   Future<void> maybeEnableBiometrics(BuildContext context) async {
     if (kIsWeb) return;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_prefAsked) == true) return;
+    if (prefs.getBool(_prefDisabledByUser) == true) return;
 
     final supported = await _auth.isDeviceSupported();
     final canCheck = await _auth.canCheckBiometrics;
@@ -88,6 +98,7 @@ class BiometricService {
     await prefs.setBool(_prefAsked, true);
     if (ok == true) {
       await prefs.setBool(_prefEnabled, true);
+      await prefs.setBool(_prefDisabledByUser, false);
     }
   }
 
@@ -123,17 +134,16 @@ class BiometricService {
   }
 
   /// Indica se o login rápido por biometria pode ser usado (credenciais salvas + biometria disponível).
-  Future<bool> canUseQuickBiometricLogin() async {
-    if (kIsWeb) return false;
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_prefEnabled) == true;
-  }
+  Future<bool> canUseQuickBiometricLogin() async => isEnabled();
 
   /// Desativa biometria para este dispositivo.
   Future<void> disableForThisDevice() async {
     if (kIsWeb) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefEnabled, false);
+    await prefs.setBool(_prefDisabledByUser, true);
+    await prefs.setBool(_prefAsked, true);
+    clearSessionBiometricUnlock();
   }
 
   /// Sensor digital / Face ID utilizável (Android e iOS).
@@ -148,28 +158,25 @@ class BiometricService {
     }
   }
 
-  /// Dispositivo com digital/Face ID — desbloqueio ao abrir o painel (sessão activa).
+  /// Dispositivo com digital/Face ID — só se o utilizador activou em Configurações.
   Future<bool> shouldRequireBiometricUnlock() async {
     if (kIsWeb) return false;
     final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return false;
-    if (await isEnabled()) return true;
-    if (await isDeviceBiometricCapable()) {
-      await enableForReturningUserAfterLogin();
-      return await isEnabled();
-    }
-    return false;
+    return isEnabled();
   }
 
-  /// Após login bem-sucedido no app nativo — activa digital/Face ID sem segundo diálogo
-  /// (o utilizador pode desactivar em Configurações).
+  /// Primeiro login nativo — sugere biometria só se o utilizador nunca recusou/desactivou.
   Future<void> enableForReturningUserAfterLogin() async {
     if (kIsWeb) return;
+    if (await isDisabledByUser()) return;
     try {
       if (!await isDeviceBiometricCapable()) return;
       final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_prefAsked) == true) return;
       await prefs.setBool(_prefEnabled, true);
       await prefs.setBool(_prefAsked, true);
+      await prefs.setBool(_prefDisabledByUser, false);
     } catch (_) {}
   }
 
@@ -181,6 +188,7 @@ class BiometricService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_prefEnabled, true);
     await prefs.setBool(_prefAsked, true);
+    await prefs.setBool(_prefDisabledByUser, false);
     return true;
   }
 }

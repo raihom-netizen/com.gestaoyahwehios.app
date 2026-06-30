@@ -6,33 +6,54 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Layout canônico do **Firebase Storage** por igreja (tenant = id do doc em `igrejas/{id}`).
 ///
+/// ## Pipeline único (Web = Android = iOS)
+/// ```
+/// Publicar → YahwehModuleMediaGate → EcoFireDirectFirebase
+///        → comprimir (se imagem/vídeo) → Storage igrejas/{id}/{módulo}/…
+///        → getDownloadURL() → Firestore (só URLs)
+/// ```
+/// Serviços: [YahwehMediaUploadPipeline], [UnifiedUploadService], [uploadStoragePutDataWithRetry].
+///
 /// ## Árvore consolidada (novos uploads)
 /// ```
 /// igrejas/{churchId}/
-/// ├── membros/fotos/ + membros/thumbs/
+/// ├── membros/…                    (foto perfil + thumbs)
 /// ├── avisos/imagens/
-/// ├── eventos/imagens/ + eventos/videos/ + eventos/thumbs/
-/// ├── patrimonio/imagens/ + patrimonio/thumbs/
-/// ├── financeiro/YYYY_MM/   (comprovantes de lançamentos)
-/// └── chat_media/{images|videos|audio|docs}/ + chat_media/thumbs/
+/// ├── eventos/imagens|videos|thumbs/ + eventos/templates/
+/// ├── patrimonio/{itemId}/foto_N.webp
+/// ├── financeiro/YYYY_MM/{lancamentoId}.ext
+/// ├── chat_media/{images|videos|audio|docs}/ + thumbs/
+/// ├── configuracoes/logo_igreja.png + assinatura.*
+/// ├── cartao_membro/logo.jpg
+/// ├── certificados/logo_atual.jpg + templates/certificados/
+/// ├── certificados_gestor/{uid}_{ts}.p12
+/// ├── fornecedores/{fornecedorId}/compromissos/{id}_comprovante.ext
+/// └── marketing_destaque/capa.jpg   (Master — igrejas cliente)
 /// ```
 ///
 /// Firestore guarda **só URLs**; listas usam **thumbs**; full só quando necessário.
 /// Ver `.cursor/rules/igrejas-arquitetura-final.mdc`.
 ///
-/// ## Módulos de mídia
-/// | Módulo | Storage canónico |
-/// |--------|------------------|
-/// | membros | `membros/fotos/{id}.webp`, `membros/thumbs/{id}.webp` |
-/// | avisos | `avisos/imagens/{postId}_*.webp` |
-/// | eventos | `eventos/imagens/`, `eventos/videos/`, `eventos/thumbs/` |
-/// | patrimonio | `patrimonio/imagens/`, `patrimonio/thumbs/` |
-/// | financeiro | `financeiro/YYYY_MM/{lancamentoId}.jpg` (comprovantes) |
-/// | chat_media | `chat_media/{tipo}/`, `chat_media/thumbs/` |
+/// ## Módulos — Storage + pipeline
+/// | Módulo | Path Storage | Upload | Serviço / gate |
+/// |--------|--------------|--------|----------------|
+/// | Avisos | `avisos/imagens/` | sim | `AvisoMediaUpload` + gate |
+/// | Eventos | `eventos/imagens|videos|thumbs/` | sim | `EventoMediaUpload` + gate |
+/// | Património | `patrimonio/{itemId}/` | sim | `PatrimonioMediaUpload` + gate |
+/// | Chat | `chat_media/{tipo}/` | sim | `ChurchChatMediaSendService` |
+/// | Membros | `membros/{folder}/foto_perfil.jpg` | sim | `MemberProfilePhotoSaveService` |
+/// | Financeiro | `financeiro/YYYY_MM/` | sim | `FinanceComprovantePublishService` |
+/// | Cadastro/logo | `configuracoes/` | sim | `igreja_cadastro_page` + gate |
+/// | Certificados | `certificados/`, `templates/certificados/` | sim | `certificados_page` + `MediaUploadService` |
+/// | Cartão membro | `cartao_membro/logo.jpg` | sim | leitura + cleanup; logo via cadastro/brand |
+/// | Fornecedores | `fornecedores/…/compromissos/` | sim | `FornecedorCompromissoComprovanteService` |
+/// | Cartas/transferências | — (sem Storage) | não | PDF local; histórico `cartas_historico` Firestore |
+/// | Escala | — | não | só texto (`escalas` Firestore) |
+/// | Agenda (fornec.) | — (anexo = fornecedores) | opcional | mesma pasta `fornecedores/…` |
+/// | Doações | — | não | Mercado Pago + Firestore (sem ficheiro no bucket) |
+/// | Painel Master | `public/gestao_yahweh/` + `igrejas/{id}/marketing_destaque/` | sim | `admin_divulgacao_media_page`, `admin_marketing_clientes_tab` + gate |
 ///
-/// Legado (leitura): `membros/{id}/foto_perfil.jpg`, pastas por post/item — helpers `*Legacy()`.
-///
-/// Outros nós: `configuracoes/`, `logo/`, `cartao_membro/`, `certificados/`, `eventos/templates/`.
+/// Legado (leitura): `membros/{id}/foto_perfil.jpg`, pastas flat por post/item — helpers `*Legacy()`.
 abstract final class ChurchStorageLayout {
   ChurchStorageLayout._();
 

@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
@@ -21,22 +19,10 @@ abstract final class MemberProfileMediaUpload {
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
     if (requireAuth) {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'membro_foto',
-      );
-      await ensureFirebaseReadyForMediaUpload();
+      await EcoFireDirectFirebase.ensureForStoragePut();
     } else {
       await FirebaseBootstrap.ensureInitialized();
-      FirebaseBootstrapService.refreshCachedApp();
-    }
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: 'membro_foto',
-      strict: requireAuth,
-    );
-    if (requireAuth && !FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-      );
+      await EcoFireDirectFirebase.ensureStorageLinked();
     }
   }
 
@@ -55,25 +41,20 @@ abstract final class MemberProfileMediaUpload {
       context: 'membro_profile_photo',
     );
 
-    return FirebaseBootstrapService.runGuarded(
-      () async {
-        await ensureUploadReady(requireAuth: requireAuth);
-        return UnifiedUploadService.uploadImage(
-          storagePath: storagePath,
-          bytes: bytes,
-          contentType: contentType,
-          module: YahwehUploadModule.generic,
-          skipClientPrepare: true,
-          onProgress: onProgress,
-          maxAttempts: 4,
-        ).timeout(
-          uploadTimeout,
-          onTimeout: () => throw TimeoutException(
-            'Upload da foto demorou demais. Verifique a rede.',
-          ),
-        );
-      },
-      debugLabel: 'membro_profile_photo',
+    await ensureUploadReady(requireAuth: requireAuth);
+    return UnifiedUploadService.uploadImage(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      module: YahwehUploadModule.generic,
+      skipClientPrepare: true,
+      onProgress: onProgress,
+      maxAttempts: 4,
+    ).timeout(
+      uploadTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Upload da foto demorou demais. Verifique a rede.',
+      ),
     );
   }
 

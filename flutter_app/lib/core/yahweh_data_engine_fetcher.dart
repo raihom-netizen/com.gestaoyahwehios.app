@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/data/modules/church_module_repository_base.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_panel_controller.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -123,6 +124,9 @@ abstract final class YahwehDataEngineFetcher {
     Query<Map<String, dynamic>> Function(Query<Map<String, dynamic>> query)?
         customFilters,
   }) async {
+    if (kIsWeb) {
+      await EcoFireDirectFirebase.ensureForPanelRead();
+    }
     final churchId = resolveChurchId(churchIdHint);
     if (churchId.isEmpty) return const [];
 
@@ -305,7 +309,7 @@ abstract final class YahwehDataEngineFetcher {
           debugPrint('YahwehDataEngineFetcher.watch poll: $e');
           yield const [];
         }
-        await Future<void>.delayed(const Duration(seconds: 8));
+        await Future<void>.delayed(const Duration(seconds: 12));
       }
     } else {
       Query<Map<String, dynamic>> query =

@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
@@ -233,6 +235,38 @@ abstract final class FirebaseBootstrapService {
     bool refreshAuthToken = false,
     int maxAttempts = 3,
   }) async {
+    if (EcoFireFlow.directStorageUpload) {
+      Object? last;
+      StackTrace? lastSt;
+      for (var attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          if (attempt > 0) {
+            await Future<void>.delayed(
+              Duration(milliseconds: 160 + 180 * attempt),
+            );
+            await FirebaseBootstrap.ensureInitialized();
+          }
+          await EcoFireDirectFirebase.ensureForStoragePut(
+            requireAuth: refreshAuthToken,
+          );
+          _storageUploadBootstrapAt = DateTime.now();
+          return;
+        } catch (e, st) {
+          last = e;
+          lastSt = st;
+          if (kDebugMode) {
+            debugPrint(
+              'EcoFireDirectFirebase.ensureStorageAlwaysLinked $attempt: $e',
+            );
+          }
+        }
+      }
+      if (last != null) {
+        throw FirebaseBootstrapException.from(last, lastSt);
+      }
+      return;
+    }
+
     Object? last;
     StackTrace? lastSt;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {

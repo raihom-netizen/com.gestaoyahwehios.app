@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2034: Deploy completo — EcoFire upload mídia (fim core/no-app), biometria opt-out, auditoria Storage todos módulos, web/AAB/iOS.
 /// 11.2.305+2033: Site público + cadastro WISDOMAPP rápido — cache feed imediato, CF warmup SA, gyPublicSignupStatus, rules public_site.
 /// 11.2.305+2031: Painel WISDOMAPP rápido — sem skeleton de página inteira; líderes/corpo cache-first; secções colapsáveis premium.
 /// 11.2.305+2030: Correção global UTF-8 — mojibake no painel, master, PDFs e strings Firestore.
@@ -431,7 +432,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2033';
+const String appBuildNumber = '2034';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

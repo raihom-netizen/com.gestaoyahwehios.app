@@ -4,9 +4,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
@@ -29,15 +28,16 @@ abstract final class EcoFireStorageUpload {
       context: 'EcoFireStorageUpload.putData',
     );
     EcoFireFlow.log('STORAGE putData $storagePath');
-    await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
+    await EcoFireDirectFirebase.ensureForStoragePut();
 
     Object? lastError;
     for (var attempt = 0; attempt < _maxAttempts; attempt++) {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+          await EcoFireDirectFirebase.ensureForStoragePut();
         }
-        final ref = firebaseStorageRef(storagePath);
+        final ref = await EcoFireDirectFirebase.storageRef(storagePath);
         final ct = StorageUploadMetadata.contentTypeForPut(
           contentType: mimeType,
           storagePath: storagePath,
@@ -61,9 +61,9 @@ abstract final class EcoFireStorageUpload {
         lastError = e;
         EcoFireFlow.log('STORAGE retry $attempt: $e');
         if (attempt < _maxAttempts - 1) {
-          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-            refreshAuthToken: false,
-          ).catchError((_) {});
+          try {
+            await EcoFireDirectFirebase.ensureDefaultApp();
+          } catch (_) {}
         }
       }
     }
@@ -194,7 +194,7 @@ abstract final class EcoFireStorageUpload {
     if (p.isEmpty || p.startsWith('http')) return null;
     try {
       await EcoFirePublishBootstrap.ensureHard(logLabel: 'storage_download_url');
-      return await firebaseStorageRef(p).getDownloadURL();
+      return await (await EcoFireDirectFirebase.storageRef(p)).getDownloadURL();
     } catch (_) {}
     return null;
   }
@@ -236,7 +236,7 @@ abstract final class EcoFireStorageUpload {
           .split('/')
           .last
           .replaceAll('.webp', '');
-      final folder = firebaseStorageRef(
+      final folder = await EcoFireDirectFirebase.storageRef(
         '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegMembros}/fotos',
       );
       final list = await folder.listAll();

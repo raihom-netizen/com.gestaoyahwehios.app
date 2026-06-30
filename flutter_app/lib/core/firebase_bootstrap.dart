@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
@@ -33,6 +35,14 @@ Future<void> ensureFirebaseInitialized() =>
 
 /// Núcleo Firebase — Ecofire: init único antes de Storage/Firestore.
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
+  if (EcoFireFlow.directStorageUpload) {
+    await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
+    if (kIsWeb && requireAuth) {
+      await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
+    }
+    return;
+  }
+
   Object? last;
   for (var attempt = 0; attempt < 5; attempt++) {
     try {

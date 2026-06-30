@@ -7,8 +7,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
@@ -33,33 +32,7 @@ abstract final class UnifiedUploadService {
   }
 
   static Future<void> _ensureReady({String? module}) async {
-    if (EcoFireFlow.directStorageUpload) {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-      );
-      return;
-    }
-    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      try {
-        FirebaseBootstrapService.probeStorageLinked();
-      } catch (_) {
-        FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-      }
-    }
-    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      try {
-        await firebaseDefaultAuth.currentUser
-            ?.getIdToken(false)
-            .timeout(const Duration(seconds: 6));
-      } catch (_) {}
-      return;
-    }
-    final chatModule = module == YahwehUploadModule.chat.name;
-    if (chatModule) {
-      await ensureFirebaseReadyForChatSend();
-    } else {
-      await FirebaseBootstrapService.ensureReadyForStorageUpload();
-    }
+    await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: true);
     logFirebaseAppsBeforeOperation('ensure_ready', module: module);
   }
 

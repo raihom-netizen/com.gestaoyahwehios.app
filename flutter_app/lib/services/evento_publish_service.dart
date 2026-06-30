@@ -2,14 +2,9 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -48,45 +43,11 @@ abstract final class EventoPublishService {
     void Function(double progress)? onProgress,
   }) async {
     onProgress?.call(0.06);
-    Object? last;
-    for (var attempt = 0; attempt < 5; attempt++) {
-      try {
-        if (attempt > 0) {
-          FirebaseBootstrapService.resetPublishWarmState();
-        }
-        await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-          refreshAuthToken: true,
-          maxAttempts: 5,
-        );
-        await AppFinalizeBootstrap.ensureSessionForPublish(
-          logLabel: withMedia ? '${logLabel}_media' : logLabel,
-        );
-        if (withMedia) {
-          await ensureFirebaseReadyForMediaUpload();
-        }
-        await EcoFirePublishBootstrap.ensureHard(
-          logLabel: withMedia ? '${logLabel}_media' : logLabel,
-          strict: true,
-        );
-        onProgress?.call(0.12);
-        return;
-      } catch (e, st) {
-        last = e;
-        ChurchPublishFlowLog.logCatch(e, st, label: 'evento_bootstrap_$attempt');
-        if (attempt < 4 && isFirebaseNoAppError(e)) {
-          await Future<void>.delayed(
-            Duration(milliseconds: 320 * (attempt + 1)),
-          );
-          continue;
-        }
-        rethrow;
-      }
-    }
-    if (last != null) {
-      if (last is Exception) throw last;
-      throw StateError(last.toString());
-    }
-    throw StateError('Firebase indisponível ($logLabel).');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: withMedia ? '${logLabel}_media' : logLabel,
+      strict: true,
+    );
+    onProgress?.call(0.12);
   }
 
   static Future<String> publish({
