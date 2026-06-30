@@ -695,6 +695,20 @@ abstract final class ChurchTenantResilientReads {
         limit: limit,
       );
 
+  /// Página cursor — só lê N docs após [startAfter] (infinite scroll eficiente).
+  static Future<QuerySnapshot<Map<String, dynamic>>> financeRecentPage(
+    String tenantId, {
+    int limit = YahwehPerformanceV4.financeListPageStep,
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+  }) async {
+    final docs = await ChurchFinanceLoadService.loadLancamentosPage(
+      seedTenantId: tenantId,
+      limit: limit,
+      startAfter: startAfter,
+    );
+    return MergedFirestoreQuerySnapshot(docs);
+  }
+
   /// Rede directa — após mutação financeira (sem Hive stale).
   static Future<QuerySnapshot<Map<String, dynamic>>> financeRecentNetwork(
     String tenantId, {

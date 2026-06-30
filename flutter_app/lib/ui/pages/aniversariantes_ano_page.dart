@@ -249,6 +249,7 @@ class _YearSummaryHeader extends StatelessWidget {
             icon: Icons.cake_rounded,
             accent: kChurchBirthdayAccent,
             size: 52,
+            moduleAssetKey: 'aniversario',
           ),
           const SizedBox(width: 16),
           Expanded(

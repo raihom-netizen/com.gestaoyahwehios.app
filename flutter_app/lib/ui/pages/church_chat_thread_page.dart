@@ -15,7 +15,10 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
+import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/features/chat/chat.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -1773,9 +1776,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<bool> _ensureChatFirebaseReadyForMedia() async {
-    return YahwehModuleMediaGate.ensureReadyForPick(
+    return ChatMediaRepository.ensureReadyForPick(
       context: mounted ? context : null,
-      module: YahwehMediaModule.chat,
     );
   }
 
@@ -2117,7 +2119,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void _enqueuePending(ChurchChatOutboundPending pending) {
     if (!mounted) return;
     setState(() => _pendingOutbound.insert(0, pending));
-    _warmPendingImagePreview(pending);
+    _startOptimisticMediaPipeline(pending);
     Future<void>.delayed(const Duration(seconds: 95), () {
       if (!mounted) return;
       final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -2130,26 +2132,66 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     });
   }
 
-  void _warmPendingImagePreview(ChurchChatOutboundPending pending) {
-    if (pending.kind != 'image' || kIsWeb) return;
+  /// Preview instantâneo + compressão em background (isolate) — estilo WhatsApp.
+  void _startOptimisticMediaPipeline(ChurchChatOutboundPending pending) {
+    if (pending.kind != 'image') return;
+    unawaited(_warmOptimisticImagePreview(pending));
+    unawaited(_precompressPendingForUpload(pending));
+  }
+
+  Future<void> _warmOptimisticImagePreview(
+    ChurchChatOutboundPending pending,
+  ) async {
+    if (pending.previewBytes != null && pending.previewBytes!.isNotEmpty) {
+      return;
+    }
     final path = pending.localPath?.trim() ?? '';
     if (path.isEmpty) return;
-    unawaited(() async {
-      try {
-        final f = File(path);
-        if (!await f.exists()) return;
-        if (await f.length() > 380 * 1024) return;
-        final b = await f.readAsBytes();
-        if (!mounted) return;
-        final i =
-            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-        if (i < 0) return;
-        _pendingOutbound[i].previewBytes = Uint8List.fromList(b);
-        if (mounted) setState(() {});
-      } catch (e, st) {
-        debugPrint('_warmPendingImagePreview: $e\n$st');
+    try {
+      final preview = await MediaOptimizationService.previewFromPath(path);
+      if (preview == null || preview.isEmpty || !mounted) return;
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i < 0) return;
+      _pendingOutbound[i].previewBytes = preview;
+      if (mounted) setState(() {});
+    } catch (e, st) {
+      debugPrint('_warmOptimisticImagePreview: $e\n$st');
+    }
+  }
+
+  /// Comprime fora da UI e guarda payload pronto — upload não bloqueia rolagem.
+  Future<void> _precompressPendingForUpload(
+    ChurchChatOutboundPending pending,
+  ) async {
+    if (pending.kind != 'image') return;
+    try {
+      final path = pending.localPath?.trim() ?? '';
+      final payload = await MediaOptimizationService.optimizeForChat(
+        localPath: path.isNotEmpty ? path : null,
+      );
+      ChurchChatOptimizedPayloadCache.put(
+        localId: pending.localId,
+        fullBytes: payload.fullBytes,
+        fullMime: payload.fullMime,
+        fullFileName: payload.fullFileName,
+        thumbBytes: payload.thumbBytes,
+        previewBytes: payload.previewBytes,
+      );
+      if (!mounted) return;
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i < 0) return;
+      if (payload.previewBytes != null && payload.previewBytes!.isNotEmpty) {
+        _pendingOutbound[i].previewBytes = payload.previewBytes;
       }
-    }());
+      _setPendingProgress(pending.localId, 0.08);
+      if (mounted) setState(() {});
+    } catch (e, st) {
+      debugPrint('_precompressPendingForUpload: $e\n$st');
+    }
+  }
+
+  void _warmPendingImagePreview(ChurchChatOutboundPending pending) {
+    _startOptimisticMediaPipeline(pending);
   }
 
   void _syncPeerReadStatus(Timestamp? peerSeenAt) {
@@ -2233,6 +2275,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _pendingOutbound.where((p) => p.localId == localId).toList();
     setState(() => _pendingOutbound.removeWhere((p) => p.localId == localId));
     for (final p in removed) {
+      ChurchChatOptimizedPayloadCache.remove(p.localId);
       p.dispose();
     }
   }

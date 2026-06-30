@@ -1,10 +1,11 @@
 # BKP MEMÓRIA — Ponto de partida Gestão YAHWEH (baseline produção)
 
-> **Criado:** 2026-06-28  
-> **Versão de referência:** `11.2.305+2017` (marketing fixo `11.2.305`; build `2017`)  
+> **Atualizado:** 2026-06-30  
+> **Versão de referência:** `11.2.305+2034` (marketing fixo `11.2.305`; build `2034`)  
 > **Projeto Firebase:** `gestaoyahweh-21e23`  
 > **Bucket Storage:** `gs://gestaoyahweh-21e23.firebasestorage.app`  
 > **Web produção:** https://gestaoyahweh-21e23.web.app  
+> **Memória:** ficheiro único na raiz do repo — **não** copiar para `D:\Temporarios` (só artefactos AAB/ZIP/log de deploy vão para lá).
 
 ---
 
@@ -29,10 +30,18 @@
 | Campo | Valor |
 |-------|--------|
 | Marketing | `11.2.305` |
-| Build | `2017` |
-| `pubspec` | `flutter_app/pubspec.yaml` → `version: 11.2.305+2017` |
+| Build | `2034` |
+| `pubspec` | `flutter_app/pubspec.yaml` → `version: 11.2.305+2034` |
 | Dart SSOT | `flutter_app/lib/app_version.dart` |
 | Web JSON | `flutter_app/web/version.json` |
+| Force update | Firestore `config/appVersion` → `minBuildNumber: 2034`, `forceUpdate: true`, `webRefresh: true` |
+
+**Changelog resumido build 2034 (deploy 30/06/2026):**
+- **EcoFire upload P0:** `ecofire_direct_firebase.dart` — init único sem `FirebaseBootstrap.reset()`; fim `core/no-app` ao publicar avisos/eventos/chat/financeiro/patrimônio/membros.
+- **Pipeline:** `YahwehModuleMediaGate` → `EcoFireDirectFirebase` → comprimir → Storage `igrejas/{id}/…` → `getDownloadURL()` → Firestore.
+- **Biometria:** `biometric_service.dart` — pref `biometric_disabled_by_user`; não reativa digital se utilizador desligou.
+- **Storage audit:** tabela completa módulos em `church_storage_layout.dart` (doações/cartas/escala = sem Storage por desenho).
+- **Deploy completo:** regras + índices + functions + web hosting + AAB + ZIP iOS Codemagic; commit `0a2a2f1` em `main`.
 
 **Changelog resumido build 2017:**
 - Paridade WISDOMAPP: gate mídia todos módulos, polling web 12s, índices `ativo+publicado+createdAt`, `public_church_slugs`, cache público anónimo, warmup web 16/40 membros.
@@ -65,12 +74,19 @@ churchId resolvido UMA vez
 
 ```
 1. YahwehModuleMediaGate.ensureReadyForPick / prepareForPublishUpload
-2. Comprimir (WebP/JPEG; vídeo H.264 720p eventos; áudio m4a chat)
-3. Upload Storage (ChurchStorageLayout path canónico)
-4. Validar metadata Storage
-5. Gravar Firestore UMA vez (URLs + storagePath)
-6. UI sucesso → distribuição background (push, site, WhatsApp)
+2. EcoFireDirectFirebase.ensureForStoragePut()   ← init único (NÃO resetar Firebase)
+3. Comprimir (WebP/JPEG; vídeo H.264 720p eventos; áudio m4a chat)
+4. Upload Storage (ChurchStorageLayout path canónico) via YahwehMediaUploadPipeline / EcoFireMediaUpload
+5. Validar metadata Storage
+6. Gravar Firestore UMA vez (URLs + storagePath)
+7. UI sucesso → distribuição background (push, site, WhatsApp)
 ```
+
+**Flag activa:** `EcoFireFlow.directStorageUpload` → todos os `uploadPreparedBytes` passam por `EcoFireMediaUpload`.
+
+**Proibido (causa `core/no-app`):**
+- `FirebaseBootstrap.reset()` ou `_softReinit` em fluxo de publicar/upload
+- Múltiplas chamadas destrutivas a `EcoFirePublishBootstrap` / `runGuarded` em paralelo no upload
 
 **Proibido:**
 - Doc Firestore completo com mídia **antes** do Storage OK (exceto stub chat `sending` explícito)
@@ -184,19 +200,26 @@ users/{uid}                     → perfil global Auth
 
 ```
 igrejas/{churchId}/
-├── membros/fotos/{id}.webp + membros/thumbs/{id}.webp
-├── avisos/imagens/{postId}_*.webp
-├── eventos/imagens/ + eventos/videos/ + eventos/thumbs/
-├── patrimonio/imagens/ + patrimonio/thumbs/
-├── financeiro/YYYY_MM/{lancamentoId}.jpg|png|pdf
-├── chat_media/images|videos|audio|docs/ + chat_media/thumbs/
-├── configuracoes/logo_igreja.png
-├── marketing_destaque/capa.jpg   (Master clientes)
-└── certificados/, cartao_membro/, etc.
+├── membros/{folder}/foto_perfil.jpg
+├── avisos/imagens/
+├── eventos/imagens|videos|thumbs/ + eventos/templates/
+├── patrimonio/{itemId}/foto_N.webp
+├── financeiro/YYYY_MM/{lancamentoId}.ext
+├── chat_media/{images|videos|audio|docs}/ + thumbs/
+├── configuracoes/logo_igreja.png + assinatura.*
+├── cartao_membro/logo.jpg
+├── certificados/logo_atual.jpg + templates/certificados/
+├── certificados_gestor/{uid}_{ts}.p12
+├── fornecedores/{fornecedorId}/compromissos/{id}_comprovante.ext
+└── marketing_destaque/capa.jpg   (Master clientes)
+
+public/gestao_yahweh/{fotos|videos|pdf}/   (Master divulgação CMS)
 ```
 
+**Sem upload Storage (por desenho):** doações (MP+Firestore), cartas/transferências (PDF local + `cartas_historico`), escala, agenda pura.
+
 **SSOT paths:** `lib/core/church_storage_layout.dart`  
-**Upload:** `StorageService`, `YahwehMediaUploadPipeline`, `TransactionalMediaPublishPipeline`  
+**Upload:** `EcoFireDirectFirebase`, `YahwehMediaUploadPipeline`, `UnifiedUploadService`, `uploadStoragePutDataWithRetry`  
 **Proibido escrita nova:** `tenants/{id}/media/...` (legado só leitura)
 
 ---
@@ -296,7 +319,7 @@ Após deploy: confirmar índices **Enabled** no Console Firebase (pode levar min
 
 ---
 
-## 10. Superfícies — checklist baseline 2017
+## 10. Superfícies — checklist baseline 2034
 
 | Superfície | Ficheiro principal | Status baseline |
 |------------|-------------------|-----------------|
@@ -328,13 +351,16 @@ Após deploy: confirmar índices **Enabled** no Console Firebase (pode levar min
 | Papel | Ficheiro |
 |-------|----------|
 | Tenant Firestore | `ChurchRepository` |
-| Upload | `StorageService`, `YahwehMediaUploadPipeline` |
-| Publicação mural | `PublicationEngine` |
+| Init Firebase upload | `EcoFireDirectFirebase` (`lib/core/ecofire/ecofire_direct_firebase.dart`) |
+| Gate UI mídia | `YahwehModuleMediaGate` |
+| Upload bytes | `YahwehMediaUploadPipeline`, `EcoFireMediaUpload`, `UnifiedUploadService` |
+| Publicação mural | `PublicationEngine`, `AvisoPublishService`, `EventoPublishService` |
 | Chat | `ChurchChatService`, `ChatStrictPublishService` |
+| Biometria | `BiometricService` (`biometric_disabled_by_user`) |
 | Auth | `AuthService`, `PersistentAuthSessionService` |
 | Web guard | `FirestoreWebGuard`, `FirestoreStreamUtils` |
 | Imagens UI | `SafeNetworkImage`, `UnavailableMediaWidget` |
-| Performance web | `ChurchPanelReadTimeouts` (poll 12s) |
+| Performance web | `YahwehDataEngineFetcher`, `ChurchPanelReadTimeouts` (poll 12s) |
 | Sync offline | `SyncEngine`, `TenantOfflineWrite` |
 
 ---
@@ -367,7 +393,10 @@ cd C:\gestao_yahweh_premium_final
 .\scripts\bump_build.ps1
 
 # Deploy completo (só se usuário pedir)
-.\scripts\deploy_completo.ps1 -CopyTo "D:\Temporarios" -ForceFirestoreRules
+.\scripts\deploy_completo.ps1 -CopyTo "D:\Temporarios" -ForceFunctions -ContinueOnRulesFailure
+
+# Artefactos deploy (AAB/ZIP/log) → D:\Temporarios
+# Memória deste projeto → BKP_MEMORIA_PONTO_PARTIDA_YAHWEH.md (raiz repo, sem cópia)
 ```
 
 ---
@@ -414,9 +443,12 @@ cd C:\gestao_yahweh_premium_final
 
 ## 18. Histórico deste baseline (git)
 
+- **Build actual memória:** **2034** — EcoFire upload, biometria opt-out, auditoria Storage, deploy completo 30/06/2026  
+- Commit deploy 2034: `0a2a2f1` — `chore: deploy producao 11.2.305+2034`  
+- AAB: `GestaoYahweh_11.2.305_build2034_play.aab` · iOS ZIP: `GestaoYahweh_ios_sources_11.2.305_build2034.zip`  
 - Commit referência deploy 2016: `6a197b3` — cache WISDOMAPP, CF bridge, gyPublicMemberSignup  
-- Build atual memória: **2017** — paridade mídia, índices, links dashboard, cadastro CF Web  
+- Build 2017 — paridade mídia, índices, links dashboard, cadastro CF Web  
 
 ---
 
-*Este ficheiro é a **memória de ponto de partida**. Atualizar o número de build e a secção 18 após cada release significativa. Não apagar secções 2 e 15 — são o antídoto contra regressões de mídia, chat e tenant.*
+*Este ficheiro é a **memória de ponto de partida**. Atualizar o número de build e a secção 18 após cada release significativa. Fica **só na raiz** do repo (`C:\gestao_yahweh_premium_final\`). Não apagar secções 2 e 15 — são o antídoto contra regressões de mídia, chat e tenant.*

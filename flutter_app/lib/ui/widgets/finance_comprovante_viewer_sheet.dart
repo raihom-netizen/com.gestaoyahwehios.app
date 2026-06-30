@@ -1,15 +1,16 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_disk_cache.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web.dart';
-import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 
 /// Visualização premium de comprovante (imagem ou PDF) — padrão Controle Total.
@@ -197,17 +198,26 @@ class _PdfBodyState extends State<_PdfBody> {
   Future<void> _open() async {
     try {
       await ensureFirebaseCore(requireAuth: false);
-      Uint8List? bytes;
-      final path = widget.storagePath.trim();
-      if (path.isNotEmpty) {
-        bytes = await firebaseDefaultStorage
-            .ref(path)
-            .getData(FinanceComprovanteAttachService.maxBytes);
-      }
-      if ((bytes == null || bytes.isEmpty) && widget.url.isNotEmpty) {
-        bytes = await firebaseDefaultStorage
-            .refFromURL(widget.url)
-            .getData(FinanceComprovanteAttachService.maxBytes);
+      final cacheKey = FinanceComprovanteDiskCache.keyFor(
+        storagePath: widget.storagePath,
+        url: widget.url,
+      );
+      Uint8List? bytes = await FinanceComprovanteDiskCache.getBytes(cacheKey);
+      if (bytes == null || bytes.isEmpty) {
+        final path = widget.storagePath.trim();
+        if (path.isNotEmpty) {
+          bytes = await firebaseDefaultStorage
+              .ref(path)
+              .getData(FinanceComprovanteAttachService.maxBytes);
+        }
+        if ((bytes == null || bytes.isEmpty) && widget.url.isNotEmpty) {
+          bytes = await firebaseDefaultStorage
+              .refFromURL(widget.url)
+              .getData(FinanceComprovanteAttachService.maxBytes);
+        }
+        if (bytes != null && bytes.isNotEmpty) {
+          unawaited(FinanceComprovanteDiskCache.putBytes(cacheKey, bytes));
+        }
       }
       if (!mounted) return;
       if (bytes == null || bytes.isEmpty) {

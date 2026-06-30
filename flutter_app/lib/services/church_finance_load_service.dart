@@ -186,6 +186,69 @@ abstract final class ChurchFinanceLoadService {
         legacyFallbackSubcollection: 'financeiro',
       );
 
+  /// Página seguinte — cursor Firestore (`startAfterDocument`), sem re-ler do início.
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      loadLancamentosPage({
+    required String seedTenantId,
+    required int limit,
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+  }) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return const [];
+
+    final capped =
+        FirebasePerformanceLimits.capListLimit('finance', limit);
+    final cacheKey =
+        '${churchId}_finance_page_${startAfter?.id ?? '0'}_$capped';
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainRead() async {
+      final snap = await FirestoreReadResilience.getQuery(
+        ChurchUiCollections.financeiro(churchId).limit(capped),
+        cacheKey: '${cacheKey}_plain',
+      );
+      var docs = snap.docs;
+      if (startAfter != null) {
+        final idx = docs.indexWhere((d) => d.id == startAfter.id);
+        if (idx >= 0) {
+          docs = docs.skip(idx + 1).take(capped).toList();
+        }
+      }
+      return _sortFinanceDocs(docs);
+    }
+
+    try {
+      var q = ChurchUiCollections.financeiro(churchId)
+          .orderBy('createdAt', descending: true)
+          .limit(capped);
+      if (startAfter != null) {
+        q = q.startAfterDocument(startAfter);
+      }
+      final snap = await FirestoreReadResilience.getQuery(
+        q,
+        cacheKey: cacheKey,
+      );
+      if (snap.docs.isNotEmpty) return snap.docs;
+    } catch (_) {}
+
+    try {
+      final legacyRef =
+          ChurchUiCollections.churchDoc(churchId).collection('financeiro');
+      var q = legacyRef
+          .orderBy('createdAt', descending: true)
+          .limit(capped);
+      if (startAfter != null) {
+        q = q.startAfterDocument(startAfter);
+      }
+      final snap = await FirestoreReadResilience.getQuery(
+        q,
+        cacheKey: '${cacheKey}_legacy',
+      );
+      if (snap.docs.isNotEmpty) return snap.docs;
+    } catch (_) {}
+
+    return plainRead();
+  }
+
   static Future<ChurchFinanceLoadResult> loadContas({
     required String seedTenantId,
     int limit = 80,

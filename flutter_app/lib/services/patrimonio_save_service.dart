@@ -4,7 +4,8 @@ import 'dart:typed_data';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 
 /// Gravação patrimônio — Storage (4 fotos) → `foto01`…`foto04` → Firestore.
@@ -107,6 +108,55 @@ abstract final class PatrimonioSaveService {
     if (last != null) {
       if (last is Exception) throw last;
       throw StateError(last.toString());
+    }
+  }
+
+  /// Write-first: grava metadados e devolve — fotos ficam para [uploadPhotosInBackground].
+  static Future<void> saveMetadataFirst({
+    required String churchIdHint,
+    required String itemId,
+    required Map<String, dynamic> corePayload,
+    required bool isNewDoc,
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+  }) async {
+    await PatrimonioPublishService.publishMetadataWithPendingUploads(
+      seedTenantId: resolveChurchId(churchIdHint),
+      itemId: itemId,
+      corePayload: corePayload,
+      isNewDoc: isNewDoc,
+      indexedSlotUrls: indexedSlotUrls,
+      indexedSlotPaths: indexedSlotPaths,
+    );
+  }
+
+  /// Upload de fotos pendentes — compressão em isolate + patch Firestore silencioso.
+  static Future<void> uploadPhotosInBackground({
+    required String churchIdHint,
+    required String itemId,
+    required Map<String, dynamic> corePayload,
+    required bool isNewDoc,
+    Map<int, Uint8List> uploadsBySlot = const {},
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+  }) async {
+    if (uploadsBySlot.isEmpty) return;
+    try {
+      await save(
+        churchIdHint: churchIdHint,
+        itemId: itemId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        uploadsBySlot: uploadsBySlot,
+        indexedSlotUrls: indexedSlotUrls,
+        indexedSlotPaths: indexedSlotPaths,
+      );
+    } catch (e, st) {
+      if (CrashlyticsService.shouldReport(e)) {
+        unawaited(
+          CrashlyticsService.record(e, st, reason: 'patrimonio_photos_bg'),
+        );
+      }
     }
   }
 }

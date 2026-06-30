@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/constants/yahweh_module_icon_assets.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_module_icon_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -200,7 +202,18 @@ Widget churchWisdomModuleIconLeading({
   required IconData icon,
   required Color accent,
   double size = 48,
+  String? moduleAssetKey,
 }) {
+  final asset = moduleAssetKey != null
+      ? YahwehModuleIconAssets.forModuleKey(moduleAssetKey)
+      : null;
+  if (asset != null) {
+    return YahwehModuleIconBadge(
+      moduleKey: moduleAssetKey,
+      accent: accent,
+      size: size,
+    );
+  }
   return DecoratedBox(
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(14),

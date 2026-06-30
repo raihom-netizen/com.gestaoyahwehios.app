@@ -49,11 +49,13 @@ import 'pages/site_public_page.dart';
 import 'ui/admin_panel_page.dart';
 import 'ui/landing_page.dart';
 import 'ui/signup_page.dart';
+import 'ui/pages/onboarding/welcome_page.dart';
+import 'ui/pages/onboarding/plan_select_page.dart';
 import 'ui/pages/signup_completar_gestor_page.dart';
 import 'ui/widgets/ios_organization_signup_web_page.dart';
 import 'ui/pages/plans/express_renew_gate_page.dart';
 import 'package:gestao_yahweh/ui/widgets/update_checker.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/design_system/app_theme.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/public_web_origin.dart';
@@ -1099,8 +1101,8 @@ class _AppWithThemeState extends State<_AppWithTheme>
           navigatorKey: appRootNavigatorKey,
           scrollBehavior: const GestaoYahwehScrollBehavior(),
           title: 'Gestão Yahweh - Igrejas',
-          theme: ThemeCleanPremium.themeData,
-          darkTheme: ThemeCleanPremium.themeDataDark,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
           themeMode: _themeProvider.mode,
           locale: const Locale('pt', 'BR'),
           supportedLocales: const [
@@ -1346,6 +1348,17 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   );
                   break;
                 }
+                case '/onboarding':
+                case '/comecar':
+                  pagina = IosPaymentsGate.isIosNative
+                      ? const IosOrganizationSignupWebPage()
+                      : const WelcomePage();
+                  break;
+                case '/onboarding/plano':
+                  pagina = IosPaymentsGate.isIosNative
+                      ? const IosOrganizationSignupWebPage()
+                      : const PlanSelectPage();
+                  break;
                 case '/planos':
                   pagina = const LandingPage();
                   break;

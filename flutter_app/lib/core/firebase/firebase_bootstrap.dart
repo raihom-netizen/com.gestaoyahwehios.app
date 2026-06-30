@@ -16,9 +16,12 @@ abstract final class FirebaseBootstrap {
     if (_hasDefaultApp()) {
       return Future.value();
     }
-    _future = null;
-    _future ??= _initialize();
-    return _future!;
+    final init = _initialize();
+    _future = init;
+    return init.catchError((Object e, StackTrace st) {
+      _future = null;
+      Error.throwWithStackTrace(e, st);
+    });
   }
 
   /// Chamado por [FirebaseBootstrapService] ao reconectar/reiniciar o núcleo.

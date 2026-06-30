@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
@@ -40,6 +39,7 @@ abstract final class EcoFireResilientPublish {
       e is ResilientPublishQueuedException;
 
   /// Deve enfileirar em background (sem bloquear o utilizador).
+  /// Erros de init Firebase (`core/no-app`) **não** entram aqui quando online — devem falhar visível.
   static bool shouldQueueSilently(Object error) {
     if (error is ResilientPublishQueuedException) return true;
     if (FirestoreWebGuard.isInternalAssertionError(error)) return true;
@@ -48,7 +48,6 @@ abstract final class EcoFireResilientPublish {
     if (error is FirebaseException) {
       switch (error.code) {
         case 'unavailable':
-        case 'network-request-failed':
         case 'network-request-failed':
         case 'deadline-exceeded':
         case 'resource-exhausted':
@@ -68,9 +67,6 @@ abstract final class EcoFireResilientPublish {
         low.contains('offline') ||
         low.contains('sem conexão') ||
         low.contains('unavailable') ||
-        low.contains('core/no-app') ||
-        low.contains('no firebase app') ||
-        low.contains('firebase não inicializou') ||
         low.contains('socket') ||
         low.contains('failed host lookup')) {
       return true;
@@ -78,8 +74,6 @@ abstract final class EcoFireResilientPublish {
 
     if (error is StateError) {
       final m = error.message.toLowerCase();
-      if (m.contains('firebase') && m.contains('indispon')) return true;
-      if (m.contains('core/no-app')) return true;
       // Sessão ambígua com rede → fila (token refresh no drain).
       if (m.contains('sessão expirada') &&
           AppConnectivityService.instance.isOnline) {
@@ -87,7 +81,6 @@ abstract final class EcoFireResilientPublish {
       }
     }
 
-    if (isFirebaseNoAppError(error)) return true;
     return false;
   }
 
@@ -95,7 +88,7 @@ abstract final class EcoFireResilientPublish {
   static Future<void> prepareForPublish({String logLabel = 'resilient'}) async {
     if (!AppConnectivityService.instance.isOnline) return;
     try {
-      await EcoFirePublishBootstrap.ensureHard(logLabel: logLabel);
+      await EcoFirePublishBootstrap.ensureHard(logLabel: logLabel, strict: true);
       return;
     } catch (e) {
       if (shouldQueueSilently(e)) return;

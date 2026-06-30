@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -77,9 +77,9 @@ abstract final class PatrimonioMediaUpload {
     );
   }
 
-  /// Sempre comprime — nunca envia original ao Storage.
+  /// Sempre comprime em isolate — nunca envia original ao Storage.
   static Future<Uint8List> _compressForUpload(Uint8List rawBytes) async {
-    return ImageHelper.compressPatrimonioPhotoForUpload(rawBytes);
+    return MediaOptimizationService.optimizeForReceipt(rawBytes);
   }
 
   static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosSequential({

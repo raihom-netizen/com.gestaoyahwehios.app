@@ -12,6 +12,9 @@ Color gyModuleAccentColor(String? raw) {
       return const Color(0xFFF97316);
     case 'escala':
       return const Color(0xFF14B8A6);
+    case 'financeiro':
+    case 'contas_pagar':
+      return const Color(0xFFDC2626);
     case 'fornecedor_agenda':
       return const Color(0xFF475569);
     case 'pastoral':
@@ -39,6 +42,9 @@ String gyModuleLabel(String? raw) {
       return 'Evento';
     case 'escala':
       return 'Escala';
+    case 'financeiro':
+    case 'contas_pagar':
+      return 'Contas a pagar';
     case 'aniversario':
       return 'Aniversário';
     case 'membro':

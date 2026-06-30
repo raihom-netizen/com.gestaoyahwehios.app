@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
@@ -77,7 +78,23 @@ abstract final class FinanceComprovantePublishService {
   }
 
   static Future<void> _ensureReady() async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'finance_comprovante');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'finance_comprovante',
+      strict: true,
+    );
+  }
+
+  /// Compressão em isolate antes do Storage (imagens apenas).
+  static Future<({Uint8List bytes, String mimeType})> _optimizedForUpload({
+    required Uint8List rawBytes,
+    required String mimeType,
+  }) async {
+    final mime = mimeType.toLowerCase();
+    if (mime.contains('pdf')) {
+      return (bytes: rawBytes, mimeType: mimeType);
+    }
+    final optimized = await MediaOptimizationService.optimizeForReceipt(rawBytes);
+    return (bytes: optimized, mimeType: 'image/jpeg');
   }
 
   /// Grava lançamento (sem comprovante ou com estado uploading).
@@ -498,6 +515,13 @@ abstract final class FinanceComprovantePublishService {
         await _ensureReady();
         YahwehFlowLog.uploadStart('comprovante');
 
+        final prepared = await _optimizedForUpload(
+          rawBytes: rawBytes,
+          mimeType: mimeType,
+        );
+        final uploadBytes = prepared.bytes;
+        final uploadMime = prepared.mimeType;
+
         if (kIsWeb) {
           onProgress?.call(0.12);
           final churchId = ChurchRepository.churchId(tenantId.trim());
@@ -511,8 +535,8 @@ abstract final class FinanceComprovantePublishService {
           final cf = await ChurchFunctionsService.uploadFinanceComprovante(
             churchId: churchId,
             lancamentoId: docRef.id,
-            bytes: rawBytes,
-            mimeType: mimeType,
+            bytes: uploadBytes,
+            mimeType: uploadMime,
             fileName: fileName,
             referenceYearMonth: yearMonth,
           );
@@ -533,8 +557,8 @@ abstract final class FinanceComprovantePublishService {
         final persisted = await _uploadComprovanteStorageCore(
           tenantId: tenantId,
           lancamentoId: docRef.id,
-          rawBytes: rawBytes,
-          mimeType: mimeType,
+          rawBytes: uploadBytes,
+          mimeType: uploadMime,
           fileName: fileName,
           referenceDate: referenceDate,
           previousStoragePath: previousStoragePath,

@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
@@ -331,10 +332,8 @@ abstract final class YahwehModuleMediaGate {
 
     await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
 
-    if (kIsWeb && requireAuth) {
-
+    if (requireAuth) {
       await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
-
     }
 
   }
@@ -474,11 +473,16 @@ abstract final class YahwehModuleMediaGate {
     if (!isFirebaseNoAppError(e)) return;
 
     try {
-
+      try {
+        Firebase.app();
+      } catch (_) {
+        FirebaseBootstrap.reset();
+      }
       await FirebaseBootstrap.ensureInitialized();
-
       await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
-
+      if (kIsWeb && requireAuth) {
+        await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
+      }
     } catch (_) {}
 
   }

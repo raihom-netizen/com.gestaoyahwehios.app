@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_sheet.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
@@ -190,7 +190,7 @@ abstract final class FinanceComprovanteAttachService {
         _showSnack(context, 'Não foi possível ler a foto da câmera.');
         return null;
       }
-      final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
+      final bytes = await MediaOptimizationService.optimizeForReceipt(raw);
       if (bytes.lengthInBytes > maxBytes) {
         _showSnack(context, 'Foto grande demais. Limite: 5 MB.');
         return null;
@@ -286,7 +286,7 @@ abstract final class FinanceComprovanteAttachService {
         _showSnack(context, 'Não foi possível ler a imagem.');
         return null;
       }
-      final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
+      final bytes = await MediaOptimizationService.optimizeForReceipt(raw);
       if (bytes.lengthInBytes > maxBytes) {
         _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
         return null;
@@ -305,20 +305,15 @@ abstract final class FinanceComprovanteAttachService {
     }
   }
 
-  /// PDF passa direto; imagens WebP leve (patrimônio/feed).
+  /// PDF passa direto; imagens → JPEG 1280px/75% em isolate.
   static Future<({Uint8List bytes, String mimeType})> prepareUploadBytes(
     FinanceComprovanteAttachment attachment,
   ) async {
     if (attachment.isPdf) {
       return (bytes: attachment.bytes, mimeType: 'application/pdf');
     }
-    if (attachment.mimeType.contains('webp') &&
-        attachment.bytes.length <= 900000) {
-      return (bytes: attachment.bytes, mimeType: 'image/webp');
-    }
-    final compressed = await ImageHelper.compressPatrimonioPhotoForUpload(
-      attachment.bytes,
-    );
+    final compressed =
+        await MediaOptimizationService.optimizeForReceipt(attachment.bytes);
     return (bytes: compressed, mimeType: 'image/jpeg');
   }
 

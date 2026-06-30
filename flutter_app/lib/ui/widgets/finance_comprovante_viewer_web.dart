@@ -2,7 +2,9 @@
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
 
 bool _looksLikeImage(String mime, String fileName, String url) {
   if (mime.startsWith('image/')) return true;
@@ -102,10 +104,15 @@ Future<void> showFinanceComprovanteWebEmbed({
                   borderRadius: BorderRadius.circular(12),
                   child: _looksLikeImage(mimeType, fileName, url)
                       ? InteractiveViewer(
-                          child: Image.network(
-                            url,
+                          child: CachedNetworkImage(
+                            imageUrl: url,
                             fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => _ComprovanteIframe(src: url),
+                            cacheManager: YahwehCacheManagers.images,
+                            placeholder: (_, __) => const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            errorWidget: (_, __, ___) =>
+                                _ComprovanteIframe(src: url),
                           ),
                         )
                       : _looksLikePdf(mimeType, fileName, url)

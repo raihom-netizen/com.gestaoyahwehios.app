@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
-/// Upload otimista estilo WhatsApp — pipeline único Storage → Firestore `sent`.
+/// Upload fire-and-forget — UI mostra bolha local; Storage corre em background.
 abstract final class OptimisticChatMediaUpload {
   OptimisticChatMediaUpload._();
 

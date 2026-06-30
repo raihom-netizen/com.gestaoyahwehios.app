@@ -354,7 +354,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   late Future<DocumentSnapshot<Map<String, dynamic>>> _tenantFuture;
   String _filterDeptId = '';
   String _reportDeptId = ''; // filtro de departamento no relatório
-  /// `todos` = sem filtro de data nas escalas já carregadas (até 500) — padrão para não “sumir” escalas geradas noutro mês.
+  /// `todos` = sem filtro de data nas escalas já carregadas (até 200) — padrão para não “sumir” escalas geradas noutro mês.
   String _periodFilter = 'todos'; // todos, diario, semanal, mes_anterior, mes_atual, anual, periodo
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -4779,7 +4779,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 const SizedBox(height: 6),
                 Text(
                   'Só entram escalas que você pode gerir. '
-                  'A lista carrega até 500 escalas recentes.',
+                  'A lista carrega até 200 escalas recentes.',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 16),

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import '../../services/biometric_service.dart';
+import 'package:gestao_yahweh/services/biometric_service.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
 
 /// Bloqueio biométrico premium — o painel só renderiza após digital/Face ID.
-/// Falha ou cancelamento mantém este ecrã (sem `signOut`). Saída: Configurações → Trocar de conta.
 class BiometricLockPage extends StatefulWidget {
   final Widget child;
   const BiometricLockPage({super.key, required this.child});
@@ -38,60 +38,45 @@ class _BiometricLockPageState extends State<BiometricLockPage> {
   Widget build(BuildContext context) {
     if (_unlocked) return widget.child;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Card(
-            elevation: 6,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
+    return ChurchWisdomLoginBackdrop(
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.fingerprint, size: 48),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Desbloqueie com biometria',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                  YahwehSaasVisualShell.hero(
+                    title: 'Desbloqueie com biometria',
+                    subtitle: _unlocking
+                        ? 'Aguardando digital ou Face ID…'
+                        : 'Toque em «Tentar de novo» para autenticar.',
+                    logoSize: 80,
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _unlocking
-                        ? 'Aguardando sua digital ou Face ID…'
-                        : 'Não foi possível autenticar. Toque em «Tentar de novo».',
-                    textAlign: TextAlign.center,
-                  ),
-                  if (_unlocking) ...[
-                    const SizedBox(height: 16),
-                    const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(strokeWidth: 2.8),
-                    ),
-                  ],
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: _unlocking ? null : _tryUnlock,
-                      child: Text(
-                        _unlocking ? 'A aguardar biometria…' : 'Tentar de novo',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'Para sair desta conta: Configurações → Trocar de conta.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                      height: 1.35,
+                  const SizedBox(height: 16),
+                  YahwehSaasVisualShell.surfaceCard(
+                    child: Column(
+                      children: [
+                        Icon(Icons.fingerprint_rounded,
+                            size: 56, color: kChurchWisdomLoginTeal),
+                        if (_unlocking) ...[
+                          const SizedBox(height: 16),
+                          const SizedBox(
+                            width: 32,
+                            height: 32,
+                            child: CircularProgressIndicator(strokeWidth: 2.8),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        YahwehSaasVisualShell.primaryButton(
+                          label: 'Tentar de novo',
+                          icon: Icons.lock_open_rounded,
+                          onPressed: _unlocking ? null : _tryUnlock,
+                          loading: _unlocking,
+                        ),
+                      ],
                     ),
                   ),
                 ],

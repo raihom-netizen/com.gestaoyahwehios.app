@@ -3892,23 +3892,50 @@ class _CalendarPageState extends State<CalendarPage>
       return _emptyDayMessage('Nenhum evento neste mês');
     }
 
-    return Column(
+    final flat = _flattenAgendaListItems(sortedKeys);
+    if (flat.isEmpty && !_loading) {
+      return _emptyDayMessage('Nenhum evento neste mês');
+    }
+
+    return ListView.builder(
       key: key,
-      children: [
-        if (_loading)
-          const Padding(
-            padding: EdgeInsets.all(ThemeCleanPremium.spaceLg),
-            child: ChurchPanelLoadingBody(),
-          ),
-        for (final dayKey in sortedKeys) ...[
-          _buildDaySection(dayKey),
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-        ],
-      ],
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: flat.length,
+      itemBuilder: (context, i) => _buildFlatAgendaListItem(flat[i]),
     );
   }
 
-  Widget _buildDaySection(String dayKey) {
+  List<_AgendaFlatListItem> _flattenAgendaListItems(List<String> sortedKeys) {
+    final flat = <_AgendaFlatListItem>[];
+    if (_loading) {
+      flat.add(const _AgendaFlatListItem.loading());
+    }
+    for (final dayKey in sortedKeys) {
+      flat.add(_AgendaFlatListItem.dayHeader(dayKey));
+      final events = List<_CalendarEvent>.from(_eventsByDay[dayKey] ?? [])
+        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+      for (final ev in events) {
+        flat.add(_AgendaFlatListItem.event(ev));
+      }
+      flat.add(const _AgendaFlatListItem.gap());
+    }
+    return flat;
+  }
+
+  Widget _buildFlatAgendaListItem(_AgendaFlatListItem item) {
+    return switch (item.kind) {
+      _AgendaFlatListItemKind.loading => const Padding(
+          padding: EdgeInsets.all(ThemeCleanPremium.spaceLg),
+          child: ChurchPanelLoadingBody(),
+        ),
+      _AgendaFlatListItemKind.dayHeader => _buildDaySectionHeader(item.dayKey!),
+      _AgendaFlatListItemKind.event => _buildEventCard(item.event!),
+      _AgendaFlatListItemKind.gap => const SizedBox(height: ThemeCleanPremium.spaceSm),
+    };
+  }
+
+  Widget _buildDaySectionHeader(String dayKey) {
     final date = DateTime.parse(dayKey);
     final label = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(date);
     final events = List<_CalendarEvent>.from(_eventsByDay[dayKey] ?? [])
@@ -3919,10 +3946,7 @@ class _CalendarPageState extends State<CalendarPage>
         : (_hexToColor(events.first.eventColorHex) ??
             _categoryColors[events.first.categoryKey ?? ''] ??
             ThemeCleanPremium.primary);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
+    return Container(
           width: double.infinity,
           margin: const EdgeInsets.only(
             bottom: ThemeCleanPremium.spaceXs,
@@ -3985,13 +4009,10 @@ class _CalendarPageState extends State<CalendarPage>
               ),
             ],
           ),
-        ),
-        ...events.map(_buildEventCard),
-      ],
-    );
+        );
   }
 
-  // ─── Event Details Bottom Sheet ────────────────────────────────────────────
+  // _buildDaySection removido — lista achatada lazy em _buildListView.
 
   String? _whatsappDigitsForEvent(_CalendarEvent ev) {
     final w = ev.contactPhone.replaceAll(RegExp(r'\D'), '');
@@ -6818,4 +6839,29 @@ class _CalendarEvent {
       hasScheduleOverlap: hasScheduleOverlap ?? this.hasScheduleOverlap,
     );
   }
+}
+
+enum _AgendaFlatListItemKind { loading, dayHeader, event, gap }
+
+class _AgendaFlatListItem {
+  const _AgendaFlatListItem._({
+    required this.kind,
+    this.dayKey,
+    this.event,
+  });
+
+  const _AgendaFlatListItem.loading()
+      : this._(kind: _AgendaFlatListItemKind.loading);
+
+  const _AgendaFlatListItem.gap() : this._(kind: _AgendaFlatListItemKind.gap);
+
+  _AgendaFlatListItem.dayHeader(String key)
+      : this._(kind: _AgendaFlatListItemKind.dayHeader, dayKey: key);
+
+  _AgendaFlatListItem.event(_CalendarEvent ev)
+      : this._(kind: _AgendaFlatListItemKind.event, event: ev);
+
+  final _AgendaFlatListItemKind kind;
+  final String? dayKey;
+  final _CalendarEvent? event;
 }

@@ -43,7 +43,8 @@ abstract final class YahwehPerformanceV4 {
   static const int adminExportBatchLimit = 500;
   /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
   static const int dashboardStatsSampleLimit = 100;
-  static const int financeChartsSampleLimit = 500;
+  /// Amostra para gráficos/resumo — não carregar histórico completo no 1.º frame.
+  static const int financeChartsSampleLimit = 200;
   static const int financeListInitialLimit = blindListPageSize;
   static const int financeListPageStep = blindListPageSize;
   static const int publicFeedPageSize = 20;

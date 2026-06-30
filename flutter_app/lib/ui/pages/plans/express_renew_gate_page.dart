@@ -10,7 +10,10 @@ import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/yahweh_design_system.dart';
 
 /// Rota pública `/atualizar-plano` — gate de autenticação para o fluxo
 /// «Atualizar plano expresso» vindo do app iOS (botão Reader/SaaS).
@@ -582,7 +585,7 @@ class _ExpressGateLoginScaffold extends StatelessWidget {
                         onManualLogin: onManualLogin,
                       ),
                       const SizedBox(height: 14),
-                      _SecurityFooter(),
+                      YahwehSaasVisualShell.securityFooter(),
                     ],
                   ),
                 ),
@@ -638,10 +641,9 @@ class _PremiumHeader extends StatelessWidget {
                 ),
               ],
             ),
-            child: Image.asset(
-              'assets/logo.png',
+            child: GestaoYahwehBrandLogo(
               height: isWide ? 64 : 54,
-              fit: BoxFit.contain,
+              showHeroGlow: false,
             ),
           ),
           const SizedBox(height: 14),

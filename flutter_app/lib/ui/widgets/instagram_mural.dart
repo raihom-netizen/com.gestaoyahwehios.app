@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
@@ -39,7 +39,10 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
+import 'package:gestao_yahweh/services/aviso_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/shared/widgets/app_publish_footer.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -3995,17 +3998,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     unawaited(_preloadChurchAddress());
     if (widget.type == 'aviso') {
       unawaited(
-        EcoFirePublishBootstrap.ensureHard(
+        YahwehModuleMediaGate.prepareForPublishUpload(
+          module: YahwehMediaModule.avisos,
           logLabel: 'aviso_editor_open',
-          strict: false,
-        ).catchError((_) {}),
+        ).catchError((_) => false),
       );
     } else if (widget.type == 'evento') {
       unawaited(
-        EcoFirePublishBootstrap.ensureHard(
+        YahwehModuleMediaGate.prepareForPublishUpload(
+          module: YahwehMediaModule.eventos,
           logLabel: 'evento_editor_open',
-          strict: false,
-        ).catchError((_) {}),
+        ).catchError((_) => false),
       );
     }
   }
@@ -5020,12 +5023,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isFirebaseNoAppError(e);
       if (mounted && isAssertionOrPerm) {
         try {
-          FastMediaPublishBootstrap.resetSessionWarm();
-          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-            refreshAuthToken: true,
-            maxAttempts: 5,
-          );
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
+          if (FirestoreWebGuard.isClientTerminated(e)) {
+            await YahwehModuleMediaGate.recoverAfterTerminatedIfWeb();
+          }
+          if (widget.type == 'aviso') {
+            await AvisoPublishService.ensureReady(logLabel: 'mural_aviso_retry');
+          } else if (widget.type == 'evento') {
+            await EventoCreatePublishService.ensureReady(
+              logLabel: 'mural_evento_retry',
+            );
+          }
           await _retryPublishFirestoreFirst();
           if (widget.type == 'aviso') {
             final ctx = await _prepareAvisoPublishContext();
@@ -5362,69 +5370,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                SizedBox(
-                  height: ThemeCleanPremium.minTouchTarget + 8,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.maybePop(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: ThemeCleanPremium.primary,
-                        side: BorderSide(
-                          color: ThemeCleanPremium.primary.withValues(
-                              alpha: 0.45),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text(
-                        'Cancelar',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      onPressed: _saving ? null : _save,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.check_circle_rounded, size: 22),
-                      label: Text(
-                        _saving ? 'A guardar…' : publishLabel,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: editorPalette.primary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                  ),
+                AppPublishActionRow(
+                  saving: _saving,
+                  disabled: _mediaPicking,
+                  publishLabel: publishLabel,
+                  accentColor: editorPalette.primary,
+                  onCancel: () => Navigator.maybePop(context),
+                  onPublish: _save,
                 ),
               ],
             ),

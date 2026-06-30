@@ -47,6 +47,8 @@ class IosPaymentsGate {
     final low = path.toLowerCase();
     if (low == '/signup' || low.startsWith('/signup/')) return true;
     if (low == '/cadastro') return true;
+    if (low == '/onboarding' || low.startsWith('/onboarding/')) return true;
+    if (low == '/comecar') return true;
     if (pathSegments.length >= 3 &&
         pathSegments[0] == 'igreja' &&
         pathSegments[1] != 'login' &&

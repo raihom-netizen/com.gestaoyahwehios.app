@@ -5,6 +5,8 @@ import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
 
 // ✅ Evita o erro do "R$"
 String money(double v) => 'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -162,10 +164,16 @@ class _LandingPageState extends State<LandingPage> {
             elevation: 0,
             scrolledUnderElevation: 0.5,
             shadowColor: const Color(0x14000000),
-            title: const Text('Gestão YAHWEH',
-                style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: ThemeCleanPremium.onSurface)),
+            title: Row(
+              children: [
+                GestaoYahwehBrandLogo(height: 32, showHeroGlow: false),
+                const SizedBox(width: 10),
+                const Text('Gestão YAHWEH',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: ThemeCleanPremium.onSurface)),
+              ],
+            ),
             actions: [
               TextButton(
                 onPressed: () =>
@@ -194,51 +202,28 @@ class _LandingPageState extends State<LandingPage> {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 1100),
-                  child: Container(
-                    padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          ThemeCleanPremium.primaryLight,
-                          ThemeCleanPremium.primary,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const YahwehSaasPricingHeroBanner(
+                        title: 'Checkout Gestão YAHWEH',
+                        subtitle:
+                            'Plano e pagamento em fluxo direto.\n'
+                            'Android e Web finalizam dentro do app/site; '
+                            'iPhone segue para Safari conforme regra Apple.',
+                        badge: 'Planos oficiais · Mercado Pago',
+                      ),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _pill('12 meses pagando 10', featured: true),
+                          _pill('Teste grátis 30 dias', featured: true),
+                          _pill('Cancelamento fácil', featured: true),
                         ],
                       ),
-                      boxShadow: ThemeCleanPremium.softUiCardShadow,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Checkout Gestão YAHWEH',
-                          style: TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Plano e pagamento em fluxo direto.\n'
-                          'Android e Web finalizam dentro do próprio app/site; '
-                          'iPhone segue para Safari conforme regra Apple.',
-                          style: TextStyle(
-                              fontSize: 14, color: Color(0xFFEAF2FF), height: 1.3),
-                        ),
-                        const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 10,
-                          runSpacing: 10,
-                          children: [
-                            _pill('12 meses pagando 10', featured: true),
-                            _pill('Teste grátis 30 dias', featured: true),
-                            _pill('Cancelamento fácil', featured: true),
-                          ],
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
               ),

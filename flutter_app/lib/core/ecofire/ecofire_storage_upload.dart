@@ -193,7 +193,10 @@ abstract final class EcoFireStorageUpload {
     final p = (storagePath ?? '').trim();
     if (p.isEmpty || p.startsWith('http')) return null;
     try {
-      await EcoFirePublishBootstrap.ensureHard(logLabel: 'storage_download_url');
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'storage_download_url',
+        strict: false,
+      );
       return await (await EcoFireDirectFirebase.storageRef(p)).getDownloadURL();
     } catch (_) {}
     return null;

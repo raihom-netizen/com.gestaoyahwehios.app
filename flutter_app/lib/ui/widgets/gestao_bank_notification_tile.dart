@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
-import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_module_icon_badge.dart';
 
 /// Cartão de notificação estilo banco (Controle Total) — sino, lista e push em primeiro plano.
 class GestaoBankNotificationTile extends StatelessWidget {
@@ -166,64 +166,16 @@ class _BrandModuleBadge extends StatelessWidget {
   final Color accent;
   final String moduleKey;
 
-  IconData get _moduleIcon {
-    switch (moduleKey) {
-      case 'aviso':
-        return Icons.campaign_rounded;
-      case 'evento':
-        return Icons.event_rounded;
-      case 'escala':
-        return Icons.calendar_month_rounded;
-      case 'aniversario':
-        return Icons.cake_rounded;
-      case 'membro':
-        return Icons.person_add_alt_1_rounded;
-      case 'chat':
-        return Icons.forum_rounded;
-      case 'pastoral':
-        return Icons.volunteer_activism_rounded;
-      default:
-        return Icons.notifications_active_rounded;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    const side = 44.0;
-    return SizedBox(
-      width: side,
-      height: side,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: const Padding(
-              padding: EdgeInsets.all(4),
-              child: GestaoYahwehBrandLogo(height: 34, width: 34),
-            ),
-          ),
-          Positioned(
-            right: -2,
-            bottom: -2,
-            child: Container(
-              width: 20,
-              height: 20,
-              decoration: BoxDecoration(
-                color: accent,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white, width: 1.5),
-              ),
-              child: Icon(_moduleIcon, size: 11, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+    final key = moduleKey.toLowerCase().trim();
+    if (key == 'aviso' || key == 'avisos') {
+      return YahwehAvisosEmblemIcon(size: 44);
+    }
+    return YahwehModuleIconBadge(
+      moduleKey: moduleKey,
+      accent: accent,
+      size: 44,
     );
   }
 }

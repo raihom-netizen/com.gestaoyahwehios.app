@@ -420,6 +420,53 @@ abstract final class PatrimonioPublishService {
     await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
   }
 
+  /// Metadados imediatos com fotos pendentes — UI fecha; upload continua em background.
+  static Future<void> publishMetadataWithPendingUploads({
+    required String seedTenantId,
+    required String itemId,
+    required Map<String, dynamic> corePayload,
+    required bool isNewDoc,
+    List<String> indexedSlotUrls = const [],
+    List<String> indexedSlotPaths = const [],
+    String? userUid,
+  }) async {
+    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: seedTenantId,
+      userUid: userUid,
+    );
+    final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
+      igrejaId: igrejaId,
+      itemId: itemId,
+    );
+    final payload = Map<String, dynamic>.from(corePayload);
+    if (indexedSlotUrls.length >= PatrimonioPhotoFields.maxPhotos) {
+      PatrimonioPhotoFields.applyIndexedSlots(
+        payload,
+        indexedSlotUrls,
+        indexedSlotPaths,
+      );
+    }
+    payload['churchId'] = igrejaId;
+    payload['tenantId'] = igrejaId;
+    payload['ativo'] = true;
+    payload[photoUploadStateField] = EntityPublishStatus.uploading;
+    payload['publishState'] = EntityPublishStatus.uploading;
+    payload['atualizadoEm'] = FieldValue.serverTimestamp();
+    if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
+
+    await AdminFeedFirestoreBridge.upsertTenantDoc(
+      churchId: igrejaId,
+      collection: 'patrimonio',
+      docId: itemId,
+      data: payload,
+      isNewDoc: isNewDoc,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+      ),
+    );
+    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+  }
+
   /// Repara doc preso em `uploading` — lê URLs do Storage e grava Firestore.
   static Future<void> repairFromStorage({
     required String churchId,

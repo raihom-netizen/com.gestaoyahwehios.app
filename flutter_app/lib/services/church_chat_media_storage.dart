@@ -35,7 +35,10 @@ abstract final class ChurchChatMediaStorage {
       );
       return;
     }
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'chat_storage',
+      strict: true,
+    );
   }
 
   /// Caminho rápido (WhatsApp): bootstrap + pipeline unificado (sem URL).

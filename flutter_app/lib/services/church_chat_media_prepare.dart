@@ -2,12 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show mediaChatVideoHardMaxBytesEffective;
 import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/web_image_compress_service.dart';
 
 /// Compressão obrigatória para fotos do Chat Igreja (nunca envia original).
 class PreparedChatImage {
@@ -43,115 +41,20 @@ class PreparedChatVideo {
 abstract final class ChurchChatMediaPrepare {
   ChurchChatMediaPrepare._();
 
-  /// Chat — alvo ~150 KB full / ~15 KB thumb (listas rápidas estilo WhatsApp).
-  static const int imageMaxEdge = 960;
-  static const int imageQuality = 68;
-  static const int thumbEdge = 120;
-  static const int thumbQuality = 58;
-  static const int fullMaxBytes = 150 * 1024;
-  static const int thumbMaxBytes = 15 * 1024;
-
   static Future<PreparedChatImage> prepareImage({
     Uint8List? bytes,
     String? localPath,
   }) async {
-    if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
-      final f = File(localPath);
-      if (await f.exists() && await f.length() > 0) {
-        try {
-          final full = await SafeImageBytes.fromPath(
-            localPath,
-            maxEdge: imageMaxEdge,
-            quality: imageQuality,
-          );
-          final thumb = await _encodeWebp(
-            full,
-            minSide: thumbEdge,
-            quality: thumbQuality,
-          );
-          return await _buildPrepared(full, thumb);
-        } catch (_) {
-          final raw = await f.readAsBytes();
-          if (raw.isEmpty) rethrow;
-          return await _buildPrepared(raw, null);
-        }
-      }
-    }
-    if (bytes != null && bytes.isNotEmpty) {
-      final source = Uint8List.fromList(bytes);
-      if (kIsWeb) {
-        final full = await WebImageCompressService.compressBytes(
-          input: source,
-          profile: MediaImageProfile.chat,
-        );
-        final thumb = await WebImageCompressService.compressBytes(
-          input: source,
-          profile: MediaImageProfile.thumb,
-        );
-        return await _buildPrepared(full, thumb);
-      }
-      final full = await _encodeWebp(
-        source,
-        minSide: imageMaxEdge,
-        quality: imageQuality,
-      );
-      final thumb = await _encodeWebp(
-        source,
-        minSide: thumbEdge,
-        quality: thumbQuality,
-      );
-      return await _buildPrepared(full, thumb);
-    }
-    throw StateError('Sem dados para preparar a foto.');
-  }
-
-  static Future<PreparedChatImage> _buildPrepared(
-    Uint8List full,
-    Uint8List? thumb,
-  ) async {
-    final cappedFull = await _capImageBytes(full, fullMaxBytes);
-    final cappedThumb = thumb != null && thumb.isNotEmpty
-        ? await _capImageBytes(thumb, thumbMaxBytes)
-        : null;
-    final webp = _bytesLookLikeWebp(cappedFull);
-    return PreparedChatImage(
-      fullBytes: cappedFull,
-      fullMime: webp ? 'image/webp' : 'image/jpeg',
-      fullFileName:
-          'chat_${DateTime.now().millisecondsSinceEpoch}.${webp ? 'webp' : 'jpg'}',
-      thumbBytes: cappedThumb != null && cappedThumb.isNotEmpty
-          ? cappedThumb
-          : null,
+    final payload = await MediaOptimizationService.optimizeForChat(
+      bytes: bytes,
+      localPath: localPath,
     );
-  }
-
-  static Future<Uint8List> _capImageBytes(Uint8List input, int maxBytes) async {
-    if (input.length <= maxBytes) return input;
-    var edge = imageMaxEdge;
-    var quality = imageQuality;
-    var current = input;
-    for (var i = 0; i < 5 && current.length > maxBytes; i++) {
-      edge = (edge * 0.82).round().clamp(400, imageMaxEdge);
-      quality = (quality - 8).clamp(42, imageQuality);
-      current = await _encodeWebp(
-        current,
-        minSide: edge,
-        quality: quality,
-      );
-    }
-    return current;
-  }
-
-  static bool _bytesLookLikeWebp(Uint8List list) {
-    return list.length >= 12 &&
-        list[0] == 0x52 &&
-        list[1] == 0x49 &&
-        list[2] == 0x46 &&
-        list[3] == 0x46 &&
-        list[8] == 0x57 &&
-        list[9] == 0x45 &&
-        list[10] == 0x42 &&
-        list[11] == 0x50;
+    return PreparedChatImage(
+      fullBytes: payload.fullBytes,
+      fullMime: payload.fullMime,
+      fullFileName: payload.fullFileName,
+      thumbBytes: payload.thumbBytes,
+    );
   }
 
   static Future<PreparedChatVideo?> prepareVideo(
@@ -187,34 +90,5 @@ abstract final class ChurchChatMediaPrepare {
       thumbnailBytes: result.thumbnailBytes,
       byteLength: outLen,
     );
-  }
-
-  static Future<Uint8List> _encodeWebp(
-    Uint8List raw, {
-    required int minSide,
-    required int quality,
-  }) async {
-    if (raw.isEmpty) return raw;
-    if (kIsWeb) {
-      return WebImageCompressService.compressBytes(
-        input: raw,
-        profile: minSide <= thumbEdge
-            ? MediaImageProfile.thumb
-            : MediaImageProfile.chat,
-      );
-    }
-    for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
-      try {
-        final out = await FlutterImageCompress.compressWithList(
-          raw,
-          quality: quality.clamp(70, 85),
-          format: format,
-          minWidth: minSide,
-          minHeight: minSide,
-        );
-        if (out.isNotEmpty) return Uint8List.fromList(out);
-      } catch (_) {}
-    }
-    return raw;
   }
 }

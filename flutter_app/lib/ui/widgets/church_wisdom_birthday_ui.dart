@@ -248,6 +248,7 @@ class ChurchWisdomBirthdayEmptyRow extends StatelessWidget {
               icon: Icons.cake_outlined,
               accent: kChurchBirthdayAccent,
               size: 44,
+              moduleAssetKey: 'aniversario',
             ),
             const SizedBox(width: 14),
             Expanded(

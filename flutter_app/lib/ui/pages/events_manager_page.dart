@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/shared/widgets/app_publish_footer.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -2193,530 +2194,329 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         }
         return RefreshIndicator(
           onRefresh: _refresh,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              ThemeCleanPremium.spaceMd,
-              ThemeCleanPremium.spaceSm,
-              ThemeCleanPremium.spaceMd,
-              24,
-            ),
-            children: [
-              _EventsGalleryHeroHeader(
-                total: docs.length,
-                fetching: _fetching,
-                onRefresh: _refresh,
-              ),
-              if (_showingStaleCache ||
-                  (_loadError != null && _galleryDocs.isNotEmpty))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: ChurchPanelResilientLoadBanner(
-                    hasLocalData: true,
-                    isSyncing: _fetching,
-                    showStaleCache: !_fetching,
-                    errorTitle: 'Não foi possível carregar a galeria',
-                    error: _loadError,
-                    onRetry: _refresh,
-                  ),
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceMd,
+                  ThemeCleanPremium.spaceSm,
+                  ThemeCleanPremium.spaceMd,
+                  24,
                 ),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _searchCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Pesquisar evento por título ou descrição',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                        isDense: true,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _EventsGalleryHeroHeader(
+                      total: docs.length,
+                      fetching: _fetching,
+                      onRefresh: _refresh,
                     ),
-                    if (widget.canWrite) ...[
-                      const SizedBox(height: 12),
-                      _MuralFeedSelectionRow(
-                        selectMode: _selectMode,
-                        selectedCount: _selectedIds.length,
-                        onToggleSelect: _toggleSelectMode,
-                        onExcluirPorPeriodo: () => _deleteFiltered(docs),
-                        onExcluirSelecionados: _deleteSelected,
+                    if (_showingStaleCache ||
+                        (_loadError != null && _galleryDocs.isNotEmpty))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: ChurchPanelResilientLoadBanner(
+                          hasLocalData: true,
+                          isSyncing: _fetching,
+                          showStaleCache: !_fetching,
+                          errorTitle: 'Não foi possível carregar a galeria',
+                          error: _loadError,
+                          onRetry: _refresh,
+                        ),
                       ),
-                    ],
-                    if (_bulkDeleting)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 10),
-                        child: LinearProgressIndicator(minHeight: 3),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusLg),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
                       ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _order,
-                            isDense: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Ordenação',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 'recent_first',
-                                  child: Text('Último evento -> mais antigo')),
-                              DropdownMenuItem(
-                                  value: 'old_first',
-                                  child: Text('Mais antigo -> mais recente')),
-                            ],
-                            onChanged: (v) =>
-                                setState(() => _order = v ?? 'recent_first'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _period,
-                            isDense: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Período',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: 'all', child: Text('Todos')),
-                              DropdownMenuItem(value: '30d', child: Text('Últimos 30 dias')),
-                              DropdownMenuItem(value: '90d', child: Text('Últimos 90 dias')),
-                              DropdownMenuItem(value: '1y', child: Text('Último ano')),
-                            ],
-                            onChanged: (v) => setState(() => _period = v ?? 'all'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _mediaType,
-                            isDense: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Mídia',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(value: 'all', child: Text('Todas')),
-                              DropdownMenuItem(value: 'photos', child: Text('Só fotos')),
-                              DropdownMenuItem(value: 'videos', child: Text('Só vídeos')),
-                            ],
-                            onChanged: (v) => setState(() => _mediaType = v ?? 'all'),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _category,
-                            isDense: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Categoria',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
-                              const DropdownMenuItem(
-                                  value: 'all', child: Text('Todas')),
-                              ...categories.map(
-                                (c) =>
-                                    DropdownMenuItem(value: c, child: Text(c)),
+                      child: Column(
+                        children: [
+                          TextField(
+                            controller: _searchCtrl,
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Pesquisar evento por título ou descrição',
+                              prefixIcon:
+                                  const Icon(Icons.search_rounded),
+                              filled: true,
+                              fillColor: const Color(0xFFF8FAFC),
+                              isDense: true,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd),
+                                borderSide: BorderSide.none,
                               ),
-                            ],
-                            onChanged: (v) => setState(() => _category = v ?? 'all'),
+                            ),
                           ),
-                        ),
-                      ],
+                          if (widget.canWrite) ...[
+                            const SizedBox(height: 12),
+                            _MuralFeedSelectionRow(
+                              selectMode: _selectMode,
+                              selectedCount: _selectedIds.length,
+                              onToggleSelect: _toggleSelectMode,
+                              onExcluirPorPeriodo: () =>
+                                  _deleteFiltered(docs),
+                              onExcluirSelecionados: _deleteSelected,
+                            ),
+                          ],
+                          if (_bulkDeleting)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 12),
+                              child: LinearProgressIndicator(minHeight: 3),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Arquivo por data (${docs.length} evento(s))',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 15),
                     ),
                     const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: _monthYear,
-                      isDense: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Ano/Mês específico',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: 'all',
-                          child: Text('Todos os meses'),
-                        ),
-                        ...monthOptions.map(
-                          (m) => DropdownMenuItem(
-                            value: m.key,
-                            child: Text(m.value),
-                          ),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _monthYear = v ?? 'all'),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(2019),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
-                                initialDate: _customFrom ?? DateTime.now(),
-                                locale: const Locale('pt', 'BR'),
-                              );
-                              if (d != null) setState(() => _customFrom = d);
-                            },
-                            icon: const Icon(Icons.event_rounded, size: 18),
-                            label: Text(_customFrom == null
-                                ? 'Data inicial'
-                                : _formatDatePt(_customFrom)),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                firstDate: DateTime(2019),
-                                lastDate: DateTime.now().add(const Duration(days: 365)),
-                                initialDate: _customTo ?? DateTime.now(),
-                                locale: const Locale('pt', 'BR'),
-                              );
-                              if (d != null) setState(() => _customTo = d);
-                            },
-                            icon: const Icon(Icons.event_available_rounded, size: 18),
-                            label: Text(_customTo == null
-                                ? 'Data final'
-                                : _formatDatePt(_customTo)),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_customFrom != null || _customTo != null)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: () =>
-                              setState(() {
-                                _customFrom = null;
-                                _customTo = null;
-                              }),
-                          icon: const Icon(Icons.clear_rounded, size: 18),
-                          label: const Text('Limpar período'),
-                        ),
-                      ),
-                  ],
+                  ]),
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(
-                'Arquivo por data (${docs.length} evento(s))',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-              ),
-              const SizedBox(height: 10),
               for (final entry in sections.entries) ...[
-                Container(
-                  margin: const EdgeInsets.only(top: 6, bottom: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(12),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: ThemeCleanPremium.spaceMd,
                   ),
-                  child: Text(
-                    entry.key,
-                    style: TextStyle(
-                      color: ThemeCleanPremium.primary,
-                      fontWeight: FontWeight.w800,
+                  sliver: SliverToBoxAdapter(
+                    child: Container(
+                      margin: const EdgeInsets.only(top: 6, bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        entry.key,
+                        style: TextStyle(
+                          color: ThemeCleanPremium.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: _muralArchiveGridDelegate(context),
-                  itemCount: entry.value.length,
-                  itemBuilder: (context, i) {
-                    final d = entry.value[i];
-                    final p = d.data();
-                    final photos = eventNoticiaPhotoUrls(p);
-                    final videos = eventNoticiaVideosFromDoc(p);
-                    final dt = _eventDate(p);
-                    final selected = _selectedIds.contains(d.id);
-                    return Material(
-                      color: Colors.transparent,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                      elevation: 0,
-                      shadowColor: Colors.transparent,
-                      child: InkWell(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                        onTap: () {
-                          if (_selectMode) {
-                            setState(() {
-                              if (selected) {
-                                _selectedIds.remove(d.id);
-                              } else {
-                                _selectedIds.add(d.id);
-                              }
-                            });
-                            return;
-                          }
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => _EventGalleryDetailPage(data: p),
-                            ),
-                          );
-                        },
-                        onLongPress: widget.canWrite && !_selectMode
-                            ? () {
-                                setState(() {
-                                  _selectMode = true;
-                                  _selectedIds.add(d.id);
-                                });
-                              }
-                            : null,
-                        child: Stack(
-                          children: [
-                            Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusLg,
-                                  ),
-                                  border: Border.all(
-                                    color: selected
-                                        ? ThemeCleanPremium.primary
-                                        : const Color(0xFFE2E8F0),
-                                    width: selected ? 2.2 : 1,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.06),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 6),
-                                    ),
-                                  ],
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: Stack(
-                                        fit: StackFit.expand,
-                                        children: [
-                                          _archiveGalleryCardMedia(
-                                            post: p,
-                                            photos: photos,
-                                            videos: videos,
-                                          ),
-                                          DecoratedBox(
-                                            decoration: BoxDecoration(
-                                              gradient: LinearGradient(
-                                                begin: Alignment.topCenter,
-                                                end: Alignment.bottomCenter,
-                                                colors: [
-                                                  Colors.black.withValues(
-                                                      alpha: 0.08),
-                                                  Colors.black.withValues(
-                                                      alpha: 0.40),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                          Positioned(
-                                            top: 10,
-                                            right: 10,
-                                            child: _miniChip(
-                                              Icons.photo_library_rounded,
-                                              '${photos.length + videos.length} mídia(s)',
-                                            ),
-                                          ),
-                                          Positioned(
-                                            bottom: 10,
-                                            left: 10,
-                                            right: 10,
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    (p['title'] ?? 'Evento')
-                                                        .toString(),
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      fontSize: 14.5,
-                                                      height: 1.2,
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 10,
-                                                      vertical: 6),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white
-                                                        .withValues(
-                                                            alpha: 0.94),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            999),
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: const [
-                                                      Icon(
-                                                        Icons.grid_view_rounded,
-                                                        size: 13,
-                                                        color: ThemeCleanPremium
-                                                            .primary,
-                                                      ),
-                                                      SizedBox(width: 4),
-                                                      Text(
-                                                        'Abrir álbum',
-                                                        style: TextStyle(
-                                                          fontSize: 11,
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color:
-                                                              ThemeCleanPremium
-                                                                  .primary,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 10, 12, 12),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _formatDatePt(dt),
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade700,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: [
-                                              _miniChip(
-                                                Icons.photo_library_rounded,
-                                                '${photos.length} foto(s)',
-                                              ),
-                                              _miniChip(
-                                                Icons.videocam_rounded,
-                                                '${videos.length} vídeo(s)',
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                            if (_selectMode)
-                              Positioned(
-                                top: 8,
-                                left: 8,
-                                child: Material(
-                                  color: Colors.white.withValues(alpha: 0.95),
-                                  shape: const CircleBorder(),
-                                  child: SizedBox(
-                                    width: ThemeCleanPremium.minTouchTarget,
-                                    height: ThemeCleanPremium.minTouchTarget,
-                                    child: Checkbox(
-                                      value: selected,
-                                      activeColor: ThemeCleanPremium.primary,
-                                      onChanged: (_) {
-                                        setState(() {
-                                          if (selected) {
-                                            _selectedIds.remove(d.id);
-                                          } else {
-                                            _selectedIds.add(d.id);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            if (widget.canWrite && !_selectMode)
-                              Positioned(
-                                top: 6,
-                                left: 6,
-                                child: Material(
-                                  color: Colors.white.withValues(alpha: 0.94),
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: () => _deleteSingle(d),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(8),
-                                      child: Icon(
-                                        Icons.delete_outline_rounded,
-                                        size: 20,
-                                        color: Color(0xFFDC2626),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: ThemeCleanPremium.spaceMd,
+                  ),
+                  sliver: SliverGrid(
+                    gridDelegate: _muralArchiveGridDelegate(context),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _buildArchiveGalleryGridCell(
+                        context,
+                        entry.value[i],
                       ),
-                    );
-                  },
+                      childCount: entry.value.length,
+                    ),
+                  ),
                 ),
               ],
             ],
           ),
         );
+  }
+
+  Widget _buildArchiveGalleryGridCell(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) {
+    final p = d.data();
+    final photos = eventNoticiaPhotoUrls(p);
+    final videos = eventNoticiaVideosFromDoc(p);
+    final dt = _eventDate(p);
+    final selected = _selectedIds.contains(d.id);
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        onTap: () {
+          if (_selectMode) {
+            setState(() {
+              if (selected) {
+                _selectedIds.remove(d.id);
+              } else {
+                _selectedIds.add(d.id);
+              }
+            });
+            return;
+          }
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _EventGalleryDetailPage(data: p),
+            ),
+          );
+        },
+        onLongPress: widget.canWrite && !_selectMode
+            ? () {
+                setState(() {
+                  _selectMode = true;
+                  _selectedIds.add(d.id);
+                });
+              }
+            : null,
+        child: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      border: Border.all(
+                        color: selected
+                            ? ThemeCleanPremium.primary
+                            : const Color(0xFFE2E8F0),
+                        width: selected ? 2.2 : 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              _archiveGalleryCardMedia(
+                                post: p,
+                                photos: photos,
+                                videos: videos,
+                              ),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black.withValues(alpha: 0.55),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 10,
+                                right: 10,
+                                bottom: 10,
+                                child: Text(
+                                  (p['title'] ?? 'Evento').toString(),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black54,
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _formatDatePt(dt),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _miniChip(
+                                    Icons.photo_library_rounded,
+                                    '${photos.length} foto(s)',
+                                  ),
+                                  _miniChip(
+                                    Icons.videocam_rounded,
+                                    '${videos.length} vídeo(s)',
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (widget.canWrite && _selectMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: selected
+                      ? ThemeCleanPremium.primary
+                      : Colors.white.withValues(alpha: 0.9),
+                  size: 26,
+                ),
+              ),
+            if (widget.canWrite && !_selectMode)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.94),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => _deleteSingle(d),
+                    child: const Padding(
+                      padding: EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.delete_outline_rounded,
+                        size: 20,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _miniChip(IconData icon, String label) {
@@ -8907,69 +8707,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                SizedBox(
-                  height: ThemeCleanPremium.minTouchTarget + 8,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.maybePop(context),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: ThemeCleanPremium.primary,
-                        side: BorderSide(
-                          color: ThemeCleanPremium.primary
-                              .withValues(alpha: 0.45),
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text(
-                        'Cancelar',
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      onPressed: (_saving || _mediaPicking) ? null : _save,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white))
-                          : const Icon(Icons.check_circle_rounded, size: 22),
-                      label: Text(
-                        _saving ? 'A guardar…' : publishLabel,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF1D4ED8),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                  ),
+                AppPublishActionRow(
+                  saving: _saving,
+                  disabled: _mediaPicking,
+                  publishLabel: publishLabel,
+                  accentColor: ThemeCleanPremium.primary,
+                  onCancel: () => Navigator.maybePop(context),
+                  onPublish: _save,
                 ),
               ],
             ),

@@ -1,25 +1,28 @@
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
-/// Arquitetura **EcoFire** — Auth → Firestore → Storage → Tela.
+/// Arquitetura **EcoFire** — Auth → Firestore → Storage → Tela (upload directo).
 ///
-/// Substitui camadas pesadas (FirestoreWebGuard recovery, filas automáticas,
-/// bootstrap recursivo, repairMyChurchBinding) por fluxo directo igual Web/Android/iOS.
+/// Mantém [directStorageUpload] (rápido, sem filas fantasmas legadas).
+/// Filas de retry, recovery e FirestoreWebGuard **activos** — não bloqueiam código novo.
 abstract final class EcoFireFlow {
   EcoFireFlow._();
 
-  /// Activar padrão EcoFire em todo o app (recomendado produção).
+  /// Upload directo Storage + bootstrap EcoFire (produção).
   static const bool enabled = true;
 
-  /// Web: manter recovery Firestore em leituras/gravações críticas.
-  static bool get passThroughFirestore => enabled && !kIsWeb;
+  /// FirestoreWebGuard activo em **todas** as plataformas (não saltar recovery na web).
+  static bool get passThroughFirestore => false;
 
-  static bool get disableAutomaticRecovery => enabled;
+  /// Recovery automático ao retomar app / rede.
+  static bool get disableAutomaticRecovery => false;
 
-  static bool get disableUploadQueues => enabled;
+  /// Filas disco/outbox activas como rede de segurança (direct upload continua primário).
+  static bool get disableUploadQueues => false;
 
   static bool get disableRepairMyChurchBinding => false;
 
-  static bool get disableComplexBootstrap => enabled;
+  /// Bootstrap completo (queues + recovery) — não usar só minimal.
+  static bool get disableComplexBootstrap => false;
 
   static bool get directStorageUpload => enabled;
 

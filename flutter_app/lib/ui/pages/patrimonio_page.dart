@@ -3847,7 +3847,7 @@ class _PatrimonioCard extends StatelessWidget {
     final dprList = MediaQuery.devicePixelRatioOf(context);
     const thumbSize = 76.0;
     // Lista do inventário: decode menor = scroll mais rápido (foto principal continua no detalhe).
-    final memListThumb = (thumbSize * dprList).round().clamp(120, 240);
+    final memListThumb    = (thumbSize * dprList).round().clamp(120, 600);
 
     // Alerta de manutenção próxima / vencida
     final proxManut = m['proximaManutencao'];
@@ -4188,7 +4188,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     const thumbH = 120.0;
     /// Miniaturas do grid: decode ~300px (memória leve na lista/galeria).
     const kGridMemPx = 300;
-    final memThumb = (kGridMemPx * dpr).round().clamp(240, 900);
+    final memThumb = (kGridMemPx * dpr).round().clamp(240, 600);
 
     Widget photoLoading() => Container(
           height: thumbH,
@@ -8670,23 +8670,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
       return;
     }
-    if (_slotPending.any((b) => b != null) &&
-        !AppConnectivityService.instance.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Sem ligação à internet. Conecte-se para enviar as fotos do bem.',
-          ),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
     setState(() {
       _saving = true;
       _uploadProgress = 0;
-      _uploadProgressLabel = 'Salvando patrimônio e enviando fotos…';
+      _uploadProgressLabel = 'Salvando patrimônio…';
     });
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -8774,19 +8761,36 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
       GlobalUploadProgress.instance.start('A enviar fotos do bem…');
       try {
-        await PatrimonioSaveService.save(
-          churchIdHint: tenantId,
-          itemId: itemId,
-          corePayload: buildCorePayload(),
-          isNewDoc: widget.doc == null,
-          uploadsBySlot: uploadsBySlot,
-          indexedSlotUrls: indexedSlotUrls,
-          indexedSlotPaths: indexedSlotPaths,
-          onProgress: (p, label) {
-            GlobalUploadProgress.instance.updateLabel(label);
-            GlobalUploadProgress.instance.update(p);
-          },
-        );
+        final corePayload = buildCorePayload();
+        final hasPendingPhotos = uploadsBySlot.isNotEmpty;
+
+        if (hasPendingPhotos) {
+          await PatrimonioSaveService.saveMetadataFirst(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: corePayload,
+            isNewDoc: widget.doc == null,
+            indexedSlotUrls: indexedSlotUrls,
+            indexedSlotPaths: indexedSlotPaths,
+          );
+        } else {
+          await PatrimonioSaveService.save(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: corePayload,
+            isNewDoc: widget.doc == null,
+            indexedSlotUrls: indexedSlotUrls,
+            indexedSlotPaths: indexedSlotPaths,
+            onProgress: (p, label) {
+              if (mounted) {
+                setState(() {
+                  _uploadProgress = p;
+                  _uploadProgressLabel = label;
+                });
+              }
+            },
+          );
+        }
       } finally {
         GlobalUploadProgress.instance.end();
       }
@@ -8808,9 +8812,27 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       });
       messenger.showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          wasNew ? 'Patrimônio cadastrado.' : 'Patrimônio atualizado.',
+          uploadsBySlot.isNotEmpty
+              ? (wasNew
+                  ? 'Patrimônio cadastrado — fotos sincronizam em segundo plano.'
+                  : 'Patrimônio atualizado — fotos sincronizam em segundo plano.')
+              : (wasNew ? 'Patrimônio cadastrado.' : 'Patrimônio atualizado.'),
         ),
       );
+
+      if (uploadsBySlot.isNotEmpty) {
+        unawaited(
+          PatrimonioSaveService.uploadPhotosInBackground(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: buildCorePayload(),
+            isNewDoc: widget.doc == null,
+            uploadsBySlot: uploadsBySlot,
+            indexedSlotUrls: indexedSlotUrls,
+            indexedSlotPaths: indexedSlotPaths,
+          ),
+        );
+      }
 
       unawaited(_cleanupUnusedPatrimonioSlots(
         tenantId,

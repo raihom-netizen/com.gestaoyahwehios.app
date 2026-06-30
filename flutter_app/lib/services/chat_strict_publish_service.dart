@@ -24,7 +24,10 @@ abstract final class ChatStrictPublishService {
     bool skipServerRecheck = false,
   }) async {
     if (!skipStorageVerify) {
-      await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_media_finalize');
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'chat_media_finalize',
+        strict: true,
+      );
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     } else {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded().catchError((_) {});

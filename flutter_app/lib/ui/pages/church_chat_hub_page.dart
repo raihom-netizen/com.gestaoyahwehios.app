@@ -2887,7 +2887,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       .toList();
                   if (unreadDocs.isNotEmpty) {
                     threads.add(_sectionHeader('Não lidas'));
-                    threads.add(_unifiedConversationListRows(
+                    _appendFirestoreConversationRows(
+                      threads,
                       context,
                       tid,
                       uid,
@@ -2895,13 +2896,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       prefs,
                       photoByPeer,
                       memberByPeer,
-                    ));
+                    );
                   }
                   if (readDocs.isNotEmpty) {
                     threads.add(_sectionHeader(
                       unreadDocs.isNotEmpty ? 'Recentes' : 'Conversas',
                     ));
-                    threads.add(_unifiedConversationListRows(
+                    _appendFirestoreConversationRows(
+                      threads,
                       context,
                       tid,
                       uid,
@@ -2909,10 +2911,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       prefs,
                       photoByPeer,
                       memberByPeer,
-                    ));
+                    );
                   }
                   if (localOnly.isNotEmpty) {
-                    threads.add(_localConversationListRows(
+                    _appendLocalConversationRows(
+                      threads,
                       context,
                       tid,
                       uid,
@@ -2920,7 +2923,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       prefs,
                       photoByPeer,
                       memberByPeer,
-                    ));
+                    );
                   }
                   if (deptOnlyEntries.isNotEmpty) {
                     threads.add(_sectionHeader('Grupos de departamento'));
@@ -2940,10 +2943,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
                 final listView = RefreshIndicator(
                   onRefresh: _pullRefreshConversas,
-                  child: ListView(
+                  child: ListView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-                    children: threads,
+                    itemCount: threads.length,
+                    itemBuilder: (context, i) => threads[i],
                   ),
                 );
 
@@ -3342,6 +3346,78 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         permissions: widget.permissions,
       ),
     );
+  }
+
+  static const _hubRowDivider = Divider(
+    height: 1,
+    thickness: 1,
+    color: Color(0xFFE5E7EB),
+    indent: 72,
+  );
+
+  void _appendFirestoreConversationRows(
+    List<Widget> out,
+    BuildContext context,
+    String tid,
+    String uid,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
+  ) {
+    for (var i = 0; i < docs.length; i++) {
+      if (i > 0) out.add(_hubRowDivider);
+      final doc = docs[i];
+      out.add(
+        _docIsDepartmentThread(doc)
+            ? _deptChatRow(
+                context,
+                tid,
+                uid,
+                doc,
+                prefs,
+                memberByPeerUid,
+              )
+            : _dmChatRow(
+                context,
+                tid,
+                uid,
+                doc,
+                prefs,
+                photoByPeerUid,
+                memberByPeerUid,
+                selectionMode: _dmSelectMode,
+                selected: _selectedDmThreadIds.contains(doc.id),
+                onToggleSelected: () => _toggleDmThreadSelected(doc.id),
+              ),
+      );
+    }
+  }
+
+  void _appendLocalConversationRows(
+    List<Widget> out,
+    BuildContext context,
+    String tid,
+    String uid,
+    List<ChurchChatLocalConversationEntry> entries,
+    ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
+  ) {
+    for (var i = 0; i < entries.length; i++) {
+      if (i > 0) out.add(_hubRowDivider);
+      out.add(
+        _dmChatRowFromLocal(
+          context,
+          tid,
+          uid,
+          entries[i],
+          prefs,
+          photoByPeerUid,
+          memberByPeerUid,
+        ),
+      );
+    }
   }
 
   Widget _sectionHeader(String title) {

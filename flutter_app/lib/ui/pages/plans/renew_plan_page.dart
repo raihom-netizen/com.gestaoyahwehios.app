@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
 import 'package:intl/intl.dart';
 import '../../widgets/app_shell.dart';
 import '../../widgets/ios_payment_unavailable_view.dart';
@@ -982,49 +983,15 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       AppPermissions.canPurchaseChurchLicense(_effectivePanelRole);
 
   Widget _buildLicensePaymentForbidden(BuildContext context) {
-    return Scaffold(
-      appBar: widget.embeddedInShell
-          ? null
-          : AppBar(title: const Text('Licença da igreja')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 440),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.lock_outline_rounded,
-                    size: 56, color: Colors.grey.shade600),
-                const SizedBox(height: 16),
-                Text(
-                  'Renovação só pela liderança',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Somente o gestor, secretário ou tesoureiro da igreja pode '
-                  'gerar o pagamento da licença. Peça a um deles para abrir '
-                  '«Adquirir plano» e confirmar o pagamento.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.shade700,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: _exitRenewPage,
-                  child: const Text('Voltar'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return YahwehSaasLicenseStatePage(
+      title: 'Renovação só pela liderança',
+      message:
+          'Somente o gestor, secretário ou tesoureiro da igreja pode '
+          'gerar o pagamento da licença.\n\n'
+          'Peça a um deles para abrir «Adquirir plano» e confirmar o pagamento.',
+      icon: Icons.admin_panel_settings_rounded,
+      primaryLabel: 'Voltar',
+      onPrimary: _exitRenewPage,
     );
   }
 

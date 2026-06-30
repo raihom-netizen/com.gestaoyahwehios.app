@@ -1,202 +1,178 @@
 import 'package:flutter/material.dart';
-import '../../widgets/app_shell.dart';
-import '../../widgets/primary_button.dart';
-import '../../widgets/section_card.dart';
-import 'plan_select_page.dart';
-import '../auth/login_page.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_module_icon_badge.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
+import 'package:google_fonts/google_fonts.dart';
 
+/// Boas-vindas / trial — fluxo legado de onboarding (`/onboarding`).
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    if (IosPaymentsGate.hideOrganizationSignup) {
+      return const IosOrganizationSignupWebPage();
+    }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          // background suave
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    cs.primary.withOpacity(0.10),
-                    Colors.white,
-                    cs.secondary.withOpacity(0.08),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: AppShell(
+    return ChurchWisdomLoginBackdrop(
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: ThemeCleanPremium.pagePadding(context),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: 14),
                   Row(
                     children: [
-                      Container(
-                        height: 44,
-                        width: 44,
-                        decoration: BoxDecoration(
-                          color: cs.primary,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(Icons.church, color: Colors.white),
-                      ),
+                      YahwehSaasVisualShell.brandEmblem(size: 44, glow: false),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Gestão YAHWEH',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: const Color(0xFFE5EAF3)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
                         ),
-                        child: const Text('Trial 30 dias', style: TextStyle(fontWeight: FontWeight.w700)),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.28),
+                          ),
+                        ),
+                        child: Text(
+                          'Trial 30 dias',
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 22),
-
-                  // HERO
-                  SectionCard(
-                    child: Row(
+                  const SizedBox(height: 20),
+                  YahwehSaasVisualShell.hero(
+                    title: 'Sistema moderno para sua igreja',
+                    subtitle:
+                        'Escalas, membros, avisos e financeiro — tudo organizado '
+                        'com visual profissional e acesso por CPF.',
+                    logoSize: 88,
+                  ),
+                  const SizedBox(height: 16),
+                  YahwehSaasVisualShell.surfaceCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'Sistema moderno para sua igreja,\nsem complicação.',
-                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, height: 1.1),
-                              ),
-                              SizedBox(height: 10),
-                              Text(
-                                'Escalas, membros, avisos e financeiro — tudo organizado '
-                                'com visual profissional e acesso por CPF.',
-                                style: TextStyle(height: 1.35),
-                              ),
-                            ],
+                        const _MiniFeature(
+                          moduleKey: 'membro',
+                          title: 'Membros',
+                          subtitle: 'Cadastro e aniversariantes',
+                        ),
+                        const SizedBox(height: 10),
+                        const _MiniFeature(
+                          moduleKey: 'escala',
+                          title: 'Escalas',
+                          subtitle: 'Organização e avisos',
+                        ),
+                        const SizedBox(height: 10),
+                        const _MiniFeature(
+                          moduleKey: 'evento',
+                          title: 'Dashboard',
+                          subtitle: 'KPIs e gráficos',
+                        ),
+                        const SizedBox(height: 18),
+                        YahwehSaasVisualShell.primaryButton(
+                          label: 'Começar agora',
+                          icon: Icons.arrow_forward_rounded,
+                          onPressed: () =>
+                              Navigator.pushNamed(context, '/onboarding/plano'),
+                        ),
+                        const SizedBox(height: 6),
+                        Align(
+                          child: TextButton(
+                            onPressed: () =>
+                                Navigator.pushNamed(context, '/igreja/login'),
+                            child: const Text('Já tenho conta'),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Container(
-                          height: 120,
-                          width: 120,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                cs.primary.withOpacity(0.18),
-                                cs.primary.withOpacity(0.06),
-                              ],
-                            ),
+                        Text(
+                          'Você cria o 1º gestor e já começa no trial. '
+                          'Depois dá pra integrar pagamento (Mercado Pago).',
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.inter(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: ThemeCleanPremium.onSurfaceVariant,
                           ),
-                          child: Icon(Icons.dashboard_customize, size: 54, color: cs.primary),
                         ),
+                        const SizedBox(height: 12),
+                        YahwehSaasVisualShell.securityFooter(),
                       ],
                     ),
                   ),
-
-                  const SizedBox(height: 14),
-
-                  // benefícios rápidos
-                  Row(
-                    children: const [
-                      Expanded(child: _MiniFeature(icon: Icons.groups, title: 'Membros', subtitle: 'Cadastro e aniversariantes')),
-                      SizedBox(width: 10),
-                      Expanded(child: _MiniFeature(icon: Icons.event_available, title: 'Escalas', subtitle: 'Organização e avisos')),
-                      SizedBox(width: 10),
-                      Expanded(child: _MiniFeature(icon: Icons.bar_chart, title: 'Dashboard', subtitle: 'KPIs e gráficos')),
-                    ],
-                  ),
-
-                  const Spacer(),
-
-                  PrimaryButton(
-                    text: 'Começar agora',
-                    icon: Icons.arrow_forward,
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const PlanSelectPage()),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.center,
-                    child: TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => const LoginPage()),
-                        );
-                      },
-                      child: const Text('Já tenho conta'),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Você cria o 1º gestor e já começa no trial. Depois dá pra integrar pagamento (Mercado Pago).',
-                    style: TextStyle(fontSize: 12, height: 1.35, color: Color(0xFF5E6B85)),
-                  ),
-                  const SizedBox(height: 10),
                 ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
 class _MiniFeature extends StatelessWidget {
-  final IconData icon;
+  const _MiniFeature({
+    required this.moduleKey,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final String moduleKey;
   final String title;
   final String subtitle;
-  const _MiniFeature({required this.icon, required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return SectionCard(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            height: 38,
-            width: 38,
-            decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: cs.primary, size: 20),
+    return Row(
+      children: [
+        YahwehModuleIconBadge(moduleKey: moduleKey, size: 40),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF5E6B85))),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/media/media_optimization_profile.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
+import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
 import 'package:gestao_yahweh/services/church_chat_media_storage.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
@@ -159,6 +161,7 @@ abstract final class ChurchChatMediaSendService {
     if (pending.kind == 'image') {
       onProgress?.call(0.12);
       final prepared = await _prepareImageSafe(
+        pending: pending,
         bytes: uploadBytes != null && uploadBytes.isNotEmpty
             ? Uint8List.fromList(uploadBytes)
             : null,
@@ -395,9 +398,21 @@ abstract final class ChurchChatMediaSendService {
   }
 
   static Future<PreparedChatImage> _prepareImageSafe({
+    ChurchChatOutboundPending? pending,
     Uint8List? bytes,
     String? localPath,
   }) async {
+    final cached = pending != null
+        ? ChurchChatOptimizedPayloadCache.peek(pending.localId)
+        : null;
+    if (cached != null) {
+      return PreparedChatImage(
+        fullBytes: cached.fullBytes,
+        fullMime: cached.fullMime,
+        fullFileName: cached.fullFileName,
+        thumbBytes: cached.thumbBytes,
+      );
+    }
     try {
       return await ChurchChatMediaPrepare.prepareImage(
         bytes: bytes,
@@ -407,8 +422,8 @@ abstract final class ChurchChatMediaSendService {
       if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
         final raw = await SafeImageBytes.fromPath(
           localPath,
-          maxEdge: ChurchChatMediaPrepare.imageMaxEdge,
-          quality: ChurchChatMediaPrepare.imageQuality,
+          maxEdge: MediaOptimizationLimits.chatMaxEdge,
+          quality: MediaOptimizationLimits.chatQuality,
         ).timeout(const Duration(seconds: 20));
         return PreparedChatImage(
           fullBytes: raw,

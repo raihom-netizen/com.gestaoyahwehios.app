@@ -13,12 +13,25 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class EcoFireDirectFirebase {
   EcoFireDirectFirebase._();
 
+  static bool _hasDefaultApp() {
+    try {
+      Firebase.app();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Garante app [DEFAULT] — reexecuta `initializeApp` só se necessário.
   static Future<FirebaseApp> ensureDefaultApp() async {
+    if (!_hasDefaultApp()) {
+      FirebaseBootstrap.reset();
+    }
     await FirebaseBootstrap.ensureInitialized();
-    if (Firebase.apps.isEmpty) {
+    if (!_hasDefaultApp()) {
       throw StateError(
-        'Firebase não inicializou (core/no-app). FIREBASE APPS=${Firebase.apps.length}',
+        'Firebase não inicializou (core/no-app). '
+        'FIREBASE APPS=${Firebase.apps.length}',
       );
     }
     final app = Firebase.app();

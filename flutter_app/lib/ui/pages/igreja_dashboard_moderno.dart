@@ -1144,7 +1144,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                   onOpenAniversariantesAno:
                                       _openAniversariantesAnoPage,
                                   onOpenGaleriaEventos: () =>
-                                      widget.onNavigateToShellModule(7),
+                                      widget.onNavigateToShellModule(
+                                    kChurchShellIndexMural,
+                                  ),
                                   onOpenOrganograma: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute<void>(
