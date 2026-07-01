@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -30,7 +31,6 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
@@ -1860,7 +1860,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
       Object? uploadLast;
-      late final MediaUploadResult upload;
+      late final String logoUrl;
       for (var attempt = 0; attempt < 3; attempt++) {
         try {
           if (attempt > 0) {
@@ -1871,10 +1871,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               Duration(milliseconds: 280 * (attempt + 1)),
             );
           }
-          upload = await MediaUploadService.uploadBytesDetailed(
+          logoUrl = await DirectStorageUrlPublish.uploadBytes(
             storagePath: identityPath,
             bytes: png,
-            contentType: 'image/png',
+            mimeType: 'image/png',
             onProgress: suppressProgressUi
                 ? null
                 : (p) {
@@ -1894,12 +1894,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         if (uploadLast is Exception) throw uploadLast;
         throw StateError(uploadLast.toString());
       }
-      final url = upload.downloadUrl;
+      final url = logoUrl;
       if (!mounted) return true;
       setState(() {
         _logoUrl = url;
         _logoBytes = png;
-        _logoStoragePath = upload.storagePath;
+        _logoStoragePath = identityPath;
         _uploadingLogo = false;
         _logoUploadPhase = '';
       });
@@ -1912,14 +1912,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           .invalidateStoragePrefix('igrejas/$resolvedId/configuracoes');
       FirebaseStorageService.invalidateChurchLogoCache(resolvedId);
       AppStorageImageService.instance.invalidate(
-        storagePath: upload.storagePath,
+        storagePath: identityPath,
         imageUrl: url,
       );
       if (!deferFirestorePatch) {
         await ChurchBrandService.persistLogoPath(
           churchId: resolvedId,
-          storagePath: upload.storagePath,
-          downloadUrl: upload.downloadUrl,
+          storagePath: identityPath,
+          downloadUrl: url,
         );
       }
       _logoStagedNotUploaded = false;

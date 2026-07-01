@@ -135,6 +135,29 @@ abstract final class EcoFireFeedPublishService {
       );
     }
 
+    // Mobile: bytes comprimidos (Publicar) têm prioridade sobre paths locais.
+    final mobileBytes = bytesList ?? const <Uint8List>[];
+    if (mobileBytes.isNotEmpty) {
+      if (isAviso) {
+        return AvisoMediaUpload.uploadPhotoBatch(
+          churchId: tenantId,
+          postId: postId,
+          startSlotIndex: startSlotIndex,
+          bytesList: mobileBytes,
+          alreadyCompressed: alreadyCompressed,
+          onProgress: onProgress,
+        );
+      }
+      return EventoMediaUpload.uploadPhotoBatch(
+        churchId: tenantId,
+        postId: postId,
+        startSlotIndex: startSlotIndex,
+        bytesList: mobileBytes,
+        alreadyCompressed: alreadyCompressed,
+        onProgress: onProgress,
+      );
+    }
+
     final paths = localPaths
             ?.map((p) => p.trim())
             .where((p) => p.isNotEmpty)

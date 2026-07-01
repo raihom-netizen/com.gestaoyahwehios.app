@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
@@ -125,10 +125,7 @@ abstract final class ChurchFeedLinearPublishService {
     final docId = docRef.id;
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
 
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: 'feed_linear_$postType',
-      strict: true,
-    );
+    await DirectStorageUrlPublish.ensureReady();
     _report(onUploadProgress, 0.18);
 
     if (isEvento) {
@@ -156,8 +153,8 @@ abstract final class ChurchFeedLinearPublishService {
         postType: postType,
         postId: docId,
         startSlotIndex: startSlotIndex,
-        bytesList: kIsWeb ? newImagesBytes : null,
-        localPaths: kIsWeb ? null : newImagePaths,
+        bytesList: newImagesBytes,
+        localPaths: newImagePaths,
         alreadyCompressed: newImagesBytes?.isNotEmpty ?? false,
         onProgress: (batchP) {
           _report(onUploadProgress, 0.20 + batchP * 0.52);
@@ -190,6 +187,12 @@ abstract final class ChurchFeedLinearPublishService {
       }
       ChurchPublishFlowLog.uploadOk('$postType $docId (${slots.length} fotos)');
       _report(onUploadProgress, 0.74);
+      if (slots.isEmpty) {
+        throw StateError(
+          'Não foi possível enviar as fotos para o Storage. '
+          'Verifique a rede e toque em «Tentar novamente».',
+        );
+      }
       if (alignedThumbUrls.isEmpty) {
         for (final tp in alignedThumbPaths) {
           final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);

@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -35,10 +35,7 @@ abstract final class ChurchChatMediaStorage {
       );
       return;
     }
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: 'chat_storage',
-      strict: true,
-    );
+    await DirectStorageUrlPublish.ensureReady();
   }
 
   /// Caminho rápido: bootstrap + upload → URL https (EcoFire / Controle Total).

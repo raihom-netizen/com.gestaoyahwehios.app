@@ -4,15 +4,12 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show isFirebaseNoAppError;
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -73,32 +70,7 @@ abstract final class FinanceComprovantePublishService {
       );
 
   static Future<void> _ensureReady() async {
-    Object? last;
-    for (var attempt = 0; attempt < 5; attempt++) {
-      try {
-        if (attempt > 0) {
-          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
-            last ?? StateError('core/no-app'),
-          );
-          await Future<void>.delayed(
-            Duration(milliseconds: 240 * (attempt + 1)),
-          );
-        }
-        await EcoFirePublishBootstrap.ensureHard(
-          logLabel: 'finance_comprovante',
-          strict: true,
-        );
-        return;
-      } catch (e) {
-        last = e;
-        if (attempt < 4 && isFirebaseNoAppError(e)) continue;
-        rethrow;
-      }
-    }
-    if (last != null) {
-      if (last is Exception) throw last;
-      throw StateError(last.toString());
-    }
+    await DirectStorageUrlPublish.ensureReady();
   }
 
   /// Compressão em isolate antes do Storage (imagens apenas).

@@ -3775,7 +3775,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             startSlotIndex: startSlot,
             hasVideo: hasVideo,
             newImagesBytes: hasNewPhotos ? compressedNewPhotos : null,
-            newImagePaths: null,
+            newImagePaths:
+                FeedEditorMediaService.existingValidPaths(_newImagePaths),
             videoStoragePath: videoPath,
             localVideoPath: localVideoPath,
             publicSite: _publicSite,
@@ -4868,7 +4869,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
             newImagesBytes: hasNewPhotos ? compressedNewPhotos : null,
-            newImagePaths: null,
+            newImagePaths:
+                FeedEditorMediaService.existingValidPaths(_newImagePaths),
             publicSite: _publicSite,
             calendarDate: _validUntil,
             syncCalendar: _validUntil != null,

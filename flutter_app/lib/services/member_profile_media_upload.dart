@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
-import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -17,12 +16,7 @@ abstract final class MemberProfileMediaUpload {
   static const Duration uploadTimeout = Duration(seconds: 60);
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
-    if (requireAuth) {
-      await EcoFireDirectFirebase.ensureForStoragePut();
-    } else {
-      await FirebaseBootstrap.ensureInitialized();
-      await EcoFireDirectFirebase.ensureStorageLinked();
-    }
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 
   static Future<String> uploadProfileBytes({

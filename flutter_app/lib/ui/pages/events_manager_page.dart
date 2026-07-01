@@ -8469,7 +8469,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               hasVideo: hasVideo,
               newImagesBytes:
                   compressedPhotos.isNotEmpty ? compressedPhotos : null,
-              newImagePaths: null,
+              newImagePaths:
+                  FeedEditorMediaService.existingValidPaths(_newImagePaths),
               videoStoragePath: videoPathForPublish,
               localVideoPath: localVideoPath,
               publicSite: _publicSite,

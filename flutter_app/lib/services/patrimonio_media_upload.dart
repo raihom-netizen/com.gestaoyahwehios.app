@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -19,7 +19,7 @@ abstract final class PatrimonioMediaUpload {
   static const Duration uploadTimeout = Duration(seconds: 60);
 
   static Future<void> _ensureUploadReady() async {
-    await EcoFireDirectFirebase.ensureForStoragePut();
+    await DirectStorageUrlPublish.ensureReady();
   }
 
   static Future<PatrimonioGalleryUploadResult> uploadGalleryPhoto({

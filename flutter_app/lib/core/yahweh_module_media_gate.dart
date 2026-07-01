@@ -2,14 +2,12 @@ import 'dart:async' show unawaited;
 
 
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
-
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -334,15 +332,7 @@ abstract final class YahwehModuleMediaGate {
 
     await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
 
-    if (requireAuth) {
-      await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
-    }
-
   }
-
-
-
-  /// Bootstrap completo antes de publicar com Storage (avisos, eventos, património…).
 
   static Future<bool> prepareForPublishUpload({
 
@@ -378,12 +368,8 @@ abstract final class YahwehModuleMediaGate {
 
         }
 
-        await EcoFirePublishBootstrap.ensureHard(
-
-          logLabel: logLabel,
-
-          strict: requireAuth,
-
+        await DirectStorageUrlPublish.ensureReady(
+          requireAuth: requireAuth,
         );
 
         return true;
@@ -483,12 +469,7 @@ abstract final class YahwehModuleMediaGate {
     if (!isFirebaseNoAppError(e)) return;
 
     try {
-      if (Firebase.apps.isEmpty) {
-        FirebaseBootstrap.reset();
-        await FirebaseBootstrap.ensureInitialized();
-      } else {
-        await EcoFireDirectFirebase.ensureDefaultApp();
-      }
+      await EcoFireDirectFirebase.ensureDefaultApp();
       await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
       if (kIsWeb && requireAuth) {
         await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
