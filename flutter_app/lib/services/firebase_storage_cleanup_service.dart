@@ -1031,7 +1031,7 @@ class FirebaseStorageCleanupService {
     required String itemDocId,
     required int slot,
   }) async {
-    if (slot < 0 || slot > 4) return;
+    if (slot < 0 || slot > 3) return;
     final tid = tenantId.trim();
     final iid = itemDocId.trim();
     if (tid.isEmpty || iid.isEmpty) return;
@@ -1050,7 +1050,7 @@ class FirebaseStorageCleanupService {
     required String itemDocId,
     required int slot,
   }) async {
-    if (slot < 0 || slot > 4) return;
+    if (slot < 0 || slot > 3) return;
     final tid = tenantId.trim();
     final iid = itemDocId.trim();
     if (tid.isEmpty || iid.isEmpty) return;
@@ -1089,13 +1089,57 @@ class FirebaseStorageCleanupService {
 
   static bool _isCanonicalPatrimonioItemFile(String name) {
     final n = name.toLowerCase();
-    /// [foto_item] e [galeria_01–04] antigos: não apagar até o utilizador voltar a gravar (nova galeria só 01–05).
-    if (n == 'foto_item.jpg' ||
-        n == 'foto_item.jpeg' ||
-        n == 'foto_item.png') {
-      return true;
+    /// Canónico atual: `foto_1.jpg` … `foto_4.jpg` (máx. 4 por bem).
+    return RegExp(r'^foto_[1-4]\.(jpg|jpeg|png|webp)$').hasMatch(n);
+  }
+
+  /// Remove `galeria_*` e outros legados na pasta do bem — mantém só `foto_1`…`foto_4`.
+  static Future<void> deleteLegacyPatrimonioGaleriaInItemFolder({
+    required String tenantId,
+    required String itemDocId,
+  }) async {
+    final tid = tenantId.trim();
+    final iid = itemDocId.trim();
+    if (tid.isEmpty || iid.isEmpty) return;
+    final prefix = ChurchStorageLayout.patrimonioItemFolderPrefix(tid, iid);
+    await _deleteFixedPatrimonioGaleriaDerivativeFiles(
+      tenantId: tid,
+      itemFolderPrefix: prefix,
+    );
+    try {
+      final list = await firebaseDefaultStorage.ref(prefix).listAll();
+      for (final item in list.items) {
+        if (_isCanonicalPatrimonioItemFile(item.name)) continue;
+        final n = item.name.toLowerCase();
+        final isLegacyGaleria =
+            RegExp(r'^galeria_\d+\.(jpg|jpeg|png|webp)$').hasMatch(n);
+        final isLegacyFotoItem = n == 'foto_item.jpg' ||
+            n == 'foto_item.jpeg' ||
+            n == 'foto_item.png';
+        final isOrphanFotoSlot =
+            RegExp(r'^foto_[5-9]\.(jpg|jpeg|png|webp)$').hasMatch(n);
+        if (!isLegacyGaleria &&
+            !isLegacyFotoItem &&
+            !isOrphanFotoSlot &&
+            !n.contains('thumb') &&
+            !n.contains('resized_') &&
+            !n.contains('_card.') &&
+            !n.contains('_full.')) {
+          continue;
+        }
+        try {
+          await item.delete();
+        } catch (e) {
+          debugPrint(
+            'FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleria ${item.fullPath}: $e',
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint(
+        'FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleriaInItemFolder: $e',
+      );
     }
-    return RegExp(r'^galeria_0[1-5]\.(jpg|jpeg|png|webp)$').hasMatch(n);
   }
 
   /// Derivados típicos da extensão **Resize Images** junto a `galeria_01.jpg` … `galeria_05.jpg`.
@@ -1157,6 +1201,14 @@ class FirebaseStorageCleanupService {
             n.contains('_card.') ||
             n.contains('_full.')) {
           drop = true;
+        } else if (RegExp(r'^galeria_\d+\.').hasMatch(n)) {
+          drop = true;
+        } else if (RegExp(r'^foto_[5-9]\.').hasMatch(n)) {
+          drop = true;
+        } else if (n == 'foto_item.jpg' ||
+            n == 'foto_item.jpeg' ||
+            n == 'foto_item.png') {
+          drop = true;
         } else if (RegExp(r'^galeria_(0[6-9]|[1-9]\d)\.').hasMatch(n)) {
           drop = true;
         }
@@ -1212,6 +1264,10 @@ class FirebaseStorageCleanupService {
     required String tenantId,
     required String itemDocId,
   }) async {
+    await deleteLegacyPatrimonioGaleriaInItemFolder(
+      tenantId: tenantId,
+      itemDocId: itemDocId,
+    );
     await deleteGeneratedPatrimonioItemThumbnails(
         tenantId: tenantId, itemDocId: itemDocId);
     await deleteFlatLegacyPatrimonioDerivativesForItem(

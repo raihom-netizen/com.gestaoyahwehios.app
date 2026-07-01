@@ -61,6 +61,9 @@ abstract final class ChurchUiCollections {
   static CollectionReference<Map<String, dynamic>> escalaTemplates([String? h]) =>
       ref(ChurchDataPaths.escalaTemplates, churchIdHint: h);
 
+  static CollectionReference<Map<String, dynamic>> escalaTrocas([String? h]) =>
+      ref(ChurchDataPaths.escalaTrocas, churchIdHint: h);
+
   static CollectionReference<Map<String, dynamic>> agenda([String? h]) =>
       ref(ChurchDataPaths.agenda, churchIdHint: h);
 

@@ -1,8 +1,9 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -61,21 +62,13 @@ abstract final class FinanceComprovantePublishService {
     required String storagePath,
     required String mimeType,
     required String fileName,
-  }) {
-    final safeUrl = sanitizeImageUrl(url);
-    return {
-      'comprovanteUrl': safeUrl,
-      'comprovanteLink': safeUrl,
-      'comprovanteStoragePath': storagePath,
-      'comprovanteMimeType': mimeType,
-      'comprovanteFileName': fileName,
-      'hasComprovante': true,
-      comprovanteUploadStateField: EntityPublishStatus.published,
-      'comprovanteUploadError': FieldValue.delete(),
-      'comprovanteUpdatedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-  }
+  }) =>
+      ChurchCanonicalMediaContract.financeComprovanteWritePatch(
+        url: url,
+        storagePath: storagePath,
+        mimeType: mimeType,
+        fileName: fileName,
+      );
 
   static Future<void> _ensureReady() async {
     await EcoFirePublishBootstrap.ensureHard(
@@ -600,28 +593,19 @@ abstract final class FinanceComprovantePublishService {
   }) async {
     await _ensureReady();
     final churchId = ChurchRepository.churchId(tenantId.trim());
-    await deleteComprovanteArtifacts(
-      tenantId: churchId,
-      lancamentoId: docRef.id,
-      storagePath: (data['comprovanteStoragePath'] ?? '').toString(),
-      downloadUrl: (data['comprovanteUrl'] ?? '').toString(),
-      referenceDate: referenceDateFromMap(data),
-    );
     await runFirestorePublishWithRecovery(
       () => docRef.set(
-        {
-          'hasComprovante': false,
-          comprovanteUploadStateField: FieldValue.delete(),
-          'comprovanteUrl': FieldValue.delete(),
-          'comprovanteLink': FieldValue.delete(),
-          'comprovanteStoragePath': FieldValue.delete(),
-          'comprovanteMimeType': FieldValue.delete(),
-          'comprovanteFileName': FieldValue.delete(),
-          'comprovanteUploadError': FieldValue.delete(),
-          'comprovanteUpdatedAt': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+        ChurchCanonicalMediaContract.comprovanteClearFirestorePatch(),
         SetOptions(merge: true),
+      ),
+    );
+    unawaited(
+      deleteComprovanteArtifacts(
+        tenantId: churchId,
+        lancamentoId: docRef.id,
+        storagePath: (data['comprovanteStoragePath'] ?? '').toString(),
+        downloadUrl: (data['comprovanteUrl'] ?? '').toString(),
+        referenceDate: referenceDateFromMap(data),
       ),
     );
   }

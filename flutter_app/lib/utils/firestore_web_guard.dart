@@ -23,7 +23,15 @@ class FirestoreWebGuard {
         msg.contains('Unexpected state') ||
         msg.contains('WatchChangeAggregator') ||
         msg.contains('PersistentListenStream') ||
-        msg.contains('__PRIVATE__TargetState');
+        msg.contains('__PRIVATE__TargetState') ||
+        isTargetIdConflict(e);
+  }
+
+  /// Firestore Web — alvo de escuta duplicado (ex.: Cartão membro + Membros em paralelo).
+  static bool isTargetIdConflict(Object e) {
+    final msg = e.toString();
+    return msg.contains('Target ID already exists') ||
+        msg.contains('already-exists');
   }
 
   /// Cliente Firestore morto após `terminate()` antigo ou corrida entre abas.

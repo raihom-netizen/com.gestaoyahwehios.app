@@ -109,6 +109,59 @@ bool _roleKeyCanSignDocuments(String normalizedKey) {
 bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) =>
     memberCanSignChurchDocuments(d);
 
+/// Prioridade na lista de assinantes — menor = mais alto (pastor primeiro).
+int signatoryRoleSortPriority(Map<String, dynamic> d) {
+  final keys = extractMemberFuncoesKeys(d)
+      .map(normalizeMemberRoleKey)
+      .where((k) => k.isNotEmpty && k != 'membro')
+      .toList();
+  final cargo = normalizeMemberRoleKey(
+    (d['FUNCAO'] ?? d['funcao'] ?? d['CARGO'] ?? d['cargo'] ?? '')
+        .toString(),
+  );
+  if (cargo.isNotEmpty && !keys.contains(cargo)) keys.add(cargo);
+
+  bool any(bool Function(String k) test) => keys.any(test);
+
+  if (any((k) => k.contains('pastor'))) return 0;
+  if (any((k) => k.contains('gestor') || k.contains('presidente'))) return 10;
+  if (any((k) => k.contains('secretar'))) return 20;
+  if (any((k) => k.contains('tesour'))) return 30;
+  if (any((k) =>
+      k.contains('administr') || k == 'adm' || k == 'admin')) {
+    return 40;
+  }
+  if (any((k) => k.contains('lider'))) return 50;
+  return 90;
+}
+
+bool memberHasPastorRole(Map<String, dynamic> d) {
+  for (final f in extractMemberFuncoesKeys(d)) {
+    if (normalizeMemberRoleKey(f).contains('pastor')) return true;
+  }
+  return normalizeMemberRoleKey(
+    (d['FUNCAO'] ?? d['funcao'] ?? d['CARGO'] ?? d['cargo'] ?? '')
+        .toString(),
+  ).contains('pastor');
+}
+
+/// Ordena assinantes — pastor no topo, depois gestor/secretário/etc.
+int compareSignatoriesPastorFirst(
+  Map<String, dynamic> a,
+  Map<String, dynamic> b,
+) {
+  final pa = signatoryRoleSortPriority(a);
+  final pb = signatoryRoleSortPriority(b);
+  if (pa != pb) return pa.compareTo(pb);
+  final na = (a['NOME_COMPLETO'] ?? a['nome'] ?? a['name'] ?? '')
+      .toString()
+      .toLowerCase();
+  final nb = (b['NOME_COMPLETO'] ?? b['nome'] ?? b['name'] ?? '')
+      .toString()
+      .toLowerCase();
+  return na.compareTo(nb);
+}
+
 /// Pastor, gestor, secretário, tesoureiro, administrador ou líder de departamento.
 bool memberCanSignChurchDocuments(Map<String, dynamic> d) {
   for (final f in extractMemberFuncoesKeys(d)) {

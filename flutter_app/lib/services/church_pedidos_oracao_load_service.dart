@@ -723,12 +723,14 @@ abstract final class ChurchPedidosOracaoLoadService {
     for (var i = 0; i < ids.length; i += chunkSize) {
       final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
       final slice = ids.sublist(i, end);
-      final batch = ChurchRepository.batch();
-      for (final id in slice) {
-        batch.delete(col.doc(id));
-      }
       await runFirestorePublishWithRecovery(
-        () => batch.commit(),
+        () async {
+          final batch = ChurchRepository.batch();
+          for (final id in slice) {
+            batch.delete(col.doc(id));
+          }
+          await batch.commit();
+        },
         maxAttempts: kIsWeb ? 3 : 2,
       );
     }

@@ -18,8 +18,6 @@ abstract final class ChurchChatSyncSendService {
     void Function(String message)? onError,
     void Function()? onSuccess,
   }) async {
-    pending.firestoreMessageId = null;
-    pending.storagePath = null;
     try {
       await ChurchChatLinearMediaSendService.send(
         tenantId: tenantId,

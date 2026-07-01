@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de `igrejas/{churchId}/cargos`.
 class ChurchCargosLoadResult {
@@ -41,7 +42,9 @@ abstract final class ChurchCargosLoadService {
   ChurchCargosLoadService._();
 
   static const int kLimit = YahwehPerformanceV4.defaultPageSize;
-  static const int kFullLimit = 80;
+  static const int kFullLimit = 120;
+
+  static const List<String> _legacySubcollections = ['roles'];
 
   static final Map<
       String,
@@ -100,6 +103,40 @@ abstract final class ChurchCargosLoadService {
     return sorted;
   }
 
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRamAny(
+    String seedTenantId,
+  ) {
+    final churchId = ChurchRepository.churchId(seedTenantId);
+    if (churchId.isEmpty) return null;
+    final hit = peekRam(churchId);
+    if (hit != null && hit.isNotEmpty) return hit;
+    final prefix = '${churchId.trim()}_cargos_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    for (final e in _ram.entries) {
+      if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
+      if (best == null || e.value.docs.length > best.length) {
+        best = e.value.docs;
+      }
+    }
+    return best;
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> primary,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> legacy,
+  ) {
+    if (legacy.isEmpty) return primary;
+    if (primary.isEmpty) return legacy;
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in legacy) {
+      byId[d.id] = d;
+    }
+    for (final d in primary) {
+      byId[d.id] = d;
+    }
+    return byId.values.toList(growable: false);
+  }
+
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestoreFull(
     String churchId, {
@@ -110,16 +147,36 @@ abstract final class ChurchCargosLoadService {
     if (id.isEmpty) return const [];
 
     final key = cacheKey(id);
-    return ChurchModuleFirestoreListRead.queryPlainFirst(
-      reference: ChurchUiCollections.cargos(id),
-      cacheKey: key,
-      limit: limit,
-      forceServer: forceServer,
-      legacyFallbackSubcollections: const ['roles'],
-      orderByField: 'order',
-      orderDescending: false,
-      sortDocs: _sortDocs,
-    );
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readCol(
+      CollectionReference<Map<String, dynamic>> ref,
+      String suffix,
+    ) async {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      return FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchModuleFirestoreListRead.queryPlainFirst(
+          reference: ref,
+          cacheKey: '${key}_$suffix',
+          limit: limit,
+          forceServer: forceServer,
+          orderByField: 'order',
+          orderDescending: false,
+          sortDocs: _sortDocs,
+        ),
+        maxAttempts: 4,
+      );
+    }
+
+    var docs = await readCol(ChurchUiCollections.cargos(id), 'primary');
+    for (final sub in _legacySubcollections) {
+      final legacyRef = ChurchUiCollections.churchDoc(id).collection(sub);
+      if (legacyRef.path == ChurchUiCollections.cargos(id).path) continue;
+      final legacy = await readCol(legacyRef, 'legacy_$sub');
+      docs = _sortDocs(_mergeDocs(docs, legacy));
+    }
+    return docs;
   }
 
   static Future<ChurchCargosLoadResult> load({
@@ -342,8 +399,9 @@ abstract final class ChurchCargosLoadService {
   }
 
   static void invalidateRam(String churchId) {
-    final id = churchId.trim();
+    final id = ChurchRepository.churchId(churchId);
     if (id.isEmpty) return;
-    _ram.remove(id);
+    _ram.remove(cacheKey(id));
+    _ram.removeWhere((k, _) => k.startsWith('${id.trim()}_cargos_'));
   }
 }

@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -246,8 +247,12 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   }
 
   Future<void> _afterApprovalMutation({bool skipReload = false}) async {
-    if (skipReload) return;
+    MembersDirectorySnapshotService.invalidateMemory(_churchId);
+    unawaited(
+      MembersDirectorySnapshotService.warmFromCallableIfStale(_churchId),
+    );
     await ChurchAprovacoesLoadService.invalidate(_churchId);
+    if (skipReload) return;
     if (mounted) unawaited(_loadPendentes(forceRefresh: true));
   }
 
@@ -1197,9 +1202,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
         forceFresh: forceRefresh,
       );
       setState(() {
-        if (data.events.isNotEmpty || !hadLocal) {
-          _lastData = data;
-        }
+        _lastData = data;
         _historicoStale = ui.showingStaleCache;
         _historicoError = ui.loadError;
       });
@@ -1675,7 +1678,16 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
     }
     final data = _lastData;
     if (data == null) {
-      return const ChurchPanelLoadingBody();
+      return Padding(
+        padding: ThemeCleanPremium.pagePadding(context),
+        child: Center(
+          child: Text(
+            'Nenhum registro no período selecionado.',
+            style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
     }
 
     return Column(

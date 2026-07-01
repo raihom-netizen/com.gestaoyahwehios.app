@@ -40,7 +40,9 @@ class FirestoreReadResilience {
         s.contains('internal assertion') ||
         s.contains('unexpected state') ||
         s.contains('watchchangeaggregator') ||
-        s.contains('persistentlistenstream');
+        s.contains('persistentlistenstream') ||
+        s.contains('target id already exists') ||
+        s.contains('already-exists');
   }
 
   static final Map<String, DocumentSnapshot<Map<String, dynamic>>>

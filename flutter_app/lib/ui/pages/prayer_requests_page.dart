@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -294,20 +295,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
         !data.containsKey('is_public');
   }
 
-  bool get _isLeader {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'administrador' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'lider' ||
-        r == 'líder' ||
-        r == 'lideranca' ||
-        r == 'tesoureiro';
-  }
+  bool get _isLeader =>
+      AppPermissions.canDeleteAnyChurchRecords(widget.role);
 
   bool _canSee(Map<String, dynamic> data) {
     if (_isPublicPrayer(data)) return true;
@@ -324,11 +313,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     return false;
   }
 
-  bool _canManage(Map<String, dynamic> data) {
-    if (_isLeader) return true;
-    if (data['autorUid'] == _currentUser?.uid) return true;
-    return false;
-  }
+  bool _canManage(Map<String, dynamic> data) =>
+      AppPermissions.canManagePrayerRequest(
+        widget.role,
+        currentUid: _currentUser?.uid ?? '',
+        data: data,
+      );
 
   String _timeAgo(Timestamp? ts) {
     if (ts == null) return '';

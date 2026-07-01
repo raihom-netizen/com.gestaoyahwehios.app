@@ -105,25 +105,27 @@ abstract final class OfflineFirestoreExecutor {
   static Future<void> _handleBatchWrite(SyncTask task) async {
     final raw = task.payload['writes'];
     if (raw is! List || raw.isEmpty) return;
-    final batch = firebaseDefaultFirestore.batch();
-    for (final item in raw) {
-      if (item is! Map) continue;
-      final path = (item['path'] ?? '').toString();
-      if (path.isEmpty) continue;
-      final ref = OfflineFirestorePath.document(path);
-      final data = OfflinePayloadCodec.decodeMap(
-        Map<String, dynamic>.from(
-          item['data'] is Map ? item['data'] as Map : const <String, dynamic>{},
-        ),
-      );
-      final merge = item['merge'] == true;
-      if (merge) {
-        batch.set(ref, data, SetOptions(merge: true));
-      } else {
-        batch.set(ref, data);
+    await runFirestorePublishWithRecovery<void>(() async {
+      final batch = firebaseDefaultFirestore.batch();
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final path = (item['path'] ?? '').toString();
+        if (path.isEmpty) continue;
+        final ref = OfflineFirestorePath.document(path);
+        final data = OfflinePayloadCodec.decodeMap(
+          Map<String, dynamic>.from(
+            item['data'] is Map ? item['data'] as Map : const <String, dynamic>{},
+          ),
+        );
+        final merge = item['merge'] == true;
+        if (merge) {
+          batch.set(ref, data, SetOptions(merge: true));
+        } else {
+          batch.set(ref, data);
+        }
       }
-    }
-    await runFirestorePublishWithRecovery<void>(() => batch.commit());
+      await batch.commit();
+    });
   }
 
   static Future<void> _handleTrash(SyncTask task) async {

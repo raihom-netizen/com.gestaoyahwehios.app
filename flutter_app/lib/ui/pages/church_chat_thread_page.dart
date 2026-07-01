@@ -60,7 +60,6 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
 import 'package:gestao_yahweh/services/church_chat_fast_send_service.dart';
-import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -2397,6 +2396,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
+    unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
     unawaited(_runPendingMediaUpload(
       pending: pending,
       bytes: bytes,
@@ -2453,7 +2453,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     var repaintedVideoPreview = false;
     unawaited(
-      OptimisticChatMediaUpload.upload(
+      ChurchChatFastSendService.sendMedia(
         tenantId: _tid,
         threadId: widget.threadId,
         pending: pending,
@@ -2926,8 +2926,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   }
                   p.failed = false;
                   p.errorMessage = null;
-                  p.firestoreMessageId = null;
-                  p.storagePath = null;
                   if (mounted) setState(() {});
                   unawaited(_runPendingMediaUpload(
                     pending: p,

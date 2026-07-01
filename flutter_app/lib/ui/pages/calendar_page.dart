@@ -645,6 +645,15 @@ class _CalendarPageState extends State<CalendarPage>
     if (hit == null) return;
     _legacyEventsByDay = hit.legacy;
     _escalaDayKeys = hit.escalaDayKeys;
+    final (rangeStart, rangeEnd) = _computeLoadRange();
+    final agendaRam = ChurchAgendaLoadService.peekAnyRam(
+      _churchId,
+      start: Timestamp.fromDate(rangeStart),
+      end: Timestamp.fromDate(rangeEnd),
+    );
+    if (agendaRam != null && agendaRam.isNotEmpty) {
+      _agendaDocs = agendaRam;
+    }
     _loading = false;
     _loadError = null;
     _rebuildMerged();
@@ -1664,12 +1673,21 @@ class _CalendarPageState extends State<CalendarPage>
       unawaited(ChurchAgendaLoadService.invalidate(_churchId));
     }
     if (!mounted) return;
+    final (rangeStart, rangeEnd) = _computeLoadRange();
     final cacheKey = _agendaCacheKey();
     final ram = _AgendaRamCache.peek(cacheKey);
     if (ram != null) {
       setState(() {
         _legacyEventsByDay = ram.legacy;
         _escalaDayKeys = ram.escalaDayKeys;
+        final agendaRam = ChurchAgendaLoadService.peekAnyRam(
+          _churchId,
+          start: Timestamp.fromDate(rangeStart),
+          end: Timestamp.fromDate(rangeEnd),
+        );
+        if (agendaRam != null && agendaRam.isNotEmpty) {
+          _agendaDocs = agendaRam;
+        }
         _loading = false;
         _loadError = null;
       });
@@ -1681,7 +1699,6 @@ class _CalendarPageState extends State<CalendarPage>
         _loadError = null;
       });
     }
-    final (rangeStart, rangeEnd) = _computeLoadRange();
 
     final map = <String, List<_CalendarEvent>>{};
     final seenNoticiaIds = <String>{};

@@ -201,10 +201,13 @@ abstract final class ChurchFinanceLoadService {
     final cacheKey =
         '${churchId}_finance_page_${startAfter?.id ?? '0'}_$capped';
 
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainRead() async {
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainRead(
+      CollectionReference<Map<String, dynamic>> ref,
+      String suffix,
+    ) async {
       final snap = await FirestoreReadResilience.getQuery(
-        ChurchUiCollections.financeiro(churchId).limit(capped),
-        cacheKey: '${cacheKey}_plain',
+        ref.limit(capped),
+        cacheKey: '${cacheKey}_${suffix}_plain',
       );
       var docs = snap.docs;
       if (startAfter != null) {
@@ -246,7 +249,13 @@ abstract final class ChurchFinanceLoadService {
       if (snap.docs.isNotEmpty) return snap.docs;
     } catch (_) {}
 
-    return plainRead();
+    final primaryPlain =
+        await plainRead(ChurchUiCollections.financeiro(churchId), 'finance');
+    final legacyPlain = await plainRead(
+      ChurchUiCollections.churchDoc(churchId).collection('financeiro'),
+      'financeiro',
+    );
+    return _mergeFinanceDocs(primaryPlain, legacyPlain, _sortFinanceDocs);
   }
 
   static Future<ChurchFinanceLoadResult> loadContas({
@@ -670,6 +679,26 @@ abstract final class ChurchFinanceLoadService {
     } catch (_) {}
   }
 
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeFinanceDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> primary,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> legacy,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>,
+    )? sortDocs,
+  ) {
+    if (legacy.isEmpty) return primary;
+    if (primary.isEmpty) return legacy;
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in legacy) {
+      byId[d.id] = d;
+    }
+    for (final d in primary) {
+      byId[d.id] = d;
+    }
+    final merged = byId.values.toList(growable: false);
+    return sortDocs != null ? sortDocs(merged) : merged;
+  }
+
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestore({
     required String churchId,
@@ -692,7 +721,7 @@ abstract final class ChurchFinanceLoadService {
     String? legacyFallbackSubcollection,
   }) async {
     final capped = FirebasePerformanceLimits.capListLimit(queryLabel, limit);
-    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+    final primary = await ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: reference,
       cacheKey: cacheKey,
       limit: capped,
@@ -701,13 +730,15 @@ abstract final class ChurchFinanceLoadService {
       orderDescending: orderDescending,
       sortDocs: sortDocs,
     );
-    if (docs.isNotEmpty) return docs;
 
     final legacySub = (legacyFallbackSubcollection ?? '').trim();
-    if (legacySub.isEmpty) return docs;
-    final legacyRef = ChurchUiCollections.churchDoc(churchId).collection(legacySub);
-    if (legacyRef.path == reference.path) return docs;
-    return ChurchModuleFirestoreListRead.queryPlainFirst(
+    if (legacySub.isEmpty) return primary;
+
+    final legacyRef =
+        ChurchUiCollections.churchDoc(churchId).collection(legacySub);
+    if (legacyRef.path == reference.path) return primary;
+
+    final legacy = await ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: legacyRef,
       cacheKey: '${cacheKey}_legacy_$legacySub',
       limit: capped,
@@ -716,6 +747,7 @@ abstract final class ChurchFinanceLoadService {
       orderDescending: true,
       sortDocs: sortDocs,
     );
+    return _mergeFinanceDocs(primary, legacy, sortDocs);
   }
 
   static Future<void> invalidate(String seedTenantId) async {

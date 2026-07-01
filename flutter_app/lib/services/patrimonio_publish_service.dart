@@ -183,7 +183,7 @@ abstract final class PatrimonioPublishService {
 
       await Future.wait(
         slots.map(
-          (slot) => FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+          (slot) => FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
             tenantId: igrejaId,
             itemDocId: itemId,
             slot: slot,
@@ -246,7 +246,7 @@ abstract final class PatrimonioPublishService {
 
       if (batch.isNotEmpty) {
         for (var j = 0; j < batch.length; j++) {
-          await FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+          await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
             tenantId: igrejaId,
             itemDocId: itemId,
             slot: startSlot + j,
@@ -294,12 +294,17 @@ abstract final class PatrimonioPublishService {
       }
     }
     for (var slot = finalCount; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
-      await FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+      await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
         tenantId: igrejaId,
         itemDocId: itemId,
         slot: slot,
       );
     }
+
+    await FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleriaInItemFolder(
+      tenantId: igrejaId,
+      itemDocId: itemId,
+    );
 
     onUploadProgress?.call(0.88);
 

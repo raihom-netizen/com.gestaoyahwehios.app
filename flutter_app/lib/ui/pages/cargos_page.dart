@@ -598,9 +598,9 @@ class _CargosPageState extends State<CargosPage> {
   CollectionReference<Map<String, dynamic>> get _col =>
       ChurchUiCollections.cargos(_loadChurchId);
 
-  String get _loadChurchId => ChurchPanelTenant.resolve(
-        (_resolvedTenantId ?? '').isNotEmpty
-            ? _resolvedTenantId
+  String get _loadChurchId => ChurchRepository.churchId(
+        _resolvedTenantId?.trim().isNotEmpty == true
+            ? _resolvedTenantId!
             : widget.tenantId,
       );
 
@@ -619,9 +619,9 @@ class _CargosPageState extends State<CargosPage> {
       final fallback = _peekInstantCargosSnap();
       setState(() {
         _cargosLoadPending = false;
-        _cargosFuture = Future.value(
-          fallback ?? const MergedFirestoreQuerySnapshot([]),
-        );
+        if (fallback != null && fallback.docs.isNotEmpty) {
+          _cargosFuture = Future.value(fallback);
+        }
       });
       _scheduleCargosRetry();
     });
@@ -631,7 +631,8 @@ class _CargosPageState extends State<CargosPage> {
     final seed = _loadChurchId;
     if (seed.isEmpty) return null;
 
-    final ram = ChurchCargosLoadService.peekRam(seed);
+    final ram = ChurchCargosLoadService.peekRamAny(seed) ??
+        ChurchCargosLoadService.peekRam(seed);
     if (ram != null && ram.isNotEmpty) {
       return MergedFirestoreQuerySnapshot(ram);
     }
@@ -652,8 +653,8 @@ class _CargosPageState extends State<CargosPage> {
       );
     } catch (e) {
       final fallback = _peekInstantCargosSnap();
-      if (fallback != null) return fallback;
-      return const MergedFirestoreQuerySnapshot([]);
+      if (fallback != null && fallback.docs.isNotEmpty) return fallback;
+      rethrow;
     } finally {
       if (mounted) {
         _webLoadCap?.cancel();
@@ -708,17 +709,38 @@ class _CargosPageState extends State<CargosPage> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadCargos({
     bool forceServer = false,
   }) async {
+    if (kIsWeb) {
+      await _prepareCargosRead();
+    }
     final churchId = _loadChurchId;
     if (churchId.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
     final path = FirebasePaths.cargos(churchId);
 
-    final result = await ChurchCargosLoadService.load(
-      seedTenantId: churchId,
-      forceServer: forceServer,
-      forceRefresh: forceServer,
+    Future<ChurchCargosLoadResult> runLoad({
+      required String seed,
+      required bool server,
+    }) =>
+        FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchCargosLoadService.load(
+            seedTenantId: seed,
+            forceServer: server,
+            forceRefresh: server,
+          ),
+          maxAttempts: 4,
+        );
+
+    var result = await runLoad(
+      seed: widget.tenantId.trim().isNotEmpty
+          ? widget.tenantId.trim()
+          : churchId,
+      server: forceServer,
     );
+
+    if (result.docs.isEmpty && churchId.isNotEmpty && !forceServer) {
+      result = await runLoad(seed: churchId, server: true);
+    }
 
     if (result.docs.isNotEmpty) {
       ChurchCargosLoadService.putRam(result.churchId, result.docs);
@@ -767,7 +789,7 @@ class _CargosPageState extends State<CargosPage> {
   @override
   void initState() {
     super.initState();
-    _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
+    _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
     final instant = _peekInstantCargosSnap();
     if (instant != null) {
       _cargosFuture = Future.value(instant);
@@ -791,7 +813,7 @@ class _CargosPageState extends State<CargosPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _cargosLoadRetryGen++;
-      _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
+      _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
       _triedAutoSeed = false;
       _cargosLoadPending = true;
       final instant = _peekInstantCargosSnap();
@@ -810,13 +832,21 @@ class _CargosPageState extends State<CargosPage> {
   /// Cria na base os cargos padrão quando a coleção está vazia (novas igrejas).
   Future<void> _seedPadroes() async {
     try {
-      final snap = await _col.limit(1).get();
+      if (kIsWeb) {
+        await _prepareCargosRead();
+      }
+      final churchId = _loadChurchId;
+      if (churchId.isEmpty) return;
+      final col = ChurchUiCollections.cargos(churchId);
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => col.limit(1).get(),
+        maxAttempts: 3,
+      );
       if (snap.docs.isNotEmpty) return;
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final batch = firebaseDefaultFirestore.batch();
       for (var i = 0; i < _welcomeCargos.length; i++) {
         final row = _welcomeCargos[i];
-        batch.set(_col.doc(row.docId), <String, dynamic>{
+        batch.set(col.doc(row.docId), <String, dynamic>{
           'name': row.name,
           'key': row.key,
           'permissionTemplate': row.permissionTemplate,

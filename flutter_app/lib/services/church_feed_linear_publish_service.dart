@@ -198,10 +198,10 @@ abstract final class ChurchFeedLinearPublishService {
       }
     }
 
-    final allPaths = <String>[
+    final allPaths = dedupeImageRefsByStorageIdentity([
       ...existingPaths,
       ...uploadedPaths,
-    ];
+    ]);
 
     if (hasNewPhotos && uploadedPaths.isNotEmpty) {
       await ChurchStorageMetadataVerify.assertAllExist(
@@ -213,6 +213,7 @@ abstract final class ChurchFeedLinearPublishService {
 
     final aspectRatio = _aspectRatioFromPayload(corePayload);
     final payload = Map<String, dynamic>.from(corePayload);
+    final galleryUrls = dedupeImageRefsByStorageIdentity(existingUrls);
     payload.addAll(
       ChurchFeedMediaStorageFields.buildStoragePathOnlyFields(
         photoPaths: allPaths,
@@ -226,7 +227,7 @@ abstract final class ChurchFeedLinearPublishService {
     );
     payload.addAll(
       MuralPostMediaPayload.buildMediaFields(
-        allUrls: existingUrls,
+        allUrls: galleryUrls,
         aspectRatio: aspectRatio,
         hasVideo: hasVideo,
         allowDeleteSentinels: !isNewDoc,
@@ -234,21 +235,24 @@ abstract final class ChurchFeedLinearPublishService {
       ),
     );
     if (alignedThumbUrls.isNotEmpty) {
-      payload['thumbUrl'] = alignedThumbUrls.first;
-      payload['thumbUrls'] = alignedThumbUrls;
+      final thumbOnly = dedupeImageRefsByStorageIdentity(alignedThumbUrls);
+      if (thumbOnly.isNotEmpty) {
+        payload['thumbUrl'] = thumbOnly.first;
+        payload['thumbUrls'] = thumbOnly;
+      }
     }
-    if (existingUrls.isNotEmpty) {
-      final first = existingUrls.first;
-      payload['fotos'] = existingUrls;
+    await _applyCanonicalVideoDisplayFields(
+      payload: payload,
+      videoStoragePath: videoStoragePath,
+    );
+    if (galleryUrls.isNotEmpty) {
+      final first = galleryUrls.first;
+      payload['fotos'] = galleryUrls;
       payload['imageUrl'] = first;
-      payload['imageUrls'] = existingUrls;
+      payload['imageUrls'] = galleryUrls;
       payload['defaultImageUrl'] = first;
       payload['imagemUrl'] = first;
       payload['imagem_url'] = first;
-      if (alignedThumbUrls.isEmpty) {
-        payload['thumbUrl'] = first;
-        payload['thumbUrls'] = existingUrls;
-      }
     }
     payload['ativo'] = true;
     payload['publicado'] = true;
@@ -448,5 +452,65 @@ abstract final class ChurchFeedLinearPublishService {
       return;
     }
     await verify();
+  }
+
+  static Future<void> _applyCanonicalVideoDisplayFields({
+    required Map<String, dynamic> payload,
+    String? videoStoragePath,
+  }) async {
+    final path = (videoStoragePath ?? '').trim();
+    if (path.isEmpty) return;
+
+    payload['videoPath'] = path;
+    payload['videoStoragePath'] = path;
+
+    try {
+      final videoUrls = await EcoFireFeedPublishService.refsToPlayableUrls([path]);
+      final videoUrl = videoUrls.isNotEmpty ? sanitizeImageUrl(videoUrls.first) : '';
+      if (videoUrl.isNotEmpty) {
+        payload['videoUrl'] = videoUrl;
+        payload['mediaUrl'] = videoUrl;
+      }
+
+      String thumbStoragePath = '';
+      final directThumbPath = (payload['thumbStoragePath'] ?? '').toString().trim();
+      if (directThumbPath.isNotEmpty) {
+        thumbStoragePath = directThumbPath;
+      } else {
+        final thumbPaths = payload['thumbStoragePaths'];
+        if (thumbPaths is List && thumbPaths.isNotEmpty) {
+          thumbStoragePath = (thumbPaths.first ?? '').toString().trim();
+        }
+      }
+
+      String thumbUrl = '';
+      if (thumbStoragePath.isNotEmpty) {
+        final thumbUrls =
+            await EcoFireFeedPublishService.refsToPlayableUrls([thumbStoragePath]);
+        if (thumbUrls.isNotEmpty) {
+          thumbUrl = sanitizeImageUrl(thumbUrls.first);
+          payload['thumbUrl'] = thumbUrl;
+          payload['thumbUrls'] = [thumbUrl];
+          payload['thumbStoragePath'] = thumbStoragePath;
+        }
+      }
+
+      payload['videos'] = [
+        {
+          if (videoUrl.isNotEmpty) 'videoUrl': videoUrl,
+          'videoStoragePath': path,
+          'storagePath': path,
+          if (thumbStoragePath.isNotEmpty) 'thumbStoragePath': thumbStoragePath,
+          if (thumbUrl.isNotEmpty) 'thumbUrl': thumbUrl,
+        }
+      ];
+    } catch (_) {
+      payload['videos'] = [
+        {
+          'videoStoragePath': path,
+          'storagePath': path,
+        }
+      ];
+    }
   }
 }

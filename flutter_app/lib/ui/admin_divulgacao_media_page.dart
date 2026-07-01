@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -410,35 +411,33 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
       _uploading = true;
       _uploadProgress = 0;
     });
-    StreamSubscription<TaskSnapshot>? sub;
     try {
-      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-        context: context,
-        module: YahwehMediaModule.divulgacao,
-        logLabel: 'admin_divulgacao_upload',
-      )) {
-        return;
-      }
-      final ref = firebaseDefaultStorage.ref(storagePath);
-      final task = ref.putData(
-        bytes,
-        SettableMetadata(
+      final isImage = kind == 'image';
+      final ChurchCanonicalUploadResult uploaded;
+      if (isImage) {
+        uploaded = await ChurchCanonicalMediaPublish.compressAndUploadImage(
+          rawBytes: bytes,
+          storagePath: storagePath,
+          gateModule: YahwehMediaModule.divulgacao,
+          logLabel: 'admin_divulgacao_upload',
+          onProgress: (p) {
+            if (!mounted) return;
+            setState(() => _uploadProgress = p);
+          },
+        );
+      } else {
+        uploaded = await ChurchCanonicalMediaPublish.uploadBinary(
+          bytes: bytes,
+          storagePath: storagePath,
           contentType: _contentTypeForExt(ext, kind),
-          cacheControl: 'public, max-age=31536000',
-        ),
-      );
-      sub = task.snapshotEvents.listen((snap) {
-        if (!mounted) return;
-        final total = snap.totalBytes;
-        final p = total > 0 ? snap.bytesTransferred / total : 0.0;
-        setState(() => _uploadProgress = p);
-      });
-      await task;
-
-      String? downloadUrl;
-      try {
-        downloadUrl = await ref.getDownloadURL();
-      } catch (_) {}
+          gateModule: YahwehMediaModule.divulgacao,
+          logLabel: 'admin_divulgacao_upload',
+          onProgress: (p) {
+            if (!mounted) return;
+            setState(() => _uploadProgress = p);
+          },
+        );
+      }
 
       final current = await _docRef.get();
       final items = _parseItems(current.data());
@@ -447,10 +446,11 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         'description': form.description,
         'category': form.category,
         'featured': form.featured,
-        'path': MarketingStorageLayout.normalizeObjectPath(storagePath),
-        'kind': kind,
-        if (downloadUrl != null && downloadUrl.isNotEmpty)
-          'downloadUrl': downloadUrl,
+        ...ChurchCanonicalMediaPublish.divulgacaoAssetFields(
+          downloadUrl: uploaded.downloadUrl,
+          storagePath: uploaded.storagePath,
+          kind: kind,
+        ),
         // Firestore não permite FieldValue.serverTimestamp() dentro de arrays.
         'uploadedAt': Timestamp.now(),
       });
@@ -468,7 +468,6 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         SnackBar(content: Text('Erro ao enviar mídia: $e')),
       );
     } finally {
-      await sub?.cancel();
       if (mounted) {
         setState(() {
           _uploading = false;

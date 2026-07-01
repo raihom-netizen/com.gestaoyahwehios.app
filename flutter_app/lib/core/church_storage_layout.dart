@@ -212,6 +212,35 @@ abstract final class ChurchStorageLayout {
     return s.isEmpty ? 'doc' : s;
   }
 
+  /// Só o segmento da pasta (`authUid` ou doc id) — nunca path completo `igrejas/.../membros/...`.
+  static String sanitizeMemberStorageFolderId(String raw) {
+    var s = raw.replaceAll('\\', '/').trim();
+    if (s.isEmpty) return '';
+    final lower = s.toLowerCase();
+    final membrosIdx = lower.lastIndexOf('/membros/');
+    if (membrosIdx >= 0) {
+      s = s.substring(membrosIdx + '/membros/'.length);
+    }
+    if (s.toLowerCase().startsWith('igrejas/')) {
+      final parts = s.split('/').where((p) => p.isNotEmpty).toList();
+      if (parts.length >= 4 && parts[0] == 'igrejas' && parts[2] == 'membros') {
+        s = parts[3];
+      }
+    }
+    if (s.contains('/')) {
+      final segs = s.split('/').where((p) => p.isNotEmpty).toList();
+      s = segs.isEmpty ? s : segs.last;
+    }
+    if (s.endsWith('/foto_perfil.jpg') ||
+        s.endsWith('/foto_perfil.jpeg') ||
+        s.endsWith('/foto_perfil.png')) {
+      final parent = s.substring(0, s.lastIndexOf('/'));
+      final segs = parent.split('/').where((p) => p.isNotEmpty).toList();
+      if (segs.isNotEmpty) s = segs.last;
+    }
+    return _safeDocId(s);
+  }
+
   /// Foto de perfil — **único ficheiro** por membro:
   /// `igrejas/{tenant}/membros/{storageFolderId}/foto_perfil.jpg`
   /// ([storageFolderId] = authUid Firebase quando existir; senão id do doc).
@@ -240,7 +269,7 @@ abstract final class ChurchStorageLayout {
   static String memberCanonicalProfilePhotoPathLegacy(
       String tenantId, String storageFolderId) {
     final tid = tenantId.trim();
-    final mid = _safeDocId(storageFolderId);
+    final mid = sanitizeMemberStorageFolderId(storageFolderId);
     return '${churchRoot(tid)}/$kSegMembros/$mid/foto_perfil.jpg';
   }
 
@@ -248,7 +277,7 @@ abstract final class ChurchStorageLayout {
   static String memberProfilePhotoPathFlatWebpLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
-    final mid = _safeDocId(memberDocId);
+    final mid = sanitizeMemberStorageFolderId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/fotos/$mid.webp';
   }
 
@@ -256,7 +285,7 @@ abstract final class ChurchStorageLayout {
   static String memberProfileThumbPathFlatWebpLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
-    final mid = _safeDocId(memberDocId);
+    final mid = sanitizeMemberStorageFolderId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/thumbs/$mid.webp';
   }
 
@@ -440,6 +469,34 @@ abstract final class ChurchStorageLayout {
     final ms = DateTime.now().microsecondsSinceEpoch;
     return '${ms}_${ms.hashCode.abs().toRadixString(16)}';
   }
+
+  /// Chat rápido: `igrejas/{tenant}/chat_media/{folder}/{messageId}.ext`
+  /// (mesmo id do doc `chat_uploads/{messageId}` e da mensagem no thread).
+  static String buildChatMediaPathForMessage({
+    required String tenantId,
+    required String messageId,
+    required String kind,
+    required String fileName,
+  }) {
+    final folder = chatMediaFolderForKind(kind);
+    final ext = extensionFromPickerFileName(
+      fileName,
+      fallback: switch (kind) {
+        'audio' => 'm4a',
+        'video' => 'mp4',
+        _ => 'jpg',
+      },
+    );
+    return '${churchRoot(tenantId)}/chat_media/$folder/${messageId.trim()}.$ext';
+  }
+
+  /// Miniatura por messageId: `…/chat_media/thumbs/{messageId}_{suffix}.webp`
+  static String buildChatMediaThumbPathForMessage({
+    required String tenantId,
+    required String messageId,
+    String suffix = 'thumb',
+  }) =>
+      '${churchRoot(tenantId)}/chat_media/thumbs/${messageId.trim()}_${suffix.trim()}.webp';
 
   /// `igrejas/{tenant}/chat_media/{folder}/{uid}_{ts}_{stem}.ext` — sem nome original do celular.
   static String buildChatMediaObjectPath({

@@ -869,9 +869,14 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
   ) {
     if (_isAdmin) return _sortDocsSync(source);
-    if (_cpfDigits.length == 11) {
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
+    if (_cpfDigits.length == 11 || uid.isNotEmpty) {
       return _sortDocsSync(
-        ChurchSchedulesLoadService.filterByMemberCpfs(source, _cpfDigits),
+        ChurchSchedulesLoadService.filterByMember(
+          source,
+          cpfDigits: _cpfDigits,
+          uid: uid,
+        ),
       );
     }
     return const [];
@@ -893,8 +898,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   /// Extrai 11 dígitos do documento de membro (campos CPF/cpf ou ID = CPF).
   String? _cpfDigitsFromMemberDoc(
-      QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+      DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
+    if (data == null) return null;
     for (final k in ['CPF', 'cpf', 'documento']) {
       final raw = (data[k] ?? '').toString();
       final d = raw.replaceAll(RegExp(r'[^0-9]'), '');
@@ -926,6 +932,17 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       }
       return false;
     }
+
+    try {
+      final byUid = await col.doc(user.uid).get();
+      if (byUid.exists) {
+        final extracted = _cpfDigitsFromMemberDoc(byUid);
+        if (extracted != null && mounted) {
+          setState(() => _cpfDigits = extracted);
+          return;
+        }
+      }
+    } catch (_) {}
 
     try {
       if (await applyFirst(
@@ -996,17 +1013,18 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       }
 
       final ChurchSchedulesLoadResult result;
+      final memberUid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
       if (_isAdmin) {
         result = await ChurchSchedulesLoadService.loadEscalas(
           seedTenantId: churchId,
           limit: 200,
           forceRefresh: forceRefresh,
         );
-      } else if (_cpfDigits.length == 11) {
+      } else if (_cpfDigits.length == 11 || memberUid.isNotEmpty) {
         result = await ChurchSchedulesLoadService.loadEscalasForMember(
           seedTenantId: churchId,
           cpfDigits: _cpfDigits,
-          memberUid: FirebaseAuth.instance.currentUser?.uid ?? '',
+          memberUid: memberUid,
           limit: 200,
           forceRefresh: forceRefresh,
         );
@@ -1032,7 +1050,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         });
       }
 
-      if (!_isAdmin && _cpfDigits.length == 11) {
+      if (!_isAdmin &&
+          (_cpfDigits.length == 11 ||
+              (FirebaseAuth.instance.currentUser?.uid.trim().isNotEmpty ??
+                  false))) {
         unawaited(_mergeDepartmentEscalas(churchId, result.docs));
       }
     } catch (e) {
@@ -1292,9 +1313,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     );
     if (chosen == null || !context.mounted) return;
     try {
-      await           ChurchUiCollections.churchDoc(tid)
-          .collection('escala_trocas')
-          .add({
+      await ChurchUiCollections.escalaTrocas(tid).add({
         'escalaId': escalaDoc.id,
         'departmentId': deptId,
         'solicitanteCpf': _cpfDigits,
@@ -1366,9 +1385,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return const SizedBox.shrink();
+    final churchId = ChurchRepository.churchId(tid);
+    if (churchId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream:               ChurchUiCollections.churchDoc(tid)
-              .collection('escala_trocas')
+          stream: ChurchUiCollections.escalaTrocas(churchId)
               .where('alvoCpf', isEqualTo: _cpfDigits)
               .watchSafe(),
           builder: (context, tSnap) {

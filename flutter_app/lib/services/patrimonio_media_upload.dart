@@ -29,6 +29,7 @@ abstract final class PatrimonioMediaUpload {
     required Uint8List rawBytes,
     void Function(double progress)? onProgress,
     bool skipPrepare = false,
+    bool ensureReady = true,
   }) async {
     final cid = churchId.trim();
     final iid = itemDocId.trim();
@@ -44,7 +45,9 @@ abstract final class PatrimonioMediaUpload {
       );
     }
 
-    await _ensureUploadReady();
+    if (ensureReady) {
+      await _ensureUploadReady();
+    }
 
     final path =
         ChurchStorageLayout.patrimonioPhotoPath(cid, iid, slotIndex);
@@ -117,7 +120,7 @@ abstract final class PatrimonioMediaUpload {
 
     await _ensureUploadReady();
 
-    final parallel = maxParallel.clamp(1, kMaxPatrimonioPhotosPerItem);
+    final parallel = maxParallel.clamp(1, 2);
     final results = List<PatrimonioGalleryUploadResult?>.filled(count, null);
     var completed = 0;
 
@@ -130,6 +133,7 @@ abstract final class PatrimonioMediaUpload {
           slotIndex: slot,
           rawBytes: images[i],
           skipPrepare: skipPrepare,
+          ensureReady: false,
         );
         results[i] = result;
         completed++;

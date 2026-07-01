@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_profile.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
+import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
 import 'package:gestao_yahweh/services/church_chat_media_storage.dart';
@@ -16,9 +17,8 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Chat mídia estilo WhatsApp — Ecofire: Firebase OK → Storage → Firestore **uma vez** (`sent`).
@@ -114,6 +114,16 @@ abstract final class ChurchChatMediaSendService {
         } catch (_) {}
       }
       onError?.call(ChurchChatService.formatInstantSendError(e));
+      final uploadId = pending.firestoreMessageId?.trim() ?? '';
+      if (uploadId.isNotEmpty) {
+        unawaited(
+          ChurchChatUploadsService.markFailed(
+            tenantId: resolvedTenant,
+            uploadId: uploadId,
+            error: e.toString(),
+          ),
+        );
+      }
       rethrow;
     }
   }
@@ -132,95 +142,224 @@ abstract final class ChurchChatMediaSendService {
     ChurchPublishFlowLog.chatStart();
     onProgress?.call(0.04);
 
-    unawaited(
-      EcoFireResilientPublish.prepareForPublish(logLabel: 'chat_media_send')
-          .timeout(const Duration(seconds: 4))
-          .catchError((_) {}),
-    );
-    onProgress?.call(0.08);
-
     final displayName = ChurchChatMessageFields.isDocumentType(pending.kind)
         ? (pending.fileName.isNotEmpty ? pending.fileName : 'file')
         : 'media.webp';
 
-    final storagePath = ChurchChatService.buildChatMediaStoragePath(
-      tenantId: resolvedTenant,
-      threadId: threadId,
-      kind: pending.kind,
-      fileName: displayName,
-    );
+    final messageId = (pending.firestoreMessageId ?? '').trim().isNotEmpty
+        ? pending.firestoreMessageId!.trim()
+        : ChurchChatService.allocateMediaMessageId(
+            tenantId: resolvedTenant,
+            threadId: threadId,
+          );
+    pending.firestoreMessageId = messageId;
+
+    final storagePath = (pending.storagePath ?? '').trim().isNotEmpty
+        ? pending.storagePath!.trim()
+        : ChurchChatService.buildChatMediaStoragePathForMessage(
+            tenantId: resolvedTenant,
+            messageId: messageId,
+            kind: pending.kind,
+            fileName: displayName,
+          );
     pending.storagePath = storagePath;
-    final ts = ChurchChatService.timestampMsFromChatMediaPath(storagePath);
 
     final uploadPath = (localPath ?? pending.localPath)?.trim() ?? '';
     final uploadBytes = bytes;
 
+    unawaited(
+      ChurchChatUploadsService.upsert(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+        kind: pending.kind,
+        localId: pending.localId,
+        uploadId: messageId,
+        messageId: messageId,
+        storagePath: storagePath,
+        localPath: uploadPath.isNotEmpty ? uploadPath : null,
+        fileName: pending.fileName,
+        mime: pending.mime,
+        progress: 0.05,
+        status: ChurchChatUploadsService.statusUploading,
+      ),
+    );
+    unawaited(
+      ChurchChatMediaOutboxService.registerJob(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+        localId: pending.localId,
+        kind: pending.kind,
+        fileName: pending.fileName,
+        mime: pending.mime,
+        firestoreMessageId: messageId,
+        storagePath: storagePath,
+        localPath: uploadPath.isNotEmpty ? uploadPath : null,
+        bytes: uploadBytes != null && uploadBytes.isNotEmpty
+            ? (uploadBytes is Uint8List
+                ? uploadBytes
+                : Uint8List.fromList(uploadBytes))
+            : null,
+        uploadDocId: messageId,
+      ),
+    );
+
+    void reportProgress(double t) {
+      onProgress?.call(t);
+      unawaited(
+        ChurchChatUploadsService.patchProgress(
+          tenantId: resolvedTenant,
+          uploadId: messageId,
+          progress: t,
+          status: ChurchChatUploadsService.statusUploading,
+        ),
+      );
+    }
+
+    reportProgress(0.08);
+
+    var storageAlreadyUploaded = false;
+    try {
+      await firebaseDefaultStorage
+          .ref(storagePath)
+          .getMetadata()
+          .timeout(const Duration(seconds: 4));
+      storageAlreadyUploaded = true;
+      reportProgress(0.88);
+    } catch (_) {}
+
     String? thumbStoragePath;
     int? fileSize;
 
-    if (pending.kind == 'image') {
-      onProgress?.call(0.12);
-      final prepared = await _prepareImageSafe(
-        pending: pending,
-        bytes: uploadBytes != null && uploadBytes.isNotEmpty
-            ? Uint8List.fromList(uploadBytes)
-            : null,
-        localPath: uploadPath.isNotEmpty && !kIsWeb ? uploadPath : null,
-      );
-      fileSize = prepared.fullBytes.length;
-      onProgress?.call(0.2);
-
-      await UnifiedUploadService.uploadImage(
-        storagePath: storagePath,
-        bytes: prepared.fullBytes,
-        contentType: prepared.fullMime,
-        module: YahwehUploadModule.chat,
-        skipClientPrepare: true,
-        chatJpegFast: true,
-        onProgress: (t) => _mapProgress(onProgress, 0.2, 0.82, t),
-      );
-
-      if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
-        thumbStoragePath = ChurchChatService.buildChatImageThumbStoragePath(
-          tenantId: resolvedTenant,
-          threadId: threadId,
-          timestampMs: ts,
+    if (!storageAlreadyUploaded) {
+      if (pending.kind == 'image') {
+        reportProgress(0.12);
+        final prepared = await _prepareImageSafe(
+          pending: pending,
+          bytes: uploadBytes != null && uploadBytes.isNotEmpty
+              ? Uint8List.fromList(uploadBytes)
+              : null,
+          localPath: uploadPath.isNotEmpty && !kIsWeb ? uploadPath : null,
         );
-        try {
-          await UnifiedUploadService.uploadImage(
-            storagePath: thumbStoragePath,
-            bytes: prepared.thumbBytes!,
-            contentType: 'image/webp',
-            module: YahwehUploadModule.chat,
-            skipClientPrepare: true,
-            chatJpegFast: true,
-            onProgress: (t) => _mapProgress(onProgress, 0.82, 0.88, t),
-          ).timeout(const Duration(seconds: 15));
-        } catch (_) {
-          thumbStoragePath = null;
+        fileSize = prepared.fullBytes.length;
+        reportProgress(0.2);
+
+        await ChurchChatMediaStorage.putBytesFast(
+          storagePath: storagePath,
+          bytes: prepared.fullBytes,
+          contentType: prepared.fullMime,
+          onProgress: (t) => _mapProgress(reportProgress, 0.2, 0.82, t),
+        );
+
+        if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
+          thumbStoragePath =
+              ChurchChatService.buildChatImageThumbStoragePathForMessage(
+            tenantId: resolvedTenant,
+            messageId: messageId,
+          );
+          try {
+            await ChurchChatMediaStorage.putBytesFast(
+              storagePath: thumbStoragePath,
+              bytes: prepared.thumbBytes!,
+              contentType: 'image/webp',
+              onProgress: (t) => _mapProgress(reportProgress, 0.82, 0.88, t),
+            ).timeout(const Duration(seconds: 15));
+          } catch (_) {
+            thumbStoragePath = null;
+          }
         }
-      }
-    } else if (pending.kind == 'video') {
-      final mime = pending.mime.isNotEmpty ? pending.mime : 'video/mp4';
-      PreparedChatVideo? preparedVideo;
-      if (!kIsWeb && uploadPath.isNotEmpty) {
-        preparedVideo = await ChurchChatMediaPrepare.prepareVideo(
-          uploadPath,
-          onCompressProgress: (t) => _mapProgress(onProgress, 0.12, 0.3, t),
-        );
-      }
+      } else if (pending.kind == 'video') {
+        final mime = pending.mime.isNotEmpty ? pending.mime : 'video/mp4';
+        PreparedChatVideo? preparedVideo;
+        if (!kIsWeb && uploadPath.isNotEmpty) {
+          preparedVideo = await ChurchChatMediaPrepare.prepareVideo(
+            uploadPath,
+            onCompressProgress: (t) => _mapProgress(reportProgress, 0.12, 0.3, t),
+          );
+        }
 
-      final videoLocalPath = preparedVideo?.outputPath ?? uploadPath;
-      if (!kIsWeb &&
-          (preparedVideo?.thumbnailBytes != null) &&
-          preparedVideo!.thumbnailBytes!.isNotEmpty &&
-          (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
-        // Preview otimista da bolha local para vídeo (estilo WhatsApp).
-        pending.previewBytes = preparedVideo.thumbnailBytes;
-      }
-      fileSize = preparedVideo?.byteLength;
+        final videoLocalPath = preparedVideo?.outputPath ?? uploadPath;
+        if (!kIsWeb &&
+            (preparedVideo?.thumbnailBytes != null) &&
+            preparedVideo!.thumbnailBytes!.isNotEmpty &&
+            (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
+          pending.previewBytes = preparedVideo.thumbnailBytes;
+        }
+        fileSize = preparedVideo?.byteLength;
 
-      if (uploadBytes != null && uploadBytes.isNotEmpty && videoLocalPath.isEmpty) {
+        if (uploadBytes != null &&
+            uploadBytes.isNotEmpty &&
+            videoLocalPath.isEmpty) {
+          final u8 = uploadBytes is Uint8List
+              ? uploadBytes
+              : Uint8List.fromList(uploadBytes);
+          fileSize = u8.length;
+          await ChurchChatMediaStorage.putBytesFast(
+            storagePath: storagePath,
+            bytes: u8,
+            contentType: mime,
+            onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
+          );
+        } else if (videoLocalPath.isNotEmpty) {
+          await ChurchChatMediaStorage.putFile(
+            storagePath: storagePath,
+            localPath: videoLocalPath,
+            contentType: mime,
+            onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
+          );
+          if (fileSize == null) {
+            try {
+              fileSize = await File(videoLocalPath).length();
+            } catch (_) {}
+          }
+        } else {
+          throw StateError('Sem vídeo para enviar.');
+        }
+
+        final thumbBytes = preparedVideo?.thumbnailBytes;
+        if (thumbBytes != null && thumbBytes.isNotEmpty) {
+          thumbStoragePath =
+              ChurchChatService.buildChatVideoThumbStoragePathForMessage(
+            tenantId: resolvedTenant,
+            messageId: messageId,
+          );
+          try {
+            await ChurchChatMediaStorage.putBytesFast(
+              storagePath: thumbStoragePath,
+              bytes: thumbBytes,
+              contentType: 'image/jpeg',
+              onProgress: (t) => _mapProgress(reportProgress, 0.85, 0.9, t),
+            ).timeout(const Duration(seconds: 15));
+          } catch (_) {
+            thumbStoragePath = null;
+          }
+        }
+      } else if (pending.kind == 'audio') {
+        final mime = pending.mime.isNotEmpty ? pending.mime : 'audio/mp4';
+        if (uploadBytes != null && uploadBytes.isNotEmpty) {
+          final u8 = uploadBytes is Uint8List
+              ? uploadBytes
+              : Uint8List.fromList(uploadBytes);
+          fileSize = u8.length;
+          await ChurchChatMediaStorage.putBytesFast(
+            storagePath: storagePath,
+            bytes: u8,
+            contentType: mime,
+            onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
+          );
+        } else if (uploadPath.isNotEmpty) {
+          await ChurchChatMediaStorage.putFile(
+            storagePath: storagePath,
+            localPath: uploadPath,
+            contentType: mime,
+            onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
+          );
+          try {
+            fileSize = await File(uploadPath).length();
+          } catch (_) {}
+        } else {
+          throw StateError('Sem áudio para enviar.');
+        }
+      } else if (uploadBytes != null && uploadBytes.isNotEmpty) {
         final u8 = uploadBytes is Uint8List
             ? uploadBytes
             : Uint8List.fromList(uploadBytes);
@@ -228,108 +367,39 @@ abstract final class ChurchChatMediaSendService {
         await ChurchChatMediaStorage.putBytesFast(
           storagePath: storagePath,
           bytes: u8,
-          contentType: mime,
-          onProgress: (t) => _mapProgress(onProgress, 0.3, 0.85, t),
-        );
-      } else if (videoLocalPath.isNotEmpty) {
-        await ChurchChatMediaStorage.putFile(
-          storagePath: storagePath,
-          localPath: videoLocalPath,
-          contentType: mime,
-          onProgress: (t) => _mapProgress(onProgress, 0.3, 0.85, t),
-        );
-        if (fileSize == null) {
-          try {
-            fileSize = await File(videoLocalPath).length();
-          } catch (_) {}
-        }
-      } else {
-        throw StateError('Sem vídeo para enviar.');
-      }
-
-      final thumbBytes = preparedVideo?.thumbnailBytes;
-      if (thumbBytes != null && thumbBytes.isNotEmpty) {
-        thumbStoragePath = ChurchChatService.buildChatVideoThumbStoragePath(
-          tenantId: resolvedTenant,
-          threadId: threadId,
-          timestampMs: ts,
-        );
-        try {
-          await ChurchChatMediaStorage.putBytesFast(
-            storagePath: thumbStoragePath,
-            bytes: thumbBytes,
-            contentType: 'image/jpeg',
-            onProgress: (t) => _mapProgress(onProgress, 0.85, 0.9, t),
-          ).timeout(const Duration(seconds: 15));
-        } catch (_) {
-          thumbStoragePath = null;
-        }
-      }
-    } else if (pending.kind == 'audio') {
-      final mime = pending.mime.isNotEmpty ? pending.mime : 'audio/mp4';
-      if (uploadBytes != null && uploadBytes.isNotEmpty) {
-        final u8 = uploadBytes is Uint8List
-            ? uploadBytes
-            : Uint8List.fromList(uploadBytes);
-        fileSize = u8.length;
-        await UnifiedUploadService.uploadChatMediaBytes(
-          storagePath: storagePath,
-          bytes: u8,
-          contentType: mime,
-          onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
+          contentType: pending.mime.isNotEmpty
+              ? pending.mime
+              : 'application/octet-stream',
+          onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
         );
       } else if (uploadPath.isNotEmpty) {
-        await UnifiedUploadService.uploadFile(
+        await ChurchChatMediaStorage.putFile(
           storagePath: storagePath,
           localPath: uploadPath,
-          contentType: mime,
-          module: YahwehUploadModule.chat,
-          onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
+          contentType: pending.mime,
+          onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
         );
         try {
           fileSize = await File(uploadPath).length();
         } catch (_) {}
       } else {
-        throw StateError('Sem áudio para enviar.');
+        throw StateError('Sem dados para enviar.');
       }
-    } else if (uploadBytes != null && uploadBytes.isNotEmpty) {
-      final u8 = uploadBytes is Uint8List
-          ? uploadBytes
-          : Uint8List.fromList(uploadBytes);
-      fileSize = u8.length;
-      await ChurchChatMediaStorage.putBytesFast(
-        storagePath: storagePath,
-        bytes: u8,
-        contentType:
-            pending.mime.isNotEmpty ? pending.mime : 'application/octet-stream',
-        onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
-      );
-    } else if (uploadPath.isNotEmpty) {
-      await ChurchChatMediaStorage.putFile(
-        storagePath: storagePath,
-        localPath: uploadPath,
-        contentType: pending.mime,
-        onProgress: (t) => _mapProgress(onProgress, 0.15, 0.85, t),
-      );
-      try {
-        fileSize = await File(uploadPath).length();
-      } catch (_) {}
-    } else {
-      throw StateError('Sem dados para enviar.');
     }
 
-    onProgress?.call(0.9);
+    reportProgress(0.9);
     ChurchPublishFlowLog.uploadOk('chat_${pending.kind}');
 
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
     }
-    onProgress?.call(0.92);
+    reportProgress(0.92);
 
     final written = await _writeFirestoreAfterUpload(
       resolvedTenant: resolvedTenant,
       threadId: threadId,
       pending: pending,
+      messageId: messageId,
       storagePath: storagePath,
       thumbStoragePath: thumbStoragePath,
       fileSize: fileSize,
@@ -340,10 +410,24 @@ abstract final class ChurchChatMediaSendService {
       throw StateError('Não foi possível gravar a mensagem no chat.');
     }
 
-    onProgress?.call(0.98);
+    reportProgress(0.98);
     pending.firestoreMessageId = written.messageId;
     onReplyCleared?.call();
-    onProgress?.call(1.0);
+    reportProgress(1.0);
+    unawaited(
+      ChurchChatUploadsService.markDone(
+        tenantId: resolvedTenant,
+        uploadId: messageId,
+      ),
+    );
+    unawaited(
+      ChurchChatMediaOutboxService.clearJob(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+        localId: pending.localId,
+        uploadDocId: messageId,
+      ),
+    );
     ChurchPublishFlowLog.chatFileUploaded();
     ChurchPublishFlowLog.chatFinalOk();
   }
@@ -352,6 +436,7 @@ abstract final class ChurchChatMediaSendService {
     required String resolvedTenant,
     required String threadId,
     required ChurchChatOutboundPending pending,
+    required String messageId,
     required String storagePath,
     String? thumbStoragePath,
     int? fileSize,
@@ -370,6 +455,7 @@ abstract final class ChurchChatMediaSendService {
           fileSize: fileSize,
           voiceDurationMs: pending.voiceDurationMs,
           replyTo: replyTo,
+          messageId: messageId,
           senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
           albumGroupId: pending.albumGroupId,
           albumIndex: pending.albumIndex,
@@ -377,24 +463,10 @@ abstract final class ChurchChatMediaSendService {
           skipStorageVerify: true,
         );
 
-    Object? last;
-    for (var attempt = 1; attempt <= 4; attempt++) {
-      try {
-        if (kIsWeb) {
-          return await FirestoreWebGuard.runWithWebRecovery(
-            writeOnce,
-            maxAttempts: 2,
-          );
-        }
-        return await writeOnce();
-      } catch (e) {
-        last = e;
-        if (attempt < 4) {
-          await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
-        }
-      }
+    if (kIsWeb) {
+      return FirestoreWebGuard.runChatWriteWithRecovery(writeOnce);
     }
-    throw last ?? StateError('Não foi possível gravar a mensagem no chat.');
+    return writeOnce();
   }
 
   static Future<PreparedChatImage> _prepareImageSafe({

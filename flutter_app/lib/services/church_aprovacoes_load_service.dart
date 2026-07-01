@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -59,7 +60,7 @@ class ChurchAprovacoesHistoricoResult {
 abstract final class ChurchAprovacoesLoadService {
   ChurchAprovacoesLoadService._();
 
-  static const int kMembrosScanLimit = 500;
+  static const int kMembrosScanLimit = 800;
   static const int kPendentesQueryLimit = 120;
 
   static final Map<
@@ -83,7 +84,7 @@ abstract final class ChurchAprovacoesLoadService {
       (data['status'] ?? data['STATUS'] ?? '').toString().trim().toLowerCase();
 
   static bool isPendente(Map<String, dynamic> data) =>
-      _statusNorm(data) == 'pendente';
+      authGateMemberDocIsPending(data);
 
   static DateTime? _tsField(Map<String, dynamic> data, String key) {
     final raw = data[key];
@@ -224,7 +225,7 @@ abstract final class ChurchAprovacoesLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _fetchMembrosNetwork(String churchId, String cacheKey) async {
+      _fetchMembrosScan(String churchId, String cacheKey) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
@@ -258,6 +259,63 @@ abstract final class ChurchAprovacoesLoadService {
     return snap.docs;
   }
 
+  /// Pendentes — query indexada em `igrejas/{churchId}/membros` + varredura fallback.
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _fetchPendentesNetwork(String churchId, String cacheKey) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    final col = ChurchUiCollections.membros(churchId);
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+
+    Future<void> mergeQuery(
+      Query<Map<String, dynamic>> q,
+      String subKey,
+    ) async {
+      Future<QuerySnapshot<Map<String, dynamic>>> read() =>
+          FirestoreReadResilience.getQuery(
+            q,
+            cacheKey: '${cacheKey}_$subKey',
+            maxAttempts: kIsWeb ? 4 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              read,
+              maxAttempts: 4,
+            ).timeout(const Duration(seconds: 14))
+          : await read().timeout(ChurchPanelReadTimeouts.queryCap);
+      for (final d in snap.docs) {
+        byId[d.id] = d;
+      }
+    }
+
+    await mergeQuery(
+      col.where('status', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
+      'status_lc',
+    ).catchError((_) {});
+
+    await mergeQuery(
+      col.where('STATUS', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
+      'status_uc',
+    ).catchError((_) {});
+
+    await mergeQuery(
+      col
+          .where('PUBLIC_SIGNUP', isEqualTo: true)
+          .limit(kPendentesQueryLimit),
+      'public_signup',
+    ).catchError((_) {});
+
+    final fromQueries =
+        byId.values.where((d) => isPendente(d.data())).toList();
+    if (fromQueries.isNotEmpty) return fromQueries;
+
+    final allDocs = await _fetchMembrosScan(churchId, cacheKey);
+    return _filterPendentes(allDocs);
+  }
+
   static Future<ChurchAprovacoesPendentesResult> loadPendentes({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -284,7 +342,7 @@ abstract final class ChurchAprovacoesLoadService {
 
     Object? lastError;
     try {
-      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey).timeout(
+      final allDocs = await _fetchPendentesNetwork(churchId, cacheKey).timeout(
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
       return _ok(
@@ -320,7 +378,7 @@ abstract final class ChurchAprovacoesLoadService {
     String cacheKey,
   ) async {
     try {
-      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey).timeout(
+      final allDocs = await _fetchPendentesNetwork(churchId, cacheKey).timeout(
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
       _ok(churchId: churchId, allDocs: allDocs, readSource: 'background');
@@ -448,7 +506,7 @@ abstract final class ChurchAprovacoesLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = const [];
 
     try {
-      allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
+      allDocs = await _fetchMembrosScan(churchId, cacheKey)
           .timeout(ChurchPanelReadTimeouts.queryCap);
     } catch (e) {
       lastError = e;
@@ -556,12 +614,14 @@ abstract final class ChurchAprovacoesLoadService {
     for (var i = 0; i < ids.length; i += chunkSize) {
       final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
       final slice = ids.sublist(i, end);
-      final batch = ChurchRepository.batch();
-      for (final id in slice) {
-        batch.delete(col.doc(id));
-      }
       await runFirestorePublishWithRecovery(
-        () => batch.commit(),
+        () async {
+          final batch = ChurchRepository.batch();
+          for (final id in slice) {
+            batch.delete(col.doc(id));
+          }
+          await batch.commit();
+        },
         maxAttempts: kIsWeb ? 3 : 2,
       );
     }

@@ -397,8 +397,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       ChurchUiCollections.escalaTemplates(tid);
   CollectionReference<Map<String, dynamic>> _instancesCol(String tid) =>
       ChurchUiCollections.escalas(tid);
-  CollectionReference<Map<String, dynamic>> _departmentsCol(String tid) => _churchDoc(tid).collection('departamentos');
-  CollectionReference<Map<String, dynamic>> _membersCol(String tid) => _churchDoc(tid).collection('membros');
+  CollectionReference<Map<String, dynamic>> _departmentsCol(String tid) =>
+      ChurchUiCollections.departamentos(tid);
+  CollectionReference<Map<String, dynamic>> _membersCol(String tid) =>
+      ChurchUiCollections.membros(tid);
+  CollectionReference<Map<String, dynamic>> _trocasCol(String tid) =>
+      ChurchUiCollections.escalaTrocas(tid);
 
   static const _deptColors = [
     Color(0xFF3B82F6), Color(0xFF16A34A), Color(0xFFE11D48), Color(0xFFF59E0B),
@@ -429,9 +433,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     String tid, {
     bool forceServer = false,
   }) async {
-    final r = await ChurchSchedulesLoadService.loadTemplates(
-      seedTenantId: tid,
-      forceServer: forceServer,
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final r = await FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchSchedulesLoadService.loadTemplates(
+        seedTenantId: tid,
+        forceServer: forceServer,
+      ).timeout(PanelResilientLoad.queryCap),
+      maxAttempts: 4,
     );
     await ChurchSchedulesLoadService.persistTemplates(r);
     if (mounted) {
@@ -444,10 +454,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     String tid, {
     bool forceServer = false,
   }) async {
-    final r = await ChurchSchedulesLoadService.loadEscalas(
-      seedTenantId: tid,
-      limit: 200,
-      forceServer: forceServer,
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final r = await FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchSchedulesLoadService.loadEscalas(
+        seedTenantId: tid,
+        limit: 200,
+        forceServer: forceServer,
+      ).timeout(PanelResilientLoad.queryCap),
+      maxAttempts: 4,
     );
     await ChurchSchedulesLoadService.persistEscalas(r);
     if (mounted) {
@@ -3561,8 +3577,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _tenantFuture,
         _deptsFuture,
         _effectiveTidFuture.then(
-          (tid) => ChurchUiCollections.churchDoc(tid)
-              .collection('escala_trocas')
+          (tid) => ChurchUiCollections.escalaTrocas(tid)
               .limit(800)
               .get(),
         ),
@@ -5352,8 +5367,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                         QuerySnapshot<
                                             Map<String, dynamic>>>.empty();
                                   }
-                                  return ChurchUiCollections.churchDoc(tid)
-                                      .collection('escala_trocas')
+                                  return ChurchUiCollections.escalaTrocas(tid)
                                       .where('escalaId', isEqualTo: doc.id)
                                       .watchSafe();
                                 }(),

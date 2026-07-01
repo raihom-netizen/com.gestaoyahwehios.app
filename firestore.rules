@@ -458,6 +458,22 @@ service cloud.firestore {
         ));
     }
 
+    function muralFeedAuthorUidFromData(data) {
+      return data.keys().hasAll(['createdByUid']) && data.createdByUid is string && data.createdByUid.size() > 0
+        ? data.createdByUid
+        : (data.keys().hasAll(['authorUid']) && data.authorUid is string ? data.authorUid : '');
+    }
+    /// Exclusão mural: equipe admin/pastoral tudo; líder de departamento só o que criou.
+    function canDeleteMuralFeedPost(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canWriteMuralFeed(tenantId) && isSignedIn()
+            && muralFeedAuthorUidFromData(resource.data) == request.auth.uid);
+    }
+    function canDeleteEventTemplates(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatMuralRole());
+    }
+
     /// Membro da igreja â€” caminho rÃ¡pido (exists/claims) + [memberLinkedToTenant] (ficha em `membros/{cpf}`).
     function chatTenantMemberFast(tenantId) {
       return isSignedIn() && (
@@ -691,21 +707,25 @@ service cloud.firestore {
       }
       match /patrimonio/{docId} {
         allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
-        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
         // SubcoleÃ§Ãµes do bem (manutenÃ§Ãµes, transferÃªncias) â€” mesmas permissÃµes do documento pai.
         match /manutencoes/{mid} {
           allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
-          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
+            || (canAccessTenant(id) && isPastoralOrSecretariatRole());
         }
         match /transferencias/{tid} {
           allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
-          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
+            || (canAccessTenant(id) && isPastoralOrSecretariatRole());
         }
       }
       // SessÃµes de inventÃ¡rio finalizadas (aba InventÃ¡rio â€” histÃ³rico auditÃ¡vel).
       match /patrimonio_inventario_historico/{hid} {
         allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
-        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
       }
       // LanÃ§amentos: sem lista fechada de chaves no cliente â€” importaÃ§Ã£o inteligente pode gravar
       // `smartPasteBatchId`, `source`, `parsedSnippet`, etc. (alinhado Controle Total; ver regras de merge no app).
@@ -713,7 +733,8 @@ service cloud.firestore {
         allow read: if isMaster()
           || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))
           || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro')
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
       }
       // Auditoria: exclusÃµes e aÃ§Ãµes (somente append; sem ediÃ§Ã£o pelo cliente).
       match /finance_logs/{logId} {
@@ -792,7 +813,8 @@ service cloud.firestore {
       match /event_templates/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
           || !resource.data.keys().hasAll(['active']) || resource.data.active == true;
-        allow write: if canWriteMuralFeed(id);
+        allow create, update: if canWriteMuralFeed(id);
+        allow delete: if canDeleteEventTemplates(id);
       }
       // Categorias do mural de eventos (cor, nome) â€” painel e app.
       match /event_categories/{docId} {
@@ -802,7 +824,8 @@ service cloud.firestore {
       match /eventos/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
           || noticiaDocPublicSiteReadable();
-        allow create, delete: if canWriteMuralFeed(id);
+        allow create: if canWriteMuralFeed(id);
+        allow delete: if canDeleteMuralFeedPost(id);
         allow update: if muralPostPublishFinalizeAllowed(id)
           || canWriteMuralFeed(id)
           || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
@@ -847,7 +870,8 @@ service cloud.firestore {
       match /avisos/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
           || avisoDocPublicSiteReadable();
-        allow create, delete: if canWriteMuralFeed(id);
+        allow create: if canWriteMuralFeed(id);
+        allow delete: if canDeleteMuralFeedPost(id);
         allow update: if muralPostPublishFinalizeAllowed(id)
           || canWriteMuralFeed(id)
           || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
@@ -917,7 +941,15 @@ service cloud.firestore {
       }
       match /pedidosOracao/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+        allow create: if isAdminPanel() || canWriteTenant(id)
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+          || (isSignedIn() && sameChurch(id) && request.resource.data.autorUid == request.auth.uid);
+        allow update: if isAdminPanel() || canWriteTenant(id)
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+          || (isSignedIn() && resource.data.autorUid == request.auth.uid);
+        allow delete: if isAdminPanel() || canWriteTenant(id)
+          || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+          || (isSignedIn() && resource.data.autorUid == request.auth.uid);
       }
 
       /// CPF 11 dÃ­gitos em `users/{uid}` â€” bate com `leaderCpfs` no departamento (escalas + chat).

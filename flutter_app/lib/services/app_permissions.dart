@@ -560,4 +560,84 @@ class AppPermissions {
     if (canApproveFinanceDespesaPendente(role)) return true;
     return !despesaFinanceiraExigeSegundaAprovacao(role);
   }
+
+  /// Gestor, pastor, secretário, administrador (ADM) — exclusão geral no painel igreja.
+  static bool canDeleteAnyChurchRecords(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (AppRoles.isFullAccess(role)) return true;
+    final n = ChurchRolePermissions.normalize(role);
+    if (const {
+      ChurchRoleKeys.adm,
+      ChurchRoleKeys.gestor,
+      ChurchRoleKeys.master,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.pastorAuxiliar,
+      ChurchRoleKeys.secretario,
+      ChurchRoleKeys.presbitero,
+    }.contains(n)) {
+      return true;
+    }
+    final r = role.toLowerCase().trim();
+    return r == 'administrador' || r == 'administradora';
+  }
+
+  /// Pedidos de oração — pastoral/admin ou autor do pedido.
+  static bool canManagePrayerRequest(
+    String role, {
+    required String currentUid,
+    required Map<String, dynamic> data,
+    List<String>? permissions,
+  }) {
+    if (canDeleteAnyChurchRecords(role, permissions: permissions)) return true;
+    final uid = currentUid.trim();
+    if (uid.isEmpty) return false;
+    return (data['autorUid'] ?? '').toString().trim() == uid;
+  }
+
+  /// Excluir lançamento financeiro — equipe admin/pastoral/tesouraria.
+  static bool canDeleteFinanceLancamento(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (hasModulePermission(permissions, 'financeiro')) return true;
+    if (canDeleteAnyChurchRecords(role, permissions: permissions)) return true;
+    return ChurchRolePermissions.isFinanceCoreTeam(role);
+  }
+
+  /// UID do autor de post mural (aviso/evento).
+  static String muralFeedAuthorUid(Map<String, dynamic> data) =>
+      (data['createdByUid'] ?? data['authorUid'] ?? '').toString().trim();
+
+  /// Avisos/eventos: admin/pastoral exclui tudo; líder de departamento só o que criou.
+  static bool canDeleteMuralFeedRecord(
+    String role, {
+    required String currentUid,
+    required Map<String, dynamic> data,
+    List<String>? permissions,
+  }) {
+    if (canDeleteAnyChurchRecords(role, permissions: permissions)) return true;
+    if (!canManageChurchMuralEventsAgenda(role, permissions: permissions)) {
+      return false;
+    }
+    final author = muralFeedAuthorUid(data);
+    final uid = currentUid.trim();
+    return author.isNotEmpty && uid.isNotEmpty && author == uid;
+  }
+
+  /// Alias semântico — editar segue a mesma regra de exclusão no mural/feed.
+  static bool canEditMuralFeedRecord(
+    String role, {
+    required String currentUid,
+    required Map<String, dynamic> data,
+    List<String>? permissions,
+  }) =>
+      canDeleteMuralFeedRecord(
+        role,
+        currentUid: currentUid,
+        data: data,
+        permissions: permissions,
+      );
 }

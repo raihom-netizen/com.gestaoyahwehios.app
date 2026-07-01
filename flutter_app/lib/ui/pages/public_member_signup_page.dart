@@ -18,15 +18,13 @@ import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
-import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
@@ -1012,32 +1010,35 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — nome fixo (sobrescreve ao trocar).
-  /// Primeiro cadastro: não há foto anterior; não é necessário delete-before-update.
-  Future<String> _uploadPhoto(
-      String tenantId, String memberDocId, XFile file) async {
-    final raw = await file.readAsBytes();
-    final bytes = await ImageHelper.compressMemberProfileForUpload(raw);
+  /// Upload síncrono para já gravar URL final no Firestore (cadastro público e painel).
+  Future<({String url, String storagePath})> _uploadPhoto({
+    required String tenantId,
+    required String memberDocId,
+    XFile? file,
+    Uint8List? rawBytes,
+  }) async {
+    final raw = rawBytes ??
+        (file != null ? await file.readAsBytes() : Uint8List.fromList(const []));
+    if (raw.isEmpty) {
+      throw Exception('Foto vazia — selecione outra imagem.');
+    }
     final mid = memberDocId.trim().isEmpty
         ? 'membro_${DateTime.now().millisecondsSinceEpoch}'
         : memberDocId.trim();
-    final full = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tenantId, mid);
-    final slash = full.lastIndexOf('/');
-    final folder = full.substring(0, slash);
-    final fileName = full.substring(slash + 1);
-    final uploaded = await FirebaseStorageService.instance.uploadBytes(
-      folder,
-      bytes,
-      fileName: fileName,
-      contentType: file.mimeType ?? 'image/jpeg',
+    final full =
+        ChurchStorageLayout.memberCanonicalProfilePhotoPath(tenantId, mid);
+    final uploaded = await ChurchCanonicalMediaPublish.compressAndUploadImage(
+      rawBytes: raw,
+      storagePath: full,
+      gateModule: YahwehMediaModule.membros,
+      logLabel: 'public_member_signup_foto',
+      requireAuth: false,
     );
-    if (uploaded == null || uploaded.isEmpty) {
-      throw Exception('Falha ao enviar foto para o Storage.');
-    }
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
       tenantId: tenantId,
       memberId: mid,
     );
-    return uploaded;
+    return (url: uploaded.downloadUrl, storagePath: uploaded.storagePath);
   }
 
   /// Avatar automático quando o membro não envia foto.
@@ -1209,12 +1210,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           ? col.doc(editingDocId)
           : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
       String? photoStoragePathField;
-      Uint8List? photoBytesForBackground;
+      String? photoUrlField;
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
-        photoBytesForBackground =
-            await ImageHelper.compressMemberProfileForUpload(_photoBytes!);
-        photoStoragePathField = ChurchStorageLayout.memberCanonicalProfilePhotoPath(
-            _tenantId!, ref.id);
+        final uploaded = await _uploadPhoto(
+          tenantId: _tenantId!,
+          memberDocId: ref.id,
+          file: _photoFile,
+          rawBytes: _photoBytes,
+        );
+        photoStoragePathField = uploaded.storagePath;
+        photoUrlField = sanitizeImageUrl(uploaded.url);
       }
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
@@ -1243,14 +1248,19 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
-        if (photoStoragePathField != null) ...{
-          'photoStoragePath': photoStoragePathField,
-          'foto_url': photoStoragePathField,
-          'FOTO_URL_OU_ID': photoStoragePathField,
-          'fotoUrl': photoStoragePathField,
-          'photoURL': photoStoragePathField,
-          'avatarUrl': photoStoragePathField,
-        },
+        if (photoStoragePathField != null &&
+            photoUrlField != null &&
+            photoStoragePathField.isNotEmpty &&
+            photoUrlField.isNotEmpty)
+          ...ChurchCanonicalMediaPublish.memberProfileFields(
+            downloadUrl: photoUrlField,
+            storagePath: photoStoragePathField,
+            thumbStoragePath:
+                ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(
+              _tenantId!,
+              ref.id,
+            ),
+          ),
         'PUBLIC_SIGNUP': true,
         'STATUS': 'pendente',
         'status': 'pendente',
@@ -1259,8 +1269,6 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'FUNCAO': 'Membro',
         'FUNCOES': <String>['membro'],
         'CRIADO_EM': FieldValue.serverTimestamp(),
-        if (photoBytesForBackground != null)
-          ...MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(
@@ -1300,19 +1308,6 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                 .catchError((_) {}),
           );
         }
-      }
-
-      if (photoBytesForBackground != null && _tenantId != null) {
-        final authUser = FirebaseAuth.instance.currentUser;
-        final isPublicVisitor =
-            authUser == null || authUser.isAnonymous;
-        MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
-          tenantId: _tenantId!,
-          memberDocId: ref.id,
-          memberData: data,
-          rawBytes: photoBytesForBackground,
-          requireAuth: !isPublicVisitor,
-        );
       }
 
       if (!mounted) return;

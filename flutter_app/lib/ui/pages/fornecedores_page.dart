@@ -215,6 +215,7 @@ Future<_FornecedoresAgendaBundle> _loadFornecedoresAgendaBundle({
       limit: compromissosLimit,
       fornecedorIdFilter: fornecedorIdFilter,
       descending: descending,
+      forceFresh: forceFresh,
     ).timeout(ChurchPanelReadTimeouts.queryCap);
   } catch (_) {}
 
@@ -226,84 +227,35 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   required int limit,
   String? fornecedorIdFilter,
   bool descending = false,
+  bool forceFresh = false,
 }) async {
   final churchId = ChurchRepository.churchId(tenantId.trim());
   if (churchId.isEmpty) return const MergedFirestoreQuerySnapshot([]);
   if (kIsWeb) {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
-  final col = ChurchUiCollections.fornecedorCompromissos(churchId);
-  final f = (fornecedorIdFilter ?? '').trim();
-
-  final cached = _CompromissosRamCache.peek(
-    churchId,
-    fornecedorIdFilter: f,
-    limit: limit,
-  );
-  if (cached != null && cached.isNotEmpty) {
-    return MergedFirestoreQuerySnapshot(cached);
-  }
-
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByVencimento(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
-    sorted.sort((a, b) {
-      final ta = a.data()['dataVencimento'];
-      final tb = b.data()['dataVencimento'];
-      if (ta is Timestamp && tb is Timestamp) {
-        return descending ? tb.compareTo(ta) : ta.compareTo(tb);
-      }
-      return 0;
-    });
-    return sorted;
-  }
-
-  Future<QuerySnapshot<Map<String, dynamic>>> read() async {
-    if (f.isNotEmpty) {
-      try {
-        return await col
-            .where('fornecedorId', isEqualTo: f)
-            .orderBy('dataVencimento', descending: true)
-            .limit(200)
-            .get(const GetOptions(source: Source.serverAndCache));
-      } catch (_) {
-        final plain = await col
-            .where('fornecedorId', isEqualTo: f)
-            .limit(200)
-            .get(const GetOptions(source: Source.serverAndCache));
-        return MergedFirestoreQuerySnapshot(_sortByVencimento(plain.docs));
-      }
-    }
-    try {
-      return await col
-          .orderBy('dataVencimento', descending: descending)
-          .limit(limit)
-          .get(const GetOptions(source: Source.serverAndCache));
-    } catch (_) {
-      final plain = await col
-          .limit(limit)
-          .get(const GetOptions(source: Source.serverAndCache));
-      return MergedFirestoreQuerySnapshot(_sortByVencimento(plain.docs));
-    }
-  }
 
   try {
-    final snap = await FirestoreWebGuard.runWithWebRecovery(
-      read,
-      maxAttempts: 4,
+    final result = await ChurchFornecedoresLoadService.loadCompromissos(
+      seedTenantId: churchId,
+      limit: limit,
+      fornecedorIdFilter: fornecedorIdFilter,
+      descending: descending,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
     ).timeout(ChurchPanelReadTimeouts.queryCap);
+    final docs = result.docs;
     _CompromissosRamCache.store(
       churchId,
-      snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
-      fornecedorIdFilter: f,
+      docs,
+      fornecedorIdFilter: fornecedorIdFilter ?? '',
       limit: limit,
     );
-    return snap;
+    return MergedFirestoreQuerySnapshot(docs);
   } catch (_) {
     final fallback = _CompromissosRamCache.peek(
       churchId,
-      fornecedorIdFilter: f,
+      fornecedorIdFilter: fornecedorIdFilter ?? '',
       limit: limit,
     );
     if (fallback != null) {
@@ -883,6 +835,7 @@ Future<void> showFornecedorCompromissoEditor(
   };
 
   _CompromissosRamCache.invalidate(churchId);
+  unawaited(ChurchFornecedoresLoadService.invalidate(churchId));
 
   try {
     final docRef = await FornecedorCompromissoPublishService.saveCompromisso(
@@ -958,7 +911,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     with SingleTickerProviderStateMixin {
   final _searchCtrl = TextEditingController();
   String _q = '';
-  int _fornecedoresListLimit = YahwehPerformanceV4.defaultPageSize;
+  int _fornecedoresListLimit = ChurchFornecedoresLoadService.kDefaultAllLimit;
   Timer? _searchDebounce;
   late TabController _tabMain;
   QuerySnapshot<Map<String, dynamic>>? _fornecedoresSnap;
@@ -1045,7 +998,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await ChurchFornecedoresLoadService.load(
+      if (forceFresh) {
+        await ChurchFornecedoresLoadService.invalidate(tid);
+        _FornecedoresRamCache.invalidate(tid);
+      }
+      final result = await ChurchFornecedoresLoadService.loadAll(
         seedTenantId: tid,
         limit: _fornecedoresListLimit,
         forceRefresh: forceFresh,

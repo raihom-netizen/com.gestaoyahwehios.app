@@ -34,8 +34,8 @@ import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_reports_engine_fetcher.dart';
+import 'package:gestao_yahweh/services/church_relatorios_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
@@ -81,42 +81,28 @@ abstract final class _RelatoriosMembersDataCache {
   static Future<List<Map<String, dynamic>>> fetch(
     String tenantId, {
     int limit = 800,
+    bool forceRefresh = false,
   }) async {
     final tid = _canonicalTenantId(tenantId);
     if (tid.isEmpty) return const [];
 
-    final cached = peek(tid);
-    if (cached != null && cached.isNotEmpty) return cached;
-
-    try {
-      final dir = await MembersDirectorySnapshotService.readOnce(tid);
-      if (dir.hasEntries) {
-        final out = <Map<String, dynamic>>[];
-        for (final e in dir.entries) {
-          if (out.length >= limit) break;
-          out.add({...e.toMemberDataMap(), 'id': e.memberDocId});
-        }
-        if (out.isNotEmpty) {
-          _ram[tid] = (items: List.from(out), at: DateTime.now());
-          unawaited(
-              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
-          return out;
-        }
-      }
-    } catch (_) {}
-
-    try {
-      final snap =
-          await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
-      final out =
-          snap.docs.map((d) => {...d.data(), 'id': d.id}).toList(growable: false);
-      if (out.isNotEmpty) {
-        _ram[tid] = (items: List.from(out), at: DateTime.now());
-      }
-      return out;
-    } catch (_) {
-      return peek(tid) ?? const [];
+    if (!forceRefresh) {
+      final cached = peek(tid);
+      if (cached != null && cached.isNotEmpty) return cached;
+    } else {
+      ChurchRelatoriosLoadService.invalidateMembros(tid);
+      _ram.remove(tid);
     }
+
+    final rows = await ChurchRelatoriosLoadService.loadMembrosRows(
+      churchIdHint: tid,
+      limit: limit,
+      forceRefresh: forceRefresh,
+    );
+    if (rows.isNotEmpty) {
+      _ram[tid] = (items: List.from(rows), at: DateTime.now());
+    }
+    return rows;
   }
 }
 
@@ -149,6 +135,7 @@ void _prewarmRelatoriosData(String tenantId) {
   if (tid.isEmpty) return;
   unawaited(_RelatoriosMembersDataCache.fetch(tid));
   unawaited(_loadReportPdfBrandingFast(tid));
+  unawaited(ChurchRelatoriosLoadService.loadPatrimonioDocs(churchIdHint: tid));
 }
 
 /// Fecha no máximo uma rota (relatório sobre o painel). Nunca usa rootNavigator.
@@ -1017,10 +1004,10 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       _todosMembros = cached;
       _loadingMembros = false;
     }
-    unawaited(_carregarMembros());
+    unawaited(_carregarMembros(forceRefresh: cached == null || cached.isEmpty));
   }
 
-  Future<void> _carregarMembros() async {
+  Future<void> _carregarMembros({bool forceRefresh = false}) async {
     if (_todosMembros.isEmpty) {
       setState(() {
         _loadingMembros = true;
@@ -1028,8 +1015,11 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       });
     }
     try {
-      final all =
-          await _RelatoriosMembersDataCache.fetch(_effectiveTenantId, limit: 800);
+      final all = await _RelatoriosMembersDataCache.fetch(
+        _effectiveTenantId,
+        limit: 800,
+        forceRefresh: forceRefresh,
+      );
       if (mounted) {
         setState(() {
           _todosMembros = all;
@@ -1309,7 +1299,9 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
             style: IconButton.styleFrom(
                 minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
                     ThemeCleanPremium.minTouchTarget)),
-            onPressed: _loadingMembros ? null : _carregarMembros,
+            onPressed: _loadingMembros
+                ? null
+                : () => _carregarMembros(forceRefresh: true),
           ),
         ],
       ),
@@ -1322,7 +1314,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                     isSyncing: false,
                     errorTitle: 'Não foi possível carregar os membros',
                     error: _erroMembros,
-                    onRetry: _carregarMembros,
+                    onRetry: () => _carregarMembros(forceRefresh: true),
                   )
                 : ListView(
                     padding: ThemeCleanPremium.pagePadding(context),
@@ -1333,7 +1325,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                             _loadingMembros && _todosMembros.isNotEmpty,
                         errorTitle: 'Não foi possível carregar os membros',
                         error: _todosMembros.isEmpty ? _erroMembros : null,
-                        onRetry: _carregarMembros,
+                        onRetry: () => _carregarMembros(forceRefresh: true),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -4096,7 +4088,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool forceRefresh = false}) async {
     if (_docs.isEmpty) {
       setState(() {
         _loading = true;
@@ -4106,6 +4098,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
     try {
       final docs = await YahwehReportsEngineFetcher.fetchPatrimonioDocs(
         churchIdHint: _effectiveTenantId,
+        forceRefresh: forceRefresh,
       );
       if (mounted) {
         setState(() {
@@ -4261,7 +4254,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                     isSyncing: false,
                     errorTitle: 'Não foi possível carregar o patrimônio',
                     error: _loadError,
-                    onRetry: _load,
+                    onRetry: () => _load(forceRefresh: true),
                   )
                 : RefreshIndicator(
                 onRefresh: _load,
@@ -4273,7 +4266,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       isSyncing: _loading && _docs.isNotEmpty,
                       errorTitle: 'Não foi possível carregar o patrimônio',
                       error: _docs.isEmpty ? _loadError : null,
-                      onRetry: _load,
+                      onRetry: () => _load(forceRefresh: true),
                     ),
                     const SizedBox(height: 8),
                     // ── Filtrar por status (Super Premium) ──
@@ -4431,23 +4424,13 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   CollectionReference<Map<String, dynamic>> get _noticias =>
       ChurchUiCollections.eventos(_effectiveTenantId);
 
-  Future<void> _carregar() async {
+  Future<void> _carregar({bool forceRefresh = false}) async {
     setState(() {
       _loading = true;
       _carregarError = null;
     });
     _eventos = [];
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => _noticias
-            .where('type', isEqualTo: 'evento')
-            .limit(200)
-            .get(const GetOptions(source: Source.serverAndCache)),
-        maxAttempts: 4,
-      );
       final now = DateTime.now();
       DateTime start;
       DateTime end;
@@ -4467,27 +4450,17 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
         start = DateTime(now.year, now.month, 1);
         end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
       }
-      for (final d in snap.docs) {
-        final data = d.data();
-        final startAt = data['startAt'];
-        if (startAt == null) continue;
-        DateTime dt;
-        if (startAt is Timestamp) dt = startAt.toDate();
-        else if (startAt is DateTime) dt = startAt;
-        else continue;
-        if (dt.isBefore(start) || dt.isAfter(end)) continue;
-        final rsvp = (data['rsvp'] as List?) ?? [];
-        final likes = (data['likes'] as List?) ?? [];
-        _eventos.add({
-          'id': d.id,
-          'title': (data['title'] ?? 'Evento').toString(),
-          'date': dt,
-          'rsvpCount': rsvp.length,
-          'likesCount': likes.length,
-          'location': (data['location'] ?? '').toString(),
-        });
+
+      if (forceRefresh) {
+        ChurchRelatoriosLoadService.invalidateEventos(_effectiveTenantId);
       }
-      _eventos.sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+
+      _eventos = await YahwehReportsEngineFetcher.fetchEventosForPeriod(
+        churchIdHint: _effectiveTenantId,
+        inicio: start,
+        fim: end,
+        forceRefresh: forceRefresh,
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _carregarError = e.toString());
@@ -4643,7 +4616,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
                   isSyncing: false,
                   errorTitle: 'Não foi possível carregar os eventos',
                   error: _carregarError,
-                  onRetry: _carregar,
+                  onRetry: () => _carregar(forceRefresh: true),
                 ),
               )
             else if (_loading && _eventos.isEmpty)

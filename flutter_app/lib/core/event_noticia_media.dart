@@ -251,10 +251,11 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   }
 
   // 3) Chaves soltas de URL (casos em que salvou "uma foto" ou capa)
+  final skipThumbKeysAsGallery = out.isNotEmpty;
   for (final key in [
     'image_url',
     'imageURL',
-    'thumbUrl',
+    if (!skipThumbKeysAsGallery) 'thumbUrl',
     'coverUrl',
     'capaUrl',
     'coverImageUrl',
@@ -304,8 +305,95 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
       if (out.isNotEmpty) break;
     }
   }
-  return dedupeImageRefsByStorageIdentity(
-      noticiaImageRefsPreferDisplayOrder(out));
+  return feedPostCarouselPhotoUrlsFromRawRefs(
+    noticiaImageRefsPreferDisplayOrder(out),
+  );
+}
+
+/// Path Storage derivado de URL https, `gs://` ou path relativo `igrejas/…`.
+String? feedPostStoragePathFromRef(String ref) {
+  final s = sanitizeImageUrl(ref.trim());
+  if (s.isEmpty) return null;
+  final fromHttp = firebaseStorageObjectPathFromHttpUrl(s);
+  if (fromHttp != null && fromHttp.isNotEmpty) {
+    return normalizeFirebaseStorageObjectPath(fromHttp);
+  }
+  final low = s.toLowerCase();
+  if (low.startsWith('gs://')) {
+    final rest = s.substring(5);
+    final idx = rest.indexOf('/');
+    if (idx > 0 && idx + 1 < rest.length) {
+      return normalizeFirebaseStorageObjectPath(rest.substring(idx + 1));
+    }
+  }
+  if (firebaseStorageMediaUrlLooksLike(s) &&
+      !low.startsWith('http://') &&
+      !low.startsWith('https://')) {
+    return normalizeFirebaseStorageObjectPath(s.replaceFirst(RegExp(r'^/+'), ''));
+  }
+  return null;
+}
+
+/// Chave de slot da galeria (capa=0, galeria_NN=N) — variantes thumb partilham o slot.
+String _feedGallerySlotKey(String ref) {
+  final path = (feedPostStoragePathFromRef(ref) ?? ref).toLowerCase();
+  if (path.contains('capa_aviso') ||
+      path.contains('banner_evento') ||
+      path.contains('capa.webp') ||
+      path.contains('_capa.')) {
+    return 'slot:0';
+  }
+  final gal = RegExp(r'galeria_0?(\d+)').firstMatch(path);
+  if (gal != null) {
+    return 'slot:${int.parse(gal.group(1)!)}';
+  }
+  final indexed = RegExp(r'[_/](\d{2})[_\.]').firstMatch(path);
+  if (indexed != null) {
+    final n = int.tryParse(indexed.group(1)!);
+    if (n != null && n >= 1 && n <= 10) return 'slot:$n';
+  }
+  return 'unique:$path';
+}
+
+/// Remove duplicata capa+thumb / path+URL do mesmo slot — carrossel do mural e site.
+List<String> feedPostCarouselPhotoUrlsFromRawRefs(Iterable<String> refs) {
+  final ordered = dedupeImageRefsByStorageIdentity(
+    noticiaImageRefsPreferDisplayOrder(refs),
+  );
+  if (ordered.length <= 1) return ordered;
+
+  final bestBySlot = <String, String>{};
+  final rankBySlot = <String, int>{};
+
+  for (final ref in ordered) {
+    final slot = _feedGallerySlotKey(ref);
+    final rank = _noticiaRefDisplayRank(ref);
+    final prev = rankBySlot[slot];
+    if (prev == null || rank < prev) {
+      rankBySlot[slot] = rank;
+      bestBySlot[slot] = ref;
+    }
+  }
+
+  int slotOrder(String key) {
+    if (!key.startsWith('slot:')) return 1000;
+    return int.tryParse(key.substring(5)) ?? 999;
+  }
+
+  final keys = bestBySlot.keys.toList()
+    ..sort((a, b) {
+      final oa = slotOrder(a);
+      final ob = slotOrder(b);
+      if (oa != ob) return oa.compareTo(ob);
+      return a.compareTo(b);
+    });
+  return [for (final k in keys) bestBySlot[k]!];
+}
+
+/// Fotos do carrossel (avisos/eventos) — uma entrada por slot, sem thumb duplicado.
+List<String> feedPostCarouselPhotoUrls(Map<String, dynamic>? data) {
+  if (data == null) return const [];
+  return eventNoticiaPhotoUrls(data);
 }
 
 /// Há foto resolvível no doc (URLs ou paths Storage) — evita spinner infinito no feed.

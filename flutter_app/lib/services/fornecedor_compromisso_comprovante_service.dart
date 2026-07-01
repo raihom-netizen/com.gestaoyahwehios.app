@@ -37,6 +37,8 @@ abstract final class FornecedorCompromissoComprovanteService {
       payload = await ImageHelper.compressPatrimonioPhotoForUpload(bytes);
       mime = 'image/jpeg';
       fileExt = 'jpg';
+    } else if (mime.startsWith('video/')) {
+      throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
     }
 
     final path = ChurchStorageLayout.fornecedorCompromissoComprovantePath(

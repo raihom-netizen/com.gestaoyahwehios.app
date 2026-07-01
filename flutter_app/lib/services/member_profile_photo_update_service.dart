@@ -249,6 +249,11 @@ class MemberProfilePhotoUpdateService {
         rawBytes: rawBytes,
         onPhase: onPhase,
       );
+      if (r.storagePath.trim().isEmpty) {
+        throw StateError(
+          'Upload da foto não concluiu. Verifique a rede e tente novamente.',
+        );
+      }
       await _afterPhotoSaved(
         tenantId: tenantId,
         memberDocId: memberDocId,

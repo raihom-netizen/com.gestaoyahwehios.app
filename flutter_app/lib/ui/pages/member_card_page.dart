@@ -210,7 +210,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         }
       }
       final entries = await MemberCardDirectoryService.loadMembers(
-        tenantId: widget.tenantId,
+        tenantId: _churchIdResolved,
         limit: limit,
         forceRefresh: forceRefresh || instant == null || instant.isEmpty,
       );
@@ -231,7 +231,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   Future<void> _refreshMembersInBackground({required int limit}) async {
     try {
       final entries = await MemberCardDirectoryService.loadMembers(
-        tenantId: widget.tenantId,
+        tenantId: _churchIdResolved,
         limit: limit,
         forceRefresh: false,
       );

@@ -2174,7 +2174,31 @@ class ChurchChatService {
     return true;
   }
 
-  /// Caminho Storage determinístico (stub Firestore + upload usam o mesmo path).
+  /// Id estável da mensagem — alinha `chats/…/messages/{id}` e `chat_uploads/{id}`.
+  static String allocateMediaMessageId({
+    required String tenantId,
+    required String threadId,
+  }) {
+    final resolved =
+        ChurchPublishContext.churchIdForPublish(tenantId.trim());
+    return messagesCol(resolved, threadId).doc().id;
+  }
+
+  /// Storage canónico por messageId: `igrejas/{churchId}/chat_media/{tipo}/{messageId}.ext`
+  static String buildChatMediaStoragePathForMessage({
+    required String tenantId,
+    required String messageId,
+    required String kind,
+    required String fileName,
+  }) =>
+      ChurchStorageLayout.buildChatMediaPathForMessage(
+        tenantId: ChurchPublishContext.churchIdForPublish(tenantId.trim()),
+        messageId: messageId,
+        kind: kind,
+        fileName: fileName,
+      );
+
+  /// Caminho Storage legado (uid+timestamp) — só retoma/migração.
   static String buildChatMediaStoragePath({
     required String tenantId,
     required String threadId,
@@ -2192,6 +2216,26 @@ class ChurchChatService {
       fileName: fileName,
     );
   }
+
+  static String buildChatImageThumbStoragePathForMessage({
+    required String tenantId,
+    required String messageId,
+  }) =>
+      ChurchStorageLayout.buildChatMediaThumbPathForMessage(
+        tenantId: ChurchPublishContext.churchIdForPublish(tenantId.trim()),
+        messageId: messageId,
+        suffix: 'image',
+      );
+
+  static String buildChatVideoThumbStoragePathForMessage({
+    required String tenantId,
+    required String messageId,
+  }) =>
+      ChurchStorageLayout.buildChatMediaThumbPathForMessage(
+        tenantId: ChurchPublishContext.churchIdForPublish(tenantId.trim()),
+        messageId: messageId,
+        suffix: 'video',
+      );
 
   static String buildChatVideoThumbStoragePath({
     required String tenantId,
@@ -2348,6 +2392,8 @@ class ChurchChatService {
     int albumIndex = 0,
     int albumCount = 1,
     int? voiceDurationMs,
+    /// Id pré-alocado (mesmo de `chat_uploads/{messageId}`).
+    String? messageId,
     /// Após [EcoFireStorageUpload.putData] concluído — evita re-verificação lenta na Web.
     bool skipStorageVerify = false,
   }) async {
@@ -2377,7 +2423,10 @@ class ChurchChatService {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
-    final msgRef = messagesCol(resolvedTenant, threadId).doc();
+    final preId = (messageId ?? '').trim();
+    final msgRef = preId.isNotEmpty
+        ? messagesCol(resolvedTenant, threadId).doc(preId)
+        : messagesCol(resolvedTenant, threadId).doc();
     final gid = (albumGroupId ?? '').trim();
     final aCount = albumCount < 1 ? 1 : albumCount;
     var preview = gid.isNotEmpty && aCount > 1
@@ -2395,25 +2444,22 @@ class ChurchChatService {
       preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
-    final sp = storagePath.trim();
     final data = <String, dynamic>{
       'senderUid': uid,
       'senderId': uid,
       'type': kind,
-      'deliveryStatus': deliverySent,
-      'status': deliverySent,
-      'uploadCompleted': true,
-      'storageVerified': true,
-      'storagePath': sp,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
-      if (fileName != null && fileName.trim().isNotEmpty)
-        'fileName': fileName.trim(),
-      if (fileSize != null && fileSize > 0) 'fileSize': fileSize,
-      if (voiceDurationMs != null && voiceDurationMs > 0) ...{
-        'duration': (voiceDurationMs / 1000).ceil(),
-        'durationSeconds': (voiceDurationMs / 1000).ceil(),
-      },
+      ...ChurchChatMessageFields.mediaWritePatch(
+        storagePath: storagePath,
+        thumbStoragePath: thumbStoragePath,
+        fileName: fileName,
+        fileSize: fileSize,
+        voiceDurationSeconds: voiceDurationMs != null && voiceDurationMs > 0
+            ? (voiceDurationMs / 1000).ceil()
+            : null,
+        deliveryStatus: deliverySent,
+      ),
       if (nr != null) 'replyTo': nr,
       if (nf != null) 'forwardedFrom': nf,
       if (gid.isNotEmpty) ...{
@@ -2428,10 +2474,6 @@ class ChurchChatService {
             label.length > 100 ? label.substring(0, 100) : label,
       },
     };
-    final thumb = (thumbStoragePath ?? '').trim();
-    if (thumb.isNotEmpty) {
-      data['thumbStoragePath'] = thumb;
-    }
     await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
     Object? last;
     for (var attempt = 1; attempt <= 5; attempt++) {
@@ -2441,15 +2483,29 @@ class ChurchChatService {
           await ensureFirebaseReadyForChatSend();
           await Future<void>.delayed(Duration(milliseconds: 240 * attempt));
         }
-        await _commitMessageAndThreadIndex(
-          tenantId: resolvedTenant,
-          threadId: threadId,
-          msgRef: msgRef,
-          messageData: ChurchChatMessageFields.withCanonicalAliases(data),
-          preview: preview,
-          senderUid: uid,
-          messageType: kind,
-        );
+        if (kIsWeb) {
+          await FirestoreWebGuard.runChatWriteWithRecovery(
+            () => _commitMessageAndThreadIndex(
+              tenantId: resolvedTenant,
+              threadId: threadId,
+              msgRef: msgRef,
+              messageData: ChurchChatMessageFields.withCanonicalAliases(data),
+              preview: preview,
+              senderUid: uid,
+              messageType: kind,
+            ),
+          );
+        } else {
+          await _commitMessageAndThreadIndex(
+            tenantId: resolvedTenant,
+            threadId: threadId,
+            msgRef: msgRef,
+            messageData: ChurchChatMessageFields.withCanonicalAliases(data),
+            preview: preview,
+            senderUid: uid,
+            messageType: kind,
+          );
+        }
         ChurchPublishFlowLog.chatMessageCreated();
         ChurchPublishFlowLog.chatFileUploaded();
         ChurchPublishFlowLog.chatFinalOk();

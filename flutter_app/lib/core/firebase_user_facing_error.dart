@@ -64,8 +64,8 @@ String formatFirebaseErrorForUser(
       return 'Erro no Storage ($code). Saia e entre de novo no painel, depois tente o envio.';
     }
     if (_isNoFirebaseAppError(error)) {
-      return 'Firebase não inicializou ($plugin/$code). '
-          'Toque em «Tentar de novo» no ecrã ou reinicie o app.';
+      return 'Sincronização Firebase temporariamente indisponível. '
+          'Toque em «Tentar de novo».';
     }
     return 'Firebase $plugin ($code)'
         '${m != null && m.isNotEmpty ? ': $m' : ''}';
@@ -79,7 +79,8 @@ String formatFirebaseErrorForUser(
     final m = error.message.trim();
     if (m.contains('Sessão expirada')) return m;
     if (_isNoFirebaseAppError(error)) {
-      return 'Firebase: $m';
+      return 'Sincronização Firebase temporariamente indisponível. '
+          'Toque em «Tentar de novo».';
     }
     return m.isNotEmpty ? m : error.toString();
   }

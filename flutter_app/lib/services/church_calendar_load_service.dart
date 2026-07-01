@@ -4,7 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
+import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -203,6 +205,36 @@ abstract final class ChurchCalendarLoadService {
       cultosSnap = parallel[2] as QuerySnapshot<Map<String, dynamic>>;
       escalasSnap = parallel[3] as QuerySnapshot<Map<String, dynamic>>?;
       templatesSnap = parallel[4] as QuerySnapshot<Map<String, dynamic>>;
+    }
+
+    final eventosCount = eventosByData.docs.length +
+        (muralEventos?.docs.length ?? 0);
+    if (eventosCount == 0) {
+      final galleryRam = ChurchEventosLoadService.peekRam(
+        churchId,
+        limit: ChurchEventosLoadService.kGalleryLimit,
+      );
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> galleryDocs =
+          galleryRam ?? const [];
+      if (galleryDocs.isEmpty) {
+        try {
+          final gallery = await ChurchEventosLoadService.loadGallery(
+            seedTenantId: churchId,
+            forceRefresh: forceRefresh,
+          ).timeout(_queryCap);
+          galleryDocs = gallery.docs;
+        } catch (_) {}
+      }
+      if (galleryDocs.isNotEmpty) {
+        final filtered = galleryDocs.where((d) {
+          final dt = AgendaFirestoreFields.parseDate(d.data());
+          if (dt == null) return false;
+          return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+        }).toList();
+        if (filtered.isNotEmpty) {
+          eventosByData = MergedFirestoreQuerySnapshot(filtered);
+        }
+      }
     }
 
     return ChurchCalendarMonthLoadResult(

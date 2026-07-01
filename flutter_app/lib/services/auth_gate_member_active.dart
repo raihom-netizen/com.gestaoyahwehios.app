@@ -22,9 +22,22 @@ bool authGateMemberDocIndicatesActive(Map<String, dynamic>? memberData) {
 
 bool authGateMemberDocIsPending(Map<String, dynamic>? memberData) {
   if (memberData == null) return false;
-  final status =
-      (memberData['STATUS'] ?? memberData['status'] ?? '').toString().trim().toLowerCase();
-  return status == 'pendente';
+  final status = (memberData['STATUS'] ?? memberData['status'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (status.contains('pendente')) return true;
+  if (memberData['PUBLIC_SIGNUP'] == true) {
+    return status.isEmpty || status == 'pending';
+  }
+  return false;
+}
+
+/// Membro elegível para certificados / rol ativo (exclui pendente e inativo).
+bool authGateMemberDocEligibleForCertificados(Map<String, dynamic>? memberData) {
+  if (memberData == null || memberData.isEmpty) return false;
+  if (authGateMemberDocIsPending(memberData)) return false;
+  return authGateMemberDocIndicatesActive(memberData);
 }
 
 /// Mescla `users.ativo` com estado da ficha membro.

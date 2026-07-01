@@ -103,6 +103,7 @@ import '../../services/app_permissions.dart';
 import '../../services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
@@ -115,6 +116,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
+import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
 import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
@@ -1094,7 +1096,14 @@ class _MembersPageState extends State<MembersPage> {
   }) {
     if (!_membersListFiltersActive()) {
       final summary = _directoryCache.summary;
-      if (summary != null && summary.total > 0) return summary.total;
+      if (summary != null && summary.hasCounts) {
+        final rollTotal =
+            summary.ativos + summary.inativos + summary.pendentes;
+        if (rollTotal > 0) return rollTotal;
+        if (summary.total > 0) {
+          return summary.total + summary.pendentes;
+        }
+      }
       final tc = _directoryCache.totalCount;
       if (tc > 0) return tc;
       final planCount = limitResult?.currentCount ?? 0;
@@ -1158,11 +1167,7 @@ class _MembersPageState extends State<MembersPage> {
         )
         .toList();
     final pendDocs = allDocs
-        .where((d) =>
-            (d.data()['status'] ?? d.data()['STATUS'] ?? '')
-                .toString()
-                .toLowerCase() ==
-            'pendente')
+        .where((d) => authGateMemberDocIsPending(d.data()))
         .toList();
     final merged = _MergedQuerySnapshot(allDocs);
     return [
@@ -1181,11 +1186,7 @@ class _MembersPageState extends State<MembersPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
   ) {
     final pendDocs = allDocs
-        .where((d) =>
-            (d.data()['status'] ?? d.data()['STATUS'] ?? '')
-                .toString()
-                .toLowerCase() ==
-            'pendente')
+        .where((d) => authGateMemberDocIsPending(d.data()))
         .toList();
     final merged = _MergedQuerySnapshot(allDocs);
     return [
@@ -2036,6 +2037,12 @@ class _MembersPageState extends State<MembersPage> {
   /// Gestão completa da lista (qualquer membro): admin, gestor, pastor, secretário, tesoureiro etc.
   bool get _canManage =>
       AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
+
+  bool get _canDeleteMembers =>
+      AppPermissions.canDeleteAnyChurchRecords(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   String? _membersModuleBarSubtitle() {
     final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
@@ -3101,6 +3108,7 @@ class _MembersPageState extends State<MembersPage> {
     XFile? newPhoto;
     Uint8List? newPhotoBytes;
     final profilePhotoPreview = ValueNotifier<Uint8List?>(null);
+    var removeProfilePhoto = false;
     final currentPhoto = _photoUrlForMember(member.id, d);
     final photoTenantId = _storageTenantIdForMemberPhotos(d);
     final memberName = _str(d, 'NOME_COMPLETO', 'nome', 'name');
@@ -3210,6 +3218,7 @@ class _MembersPageState extends State<MembersPage> {
                                   newPhotoBytes = picked.bytes;
                                   profilePhotoPreview.value = picked.bytes;
                                   newPhoto = null;
+                                  removeProfilePhoto = false;
                                   if (ctx.mounted) {
                                     ImmediateMediaAttachFeedback
                                         .showArquivoAnexado(
@@ -3249,6 +3258,18 @@ class _MembersPageState extends State<MembersPage> {
                                             MemoryImage(localBytes),
                                       );
                                     }
+                                    if (removeProfilePhoto) {
+                                      return CircleAvatar(
+                                        radius: 45,
+                                        backgroundColor: avatarBg,
+                                        child: Icon(
+                                          Icons.person_rounded,
+                                          size: 42,
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.45),
+                                        ),
+                                      );
+                                    }
                                     return _MemberAvatar(
                                       photoUrl: currentPhoto.isNotEmpty
                                           ? currentPhoto
@@ -3278,6 +3299,26 @@ class _MembersPageState extends State<MembersPage> {
                               ],
                             ),
                           ),
+                          if ((currentPhoto.isNotEmpty ||
+                                  newPhotoBytes != null ||
+                                  profilePhotoPreview.value != null) &&
+                              !removeProfilePhoto)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: () => setDlg(() {
+                                  newPhotoBytes = null;
+                                  newPhoto = null;
+                                  profilePhotoPreview.value = null;
+                                  removeProfilePhoto = true;
+                                }),
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  size: 18,
+                                ),
+                                label: const Text('Remover foto'),
+                              ),
+                            ),
                           if (_pickingProfilePhoto)
                             const Padding(
                               padding: EdgeInsets.only(top: 10),
@@ -4471,6 +4512,7 @@ class _MembersPageState extends State<MembersPage> {
                                 'funcoesSelecionadas': sel,
                                 'dataConsagracao': dataConsagracao,
                                 'removeConsagracao': removeConsagracao,
+                                'removeProfilePhoto': removeProfilePhoto,
                                 'name': nameCtrl.text.trim(),
                                 'email': emailCtrl.text.trim(),
                                 'phone': phoneCtrl.text.trim(),
@@ -4615,6 +4657,21 @@ class _MembersPageState extends State<MembersPage> {
           userUid: FirebaseAuth.instance.currentUser?.uid,
         );
         _applyMemberSavedLocally(member.id, updates);
+
+        if (result['removeProfilePhoto'] == true &&
+            pendingProfilePhotoBytes == null) {
+          final churchId = ChurchRepository.churchId(targetTenantId);
+          ChurchCanonicalMediaDeleteService.scheduleMemberProfilePhotoRemoved(
+            tenantId: churchId,
+            memberId: member.id,
+            memberData: member.data,
+            memberDocRef:
+                ChurchUiCollections.membros(churchId).doc(member.id),
+          );
+          if (mounted) {
+            setState(() => _optimisticProfilePhotoBytes.remove(member.id));
+          }
+        }
 
         var authUidSelf = member.data['authUid']?.toString().trim();
         final newEmSelf = (updates['EMAIL'] ?? '').toString();
@@ -4943,6 +5000,21 @@ class _MembersPageState extends State<MembersPage> {
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
       _applyMemberSavedLocally(member.id, updates);
+
+      if (result['removeProfilePhoto'] == true &&
+          pendingProfilePhotoBytesGestor == null) {
+        final churchId = ChurchRepository.churchId(targetTenantId);
+        ChurchCanonicalMediaDeleteService.scheduleMemberProfilePhotoRemoved(
+          tenantId: churchId,
+          memberId: member.id,
+          memberData: member.data,
+          memberDocRef: ChurchUiCollections.membros(churchId).doc(member.id),
+        );
+        if (mounted) {
+          setState(() => _optimisticProfilePhotoBytes.remove(member.id));
+        }
+      }
+
       var authUid = member.data['authUid']?.toString().trim();
       final newEmGestor = (updates['EMAIL'] ?? '').toString();
       final prevEmGestor = _str(member.data, 'EMAIL', 'email');
@@ -5200,7 +5272,7 @@ class _MembersPageState extends State<MembersPage> {
 
   // ─── Excluir Membro ───────────────────────────────────────────────────────
   Future<void> _deleteMember(BuildContext context, _MemberDoc member) async {
-    if (!_canManage) {
+    if (!_canDeleteMembers) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
@@ -5863,7 +5935,7 @@ class _MembersPageState extends State<MembersPage> {
                                                       fontWeight:
                                                           FontWeight.w600))
                                             ])),
-                                      if (_canManage) ...[
+                                      if (_canDeleteMembers) ...[
                                         const PopupMenuItem(
                                             value: 'delete',
                                             child: Row(children: [
@@ -6188,7 +6260,7 @@ class _MembersPageState extends State<MembersPage> {
                                             style: TextStyle(
                                                 fontWeight: FontWeight.w600))
                                       ])),
-                                if (_canManage) ...[
+                                if (_canDeleteMembers) ...[
                                   const PopupMenuItem(
                                       value: 'delete',
                                       child: Row(children: [

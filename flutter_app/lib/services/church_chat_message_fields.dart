@@ -1,7 +1,9 @@
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
+
 /// Campos canónicos de mensagem do Chat Igreja (Firestore).
 ///
-/// Escrita dupla (`senderId`+`senderUid`, `thumbnailUrl`+`thumbUrl`, `status`+`deliveryStatus`)
-/// para compatibilidade; leitura usa fallbacks.
+/// Escrita: [ChurchCanonicalMediaContract.chatMediaWritePatch] (path-only).
+/// Leitura: delega ao contrato canónico partilhado.
 abstract final class ChurchChatMessageFields {
   ChurchChatMessageFields._();
 
@@ -24,33 +26,21 @@ abstract final class ChurchChatMessageFields {
 
   /// Legado — novas mensagens usam só [storagePath]; URL gerada na exibição.
   static String mediaUrl(Map<String, dynamic> data) =>
-      (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString().trim();
+      ChurchCanonicalMediaContract.chatLegacyMediaUrl(data);
 
   /// Caminho canónico no bucket (`igrejas/{id}/chat_media/...`).
   static String storagePath(Map<String, dynamic> data) =>
-      (data['storagePath'] ?? data['storage_path'] ?? '').toString().trim();
+      ChurchCanonicalMediaContract.chatStoragePath(data);
 
   static String thumbStoragePath(Map<String, dynamic> data) =>
-      (data['thumbStoragePath'] ?? data['thumb_storage_path'] ?? '')
-          .toString()
-          .trim();
+      ChurchCanonicalMediaContract.chatThumbStoragePath(data);
 
   /// Legado — preferir [thumbStoragePath] + resolver dinâmico.
   static String thumbnailUrl(Map<String, dynamic> data) =>
-      (data['thumbnailUrl'] ??
-              data['thumbUrl'] ??
-              data['posterUrl'] ??
-              '')
-          .toString()
-          .trim();
+      ChurchCanonicalMediaContract.resolveChat(data).thumbDownloadUrl;
 
-  static bool hasResolvableMedia(Map<String, dynamic> data) {
-    // Com `storagePath` o ficheiro pode já estar no bucket — exibir miniatura e finalizar status.
-    if (storagePath(data).isNotEmpty) return true;
-    if (isUploadInProgress(data)) return false;
-    if (mediaUrl(data).isNotEmpty) return true;
-    return false;
-  }
+  static bool hasResolvableMedia(Map<String, dynamic> data) =>
+      ChurchCanonicalMediaContract.hasViewableChatMedia(data);
 
   static bool uploadCompleted(Map<String, dynamic> data) =>
       data['uploadCompleted'] == true;
@@ -70,7 +60,7 @@ abstract final class ChurchChatMessageFields {
       (data['status'] ?? data['deliveryStatus'] ?? '').toString().trim();
 
   static String fileName(Map<String, dynamic> data) =>
-      (data['fileName'] ?? '').toString().trim();
+      ChurchCanonicalMediaContract.resolveChat(data).fileName;
 
   static int? fileSize(Map<String, dynamic> data) {
     final raw = data['fileSize'] ?? data['size'];
@@ -125,4 +115,24 @@ abstract final class ChurchChatMessageFields {
     }
     return out;
   }
+
+  /// Campos de mídia canónicos (Storage path + metadados).
+  static Map<String, dynamic> mediaWritePatch({
+    required String storagePath,
+    String? thumbStoragePath,
+    String? fileName,
+    int? fileSize,
+    int? voiceDurationSeconds,
+    String deliveryStatus = 'sent',
+  }) =>
+      withCanonicalAliases(
+        ChurchCanonicalMediaContract.chatMediaWritePatch(
+          storagePath: storagePath,
+          thumbStoragePath: thumbStoragePath,
+          fileName: fileName,
+          fileSize: fileSize,
+          voiceDurationSeconds: voiceDurationSeconds,
+          deliveryStatus: deliveryStatus,
+        ),
+      );
 }

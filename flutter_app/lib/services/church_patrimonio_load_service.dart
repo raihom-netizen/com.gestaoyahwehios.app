@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -231,8 +232,8 @@ abstract final class ChurchPatrimonioLoadService {
         referenceBuilder: (id) => ChurchUiCollections.patrimonioInventarioHistorico(id),
         cacheKeyBuilder: inventarioHistoricoCacheKey,
         ramMap: _ramInventarioHistorico,
-        hiveModule: TenantModuleKeys.patrimonio,
-        queryOrderBy: 'createdAt',
+        hiveModule: TenantModuleKeys.patrimonioInventarioHistorico,
+        queryOrderBy: 'finalizadoEm',
         sortDocs: _sortByCreatedAtDesc,
       );
 
@@ -294,6 +295,24 @@ abstract final class ChurchPatrimonioLoadService {
     final ramKey = cacheKeyBuilder(churchId, limit);
     final reference = referenceBuilder(churchId);
     final capped = FirebasePerformanceLimits.capListLimit(collectionLabel, limit);
+
+    if (forceRefresh || forceServer) {
+      final prefix = '${churchId}_${collectionLabel}_';
+      ramMap.removeWhere((k, _) => k.startsWith(prefix));
+      FirestoreReadResilience.forgetKey(ramKey);
+      FirestoreReadResilience.forgetKey('${ramKey}_retry');
+      if (collectionLabel == 'patrimonio') {
+        await TenantModuleHiveCache.clearModule(
+          churchId,
+          TenantModuleKeys.patrimonio,
+        );
+      } else if (collectionLabel == 'patrimonio_inventario_historico') {
+        await TenantModuleHiveCache.clearModule(
+          churchId,
+          TenantModuleKeys.patrimonioInventarioHistorico,
+        );
+      }
+    }
 
     if (!forceRefresh && !forceServer) {
       final anyRam = _peekAnyRam(
@@ -435,6 +454,28 @@ abstract final class ChurchPatrimonioLoadService {
         readSource: 'direct_plain',
         collectionPath: path,
       );
+    } catch (e) {
+      lastError = e;
+    }
+
+    try {
+      final directDocs = await _loadDirectSubcollection(
+        churchId: churchId,
+        subcollection: collectionLabel,
+        limit: capped,
+        cacheKey: '${ramKey}_direct',
+        sortDocs: sortDocs,
+      );
+      if (directDocs.isNotEmpty) {
+        _putRamInMap(ramMap, ramKey, directDocs);
+        unawaited(_persistHive(churchId, directDocs, hiveModule: hiveModule));
+        return ChurchPatrimonioLoadResult(
+          churchId: churchId,
+          docs: directDocs,
+          readSource: 'direct_list',
+          collectionPath: path,
+        );
+      }
     } catch (e) {
       lastError = e;
     }
@@ -619,6 +660,26 @@ abstract final class ChurchPatrimonioLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadDirectSubcollection({
+    required String churchId,
+    required String subcollection,
+    required int limit,
+    required String cacheKey,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) sortDocs,
+  }) async {
+    final snap = await IgrejaDirectFirestoreReads.listSubcollection(
+      churchId,
+      subcollection,
+      moduleLabel: 'Patrimônio/$subcollection',
+      limit: limit,
+      cacheKey: cacheKey,
+    ).timeout(ChurchPanelReadTimeouts.queryCap);
+    return sortDocs(snap.docs);
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestore({
     required CollectionReference<Map<String, dynamic>> reference,
     required String cacheKey,
@@ -686,7 +747,10 @@ abstract final class ChurchPatrimonioLoadService {
   ) {
     final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
     DateTime readDate(Map<String, dynamic> data) {
-      final raw = data['createdAt'] ?? data['timestamp'] ?? data['date'];
+      final raw = data['finalizadoEm'] ??
+          data['createdAt'] ??
+          data['timestamp'] ??
+          data['date'];
       if (raw is Timestamp) return raw.toDate();
       if (raw is DateTime) return raw;
       if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
@@ -705,6 +769,10 @@ abstract final class ChurchPatrimonioLoadService {
     await TenantModuleHiveCache.clearModule(
       churchId,
       TenantModuleKeys.patrimonio,
+    );
+    await TenantModuleHiveCache.clearModule(
+      churchId,
+      TenantModuleKeys.patrimonioInventarioHistorico,
     );
   }
 }

@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_save_service.dart';
@@ -1750,6 +1751,57 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
+  Future<void> _removeChurchLogoInstant() async {
+    if (!_canEdit) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Remover logo'),
+        content: const Text(
+          'A logo será removida do cadastro e do armazenamento.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final resolvedId = await _resolveTenantIdForSave();
+    if (resolvedId.trim().isEmpty) return;
+    ChurchCanonicalMediaDeleteService.scheduleChurchLogoRemoved(
+      churchId: resolvedId,
+      tenantData: _tenantLiveData,
+      storagePath: _logoStoragePath,
+      downloadUrl: _logoUrl,
+      churchDocRef: ChurchOperationalPaths.churchDoc(resolvedId),
+    );
+    if (!mounted) return;
+    setState(() {
+      _logoUrl = null;
+      _logoBytes = null;
+      _logoStoragePath = null;
+      _logoStagedNotUploaded = false;
+      _uploadingLogo = false;
+      _logoUploadPhase = '';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar('Logo removida.'),
+    );
+  }
+
   /// Publica `configuracoes/logo_igreja.png` e grava **somente** [logoPath] no Firestore.
   /// Retorna `false` se tentou enviar e falhou (o chamador pode abortar o resto do save).
   Future<bool> _commitLogoUploadFromPending({
@@ -3292,6 +3344,44 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                 ),
                                               ),
                                             ),
+                                            if (_canEdit && !_uploadingLogo)
+                                              Positioned(
+                                                left: 2,
+                                                top: 2,
+                                                child: (_logoUrl != null &&
+                                                            _logoUrl!
+                                                                .trim()
+                                                                .isNotEmpty) ||
+                                                        _logoBytes != null
+                                                    ? Material(
+                                                        elevation: 6,
+                                                        shadowColor:
+                                                            Colors.black26,
+                                                        color: ThemeCleanPremium
+                                                            .error,
+                                                        shape:
+                                                            const CircleBorder(),
+                                                        child: InkWell(
+                                                          customBorder:
+                                                              const CircleBorder(),
+                                                          onTap:
+                                                              _removeChurchLogoInstant,
+                                                          child: const Padding(
+                                                            padding:
+                                                                EdgeInsets.all(
+                                                                    9),
+                                                            child: Icon(
+                                                              Icons
+                                                                  .delete_outline_rounded,
+                                                              color:
+                                                                  Colors.white,
+                                                              size: 20,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      )
+                                                    : const SizedBox.shrink(),
+                                              ),
                                             if (_canEdit && !_uploadingLogo)
                                               Positioned(
                                                 right: 2,

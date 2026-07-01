@@ -5,7 +5,6 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload foto perfil membro — `igrejas/{churchId}/membros/{folderId}/foto_perfil.jpg`.
@@ -42,14 +41,12 @@ abstract final class MemberProfileMediaUpload {
     );
 
     await ensureUploadReady(requireAuth: requireAuth);
-    return UnifiedUploadService.uploadImage(
+    return YahwehMediaUploadPipeline.uploadPreparedBytes(
       storagePath: storagePath,
       bytes: bytes,
       contentType: contentType,
-      module: YahwehUploadModule.generic,
-      skipClientPrepare: true,
-      onProgress: onProgress,
       maxAttempts: 4,
+      onProgress: onProgress,
     ).timeout(
       uploadTimeout,
       onTimeout: () => throw TimeoutException(

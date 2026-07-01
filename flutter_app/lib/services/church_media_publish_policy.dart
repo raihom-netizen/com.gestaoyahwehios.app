@@ -4,8 +4,8 @@
 ///    e aplique com `gsutil cors set cors.json gs://gestaoyahweh-21e23.firebasestorage.app`
 ///    ou `.\scripts\apply_firebase_storage_cors.ps1`.
 ///
-/// 2. **Uploads**: usar [MediaUploadService] / [FirebaseStorageService] que já chamam
-///    [Reference.getDownloadURL] após `putData`/`putFile`.
+/// 2. **Uploads**: usar [ChurchCanonicalMediaPublish] / [MediaUploadService] / [FirebaseStorageService]
+///    que já chamam [Reference.getDownloadURL] após `putData`/`putFile`.
 ///
 /// 3. **Firestore**: gravar apenas URLs **https** nos campos de exibição (`fotoUrl`, `logoUrl`,
 ///    `imageUrl`, etc.). Para normalizar legado `gs://` ou path antes de gravar de novo,
@@ -21,5 +21,8 @@
 ///    `precacheImage(NetworkImage(...))` com URLs que possam ser Storage na web.
 library church_media_publish_policy;
 
+export 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
+export 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+export 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 export 'package:gestao_yahweh/services/media_upload_service.dart';
 export 'package:gestao_yahweh/services/storage_media_service.dart';

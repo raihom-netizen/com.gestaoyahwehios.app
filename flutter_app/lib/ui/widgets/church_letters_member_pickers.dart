@@ -391,10 +391,14 @@ Future<String?> showChurchLetterSignerPicker(
   String? excludeId,
 }) async {
   final pool = signers
-      .where((e) => e.active && e.canSignDocuments)
+      .where((e) => e.canSignDocuments && e.name.trim().isNotEmpty)
       .where((e) => excludeId == null || e.id != excludeId)
       .toList()
-    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    ..sort((a, b) {
+      final role = compareSignatoriesPastorFirst(a.data, b.data);
+      if (role != 0) return role;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
 
   if (pool.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -665,11 +669,11 @@ Future<Set<String>?> showChurchLetterRecipientsPicker(
   required Set<String> initialSelected,
   List<({String id, String name})> departments = const [],
 }) async {
-  final active = members.where((e) => e.active).toList();
-  if (active.isEmpty) {
+  final withName = members.where((e) => e.name.trim().isNotEmpty).toList();
+  if (withName.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Nenhum membro ativo no cadastro.'),
+        content: Text('Nenhum membro no cadastro.'),
       ),
     );
     return null;
@@ -681,7 +685,7 @@ Future<Set<String>?> showChurchLetterRecipientsPicker(
     backgroundColor: Colors.transparent,
     builder: (ctx) => _ChurchLetterRecipientsPickerSheet(
       tenantId: tenantId,
-      members: active,
+      members: withName,
       initialSelected: initialSelected,
       departments: departments,
     ),

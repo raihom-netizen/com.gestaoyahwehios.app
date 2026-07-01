@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_disk_cache.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
+import 'package:gestao_yahweh/utils/finance_comprovante_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web_stub.dart'
@@ -49,7 +50,7 @@ abstract final class FinanceComprovanteViewerSheet {
       url: url,
       fileName: fileName,
       mimeType: mime,
-      storagePath: (data['comprovanteStoragePath'] ?? '').toString(),
+      storagePath: FinanceComprovanteUtils.storagePath(data),
     );
   }
 

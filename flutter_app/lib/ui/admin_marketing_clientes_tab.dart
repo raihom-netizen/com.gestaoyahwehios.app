@@ -5,13 +5,13 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
@@ -439,13 +439,6 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
                         try {
                           if (pendingBytes != null && pendingBytes!.isNotEmpty) {
-                            if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-                              context: ctx,
-                              module: YahwehMediaModule.divulgacao,
-                              logLabel: 'marketing_cliente_capa',
-                            )) {
-                              return;
-                            }
                             photoPath =
                                 FirebasePaths.storageMarketingCapa(tenantRaw);
                             final oldPath =
@@ -466,35 +459,28 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 } catch (_) {}
                               }
                             }
-                            final storageRef =
-                                firebaseDefaultStorage.ref(photoPath);
-                            final task = storageRef.putData(
-                              pendingBytes!,
-                              SettableMetadata(
-                                contentType: 'image/jpeg',
-                                cacheControl: 'public, max-age=31536000',
-                              ),
+                            final uploaded =
+                                await ChurchCanonicalMediaPublish
+                                    .compressAndUploadImage(
+                              rawBytes: pendingBytes!,
+                              storagePath: photoPath,
+                              gateModule: YahwehMediaModule.divulgacao,
+                              logLabel: 'marketing_cliente_capa',
                             );
-                            await task;
-                            String? downloadUrl;
-                            try {
-                              downloadUrl = await storageRef.getDownloadURL();
-                            } catch (_) {}
-                            pendingFotoPath = photoPath;
-                            pendingFotoUrl = downloadUrl;
+                            pendingFotoPath = uploaded.storagePath;
+                            pendingFotoUrl = uploaded.downloadUrl;
                             AppStorageImageService.instance.invalidate(
                               storagePath: photoPath,
                             );
-                            if (downloadUrl != null &&
-                                downloadUrl!.trim().isNotEmpty) {
+                            if (uploaded.downloadUrl.isNotEmpty) {
                               AppStorageImageService.instance.invalidate(
-                                imageUrl: downloadUrl!.trim(),
+                                imageUrl: uploaded.downloadUrl,
                               );
                             }
                             final prevUrl =
                                 (ref?['fotoUrl'] as String?)?.trim() ?? '';
                             if (prevUrl.isNotEmpty &&
-                                prevUrl != (downloadUrl ?? '').trim()) {
+                                prevUrl != uploaded.downloadUrl) {
                               AppStorageImageService.instance.invalidate(
                                 imageUrl: prevUrl,
                               );
@@ -515,10 +501,15 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                             'corpo': corpoCtrl.text.trim(),
                             'ordem': ordem,
                             'ativo': ativo,
-                            if (pendingFotoPath != null && pendingFotoPath!.isNotEmpty)
-                              'fotoPath': pendingFotoPath,
-                            if (pendingFotoUrl != null && pendingFotoUrl!.isNotEmpty)
-                              'fotoUrl': pendingFotoUrl,
+                            if (pendingFotoPath != null &&
+                                pendingFotoPath!.isNotEmpty &&
+                                pendingFotoUrl != null &&
+                                pendingFotoUrl!.isNotEmpty)
+                              ...ChurchCanonicalMediaPublish
+                                  .marketingClienteCapaFields(
+                                downloadUrl: pendingFotoUrl!,
+                                storagePath: pendingFotoPath!,
+                              ),
                           });
 
                           final list = _cloneItems(

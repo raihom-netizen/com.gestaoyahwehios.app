@@ -148,16 +148,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (ctxData != null && ctxData.isNotEmpty) {
       _tenant = Map<String, dynamic>.from(ctxData);
     }
-    final ram = _effectiveTenantId.isNotEmpty
-        ? _ChurchLettersMembersRamCache.peek(_effectiveTenantId)
-        : null;
-    if (ram != null && ram.isNotEmpty) {
-      _seedMemberDocs = List.from(ram);
-      _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
-      _applyDefaultSignerFromLoadedMembers(_seedMemberDocs);
-    } else {
-      _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
-    }
+    _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
     unawaited(_openChurchLettersFast());
     unawaited(_bootstrap());
     unawaited(_loadDepartmentsForLetters());
@@ -412,14 +403,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _fetchMemberDocs() async {
+      _fetchMemberDocs({bool forceRefresh = false}) async {
     final tid = _effectiveTenantId.isNotEmpty
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return const [];
     final result = await ChurchCertificadosLoadService.load(
       seedTenantId: tid,
-      forceRefresh: _membersSyncing,
+      forceRefresh: forceRefresh,
     );
     _membersLoadSoftError = result.softError;
     if (result.churchId.trim().isNotEmpty &&
@@ -437,14 +428,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (tid.isEmpty) return;
     if (mounted) setState(() => _membersSyncing = true);
     try {
-      final docs = await _fetchMemberDocs();
+      final docs = await _fetchMemberDocs(forceRefresh: true);
       if (!mounted || docs.isEmpty) return;
       _ChurchLettersMembersRamCache.put(tid, docs);
       setState(() {
         _membersLoadSoftError = null;
         _seedMemberDocs = docs;
         _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
-        _applyDefaultSignerFromLoadedMembers(docs);
+        _applyDefaultSignerFromLoadedMembers(docs, onlyIfUnset: false);
         _syncSelectedMembersCache();
         _membersSyncing = false;
       });
@@ -538,10 +529,13 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
     }
 
-    if (_seedMemberDocs.isNotEmpty) {
-      _applyDefaultSignerFromLoadedMembers(_seedMemberDocs);
-    } else {
-      await _defaultSignerFromMembro();
+    if (_seedMemberDocs.isNotEmpty && mounted) {
+      setState(
+        () => _applyDefaultSignerFromLoadedMembers(
+          _seedMemberDocs,
+          onlyIfUnset: false,
+        ),
+      );
     }
     unawaited(_getBrandingCached());
     await _loadDepartmentsForLetters();
@@ -551,55 +545,33 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   void _applyDefaultSignerFromLoadedMembers(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    if (_signer1MemberId != null &&
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    bool onlyIfUnset = true,
+  }) {
+    if (onlyIfUnset &&
+        _signer1MemberId != null &&
         docs.any((d) => d.id == _signer1MemberId)) {
       return;
     }
 
-    final gestorNome = (_tenant?['gestorNome'] ??
-            _tenant?['gestor_nome'] ??
-            _tenant?['responsavel'] ??
-            '')
-        .toString()
-        .trim()
-        .toLowerCase();
-    if (gestorNome.isNotEmpty) {
-      for (final d in docs) {
-        if (!_memberAtivo(d.data())) continue;
-        if (!memberCanSignChurchDocuments(d.data())) continue;
-        final n = _memberName(d.data()).toLowerCase();
-        if (n == gestorNome || n.contains(gestorNome)) {
-          _signer1MemberId = d.id;
-          return;
-        }
-      }
-    }
+    final signers = docs
+        .where((d) =>
+            _memberHasName(d.data()) &&
+            memberCanSignChurchDocuments(d.data()))
+        .toList()
+      ..sort(
+        (a, b) => compareSignatoriesPastorFirst(a.data(), b.data()),
+      );
 
-    for (final d in docs) {
-      final m = d.data();
-      if (!_memberAtivo(m)) continue;
-      if (!memberCanSignChurchDocuments(m)) continue;
-      final funcoes = m['FUNCOES'];
-      if (funcoes is List) {
-        for (final f in funcoes) {
-          final fn = f.toString().toLowerCase();
-          if (fn.contains('pastor') ||
-              fn.contains('gestor') ||
-              fn.contains('presidente')) {
-            _signer1MemberId = d.id;
-            return;
-          }
-        }
-      }
-      final cargo = _cargoFromMember(m).toLowerCase();
-      if (cargo.contains('pastor') ||
-          cargo.contains('gestor') ||
-          cargo.contains('presidente')) {
+    for (final d in signers) {
+      if (memberHasPastorRole(d.data())) {
         _signer1MemberId = d.id;
         return;
       }
+    }
+
+    if (signers.isNotEmpty) {
+      _signer1MemberId = signers.first.id;
     }
   }
 
@@ -703,6 +675,13 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   void _refreshMembers() {
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isNotEmpty) {
+      ChurchCertificadosLoadService.invalidate(tid);
+      _ChurchLettersMembersRamCache.invalidate(tid);
+    }
     final prev = _seedMemberDocs;
     setState(() {
       _membersSyncing = true;
@@ -712,11 +691,15 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     });
     unawaited(() async {
       try {
-        final snap = await _loadMembers();
+        final docs = await _fetchMemberDocs(forceRefresh: true);
         if (!mounted) return;
+        if (docs.isNotEmpty) {
+          _ChurchLettersMembersRamCache.put(tid, docs);
+        }
         setState(() {
           _membersLoadSoftError = null;
-          _seedMemberDocs = snap.docs;
+          _seedMemberDocs = docs;
+          _applyDefaultSignerFromLoadedMembers(docs);
           _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
           _membersSyncing = false;
         });
@@ -1964,15 +1947,15 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                       ],
                                     );
                                   }
-                                  final activeDocs = docs
-                                      .where((d) => _memberAtivo(d.data()))
+                                  final letterDocs = docs
+                                      .where((d) => _memberHasName(d.data()))
                                       .toList();
 
-                                  if (activeDocs.isEmpty && docs.isNotEmpty) {
+                                  if (letterDocs.isEmpty && docs.isNotEmpty) {
                                     return Padding(
                                       padding: const EdgeInsets.symmetric(vertical: 8),
                                       child: Text(
-                                        'Nenhum membro ativo no cadastro. Atualize em Membros ou toque em «Atualizar lista» abaixo.',
+                                        'Nenhum membro com nome no cadastro. Atualize em Membros ou toque em «Atualizar» abaixo.',
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: Colors.orange.shade800,
@@ -1982,7 +1965,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                     );
                                   }
 
-                                  final signerPool = activeDocs
+                                  final signerPool = letterDocs
                                       .where((d) =>
                                           memberCanSignChurchDocuments(d.data()))
                                       .length;
@@ -2367,7 +2350,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                       Row(
                         children: [
                           Text(
-                            '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberAtivo(d.data())).length} ativo(s)',
+                            '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberHasName(d.data())).length} membro(s)',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               color: accent,
@@ -2461,6 +2444,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       ],
     );
   }
+
+  bool _memberHasName(Map<String, dynamic> m) =>
+      _memberName(m).trim().isNotEmpty;
 
   bool _memberAtivo(Map<String, dynamic> m) {
     final s = (m['STATUS'] ?? m['status'] ?? '').toString().toLowerCase();
@@ -2766,6 +2752,12 @@ abstract final class _ChurchLettersMembersRamCache {
     final tid = tenantId.trim();
     if (tid.isEmpty || docs.isEmpty) return;
     _byTenant[tid] = (docs: List.from(docs), at: DateTime.now());
+  }
+
+  static void invalidate(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    _byTenant.remove(tid);
   }
 }
 

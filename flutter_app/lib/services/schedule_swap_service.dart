@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -39,8 +40,10 @@ abstract final class ScheduleSwapService {
     final start = DateTime(escalaDay.year, escalaDay.month, escalaDay.day);
     final end = DateTime(escalaDay.year, escalaDay.month, escalaDay.day, 23, 59, 59, 999);
 
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
-    final escCol = ChurchOperationalPaths.churchDoc(op).collection('escalas');
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) return [];
+
+    final escCol = ChurchUiCollections.escalas(churchId);
 
     QuerySnapshot<Map<String, dynamic>> daySnap;
     try {
@@ -67,9 +70,8 @@ abstract final class ScheduleSwapService {
       }
     }
 
-    final membrosCol =
-        await ChurchOperationalPaths.subcollectionResolved(tenantId, 'membros');
-    final snap = await membrosCol.get();
+    final membrosCol = ChurchUiCollections.membros(churchId);
+    final snap = await membrosCol.limit(400).get();
     final out = <ScheduleSwapCandidate>[];
 
     for (final m in snap.docs) {

@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -36,6 +37,7 @@ import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
@@ -86,7 +88,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
 List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
-  final canonical = PatrimonioPhotoFields.urlsFromData(m);
+  final canonical = ChurchCanonicalMediaContract.patrimonioImageUrls(m);
   if (canonical.isNotEmpty) return canonical;
 
   final out = <String>[];
@@ -813,6 +815,12 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         permissions: widget.permissions,
       );
 
+  bool get _canDeletePatrimonio =>
+      AppPermissions.canDeleteAnyChurchRecords(
+        widget.role,
+        permissions: widget.permissions,
+      );
+
   CollectionReference<Map<String, dynamic>> get _col =>
                 ChurchUiCollections.patrimonio(_effectiveTenantId);
 
@@ -1030,15 +1038,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     final data = doc.data();
-    if (data != null) {
-      final urls = _fotoUrlsFromData(data);
-      urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
-          data['imageVariants']));
-      urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
-          data['fotoVariants']));
-      await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(urls);
-    }
-    await _col.doc(doc.id).delete();
+    final itemId = doc.id;
+    await _col.doc(itemId).delete();
+    ChurchCanonicalMediaDeleteService.schedulePatrimonioItemDeleted(
+      tenantId: _effectiveTenantId,
+      itemId: itemId,
+      data: data,
+    );
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -1054,7 +1060,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   Future<void> _excluirPatrimonioEmLote(
     List<DocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
-    if (!_canWrite || docs.isEmpty) return;
+    if (!_canDeletePatrimonio || docs.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1319,7 +1325,16 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   Future<void> _excluir(DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!_canWrite) return;
+    if (!_canDeletePatrimonio) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Apenas gestão da igreja pode excluir patrimônio.',
+          ),
+        );
+      }
+      return;
+    }
     final nome = (doc.data()?['nome'] ?? doc.id).toString();
     final ok = await showDialog<bool>(
       context: context,
@@ -2203,30 +2218,32 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              if (sheetContext != null) {
-                                Navigator.pop(sheetContext);
-                              }
-                              _excluir(doc);
-                            },
-                            icon: const Icon(Icons.delete_outline_rounded,
-                                size: 18, color: ThemeCleanPremium.error),
-                            label: const Text('Excluir',
-                                style:
-                                    TextStyle(color: ThemeCleanPremium.error)),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: const BorderSide(
-                                  color: ThemeCleanPremium.error),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm),
+                        if (_canDeletePatrimonio)
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                if (sheetContext != null) {
+                                  Navigator.pop(sheetContext);
+                                }
+                                _excluir(doc);
+                              },
+                              icon: const Icon(Icons.delete_outline_rounded,
+                                  size: 18, color: ThemeCleanPremium.error),
+                              label: const Text('Excluir',
+                                  style: TextStyle(
+                                      color: ThemeCleanPremium.error)),
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                side: const BorderSide(
+                                    color: ThemeCleanPremium.error),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm),
+                                ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                 ],
@@ -2447,7 +2464,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               ),
             )
           : null,
-      bottomNavigationBar: _bensSelectionMode && _canWrite
+      bottomNavigationBar: _bensSelectionMode && _canDeletePatrimonio
           ? SafeArea(
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -2532,6 +2549,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     filterCategoria: _filterCategoria,
                     filterStatus: _filterStatus,
                     canWrite: _canWrite,
+                    canDelete: _canDeletePatrimonio,
                     categorias: _categoriasEfetivas,
                     statusList: _statusList,
                     searchController: _searchCtrl,
@@ -2564,11 +2582,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     selectionMode: _bensSelectionMode,
                     selectedIds: _bensSelectedIds,
                     onToggleSelect: _toggleBensSelect,
-                    onStartSelection: _canWrite
+                    onStartSelection: _canDeletePatrimonio
                         ? () => setState(() => _bensSelectionMode = true)
                         : null,
                     onExcluirPorCategoria:
-                        _canWrite ? _excluirPatrimonioPorCategoria : null,
+                        _canDeletePatrimonio ? _excluirPatrimonioPorCategoria : null,
                   ),
                   _DashboardTab(
                     key: _dashboardTabKey,
@@ -2632,6 +2650,7 @@ class _BensTab extends StatefulWidget {
   final String filterCategoria;
   final String filterStatus;
   final bool canWrite;
+  final bool canDelete;
   final List<String> categorias;
   final List<Map<String, String>> statusList;
   final TextEditingController searchController;
@@ -2663,6 +2682,7 @@ class _BensTab extends StatefulWidget {
     required this.filterCategoria,
     required this.filterStatus,
     required this.canWrite,
+    this.canDelete = false,
     required this.categorias,
     required this.statusList,
     required this.searchController,
@@ -2819,6 +2839,9 @@ class _BensTabState extends State<_BensTab> {
         if (!mounted || generation != _fetchGeneration) return;
         setState(() => _lastLoadHint = 'Igreja não identificada.');
         return;
+      }
+      if (forceFresh) {
+        await ChurchPatrimonioLoadService.invalidate(tid);
       }
       final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
@@ -3689,7 +3712,7 @@ class _BensTabState extends State<_BensTab> {
                           onEdit:
                               canWrite ? () => onOpenForm(docs[i]) : null,
                           onDelete:
-                              canWrite ? () => onExcluir(docs[i]) : null,
+                              widget.canDelete ? () => onExcluir(docs[i]) : null,
                           onQrCode: () => onShowQrCode(docs[i]),
                           onTransferir:
                               canWrite ? () => onTransferir(docs[i]) : null,
@@ -3751,7 +3774,7 @@ class _BensTabState extends State<_BensTab> {
                               }
                             : null,
                         onEdit: canWrite ? () => onOpenForm(docs[i]) : null,
-                        onDelete: canWrite ? () => onExcluir(docs[i]) : null,
+                        onDelete: widget.canDelete ? () => onExcluir(docs[i]) : null,
                         onQrCode: () => onShowQrCode(docs[i]),
                         onTransferir:
                             canWrite ? () => onTransferir(docs[i]) : null,
@@ -5890,10 +5913,13 @@ class _DashboardTabState extends State<_DashboardTab> {
 
               // ── Linha: inventários finalizados por mês (últimos 6 meses) ──
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: ChurchUiCollections.patrimonioInventarioHistorico(widget.tenantId)
-                    .orderBy('finalizadoEm', descending: true)
-                    .limit(48)
-                    .watchSafe(),
+                stream: FirestoreStreamUtils.queryOneShot(
+                  ChurchUiCollections.patrimonioInventarioHistorico(
+                    ChurchRepository.churchId(widget.tenantId),
+                  )
+                      .orderBy('finalizadoEm', descending: true)
+                      .limit(48),
+                ),
                 builder: (context, hSnap) {
                   final hList = hSnap.data?.docs ?? [];
                   final now = DateTime.now();
@@ -6255,6 +6281,9 @@ class _InventarioTabState extends State<_InventarioTab> {
         setState(() => _loadHint = 'Igreja não identificada.');
         return;
       }
+      if (forceFresh) {
+        await ChurchPatrimonioLoadService.invalidate(tid);
+      }
       final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
         forceRefresh: forceFresh,
@@ -6263,7 +6292,11 @@ class _InventarioTabState extends State<_InventarioTab> {
       if (!mounted) return;
       if (result.docs.isNotEmpty) {
         _PatrimonioRamCache.store(tid, result.snapshot);
-        setState(() => _future = Future.value(result.snapshot));
+        setState(() {
+          _loadHint = '${FirebasePaths.patrimonio(tid)} '
+              '(${result.readSource}, ${result.docs.length} bens)';
+          _future = Future.value(result.snapshot);
+        });
       } else if (cached.isNotEmpty) {
         setState(() => _loadHint = result.softError);
       } else {
@@ -6359,9 +6392,11 @@ class _InventarioTabState extends State<_InventarioTab> {
                     'conferidoNestaSessao': _conferidos.contains(d.id),
                   });
                 }
-                final op = ChurchContextService.panelChurchId(widget.tenantId);
+                final op = ChurchRepository.churchId(widget.tenantId);
                 await ChurchUiCollections.patrimonioInventarioHistorico(op)
                     .add({
+                  'churchId': op,
+                  'tenantId': op,
                   'finalizadoEm': FieldValue.serverTimestamp(),
                   'totalBens': total,
                   'conferidos': conferidos,
@@ -6596,6 +6631,28 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
   int? _filtroMes;
   int? _filtroDia;
   String _filtroCategoria = '';
+  late Future<ChurchPatrimonioLoadResult> _historicoFuture;
+
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
+
+  @override
+  void initState() {
+    super.initState();
+    _historicoFuture = _loadHistorico();
+  }
+
+  Future<ChurchPatrimonioLoadResult> _loadHistorico({bool forceFresh = false}) =>
+      ChurchPatrimonioLoadService.loadInventarioHistorico(
+        seedTenantId: _tenantId,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      );
+
+  void _refreshHistorico() {
+    setState(() {
+      _historicoFuture = _loadHistorico(forceFresh: true);
+    });
+  }
 
   bool _docPassaFiltros(QueryDocumentSnapshot<Map<String, dynamic>> d) {
     final m = d.data();
@@ -6638,12 +6695,24 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: ChurchUiCollections.patrimonioInventarioHistorico(widget.tenantId)
-          .orderBy('finalizadoEm', descending: true)
-          .limit(200)
-          .watchSafe(),
+    return FutureBuilder<ChurchPatrimonioLoadResult>(
+      future: _historicoFuture,
       builder: (context, hSnap) {
+        if (hSnap.connectionState == ConnectionState.waiting && !hSnap.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (hSnap.hasError && (hSnap.data?.docs.isEmpty ?? true)) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar o histórico',
+            error: hSnap.error,
+            onRetry: _refreshHistorico,
+          );
+        }
         final allDocs = hSnap.data?.docs ?? [];
         final anos = <int>{};
         for (final d in allDocs) {
@@ -8113,13 +8182,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   void _clearPhotoSlot(int idx) {
     if (idx < 0 || idx >= _maxFotosPorItem) return;
     final tenantId = widget.col.parent?.id ?? '';
-    if (tenantId.isNotEmpty && _slotUrls[idx].isNotEmpty) {
-      unawaited(
-        FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-          tenantId: tenantId,
-          itemDocId: _itemRef.id,
-          slot: idx,
-        ),
+    if (tenantId.isNotEmpty) {
+      ChurchCanonicalMediaDeleteService.schedulePatrimonioSlotCleared(
+        tenantId: tenantId,
+        itemId: _itemRef.id,
+        slot: idx,
+        existingData: widget.doc?.data(),
+        docRef: widget.doc != null ? _itemRef : null,
       );
     }
     setState(() {

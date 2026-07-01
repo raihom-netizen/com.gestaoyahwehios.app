@@ -249,6 +249,7 @@ abstract final class FirebaseBootstrapService {
           await EcoFireDirectFirebase.ensureForStoragePut(
             requireAuth: refreshAuthToken,
           );
+          _lastFailure = null;
           _storageUploadBootstrapAt = DateTime.now();
           return;
         } catch (e, st) {
@@ -279,6 +280,7 @@ abstract final class FirebaseBootstrapService {
         }
         await ensureAlwaysOn(refreshAuthToken: refreshAuthToken);
         probeStorageLinked();
+        _lastFailure = null;
         _storageUploadBootstrapAt = DateTime.now();
         if (kDebugMode && attempt > 0) {
           debugPrint(
@@ -307,6 +309,7 @@ abstract final class FirebaseBootstrapService {
         await ensureInitializedOnce();
         await ensureAlwaysOn(refreshAuthToken: refreshAuthToken);
         probeStorageLinked();
+        _lastFailure = null;
         _storageUploadBootstrapAt = DateTime.now();
         return;
       } catch (e, st) {
@@ -410,6 +413,28 @@ abstract final class FirebaseBootstrapService {
   static Future<FirebaseBootstrapResult> initialize() async {
     if (_initCompleter != null) {
       if (!_initCompleter!.isCompleted) await _initCompleter!.future;
+      // Falha anterior não pode ficar "grudada" para sempre:
+      // se o app [DEFAULT] existe novamente, tentamos recuperar sem exigir restart.
+      if (_lastFailure != null && _hasApp()) {
+        try {
+          final recovered = await healthCheck(
+            requireAuthSession: false,
+            skipFcmProbe: true,
+          );
+          _lastHealth = recovered;
+          _lastFailure = null;
+          _healthOkAt = DateTime.now();
+          return FirebaseBootstrapResult.ready(recovered);
+        } catch (_) {
+          // Mantém caminho antigo caso a recuperação ainda falhe.
+        }
+      }
+      if (_lastFailure != null && !_hasApp()) {
+        _initCompleter = null;
+        _lastFailure = null;
+        _lastHealth = null;
+        _healthOkAt = null;
+      }
       if (_lastFailure == null && _lastHealth != null) {
         return FirebaseBootstrapResult.ready(_lastHealth!);
       }
@@ -736,6 +761,7 @@ abstract final class FirebaseBootstrapService {
         if (refreshAuthToken) {
           await FirebaseAuthTokenGuard.refreshIfStale();
         }
+        _lastFailure = null;
         _healthOkAt = DateTime.now();
         return;
       } catch (e, st) {
@@ -826,6 +852,58 @@ abstract final class FirebaseBootstrapService {
     String? debugLabel,
     bool requireAuth = true,
   }) async {
+    if (EcoFireFlow.directStorageUpload) {
+      Object? last;
+      StackTrace? lastSt;
+      const maxAttempts = 3;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          await EcoFireDirectFirebase.ensureDefaultApp();
+          if (requireAuth) {
+            await EcoFireDirectFirebase.ensureAuthSession(strict: true);
+          }
+          _lastFailure = null;
+          _healthOkAt = DateTime.now();
+          return await fn();
+        } catch (e, st) {
+          last = e;
+          lastSt = st;
+          if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
+            FirebaseAuthTokenGuard.recordQuotaExceeded(e);
+            try {
+              return await fn();
+            } catch (e2, st2) {
+              last = e2;
+              lastSt = st2;
+            }
+          }
+          if (CrashlyticsService.shouldReport(e)) {
+            unawaited(
+              CrashlyticsService.record(
+                e,
+                st,
+                reason: debugLabel ?? 'firebase_guarded_ecofire',
+              ),
+            );
+          }
+          if (CrashlyticsBenignErrors.isBenign(e)) break;
+          if (attempt >= maxAttempts) break;
+          if (_isNoFirebaseApp(e)) {
+            invalidateStorageUploadBootstrap();
+            _initCompleter = null;
+            _lastFailure = null;
+            _lastHealth = null;
+            _healthOkAt = null;
+          }
+          await Future.delayed(Duration(milliseconds: 220 * attempt));
+        }
+      }
+      if (last is FirebaseBootstrapException) {
+        Error.throwWithStackTrace(last, lastSt ?? StackTrace.current);
+      }
+      throw FirebaseBootstrapException.from(last!, lastSt);
+    }
+
     Object? last;
     StackTrace? lastSt;
     const maxAttempts = 3;
@@ -893,6 +971,10 @@ abstract final class FirebaseBootstrapService {
   static Future<void> _softReinit() async {
     FirebaseBootstrap.reset();
     _cachedApp = null;
+    _initCompleter = null;
+    _lastFailure = null;
+    _lastHealth = null;
+    _healthOkAt = null;
     _ensureOnceFuture = null;
     await ensureInitializedOnce();
     refreshCachedApp();

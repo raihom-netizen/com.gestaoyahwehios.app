@@ -2,7 +2,7 @@ import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, listEquals;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
+import 'package:gestao_yahweh/services/certificate_cloud_pdf_service.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -2069,43 +2070,28 @@ class _CertificadosPageState extends State<CertificadosPage> {
     };
     final distinctIds = templateByMember.values.map((e) => e.id).toSet();
 
-    if (selectedDocs.length > 10) {
-      if (distinctIds.length > 1) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Lotes com mais de 10 membros na nuvem usam um único modelo. '
-              'Escolha o mesmo tipo para todos na lista ou divida o lote.',
-            ),
-            duration: Duration(seconds: 6),
+    if (distinctIds.length > 1) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Lotes na nuvem usam um único modelo por vez. '
+            'Escolha o mesmo tipo para todos na lista ou divida o lote.',
           ),
-        );
-        return;
-      }
-      await _runCloudCertBatch(
-          context, templateByMember.values.first, selectedDocs);
+          duration: Duration(seconds: 6),
+        ),
+      );
       return;
     }
 
-    final singlePdf = await _showBatchGenerateSheet(
+    await _runCloudCertBatch(
       context,
-      selectedCount: selectedDocs.length,
-      distinctTemplateCount: distinctIds.length,
-    );
-    if (!mounted || singlePdf == null) return;
-
-    await _gerarLocalmente(
-      context,
-      templateByMember,
+      templateByMember.values.first,
       selectedDocs,
-      allDocs,
-      signatoryOptionsAll,
-      singlePdf: singlePdf,
     );
   }
 
-  /// Até 10 membros: gera PDF único (Gala Luxo) ou ZIP localmente.
+  /// Lote local quando modelos distintos por membro (nuvem exige template único).
   Future<void> _gerarLocalmente(
     BuildContext context,
     Map<String, _CertTemplate> templateByMember,
@@ -2380,7 +2366,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 22),
                     Text(
-                      'Processando lote grande na nuvem…',
+                      'Gerando certificado(s) na nuvem…',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
@@ -2425,6 +2411,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           .httpsCallable('processarCertificadosLote');
       final res = await callable.call<Map<String, dynamic>>({
         'igrejaId': _effectiveTenantId,
+        'tenantId': _effectiveTenantId,
         'listaMembrosId': selectedDocs.map((e) => e.id).toList(),
         'idAssinatura': template.id,
         'templateId': template.id,
@@ -6607,6 +6594,32 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       };
     final qrUrl =
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
+
+    if (!_isCasamento) {
+      onProgress?.call('Gerando PDF na nuvem…', 0.15);
+      final cloudBytes = await CertificateCloudPdfService.generateSingleMemberPdf(
+        tenantId: widget.tenantId,
+        memberId: widget.memberFirestoreDocId,
+        templateId: widget.template.id,
+        certificadoId: protocolId,
+      );
+      if (cloudBytes != null && cloudBytes.isNotEmpty) {
+        unawaited(
+          CertificateEmitidoService.registerEmissao(
+            tenantId: widget.tenantId,
+            snapshot: snapshot,
+            certificadoId: protocolId,
+          ).catchError((e, st) {
+            debugPrint('Certificados cloud registerEmissao: $e\n$st');
+            return protocolId;
+          }),
+        );
+        onProgress?.call('PDF pronto', 1.0);
+        return (bytes: cloudBytes.toList(), protocolId: protocolId);
+      }
+      onProgress?.call('Montando PDF premium…', 0.2);
+    }
+
     final bytes = await runCertificatePdfPipeline(
       CertPdfPipelineParams(
         tenantId: widget.tenantId,

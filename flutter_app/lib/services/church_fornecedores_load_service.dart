@@ -4,11 +4,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga fornecedores — `igrejas/{churchId}/fornecedores`.
 class ChurchFornecedoresLoadResult {
@@ -42,6 +45,11 @@ abstract final class ChurchFornecedoresLoadService {
   ChurchFornecedoresLoadService._();
 
   static const int kDefaultLimit = YahwehPerformanceV4.defaultPageSize;
+  static const int kDefaultAllLimit = 800;
+  static const int kDefaultCompromissosLimit = 120;
+
+  static String compromissosCacheKey(String churchId, int limit) =>
+      '${churchId.trim()}_fornecedor_compromissos_$limit';
 
   static final Map<
       String,
@@ -49,6 +57,13 @@ abstract final class ChurchFornecedoresLoadService {
         List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
         DateTime at,
       })> _ram = {};
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ramCompromissos = {};
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
@@ -141,6 +156,152 @@ abstract final class ChurchFornecedoresLoadService {
     int limit = kDefaultLimit,
     bool forceRefresh = false,
     bool forceServer = false,
+  }) =>
+      _loadFornecedoresInternal(
+        seedTenantId: seedTenantId,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+      );
+
+  static Future<ChurchFornecedoresLoadResult> loadAll({
+    required String seedTenantId,
+    int limit = kDefaultAllLimit,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) =>
+      _loadFornecedoresInternal(
+        seedTenantId: seedTenantId,
+        limit: limit,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+      );
+
+  static Future<ChurchFornecedoresLoadResult> loadCompromissos({
+    required String seedTenantId,
+    int limit = kDefaultCompromissosLimit,
+    String? fornecedorIdFilter,
+    bool descending = true,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) {
+      return const ChurchFornecedoresLoadResult(
+        churchId: '',
+        docs: [],
+        readSource: 'empty_id',
+        collectionPath: 'fornecedor_compromissos',
+        softError: 'Igreja não identificada.',
+      );
+    }
+
+    final path = 'igrejas/$churchId/fornecedor_compromissos';
+    final f = (fornecedorIdFilter ?? '').trim();
+    final ramKey = '${compromissosCacheKey(churchId, limit)}_${f}_$descending';
+    final capped =
+        FirebasePerformanceLimits.capListLimit('fornecedor_compromissos', limit);
+
+    if (forceRefresh || forceServer) {
+      _ramCompromissos.removeWhere((k, _) => k.startsWith(churchId));
+      FirestoreReadResilience.forgetKey(ramKey);
+      await TenantModuleHiveCache.clearModule(
+        churchId,
+        TenantModuleKeys.fornecedorCompromissos,
+      );
+    }
+
+    final ramHit = _ramCompromissos[ramKey];
+    if (!forceRefresh &&
+        !forceServer &&
+        ramHit != null &&
+        DateTime.now().difference(ramHit.at) <= _ramTtl &&
+        ramHit.docs.isNotEmpty) {
+      return ChurchFornecedoresLoadResult(
+        churchId: churchId,
+        docs: ramHit.docs,
+        readSource: 'ram_compromissos',
+        collectionPath: path,
+        fromCache: true,
+      );
+    }
+
+    Object? lastError;
+    try {
+      final docs = await _loadCompromissosFirestore(
+        churchId: churchId,
+        limit: capped,
+        fornecedorIdFilter: f,
+        descending: descending,
+        cacheKey: ramKey,
+        forceServer: forceServer,
+      );
+      _ramCompromissos[ramKey] = (docs: List.from(docs), at: DateTime.now());
+      unawaited(_persistCompromissosHive(churchId, docs));
+      return ChurchFornecedoresLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: forceServer ? 'server' : 'firestore_compromissos',
+        collectionPath: path,
+      );
+    } catch (e) {
+      lastError = e;
+    }
+
+    try {
+      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
+        churchId,
+        'fornecedor_compromissos',
+        moduleLabel: 'FornecedorCompromissos',
+        limit: capped,
+        cacheKey: '${ramKey}_direct',
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      var docs = snap.docs;
+      if (f.isNotEmpty) {
+        docs = docs
+            .where((d) => (d.data()['fornecedorId'] ?? '').toString().trim() == f)
+            .toList(growable: false);
+      }
+      docs = _sortByVencimento(docs, descending: descending);
+      if (docs.isNotEmpty) {
+        _ramCompromissos[ramKey] = (docs: List.from(docs), at: DateTime.now());
+        return ChurchFornecedoresLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'direct_list',
+          collectionPath: path,
+        );
+      }
+    } catch (e) {
+      lastError = e;
+    }
+
+    final fallback = _ramCompromissos[ramKey]?.docs;
+    if (fallback != null && fallback.isNotEmpty) {
+      return ChurchFornecedoresLoadResult(
+        churchId: churchId,
+        docs: fallback,
+        readSource: 'ram_fallback',
+        collectionPath: path,
+        fromCache: true,
+        softError: _humanizeError(lastError),
+      );
+    }
+
+    return ChurchFornecedoresLoadResult(
+      churchId: churchId,
+      docs: const [],
+      readSource: 'empty',
+      collectionPath: path,
+      softError: _humanizeError(lastError),
+    );
+  }
+
+  static Future<ChurchFornecedoresLoadResult> _loadFornecedoresInternal({
+    required String seedTenantId,
+    required int limit,
+    required bool forceRefresh,
+    required bool forceServer,
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
@@ -157,6 +318,16 @@ abstract final class ChurchFornecedoresLoadService {
     final ramKey = cacheKey(churchId, limit);
     final reference = ChurchUiCollections.fornecedores(churchId);
     final capped = FirebasePerformanceLimits.capListLimit('fornecedores', limit);
+
+    if (forceRefresh || forceServer) {
+      _ram.removeWhere((k, _) => k.startsWith(churchId));
+      FirestoreReadResilience.forgetKey(ramKey);
+      FirestoreReadResilience.forgetKey('${ramKey}_retry');
+      await TenantModuleHiveCache.clearModule(
+        churchId,
+        TenantModuleKeys.fornecedores,
+      );
+    }
 
     if (!forceRefresh && !forceServer) {
       final anyRam = peekRamAny(churchId);
@@ -284,6 +455,29 @@ abstract final class ChurchFornecedoresLoadService {
     }
 
     try {
+      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
+        churchId,
+        'fornecedores',
+        moduleLabel: 'Fornecedores',
+        limit: capped,
+        cacheKey: '${ramKey}_direct',
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      final docs = _sortByNome(snap.docs);
+      if (docs.isNotEmpty) {
+        _putRam(ramKey, docs);
+        unawaited(_persistHive(churchId, docs));
+        return ChurchFornecedoresLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'direct_list',
+          collectionPath: path,
+        );
+      }
+    } catch (e) {
+      lastError = e;
+    }
+
+    try {
       final repo = await ChurchRepository.fornecedores.listCacheFirst(
         churchIdHint: churchId,
         limit: capped,
@@ -379,6 +573,87 @@ abstract final class ChurchFornecedoresLoadService {
     } catch (_) {}
   }
 
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByVencimento(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    bool descending = true,
+  }) {
+    final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
+    sorted.sort((a, b) {
+      final ta = a.data()['dataVencimento'];
+      final tb = b.data()['dataVencimento'];
+      if (ta is Timestamp && tb is Timestamp) {
+        return descending ? tb.compareTo(ta) : ta.compareTo(tb);
+      }
+      return 0;
+    });
+    return sorted;
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadCompromissosFirestore({
+    required String churchId,
+    required int limit,
+    required String fornecedorIdFilter,
+    required bool descending,
+    required String cacheKey,
+    required bool forceServer,
+  }) async {
+    final col = ChurchUiCollections.fornecedorCompromissos(churchId);
+    if (fornecedorIdFilter.isNotEmpty) {
+      try {
+        final snap = await ChurchModuleFirestoreListRead.queryPlainFirst(
+          reference: col,
+          cacheKey: '${cacheKey}_fn_plain',
+          limit: 200,
+          forceServer: forceServer,
+          orderByField: 'dataVencimento',
+          orderDescending: true,
+          sortDocs: (docs) => _sortByVencimento(
+            docs
+                .where(
+                  (d) =>
+                      (d.data()['fornecedorId'] ?? '').toString().trim() ==
+                      fornecedorIdFilter,
+                )
+                .toList(growable: false),
+            descending: descending,
+          ),
+        );
+        return snap.take(limit).toList(growable: false);
+      } catch (_) {
+        final plain = await col
+            .where('fornecedorId', isEqualTo: fornecedorIdFilter)
+            .limit(200)
+            .get();
+        return _sortByVencimento(plain.docs, descending: descending)
+            .take(limit)
+            .toList(growable: false);
+      }
+    }
+    return ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: col,
+      cacheKey: cacheKey,
+      limit: limit,
+      forceServer: forceServer,
+      orderByField: 'dataVencimento',
+      orderDescending: descending,
+      sortDocs: (docs) => _sortByVencimento(docs, descending: descending),
+    );
+  }
+
+  static Future<void> _persistCompromissosHive(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    try {
+      await TenantModuleHiveCache.saveFromQuerySnapshot(
+        churchId,
+        TenantModuleKeys.fornecedorCompromissos,
+        MergedFirestoreQuerySnapshot(docs),
+      );
+    } catch (_) {}
+  }
+
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestore({
     required CollectionReference<Map<String, dynamic>> reference,
@@ -400,9 +675,14 @@ abstract final class ChurchFornecedoresLoadService {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith(churchId));
+    _ramCompromissos.removeWhere((k, _) => k.startsWith(churchId));
     await TenantModuleHiveCache.clearModule(
       churchId,
       TenantModuleKeys.fornecedores,
+    );
+    await TenantModuleHiveCache.clearModule(
+      churchId,
+      TenantModuleKeys.fornecedorCompromissos,
     );
   }
 }

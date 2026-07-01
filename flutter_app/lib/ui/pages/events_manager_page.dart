@@ -29,6 +29,8 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
@@ -305,6 +307,20 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   /// Alinhado às regras Firestore [canWriteMuralFeed]: gestor, pastoral, secretário, tesoureiro, líder depto.
   bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
+        widget.role,
+        permissions: widget.permissions,
+      );
+
+  bool _canDeleteEvento(DocumentSnapshot<Map<String, dynamic>> doc) =>
+      AppPermissions.canDeleteMuralFeedRecord(
+        widget.role,
+        currentUid: firebaseDefaultAuth.currentUser?.uid ?? '',
+        data: doc.data() ?? {},
+        permissions: widget.permissions,
+      );
+
+  bool get _canDeleteEventosFixos =>
+      AppPermissions.canDeleteAnyChurchRecords(
         widget.role,
         permissions: widget.permissions,
       );
@@ -607,6 +623,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _excluirEvento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_canDeleteEvento(doc)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir este evento.',
+          ),
+        );
+      }
+      return;
+    }
     final nome = (doc.data()?['title'] ?? doc.id).toString();
     final ok = await showDialog<bool>(
       context: context,
@@ -641,6 +667,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _deleteTemplate(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_canDeleteEventosFixos) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Apenas gestão da igreja pode excluir eventos fixos.',
+          ),
+        );
+      }
+      return;
+    }
     final nome = (doc.data()?['title'] ?? doc.id).toString();
     final ok = await showDialog<bool>(
       context: context,
@@ -1179,14 +1215,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     };
     if (defaultPhotoUrl.value.isNotEmpty) {
       final u = defaultPhotoUrl.value;
-      payload['defaultImageUrl'] = u;
-      payload['imageUrl'] = u;
-      payload['imageUrls'] = <String>[u];
-      payload['imagemUrl'] = u;
-      payload['imagem_url'] = u;
-      payload['coverStoragePath'] = ChurchStorageLayout.eventTemplateCoverPath(
+      final coverPath = ChurchStorageLayout.eventTemplateCoverPath(
         tenantId,
         stableTemplateId,
+      );
+      payload.addAll(
+        ChurchCanonicalMediaPublish.eventTemplateCoverFields(
+          downloadUrl: u,
+          storagePath: coverPath,
+        ),
       );
     }
     if (doc == null) {
@@ -1302,8 +1339,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     }
     final batch = ChurchRepository.batch();
     final tsNow = Timestamp.now();
-    final imageUrls =
-        defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
+    final templateCoverPath = (data['coverStoragePath'] ??
+            data['photoStoragePath'] ??
+            ChurchStorageLayout.eventTemplateCoverPath(_tid, doc.id))
+        .toString()
+        .trim();
     await ensureFirebaseReadyForPublishUpload();
     final op = ChurchRepository.churchId(_tid.trim());
     final agendaCol =         ChurchUiCollections.agenda(op);
@@ -1315,10 +1355,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         'type': 'evento',
         'title': title,
         'text': '',
-        'imageUrl': defaultImageUrl,
-        'imageUrls': imageUrls,
-        if (defaultImageUrl.isNotEmpty) 'imagemUrl': defaultImageUrl,
-        if (defaultImageUrl.isNotEmpty) 'imagem_url': defaultImageUrl,
+        if (defaultImageUrl.isNotEmpty)
+          ...ChurchCanonicalMediaPublish.eventTemplateCoverFields(
+            downloadUrl: defaultImageUrl,
+            storagePath: templateCoverPath,
+          ),
         'location': location,
         'videoUrl': '',
         'startAt': Timestamp.fromDate(dt),
@@ -1478,6 +1519,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               noticias: _noticias,
               nomeIgreja: _nomeIgreja,
               logoUrl: _logoUrl,
+              role: widget.role,
+              permissions: widget.permissions,
               canWrite: _canWrite,
               onNovoEvento: () => _novoEvento(),
               onEditEvento: (doc) => _novoEvento(doc: doc),
@@ -1490,6 +1533,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               key: _galleryTabKey,
               tenantId: _churchId,
               noticias: _noticias,
+              role: widget.role,
+              permissions: widget.permissions,
               canWrite: _canWrite,
               onDeleteEvento: _excluirEvento,
             ),
@@ -1504,6 +1549,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                   templates: _templates,
                   noticias: _noticias,
                   canWrite: _canWrite,
+                  canDeleteFixos: _canDeleteEventosFixos,
                   onEdit: _editTemplate,
                   onDelete: _deleteTemplate,
                   onGenerate: _generateFromTemplate,
@@ -1664,6 +1710,8 @@ class _EventsGalleryHeroHeader extends StatelessWidget {
 class _GalleryArchiveTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
+  final String role;
+  final List<String>? permissions;
   final bool canWrite;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>>)
       onDeleteEvento;
@@ -1672,6 +1720,8 @@ class _GalleryArchiveTab extends StatefulWidget {
     super.key,
     required this.tenantId,
     required this.noticias,
+    required this.role,
+    this.permissions,
     required this.canWrite,
     required this.onDeleteEvento,
   });
@@ -1688,6 +1738,14 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   bool _selectMode = false;
   final Set<String> _selectedIds = {};
   bool _bulkDeleting = false;
+
+  bool _canDeleteDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+      AppPermissions.canDeleteMuralFeedRecord(
+        widget.role,
+        currentUid: firebaseDefaultAuth.currentUser?.uid ?? '',
+        data: doc.data(),
+        permissions: widget.permissions,
+      );
 
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchApplied = '';
@@ -1839,6 +1897,36 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       }
       return;
     }
+    final allowedRefs = <DocumentReference<Map<String, dynamic>>>[];
+    for (final r in refs) {
+      QueryDocumentSnapshot<Map<String, dynamic>>? match;
+      for (final d in _galleryDocs) {
+        if (d.id == r.id) {
+          match = d;
+          break;
+        }
+      }
+      if (match != null && _canDeleteDoc(match)) {
+        allowedRefs.add(r);
+      }
+    }
+    if (allowedRefs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir o(s) evento(s) selecionado(s).',
+          ),
+        );
+      }
+      return;
+    }
+    if (allowedRefs.length < refs.length && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Alguns itens foram ignorados por falta de permissão.',
+        ),
+      );
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1846,9 +1934,9 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
         title: const Text('Excluir eventos'),
         content: Text(
-          refs.length == 1
+          allowedRefs.length == 1
               ? 'Deseja excluir este evento da galeria?'
-              : 'Deseja excluir ${refs.length} evento(s) da galeria?',
+              : 'Deseja excluir ${allowedRefs.length} evento(s) da galeria?',
         ),
         actions: [
           TextButton(
@@ -1869,16 +1957,19 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     try {
       await ensureFirebaseReadyForPublishUpload();
       const chunkSize = 400;
-      for (var i = 0; i < refs.length; i += chunkSize) {
+      for (var i = 0; i < allowedRefs.length; i += chunkSize) {
         final batch = ChurchRepository.batch();
-        final chunk = refs.sublist(
-            i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
+        final chunk = allowedRefs.sublist(
+            i,
+            i + chunkSize > allowedRefs.length
+                ? allowedRefs.length
+                : i + chunkSize);
         for (final r in chunk) {
           batch.delete(r);
         }
         await batch.commit();
       }
-      final ids = refs.map((r) => r.id).toList();
+      final ids = allowedRefs.map((r) => r.id).toList();
       ChurchEventosLoadService.removeFromRam(_churchId, ids);
       if (!mounted) return;
       setState(() {
@@ -2492,7 +2583,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                   size: 26,
                 ),
               ),
-            if (widget.canWrite && !_selectMode)
+            if (_canDeleteDoc(d) && !_selectMode)
               Positioned(
                 top: 8,
                 right: 8,
@@ -3090,6 +3181,8 @@ class _FeedTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
   final String nomeIgreja, logoUrl;
+  final String role;
+  final List<String>? permissions;
   final bool canWrite;
   final VoidCallback onNovoEvento;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onEditEvento,
@@ -3105,6 +3198,8 @@ class _FeedTab extends StatefulWidget {
       required this.noticias,
       required this.nomeIgreja,
       required this.logoUrl,
+      required this.role,
+      this.permissions,
       required this.canWrite,
       required this.onNovoEvento,
       required this.onEditEvento,
@@ -3447,12 +3542,21 @@ class _FeedTabState extends State<_FeedTab> {
     if (ok != true || !mounted) return;
 
     await ensureFirebaseReadyForPublishUpload();
+    final dataById = <String, Map<String, dynamic>>{
+      for (final d in _loadedDocs) d.id: d.data(),
+    };
     const int chunkSize = 400; // limite seguro de batch
     for (var i = 0; i < refs.length; i += chunkSize) {
       final batch = ChurchRepository.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
+        ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
+          tenantId: widget.tenantId,
+          postId: r.id,
+          isEvento: true,
+          data: dataById[r.id],
+        );
         batch.delete(r);
       }
       await batch.commit();
@@ -3775,7 +3879,13 @@ class _FeedTabState extends State<_FeedTab> {
                     doc: d,
                     nomeIgreja: widget.nomeIgreja,
                     logoUrl: widget.logoUrl,
-                    canWrite: widget.canWrite,
+                    canWrite: AppPermissions.canDeleteMuralFeedRecord(
+                      widget.role,
+                      currentUid:
+                          firebaseDefaultAuth.currentUser?.uid ?? '',
+                      data: d.data(),
+                      permissions: widget.permissions,
+                    ),
                     selectionMode: _selectMode,
                     onEdit: () => widget.onEditEvento(d),
                     onDelete: () => widget.onDeleteEvento(d),
@@ -9904,6 +10014,7 @@ class _FixosTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> templates;
   final CollectionReference<Map<String, dynamic>> noticias;
   final bool canWrite;
+  final bool canDeleteFixos;
   final void Function({DocumentSnapshot<Map<String, dynamic>>? doc}) onEdit;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onDelete;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onGenerate;
@@ -9915,6 +10026,7 @@ class _FixosTab extends StatefulWidget {
       required this.templates,
       required this.noticias,
       required this.canWrite,
+      this.canDeleteFixos = false,
       required this.onEdit,
       required this.onDelete,
       required this.onGenerate,
@@ -10746,10 +10858,12 @@ class _FixosTabState extends State<_FixosTab> {
           Navigator.of(context).pop();
           widget.onEdit(doc: doc);
         },
-        onDelete: () {
-          Navigator.of(context).pop();
-          widget.onDelete(doc);
-        },
+        onDelete: widget.canDeleteFixos
+            ? () {
+                Navigator.of(context).pop();
+                widget.onDelete(doc);
+              }
+            : null,
         onGenerate: eventTemplateIncludeInAgenda(dm)
             ? () {
                 Navigator.of(context).pop();
@@ -11297,8 +11411,9 @@ class _FixosTabState extends State<_FixosTab> {
                                               widget.onEdit(doc: d);
                                             break;
                                           case 'excluir':
-                                            if (widget.canWrite)
+                                            if (widget.canDeleteFixos) {
                                               widget.onDelete(d);
+                                            }
                                             break;
                                           case 'gerar':
                                             widget.onGenerate(d);
@@ -11323,7 +11438,7 @@ class _FixosTabState extends State<_FixosTab> {
                                                 SizedBox(width: 10),
                                                 Text('Editar')
                                               ])),
-                                        if (widget.canWrite)
+                                        if (widget.canDeleteFixos)
                                           const PopupMenuItem(
                                               value: 'excluir',
                                               child: Row(children: [
@@ -11502,7 +11617,7 @@ class _EventoFixoDetailPage extends StatelessWidget {
                               backgroundColor: ThemeCleanPremium.primary))),
                 ],
               ]),
-              if (canEdit && onDelete != null) ...[
+              if (onDelete != null) ...[
                 const SizedBox(height: 12),
                 SizedBox(
                     width: double.infinity,

@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
@@ -35,20 +36,8 @@ abstract final class FinanceComprovanteAttachService {
       hasComprovanteReady(data);
 
   /// Comprovante disponível para visualizar (URL ou path Storage confirmados).
-  static bool hasComprovanteReady(Map<String, dynamic> data) {
-    if (data['hasComprovante'] == true) {
-      final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
-          .toString()
-          .trim();
-      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
-      if (url.isNotEmpty || path.isNotEmpty) return true;
-    }
-    final urlOnly = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
-        .toString()
-        .trim();
-    final pathOnly = (data['comprovanteStoragePath'] ?? '').toString().trim();
-    return urlOnly.isNotEmpty || pathOnly.isNotEmpty;
-  }
+  static bool hasComprovanteReady(Map<String, dynamic> data) =>
+      ChurchCanonicalMediaContract.hasViewableFinanceComprovante(data);
 
   static bool isComprovanteUploading(Map<String, dynamic> data) {
     final state = (data['comprovanteUploadState'] ?? '').toString().trim();

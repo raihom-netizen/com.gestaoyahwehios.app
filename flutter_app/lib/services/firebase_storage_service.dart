@@ -301,9 +301,13 @@ class FirebaseStorageService {
     String memberDocId,
     String? authUid,
   ) {
-    final au = (authUid ?? '').trim();
+    final docId =
+        ChurchStorageLayout.sanitizeMemberStorageFolderId(memberDocId.trim());
+    final au = ChurchStorageLayout.sanitizeMemberStorageFolderId(
+      (authUid ?? '').trim(),
+    );
     if (au.isNotEmpty) return au;
-    return memberDocId.trim();
+    return docId;
   }
 
   /// Caminho canónico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).

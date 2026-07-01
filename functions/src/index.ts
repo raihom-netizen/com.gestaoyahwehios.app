@@ -7647,6 +7647,8 @@ export {
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
 
+export { getRelatoriosBundle } from "./reportsSnapshot";
+
 export {
   writePanelStatisticsCache,
 } from "./panelStatisticsCache";

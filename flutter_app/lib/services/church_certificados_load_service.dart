@@ -7,6 +7,8 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -133,10 +135,23 @@ abstract final class ChurchCertificadosLoadService {
     return sorted;
   }
 
+  /// Rol completo — igual aba «Todos» em Membros (só exclui ficha sem nome).
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _rollMembersForCertificados(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      docs
+          .where((d) {
+            final blind =
+                BlindMemberDoc.fromFirestore(id: d.id, data: d.data());
+            return blind.displayName.trim().isNotEmpty;
+          })
+          .toList();
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _fromDirectory(
     MembersDirectorySnapshot dir,
   ) {
     return dir.entries
+        .where((e) => e.displayName.trim().isNotEmpty)
         .map(
           (e) => ChurchCertificadosMemberDoc(
             id: e.memberDocId,
@@ -206,6 +221,10 @@ abstract final class ChurchCertificadosLoadService {
       );
     }
 
+    if (forceRefresh) {
+      _ram.remove(churchId);
+    }
+
     if (!forceRefresh) {
       final ram = peekRam(churchId);
       if (ram != null && ram.isNotEmpty) {
@@ -219,10 +238,11 @@ abstract final class ChurchCertificadosLoadService {
 
     Object? lastError;
 
+    // Lista completa — directory `_panel_cache` pode ter menos entries que totalCount.
     try {
       final docs = await _loadMembrosCollection(churchId);
       if (docs.isNotEmpty) {
-        final sorted = _sortByNome(docs);
+        final sorted = _sortByNome(_rollMembersForCertificados(docs));
         putRam(churchId, sorted);
         return ChurchCertificadosLoadResult(
           churchId: churchId,
@@ -236,6 +256,47 @@ abstract final class ChurchCertificadosLoadService {
     }
 
     try {
+      final membersResult = await ChurchMembersLoadService.load(
+        seedTenantId: churchId,
+        limit: kAllMembersLimit,
+        forceRefresh: forceRefresh,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      if (membersResult.docs.isNotEmpty) {
+        final docs = _sortByNome(_rollMembersForCertificados(membersResult.docs));
+        putRam(churchId, docs);
+        return ChurchCertificadosLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: membersResult.readSource.startsWith('members_directory')
+              ? 'members_load_directory'
+              : 'members_load_service',
+          softError: docs.isEmpty ? membersResult.softError : null,
+        );
+      }
+      if (membersResult.directoryEntries.isNotEmpty) {
+        final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
+          churchId,
+          MembersDirectorySnapshot(
+            totalCount: membersResult.directoryEntries.length,
+            entries: membersResult.directoryEntries,
+          ),
+        );
+        final docs = _sortByNome(_rollMembersForCertificados(merged.docs));
+        if (docs.isNotEmpty) {
+          putRam(churchId, docs);
+          return ChurchCertificadosLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'members_load_directory_entries',
+          );
+        }
+      }
+    } catch (e, st) {
+      lastError ??= e;
+      debugPrint('ChurchCertificadosLoadService members_load: $e\n$st');
+    }
+
+    try {
       final snap = await IgrejaDirectFirestoreReads.listSubcollection(
         churchId,
         'membros',
@@ -244,7 +305,7 @@ abstract final class ChurchCertificadosLoadService {
         cacheKey: '${churchId}_certificados_membros_$kAllMembersLimit',
       ).timeout(ChurchPanelReadTimeouts.queryCap);
       if (snap.docs.isNotEmpty) {
-        final docs = _sortByNome(snap.docs);
+        final docs = _sortByNome(_rollMembersForCertificados(snap.docs));
         putRam(churchId, docs);
         return ChurchCertificadosLoadResult(
           churchId: churchId,
@@ -259,7 +320,9 @@ abstract final class ChurchCertificadosLoadService {
 
     try {
       final dir = await MembersDirectorySnapshotService.readOnce(churchId);
-      if (dir.hasEntries) {
+      final dirComplete = dir.hasEntries &&
+          (dir.totalCount <= 0 || dir.entries.length >= dir.totalCount);
+      if (dirComplete) {
         final docs = _sortByNome(_fromDirectory(dir));
         putRam(churchId, docs);
         unawaited(
@@ -282,7 +345,7 @@ abstract final class ChurchCertificadosLoadService {
         limit: kAllMembersLimit,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
       if (snap.docs.isNotEmpty) {
-        final docs = _sortByNome(snap.docs);
+        final docs = _sortByNome(_rollMembersForCertificados(snap.docs));
         putRam(churchId, docs);
         return ChurchCertificadosLoadResult(
           churchId: churchId,
@@ -301,7 +364,7 @@ abstract final class ChurchCertificadosLoadService {
     if (mem != null && mem.docs.isNotEmpty) {
       return ChurchCertificadosLoadResult(
         churchId: churchId,
-        docs: _sortByNome(mem.docs),
+        docs: _sortByNome(_rollMembersForCertificados(mem.docs)),
         readSource: 'fallback_mem',
         softError: lastError?.toString(),
       );

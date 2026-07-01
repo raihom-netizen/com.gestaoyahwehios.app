@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
+import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -20,6 +22,7 @@ import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
+import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
@@ -1084,30 +1087,24 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> escalaTemplates(
     String tenantId, {
     int limit = 120,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.agenda,
-        firestoreCacheKey: _key(tenantId, 'escala_templates_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _escalaTemplatesQueryResilient(tid, limit: limit),
-        ),
-      );
+  }) async {
+    final r = await ChurchSchedulesLoadService.loadTemplates(
+      seedTenantId: tenantId,
+      limit: limit,
+    );
+    return r.snapshot;
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> escalasRecent(
     String tenantId, {
     int limit = 120,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.agenda,
-        firestoreCacheKey: _key(tenantId, 'escalas_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _escalasRecentQueryResilient(tid, limit: limit),
-        ),
-      );
+  }) async {
+    final r = await ChurchSchedulesLoadService.loadEscalas(
+      seedTenantId: tenantId,
+      limit: limit,
+    );
+    return r.snapshot;
+  }
 
   static String _escalaTemplateSortKey(Map<String, dynamic> data) =>
       (data['title'] ?? data['nome'] ?? '').toString().trim().toLowerCase();
@@ -1262,8 +1259,31 @@ abstract final class ChurchTenantResilientReads {
   }) =>
       FirestoreWebGuard.runWithWebRecovery(() async {
         final church = _church(tenantId);
+        final startDate = start.toDate();
+        final endDate = end.toDate();
+
+        bool docInRange(Map<String, dynamic> data) {
+          final dt = AgendaFirestoreFields.parseDate(data);
+          if (dt == null) return false;
+          return !dt.isBefore(startDate) && !dt.isAfter(endDate);
+        }
+
+        Future<QuerySnapshot<Map<String, dynamic>>> plainFallback() async {
+          final plain = await FirestoreReadResilience.getQuery(
+            church.collection(collection).limit(plainLimit),
+            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: kIsWeb
+                ? const Duration(seconds: 10)
+                : const Duration(seconds: 16),
+          );
+          final filtered =
+              plain.docs.where((d) => docInRange(d.data())).toList();
+          return MergedFirestoreQuerySnapshot(filtered);
+        }
+
         try {
-          return await FirestoreReadResilience.getQuery(
+          final ranged = await FirestoreReadResilience.getQuery(
             church
                 .collection(collection)
                 .where(dateField, isGreaterThanOrEqualTo: start)
@@ -1274,21 +1294,10 @@ abstract final class ChurchTenantResilientReads {
                 ? const Duration(seconds: 10)
                 : const Duration(seconds: 16),
           );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection(collection).limit(plainLimit),
-            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
-          );
-          final startDate = start.toDate();
-          final endDate = end.toDate();
-          final filtered = plain.docs.where((d) {
-            final raw = d.data()[dateField];
-            if (raw is! Timestamp) return false;
-            final dt = raw.toDate();
-            return !dt.isBefore(startDate) && !dt.isAfter(endDate);
-          }).toList();
-          return MergedFirestoreQuerySnapshot(filtered);
-        }
+          if (ranged.docs.isNotEmpty) return ranged;
+        } catch (_) {}
+
+        return plainFallback();
       });
 
   /// Cultos no intervalo — doc operacional + irmãos.
@@ -1317,14 +1326,34 @@ abstract final class ChurchTenantResilientReads {
   }) =>
       _queryWithSiblingFallback(
         tenantId,
-        (tid) => _rangeQueryResilient(
-          tenantId: tid,
-          collection: 'eventos',
-          dateField: 'dataEvento',
-          start: start,
-          end: end,
-          cacheSuffix: 'eventos_dataEvento_${_rangeCacheSuffix(start, end)}',
-        ),
+        (tid) async {
+          final primary = await _rangeQueryResilient(
+            tenantId: tid,
+            collection: 'eventos',
+            dateField: 'dataEvento',
+            start: start,
+            end: end,
+            cacheSuffix: 'eventos_dataEvento_${_rangeCacheSuffix(start, end)}',
+          );
+          if (primary.docs.isNotEmpty) return primary;
+
+          for (final leg in [
+            ChurchDataPaths.legacyEventosNoticias,
+            ChurchDataPaths.legacyEventosEn,
+          ]) {
+            final legacy = await _rangeQueryResilient(
+              tenantId: tid,
+              collection: leg,
+              dateField: 'dataEvento',
+              start: start,
+              end: end,
+              cacheSuffix:
+                  'eventos_${leg}_${_rangeCacheSuffix(start, end)}',
+            );
+            if (legacy.docs.isNotEmpty) return legacy;
+          }
+          return primary;
+        },
       );
 
   /// Posts `type: evento` com `startAt` no intervalo.

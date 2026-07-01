@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class EcoFireDirectFirebase {
   EcoFireDirectFirebase._();
 
+  static Future<FirebaseApp>? _ensureDefaultAppInFlight;
+
   static bool _hasDefaultApp() {
     try {
       Firebase.app();
@@ -24,19 +26,65 @@ abstract final class EcoFireDirectFirebase {
 
   /// Garante app [DEFAULT] — reexecuta `initializeApp` só se necessário.
   static Future<FirebaseApp> ensureDefaultApp() async {
-    if (!_hasDefaultApp()) {
-      FirebaseBootstrap.reset();
+    if (_hasDefaultApp()) {
+      final app = Firebase.app();
+      FirebaseBootstrapService.refreshCachedApp();
+      return app;
     }
-    await FirebaseBootstrap.ensureInitialized();
-    if (!_hasDefaultApp()) {
+
+    final inFlight = _ensureDefaultAppInFlight;
+    if (inFlight != null) return inFlight;
+
+    final future = () async {
+      Object? last;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (!_hasDefaultApp()) {
+            FirebaseBootstrap.reset();
+          }
+          await FirebaseBootstrap.ensureInitialized();
+          if (!_hasDefaultApp()) {
+            final boot = await FirebaseBootstrapService.initialize();
+            if (!boot.isReady && boot.failure != null) {
+              throw boot.failure!;
+            }
+          }
+          if (!_hasDefaultApp()) {
+            throw StateError(
+              'Firebase não inicializou (core/no-app). '
+              'FIREBASE APPS=${Firebase.apps.length}',
+            );
+          }
+          final app = Firebase.app();
+          FirebaseBootstrapService.refreshCachedApp();
+          return app;
+        } catch (e) {
+          last = e;
+          if (attempt < 2) {
+            await Future<void>.delayed(
+              Duration(milliseconds: 160 + (attempt * 180)),
+            );
+          }
+        }
+      }
+      if (last != null) {
+        if (last is Exception) throw last;
+        throw StateError(last.toString());
+      }
       throw StateError(
         'Firebase não inicializou (core/no-app). '
         'FIREBASE APPS=${Firebase.apps.length}',
       );
+    }();
+
+    _ensureDefaultAppInFlight = future;
+    try {
+      return await future;
+    } finally {
+      if (identical(_ensureDefaultAppInFlight, future)) {
+        _ensureDefaultAppInFlight = null;
+      }
     }
-    final app = Firebase.app();
-    FirebaseBootstrapService.refreshCachedApp();
-    return app;
   }
 
   /// Bucket Storage ligado ao app [DEFAULT].

@@ -5,24 +5,20 @@ import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_finance_load_service.dart';
-import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_relatorios_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Consolidação de dados para **Relatórios** — sempre `igrejas/{churchId}/…`.
 ///
-/// Delega leitura a [ChurchFinanceLoadService], [ChurchPatrimonioLoadService] e
-/// cache de membros; **nunca** hardcode de tenant nem `FirebaseFirestore.instance`.
+/// Delega a [ChurchRelatoriosLoadService] (membros, eventos, financeiro, patrimônio).
 abstract final class YahwehReportsEngineFetcher {
   YahwehReportsEngineFetcher._();
 
-  static const int kFinanceReportLimit = 500;
-  static const int kPatrimonioReportLimit = 200;
-  static const int kMembrosReportLimit = 800;
+  static const int kFinanceReportLimit = ChurchRelatoriosLoadService.kFinanceLimit;
+  static const int kPatrimonioReportLimit =
+      ChurchRelatoriosLoadService.kPatrimonioLimit;
+  static const int kMembrosReportLimit = ChurchRelatoriosLoadService.kMembrosLimit;
 
-  /// Sem fallback fixo de tenant — usar sempre o churchId da sessão.
   static const String pilotChurchIdHint = '';
 
   static String resolveChurchId(String? hint) =>
@@ -79,7 +75,7 @@ abstract final class YahwehReportsEngineFetcher {
     };
   }
 
-  /// Lançamentos do período — filtro de datas **no cliente** (evita índice composto Web).
+  /// Lançamentos do período — filtro de datas no cliente.
   static Future<List<Map<String, dynamic>>> fetchFinanceRowsForPeriod({
     required String churchIdHint,
     required DateTime inicio,
@@ -87,27 +83,13 @@ abstract final class YahwehReportsEngineFetcher {
     int limit = kFinanceReportLimit,
     bool forceRefresh = false,
   }) =>
-      _withWebRecovery(() async {
-        final churchId = resolveChurchId(churchIdHint);
-        if (churchId.isEmpty) return const [];
-
-        final result = await ChurchFinanceLoadService.loadLancamentos(
-          seedTenantId: churchId,
-          limit: limit,
-          forceRefresh: forceRefresh,
-        );
-
-        return result.docs
-            .map(normalizeFinanceRow)
-            .where(
-              (row) => _inPeriod(
-                financeLancamentoDate(row),
-                inicio,
-                fim,
-              ),
-            )
-            .toList(growable: false);
-      });
+      ChurchRelatoriosLoadService.loadFinanceRows(
+        churchIdHint: churchIdHint,
+        inicio: inicio,
+        fim: fim,
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
 
   static Map<String, double> aggregateFinanceTotals(
     Iterable<Map<String, dynamic>> rows,
@@ -131,7 +113,6 @@ abstract final class YahwehReportsEngineFetcher {
     };
   }
 
-  /// Totais financeiros reactivos — re-emite quando `finance` muda (cards/gráficos).
   static Stream<Map<String, double>> watchFinanceTotals({
     required String churchIdHint,
     required DateTime inicio,
@@ -173,29 +154,13 @@ abstract final class YahwehReportsEngineFetcher {
   static Future<List<Map<String, dynamic>>> fetchMembrosRows({
     required String churchIdHint,
     int limit = kMembrosReportLimit,
+    bool forceRefresh = false,
   }) =>
-      _withWebRecovery(() async {
-        final churchId = resolveChurchId(churchIdHint);
-        if (churchId.isEmpty) return const [];
-
-        try {
-          final dir = await MembersDirectorySnapshotService.readOnce(churchId);
-          if (dir.hasEntries) {
-            final out = <Map<String, dynamic>>[];
-            for (final e in dir.entries) {
-              if (out.length >= limit) break;
-              out.add({...e.toMemberDataMap(), 'id': e.memberDocId});
-            }
-            if (out.isNotEmpty) return out;
-          }
-        } catch (_) {}
-
-        final snap =
-            await ChurchTenantResilientReads.membrosRecent(churchId, limit: limit);
-        return snap.docs
-            .map((d) => {...d.data(), 'id': d.id})
-            .toList(growable: false);
-      });
+      ChurchRelatoriosLoadService.loadMembrosRows(
+        churchIdHint: churchIdHint,
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
 
   static Future<Map<String, int>> loadMembrosStats({
     required String churchIdHint,
@@ -231,17 +196,11 @@ abstract final class YahwehReportsEngineFetcher {
     int limit = kPatrimonioReportLimit,
     bool forceRefresh = false,
   }) =>
-      _withWebRecovery(() async {
-        final churchId = resolveChurchId(churchIdHint);
-        if (churchId.isEmpty) return const [];
-
-        final result = await ChurchPatrimonioLoadService.loadAll(
-          seedTenantId: churchId,
-          limit: limit,
-          forceRefresh: forceRefresh,
-        );
-        return result.docs;
-      });
+      ChurchRelatoriosLoadService.loadPatrimonioDocs(
+        churchIdHint: churchIdHint,
+        limit: limit,
+        forceRefresh: forceRefresh,
+      );
 
   static Future<Map<String, dynamic>> loadPatrimonioStats({
     required String churchIdHint,
@@ -273,4 +232,18 @@ abstract final class YahwehReportsEngineFetcher {
       (_) => loadPatrimonioStats(churchIdHint: churchIdHint, limit: limit),
     );
   }
+
+  /// Eventos no período — relatório de eventos.
+  static Future<List<Map<String, dynamic>>> fetchEventosForPeriod({
+    required String churchIdHint,
+    required DateTime inicio,
+    required DateTime fim,
+    bool forceRefresh = false,
+  }) =>
+      ChurchRelatoriosLoadService.loadEventosForPeriod(
+        churchIdHint: churchIdHint,
+        inicio: inicio,
+        fim: fim,
+        forceRefresh: forceRefresh,
+      );
 }

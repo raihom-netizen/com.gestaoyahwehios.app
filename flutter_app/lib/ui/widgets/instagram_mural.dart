@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_feed_publish_editor_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
@@ -82,6 +83,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoUrls,
         eventNoticiaVideosFromDoc,
         eventNoticiaUrlEligibleForHostedInlinePlayer,
+        feedPostCarouselPhotoUrls,
         looksLikeHostedVideoFileUrl,
         noticiaImageRefsPreferDisplayOrder,
         postFeedCarouselAspectRatioForIndex,
@@ -312,16 +314,20 @@ class InstagramMuralState extends State<InstagramMural> {
         permissions: widget.permissions,
       );
 
-  bool get _canManageAll {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
-  }
+  bool get _canManageAllChurchContent =>
+      AppPermissions.canDeleteAnyChurchRecords(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   bool _canEditDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
-    if (_canManageAll) return true;
     final uid = _user?.uid ?? '';
-    final data = doc.data() ?? {};
-    return uid.isNotEmpty && (data['createdByUid'] ?? '').toString() == uid;
+    return AppPermissions.canEditMuralFeedRecord(
+      widget.role,
+      currentUid: uid,
+      data: doc.data() ?? {},
+      permissions: widget.permissions,
+    );
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
@@ -367,7 +373,7 @@ class InstagramMuralState extends State<InstagramMural> {
     unawaited(_bootstrapFirestoreTenant());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      if (_canManageAll) {
+      if (_canManageAllChurchContent) {
         NoticiaExpiredMediaCleanupService.runOnceForTenant(_tid);
       }
       final resumeId = widget.initialOpenAvisoDocId?.trim() ?? '';
@@ -509,6 +515,16 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _deletePost(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_canEditDoc(doc)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir este aviso.',
+          ),
+        );
+      }
+      return;
+    }
     final nome = (doc.data()?['title'] ?? doc.id).toString();
     final ok = await showDialog<bool>(
       context: context,
@@ -532,7 +548,15 @@ class InstagramMuralState extends State<InstagramMural> {
     );
     if (ok == true) {
       await _ensureMuralFirebaseReady();
+      final postData = doc.data();
+      final postId = doc.id;
       await doc.reference.delete();
+      ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
+        tenantId: widget.tenantId,
+        postId: postId,
+        isEvento: (postData?['type'] ?? '').toString() == 'evento',
+        data: postData,
+      );
       unawaited(_loadFeedPage(reset: true));
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -849,7 +873,7 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _showAvisosDiagnostic() async {
-    if (!_canManageAll || !mounted) return;
+    if (!_canManageAllChurchContent || !mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -1266,7 +1290,7 @@ class InstagramMuralState extends State<InstagramMural> {
                                       letterSpacing: -0.3),
                                 ),
                               ),
-                              if (_canManageAll)
+                              if (_canManageAllChurchContent)
                                 IconButton(
                                   tooltip: 'Diagnóstico Avisos',
                                   onPressed: () =>
@@ -1326,7 +1350,7 @@ class InstagramMuralState extends State<InstagramMural> {
                             const SizedBox(width: 16),
                             Expanded(child: searchField),
                             const SizedBox(width: 12),
-                            if (_canManageAll) ...[
+                            if (_canManageAllChurchContent) ...[
                               IconButton(
                                 tooltip: 'Diagnóstico Avisos',
                                 onPressed: () =>
@@ -1528,89 +1552,31 @@ class _PostCard extends StatefulWidget {
     required this.tenantId,
   });
 
-  /// Fotos do post: [eventNoticiaPhotoUrls] (eventos/notícias) + [imageUrlsListFromMap] (avisos).
-  /// Fallback: miniatura de vídeo quando o evento não tem foto (capa do vídeo ou preview YouTube).
+  /// Fotos do post — carrossel/site (uma por slot, sem duplicata thumb/path).
   static List<String> imageUrlsFromData(Map<String, dynamic> data) {
-    final seen = <String>{};
-    final out = <String>[];
-    bool usableRef(String s) {
-      if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return false;
-      final low = s.toLowerCase();
-      if (low.contains('youtube.com') ||
-          low.contains('youtu.be') ||
-          low.contains('vimeo.com')) {
-        return false;
-      }
-      if (isValidImageUrl(s)) return true;
-      if (low.startsWith('gs://')) return true;
-      return firebaseStorageMediaUrlLooksLike(s);
+    final out = feedPostCarouselPhotoUrls(data);
+    if (out.isNotEmpty) return out;
+    final thumb = eventNoticiaDisplayVideoThumbnailUrl(data);
+    if (thumb != null && thumb.isNotEmpty) {
+      return [sanitizeImageUrl(thumb)];
     }
-
-    void addAll(List<String> list) {
-      for (final raw in list) {
-        final s = sanitizeImageUrl(raw);
-        if (!usableRef(s)) continue;
-        if (seen.add(s)) out.add(s);
-      }
-    }
-
-    void addOne(String? raw) {
-      if (raw == null) return;
-      final s = sanitizeImageUrl(raw);
-      if (!usableRef(s)) return;
-      if (seen.add(s)) out.add(s);
-    }
-
-    addAll(eventNoticiaPhotoUrls(data));
-    addAll(imageUrlsListFromMap(data));
-    if (out.isEmpty) addOne(eventNoticiaDisplayVideoThumbnailUrl(data));
-    if (out.isEmpty) addOne(imageUrlFromMap(data));
-    return dedupeImageRefsByStorageIdentity(
-        noticiaImageRefsPreferDisplayOrder(out));
+    final primary = imageUrlFromMap(data);
+    if (primary.isNotEmpty) return [primary];
+    return const [];
   }
 
-  /// Slides de **foto** no carrossel: não usa miniatura de vídeo como falsa foto; remove duplicata única = poster do vídeo.
+  /// Slides de **foto** no carrossel: uma por slot; sem thumb duplicado nem path+URL.
   static List<String> photoUrlsOnlyForMural(Map<String, dynamic> data) {
-    final seen = <String>{};
-    final out = <String>[];
-    bool usableRef(String s) {
-      if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return false;
-      final low = s.toLowerCase();
-      if (low.contains('youtube.com') ||
-          low.contains('youtu.be') ||
-          low.contains('vimeo.com')) {
-        return false;
-      }
-      if (isValidImageUrl(s)) return true;
-      if (low.startsWith('gs://')) return true;
-      return firebaseStorageMediaUrlLooksLike(s);
-    }
-
-    void addAll(List<String> list) {
-      for (final raw in list) {
-        final s = sanitizeImageUrl(raw);
-        if (!usableRef(s)) continue;
-        if (seen.add(s)) out.add(s);
-      }
-    }
-
-    void addOne(String? raw) {
-      if (raw == null) return;
-      final s = sanitizeImageUrl(raw);
-      if (!usableRef(s)) return;
-      if (seen.add(s)) out.add(s);
-    }
-
-    addAll(eventNoticiaPhotoUrls(data));
-    addAll(imageUrlsListFromMap(data));
+    var out = feedPostCarouselPhotoUrls(data);
     final vids = eventNoticiaVideosFromDoc(data);
     final hasVideo = vids.isNotEmpty;
-    if (!hasVideo && out.isEmpty) addOne(imageUrlFromMap(data));
+    if (!hasVideo && out.isEmpty) {
+      final primary = imageUrlFromMap(data);
+      if (primary.isNotEmpty) out = [primary];
+    }
 
-    final ordered = noticiaImageRefsPreferDisplayOrder(out);
-
-    if (hasVideo && ordered.length == 1) {
-      final u = sanitizeImageUrl(ordered.first);
+    if (hasVideo && out.length == 1) {
+      final u = sanitizeImageUrl(out.first);
       final thumbs = <String>{};
       for (final m in vids) {
         final t = sanitizeImageUrl(m['thumbUrl'] ?? '');
@@ -1622,7 +1588,7 @@ class _PostCard extends StatefulWidget {
       }
       if (thumbs.contains(u)) return [];
     }
-    return dedupeImageRefsByStorageIdentity(ordered);
+    return out;
   }
 
   @override

@@ -25,6 +25,7 @@ abstract final class ChurchDataPaths {
   static const String fornecedores = 'fornecedores';
   static const String escalas = 'escalas';
   static const String escalaTemplates = 'escala_templates';
+  static const String escalaTrocas = 'escala_trocas';
   static const String agenda = 'agenda';
   static const String lideres = 'lideres';
   static const String administrativo = 'administrativo';
@@ -92,6 +93,7 @@ abstract final class ChurchDataPaths {
     fornecedores,
     escalas,
     escalaTemplates,
+    escalaTrocas,
     agenda,
     lideres,
     administrativo,

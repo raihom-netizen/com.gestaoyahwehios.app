@@ -2,10 +2,9 @@ import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
@@ -22,6 +21,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Pipeline único — foto perfil membro: bootstrap → Storage → Firestore.
 ///
@@ -68,29 +68,13 @@ abstract final class MemberProfilePhotoSaveService {
     if (churchId.isEmpty || docId.isEmpty) {
       throw StateError('Igreja ou membro inválido para gravar a foto.');
     }
-    final docRef = ChurchUiCollections.membros(churchId).doc(docId);
-    return EcoFireResilientPublish.runOrQueue(
-      logLabel: 'membro_foto',
-      optimisticResult: MemberProfilePhotoUpdateResult(
-        downloadUrl: '',
-        storagePath: '',
-        cacheRevision: DateTime.now().millisecondsSinceEpoch,
-      ),
-      onQueue: () => EcoFireResilientPublish.queueMemberPhotoPublish(
-        churchId: churchId,
-        memberDocId: docId,
-        docRef: docRef,
-        memberData: memberData,
-        rawBytes: rawBytes,
-      ),
-      action: () => _saveOnline(
-        tenantId: tenantId,
-        memberDocId: memberDocId,
-        memberData: memberData,
-        rawBytes: rawBytes,
-        onPhase: onPhase,
-        requireAuth: requireAuth,
-      ),
+    return _saveOnline(
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: memberData,
+      rawBytes: rawBytes,
+      onPhase: onPhase,
+      requireAuth: requireAuth,
     );
   }
 
@@ -148,13 +132,15 @@ abstract final class MemberProfilePhotoSaveService {
         );
 
         onPhase?.call('A confirmar no Storage…');
-        await MembroPublishVerificationService.verifyStorageMetadata(
-          fullStoragePath: uploaded.fullStoragePath,
-          thumbStoragePath: uploaded.thumbStoragePath,
-        ).timeout(const Duration(seconds: 20));
+        final photoUrlRaw = sanitizeImageUrl(uploaded.photoFull.trim());
+        if (photoUrlRaw.isEmpty) {
+          await MembroPublishVerificationService.verifyStorageMetadata(
+            fullStoragePath: uploaded.fullStoragePath,
+            thumbStoragePath: uploaded.thumbStoragePath,
+          ).timeout(const Duration(seconds: 12));
+        }
 
         final revision = YahwehMediaCacheBust.freshRevisionMs();
-        final photoUrlRaw = sanitizeImageUrl(uploaded.photoFull.trim());
         final thumbUrlRaw = sanitizeImageUrl(uploaded.photoThumb.trim());
         final photoUrl = photoUrlRaw.isNotEmpty
             ? YahwehMediaCacheBust.apply(photoUrlRaw, revision)
@@ -199,6 +185,9 @@ abstract final class MemberProfilePhotoSaveService {
         MembroPublishVerificationService.assertMembroDocPath(docRef);
 
         onPhase?.call('A gravar cadastro…');
+        if (kIsWeb) {
+          await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+        }
         await AdminFeedFirestoreBridge.upsertDocRef(
           docRef: docRef,
           data: updates,

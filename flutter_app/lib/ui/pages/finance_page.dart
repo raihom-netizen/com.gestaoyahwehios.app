@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -104,17 +105,26 @@ const _mesesAbrev = [
   'Dez'
 ];
 
+bool _financeUiCanDeleteLancamento(String role) =>
+    AppPermissions.canDeleteFinanceLancamento(role);
+
 Future<void> _excluirLancamentoComAuditoria(
   DocumentSnapshot<Map<String, dynamic>> doc,
   String tenantId,
 ) async {
+  final data = Map<String, dynamic>.from(doc.data() ?? {});
   await logFinanceiroAuditoria(
     tenantId: tenantId,
     acao: 'exclusao',
     lancamentoId: doc.id,
-    dadosAntes: Map<String, dynamic>.from(doc.data() ?? {}),
+    dadosAntes: data,
   );
   await doc.reference.delete();
+  ChurchCanonicalMediaDeleteService.scheduleComprovanteArtifactsDeleted(
+    tenantId: tenantId,
+    lancamentoId: doc.id,
+    data: data,
+  );
 }
 
 /// Outros módulos (ex.: Fornecedores) — mesma exclusão com auditoria que o Financeiro.
@@ -3425,7 +3435,8 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
 
   void _seedMovimentacoesFromRam() {
     final churchId = ChurchRepository.churchId(widget.tenantId);
-    _seedDocs = ChurchFinanceLoadService.peekLancamentosRam(
+    _seedDocs = ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
+        ChurchFinanceLoadService.peekLancamentosRam(
           churchId,
           limit: _movPageSize,
         ) ??
@@ -3944,6 +3955,16 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
 
   Future<void> _excluirLancamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_financeUiCanDeleteLancamento(widget.role)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir lançamentos financeiros.',
+          ),
+        );
+      }
+      return;
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -4026,7 +4047,8 @@ class _ListaLancamentosPorTipoPageState
 
   void _seedFromRam() {
     final churchId = ChurchRepository.churchId(widget.tenantId);
-    _seedDocs = ChurchFinanceLoadService.peekLancamentosRam(
+    _seedDocs = ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
+        ChurchFinanceLoadService.peekLancamentosRam(
           churchId,
           limit: 500,
         ) ??
@@ -4228,6 +4250,16 @@ class _ListaLancamentosPorTipoPageState
 
   Future<void> _excluirLancamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_financeUiCanDeleteLancamento(widget.role)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir lançamentos financeiros.',
+          ),
+        );
+      }
+      return;
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -4361,6 +4393,9 @@ class _LancamentosTabState extends State<_LancamentosTab> {
 
   Future<List<dynamic>> _loadLancamentosBundle({required bool forceFresh}) async {
     final tid = ChurchRepository.churchId(widget.tenantId);
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
     final l = await ChurchFinanceLoadService.loadLancamentos(
       seedTenantId: tid,
       limit: _financePageSize,
@@ -4394,7 +4429,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   void _seedLancamentosCaches() {
     final churchId = ChurchRepository.churchId(widget.tenantId);
     _seedFinanceDocs =
-        ChurchFinanceLoadService.peekLancamentosRam(
+        ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
+            ChurchFinanceLoadService.peekLancamentosRam(
               churchId,
               limit: _financePageSize,
             ) ??
@@ -4432,10 +4468,22 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       setState(() {
         final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
         final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-        _seedFinanceDocs = fs.docs;
-        _seedContasDocs = cs.docs;
-        _financeHasMore = fs.docs.length >= _financePageSize;
-        _combinedFuture = Future.value(fresh);
+        final freshFinance = fs.docs;
+        _seedFinanceDocs = freshFinance.isNotEmpty
+            ? freshFinance
+            : (_seedFinanceDocs?.isNotEmpty == true
+                ? _seedFinanceDocs!
+                : freshFinance);
+        _seedContasDocs = cs.docs.isNotEmpty
+            ? cs.docs
+            : (_seedContasDocs?.isNotEmpty == true
+                ? _seedContasDocs!
+                : cs.docs);
+        _financeHasMore = _seedFinanceDocs!.length >= _financePageSize;
+        _combinedFuture = Future.value(<dynamic>[
+          MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
+          MergedFirestoreQuerySnapshot(_seedContasDocs!),
+        ]);
         _fetching = false;
         _showingStaleCache = false;
         _loadHint = null;
@@ -5246,6 +5294,16 @@ class _LancamentosTabState extends State<_LancamentosTab> {
 
   Future<void> _excluirLancamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_financeUiCanDeleteLancamento(widget.role)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir lançamentos financeiros.',
+          ),
+        );
+      }
+      return;
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -5583,15 +5641,25 @@ class _LancamentoCard extends StatelessWidget {
                         onTap: onDelete,
                         tooltip: 'Excluir',
                       ),
-                      if (hasComprovanteAnexo)
+                      if (hasComprovanteAnexo) ...[
                         FinancePremiumIconAction(
                           icon: Icons.visibility_rounded,
                           color: const Color(0xFF0D9488),
                           onTap: () => FinanceComprovanteAttachService
                               .viewFromDoc(context, data),
                           tooltip: 'Ver comprovante',
-                        )
-                      else if (comprovanteEnviando)
+                        ),
+                        FinancePremiumIconAction(
+                          icon: Icons.link_off_rounded,
+                          color: const Color(0xFFDC2626),
+                          onTap: () => removeFinanceComprovanteForLancamento(
+                            context,
+                            tenantId: tenantId,
+                            doc: doc,
+                          ),
+                          tooltip: 'Remover comprovante',
+                        ),
+                      ] else if (comprovanteEnviando)
                         const Padding(
                           padding: EdgeInsets.symmetric(horizontal: 6),
                           child: SizedBox(
@@ -9054,6 +9122,64 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     dataCtrl.dispose();
     centroCustoCtrl.dispose();
     extratoRefCtrl.dispose();
+  }
+}
+
+Future<void> removeFinanceComprovanteForLancamento(
+  BuildContext context, {
+  required String tenantId,
+  required DocumentSnapshot<Map<String, dynamic>> doc,
+  VoidCallback? onChanged,
+}) async {
+  final data = doc.data() ?? {};
+  if (!FinanceComprovanteAttachService.hasComprovanteInDoc(data)) return;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      ),
+      title: const Text('Remover comprovante'),
+      content: const Text(
+        'O comprovante será removido deste lançamento e apagado do armazenamento.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Remover'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  try {
+    await _ensureFinanceWriteReady(context: context);
+    await FinanceComprovantePublishService.removeComprovante(
+      tenantId: tenantId,
+      docRef: doc.reference,
+      data: data,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar('Comprovante removido.'),
+    );
+    onChanged?.call();
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Não foi possível remover o comprovante: $e',
+        ),
+      );
+    }
   }
 }
 
