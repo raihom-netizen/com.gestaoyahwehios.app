@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
@@ -132,24 +131,6 @@ class ChurchAutoSessionService {
     } catch (_) {
       return '';
     }
-  }
-
-  /// Android: restaura sessão Google sem UI (após login bem-sucedido anterior).
-  @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
-  static Future<bool> trySilentGoogleRestore() async {
-    return PersistentAuthSessionService.hasPersistedSession();
-  }
-
-  @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
-  static Future<bool> restoreOAuthSessionForQuickUnlock() async {
-    return PersistentAuthSessionService.hasPersistedSession();
-  }
-
-  static Future<bool> _shouldAttemptOAuthRestore() async {
-    if (await isAutoPainelEnabled()) return true;
-    final prefs = await SharedPreferences.getInstance();
-    final last = (prefs.getString('last_route') ?? '').trim();
-    return last == '/painel' || last.startsWith('/painel/');
   }
 
   /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.

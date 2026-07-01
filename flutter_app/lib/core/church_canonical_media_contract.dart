@@ -307,12 +307,14 @@ abstract final class ChurchCanonicalMediaContract {
       resolvePatrimonioPhotos(data).isNotEmpty ||
       patrimonioImageUrlsLegacy(data).isNotEmpty;
 
-  // ─── Escrita — Chat (path-only; URL na UI) ────────────────────────────────
+  // ─── Escrita — Chat (Storage path + URL https para visualização) ─────────
 
-  /// Campos de mídia após upload Storage — **sem** `downloadURL` no Firestore.
+  /// Campos de mídia após upload Storage — path + URL https (painel, site, chat).
   static Map<String, dynamic> chatMediaWritePatch({
     required String storagePath,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     String? fileName,
     int? fileSize,
     int? voiceDurationSeconds,
@@ -335,9 +337,19 @@ abstract final class ChurchCanonicalMediaContract {
         'durationSeconds': voiceDurationSeconds,
       },
     };
-    final thumb = _normalizePath(thumbStoragePath);
-    if (thumb.isNotEmpty) {
-      patch['thumbStoragePath'] = thumb;
+    final url = sanitizeImageUrl(mediaUrl ?? '');
+    if (url.isNotEmpty) {
+      patch['mediaUrl'] = url;
+      patch['fileUrl'] = url;
+    }
+    final thumbPath = _normalizePath(thumbStoragePath);
+    if (thumbPath.isNotEmpty) {
+      patch['thumbStoragePath'] = thumbPath;
+    }
+    final thumbHttps = sanitizeImageUrl(thumbUrl ?? '');
+    if (thumbHttps.isNotEmpty) {
+      patch['thumbUrl'] = thumbHttps;
+      patch['thumbnailUrl'] = thumbHttps;
     }
     return patch;
   }

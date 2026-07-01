@@ -8110,6 +8110,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     unawaited(_maybeRepairStuckPhotos(data));
     unawaited(ImmediateMediaWarm.warmPatrimonio());
     unawaited(
+      YahwehModuleMediaGate.prepareForPublishUpload(
+        module: YahwehMediaModule.patrimonio,
+        logLabel: 'patrimonio_editor_open',
+      ).catchError((_) => false),
+    );
+    unawaited(
       FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
     );
   }

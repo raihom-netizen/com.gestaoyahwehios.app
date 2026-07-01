@@ -969,6 +969,14 @@ abstract final class FirebaseBootstrapService {
   }
 
   static Future<void> _softReinit() async {
+    if (_hasApp()) {
+      await FirebaseBootstrap.ensureInitialized();
+      refreshCachedApp();
+      try {
+        await ensureAlwaysOn(refreshAuthToken: false);
+      } catch (_) {}
+      return;
+    }
     FirebaseBootstrap.reset();
     _cachedApp = null;
     _initCompleter = null;

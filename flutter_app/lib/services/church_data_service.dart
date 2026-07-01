@@ -311,43 +311,6 @@ final class ChurchDataService {
     }
   }
 
-  /// Chat — mensagem de imagem: stub Firestore (`sending`) antes do Storage.
-  Future<DocumentReference<Map<String, dynamic>>> createChatImageMessageStub({
-    required String churchId,
-    required String chatId,
-    required String senderId,
-    Map<String, dynamic>? extra,
-  }) async {
-    await ensureReadyForWrite();
-    final msgRef = chatMessagesCol(churchId, chatId).doc();
-    final data = <String, dynamic>{
-      'id': msgRef.id,
-      'senderUid': senderId,
-      'type': 'image',
-      'deliveryStatus': 'sending',
-      'createdAt': FieldValue.serverTimestamp(),
-      if (extra != null) ...extra,
-    };
-    await setTenantDocument(ref: msgRef, data: data, module: 'chat_image_stub');
-    return msgRef;
-  }
-
-  Future<void> finalizeChatImageMessage({
-    required DocumentReference<Map<String, dynamic>> msgRef,
-    required String fileUrl,
-  }) async {
-    await updateTenantDocument(
-      ref: msgRef,
-      data: <String, dynamic>{
-        'status': 'sent',
-        'deliveryStatus': 'sent',
-        'fileUrl': fileUrl,
-        'mediaUrl': fileUrl,
-      },
-      module: 'chat_image',
-    );
-  }
-
   /// Chat — texto directo no Firestore (sem Cloud Function).
   Future<String> sendChatTextMessage({
     required String churchId,

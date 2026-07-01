@@ -13,6 +13,8 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
@@ -632,6 +634,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       unawaited(_hydrateCadastroFromLocalCacheFirst());
     }
     unawaited(_bootstrapCadastro());
+    unawaited(
+      YahwehModuleMediaGate.prepareForPublishUpload(
+        module: YahwehMediaModule.cadastro,
+        logLabel: 'igreja_cadastro_open',
+      ).catchError((_) => false),
+    );
   }
 
   Future<void> _hydrateCadastroFromLocalCacheFirst() async {
@@ -1851,17 +1859,41 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
-      final upload = await MediaUploadService.uploadBytesDetailed(
-        storagePath: identityPath,
-        bytes: png,
-        contentType: 'image/png',
-        onProgress: suppressProgressUi
-            ? null
-            : (p) {
-                if (!mounted) return;
-                setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
-              },
-      );
+      Object? uploadLast;
+      late final MediaUploadResult upload;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (attempt > 0) {
+            await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+              uploadLast ?? StateError('core/no-app'),
+            );
+            await Future<void>.delayed(
+              Duration(milliseconds: 280 * (attempt + 1)),
+            );
+          }
+          upload = await MediaUploadService.uploadBytesDetailed(
+            storagePath: identityPath,
+            bytes: png,
+            contentType: 'image/png',
+            onProgress: suppressProgressUi
+                ? null
+                : (p) {
+                    if (!mounted) return;
+                    setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
+                  },
+          );
+          uploadLast = null;
+          break;
+        } catch (e) {
+          uploadLast = e;
+          if (attempt < 2 && isFirebaseNoAppError(e)) continue;
+          rethrow;
+        }
+      }
+      if (uploadLast != null) {
+        if (uploadLast is Exception) throw uploadLast;
+        throw StateError(uploadLast.toString());
+      }
       final url = upload.downloadUrl;
       if (!mounted) return true;
       setState(() {
@@ -1914,7 +1946,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _logoUploadPhase = '';
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao enviar logo: $e'),
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            formatFirebaseErrorForUser(e),
+            onRetry: () => unawaited(_commitLogoUploadFromPending()),
+          ),
         );
       }
       return false;

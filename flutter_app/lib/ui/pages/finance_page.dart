@@ -9273,9 +9273,15 @@ Future<void> uploadFinanceComprovanteForLancamento(
     );
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(formatFirebaseErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          formatFirebaseErrorForUser(e),
+          onRetry: () => unawaited(
+            uploadFinanceComprovanteForLancamento(
+              context,
+              tenantId: tenantId,
+              doc: doc,
+            ),
+          ),
         ),
       );
     }

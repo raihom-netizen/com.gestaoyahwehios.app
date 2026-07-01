@@ -19,18 +19,18 @@ abstract final class EcoFirePublishBootstrap {
   }) async {
     Object? last;
 
-    for (var attempt = 0; attempt < 4; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(
-            Duration(milliseconds: 240 * (attempt + 1)),
+            Duration(milliseconds: 200 + 240 * attempt),
           );
-          try {
-            Firebase.app();
-          } catch (_) {
+          if (Firebase.apps.isEmpty) {
             FirebaseBootstrap.reset();
+            await FirebaseBootstrap.ensureInitialized();
+          } else {
+            await EcoFireDirectFirebase.ensureDefaultApp();
           }
-          await FirebaseBootstrap.ensureInitialized();
         }
 
         await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: strict);
@@ -40,7 +40,7 @@ abstract final class EcoFirePublishBootstrap {
         return;
       } catch (e) {
         last = e;
-        if (attempt < 3 && isFirebaseNoAppError(e)) {
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
           continue;
         }
         break;

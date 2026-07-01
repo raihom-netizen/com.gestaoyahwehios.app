@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatUploadErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -358,15 +360,21 @@ abstract final class YahwehModuleMediaGate {
 
     Object? last;
 
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
 
       try {
 
         if (attempt > 0) {
 
-          await FirebaseBootstrap.ensureInitialized();
+          await recoverNoAppAfterPublishError(
 
-          await Future<void>.delayed(Duration(milliseconds: 280 * (attempt + 1)));
+            last ?? StateError('core/no-app'),
+
+            requireAuth: requireAuth,
+
+          );
+
+          await Future<void>.delayed(Duration(milliseconds: 240 * (attempt + 1)));
 
         }
 
@@ -384,7 +392,7 @@ abstract final class YahwehModuleMediaGate {
 
         last = e;
 
-        if (attempt < 2 && isFirebaseNoAppError(e)) {
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
 
           continue;
 
@@ -398,15 +406,17 @@ abstract final class YahwehModuleMediaGate {
 
     if (context != null && context.mounted) {
 
+      final msg = last != null
+
+          ? formatUploadErrorForUser(last)
+
+          : blockedPublishMessage(module, last);
+
       ScaffoldMessenger.of(context).showSnackBar(
 
         SnackBar(
 
-          content: Text(
-
-            blockedPublishMessage(module, last),
-
-          ),
+          content: Text(msg),
 
           backgroundColor: ThemeCleanPremium.error,
 
@@ -473,12 +483,12 @@ abstract final class YahwehModuleMediaGate {
     if (!isFirebaseNoAppError(e)) return;
 
     try {
-      try {
-        Firebase.app();
-      } catch (_) {
+      if (Firebase.apps.isEmpty) {
         FirebaseBootstrap.reset();
+        await FirebaseBootstrap.ensureInitialized();
+      } else {
+        await EcoFireDirectFirebase.ensureDefaultApp();
       }
-      await FirebaseBootstrap.ensureInitialized();
       await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
       if (kIsWeb && requireAuth) {
         await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);

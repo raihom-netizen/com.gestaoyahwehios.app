@@ -230,16 +230,6 @@ class ChurchChatService {
         .limit(YahwehPerformanceV4.chatThreadsFallbackLimit);
   }
 
-  /// Não usar `limit(N)` sem filtro em listeners — as regras Firestore rejeitam a query
-  /// inteira (permission-denied) se algum doc da igreja não for legível ao utilizador.
-  @Deprecated('Usar chatThreadsParticipantQuery + fallback por id dm_*')
-  static Query<Map<String, dynamic>> chatThreadsBroadScanQuery(String tenantId) {
-    return chatThreadsParticipantQuery(
-      tenantId,
-      firebaseDefaultAuth.currentUser?.uid ?? '',
-    );
-  }
-
   static bool userInDmThreadId(String threadId, String uid) {
     if (!threadId.startsWith('dm_') || uid.isEmpty) return false;
     return threadId.startsWith('dm_${uid}_') || threadId.endsWith('_$uid');
@@ -2376,13 +2366,15 @@ class ChurchChatService {
   }
 
   /// Mídia: **upload Storage concluído** → uma gravação Firestore (`status: sent`).
-  /// Sem stub `uploading`, sem `pendingMedia`, sem `downloadURL`.
+  /// Inclui `mediaUrl` https para visualização imediata (painel, site, chat).
   static Future<({String messageId, bool allowed})> writeMediaMessageFirestoreOnce({
     required String tenantId,
     required String threadId,
     required String kind,
     required String storagePath,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     String? fileName,
     int? fileSize,
     Map<String, dynamic>? replyTo,
@@ -2453,6 +2445,8 @@ class ChurchChatService {
       ...ChurchChatMessageFields.mediaWritePatch(
         storagePath: storagePath,
         thumbStoragePath: thumbStoragePath,
+        mediaUrl: mediaUrl,
+        thumbUrl: thumbUrl,
         fileName: fileName,
         fileSize: fileSize,
         voiceDurationSeconds: voiceDurationMs != null && voiceDurationMs > 0
@@ -2519,11 +2513,13 @@ class ChurchChatService {
   }
 
   /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).
-  /// **Não** grava `mediaUrl` — só `storagePath` (+ miniatura por path).
+  /// Inclui `mediaUrl` https após upload Storage (Controle Total / EcoFire).
   static Map<String, dynamic> mediaUploadFinalizePatch({
     required String storagePath,
     String? thumbStoragePath,
     String? fileName,
+    String? mediaUrl,
+    String? thumbUrl,
   }) {
     final sp = storagePath.trim();
     final patch = <String, dynamic>{
@@ -2534,17 +2530,23 @@ class ChurchChatService {
       'uploadCompleted': true,
       'storageVerified': true,
       'updatedAt': FieldValue.serverTimestamp(),
-      'mediaUrl': FieldValue.delete(),
-      'fileUrl': FieldValue.delete(),
       'pendingMedia': FieldValue.delete(),
       'erro': FieldValue.delete(),
       'errorMessage': FieldValue.delete(),
     };
-    final thumb = (thumbStoragePath ?? '').trim();
-    if (thumb.isNotEmpty) {
-      patch['thumbStoragePath'] = thumb;
-      patch['thumbUrl'] = FieldValue.delete();
-      patch['thumbnailUrl'] = FieldValue.delete();
+    final url = (mediaUrl ?? '').trim();
+    if (url.length > 8) {
+      patch['mediaUrl'] = url;
+      patch['fileUrl'] = url;
+    }
+    final thumbPath = (thumbStoragePath ?? '').trim();
+    if (thumbPath.isNotEmpty) {
+      patch['thumbStoragePath'] = thumbPath;
+    }
+    final thumbHttps = (thumbUrl ?? '').trim();
+    if (thumbHttps.length > 8) {
+      patch['thumbUrl'] = thumbHttps;
+      patch['thumbnailUrl'] = thumbHttps;
     }
     if (fileName != null && fileName.trim().isNotEmpty) {
       patch['fileName'] = fileName.trim();
@@ -2571,6 +2573,8 @@ class ChurchChatService {
     required String storagePath,
     String? fileName,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     int? fileSize,
   }) async {
     final resolvedTenant =
@@ -2588,6 +2592,8 @@ class ChurchChatService {
       storagePath: storagePath,
       fileName: fileName,
       thumbStoragePath: thumbStoragePath,
+      mediaUrl: mediaUrl,
+      thumbUrl: thumbUrl,
       fileSize: fileSize,
     );
   }
@@ -2600,12 +2606,16 @@ class ChurchChatService {
     required String storagePath,
     String? fileName,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     int? fileSize,
   }) async {
     final patch = mediaUploadFinalizePatch(
       storagePath: storagePath,
       thumbStoragePath: thumbStoragePath,
       fileName: fileName,
+      mediaUrl: mediaUrl,
+      thumbUrl: thumbUrl,
     );
     if (fileSize != null && fileSize > 0) {
       patch['fileSize'] = fileSize;
@@ -2893,15 +2903,14 @@ class ChurchChatService {
     final ubytes =
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final ct = contentType.toLowerCase();
-    final String url;
+    late final String url;
     if (skipClientPrepare) {
-      await ChurchChatMediaStorage.putBytes(
+      url = await ChurchChatMediaStorage.putBytes(
         storagePath: path,
         bytes: ubytes,
         contentType: contentType,
         onProgress: onProgress,
       );
-      url = await firebaseStorageRef(path).getDownloadURL();
     } else if (ct.startsWith('image/')) {
       final chatJpegFast =
           ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
@@ -2916,13 +2925,12 @@ class ChurchChatService {
         onUploadTaskCreated: onUploadTaskCreated,
       );
     } else {
-      await ChurchChatMediaStorage.putBytes(
+      url = await ChurchChatMediaStorage.putBytes(
         storagePath: path,
         bytes: ubytes,
         contentType: contentType,
         onProgress: onProgress,
       );
-      url = await firebaseStorageRef(path).getDownloadURL();
     }
     await assertChatMediaUploaded(path);
     return (url: url, path: path);
@@ -2951,13 +2959,12 @@ class ChurchChatService {
           kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
-    await ChurchChatMediaStorage.putFile(
+    final url = await ChurchChatMediaStorage.putFile(
       storagePath: path,
       localPath: localPath,
       contentType: contentType,
       onProgress: onProgress,
     );
-    final url = await firebaseStorageRef(path).getDownloadURL();
     await assertChatMediaUploaded(path);
     return (url: url, path: path);
   }

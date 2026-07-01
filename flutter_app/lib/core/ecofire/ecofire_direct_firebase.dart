@@ -32,17 +32,27 @@ abstract final class EcoFireDirectFirebase {
       return app;
     }
 
+    if (Firebase.apps.isNotEmpty) {
+      final app = Firebase.apps.first;
+      FirebaseBootstrapService.refreshCachedApp();
+      return app;
+    }
+
     final inFlight = _ensureDefaultAppInFlight;
     if (inFlight != null) return inFlight;
 
     final future = () async {
       Object? last;
-      for (var attempt = 0; attempt < 3; attempt++) {
+      for (var attempt = 0; attempt < 4; attempt++) {
         try {
-          if (!_hasDefaultApp()) {
-            FirebaseBootstrap.reset();
+          if (!_hasDefaultApp() && Firebase.apps.isEmpty) {
+            await FirebaseBootstrap.ensureInitialized();
           }
-          await FirebaseBootstrap.ensureInitialized();
+          if (!_hasDefaultApp() && Firebase.apps.isNotEmpty) {
+            final app = Firebase.apps.first;
+            FirebaseBootstrapService.refreshCachedApp();
+            return app;
+          }
           if (!_hasDefaultApp()) {
             final boot = await FirebaseBootstrapService.initialize();
             if (!boot.isReady && boot.failure != null) {
@@ -60,9 +70,9 @@ abstract final class EcoFireDirectFirebase {
           return app;
         } catch (e) {
           last = e;
-          if (attempt < 2) {
+          if (attempt < 3) {
             await Future<void>.delayed(
-              Duration(milliseconds: 160 + (attempt * 180)),
+              Duration(milliseconds: 180 + (attempt * 220)),
             );
           }
         }

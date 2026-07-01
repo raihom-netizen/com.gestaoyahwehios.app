@@ -41,14 +41,14 @@ abstract final class ChurchChatMediaStorage {
     );
   }
 
-  /// Caminho rápido (WhatsApp): bootstrap + pipeline unificado (sem URL).
-  static Future<void> putBytesFast({
+  /// Caminho rápido: bootstrap + upload → URL https (EcoFire / Controle Total).
+  static Future<String> putBytesFast({
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await FirebaseBootstrapService.runGuarded(
+    return FirebaseBootstrapService.runGuarded(
       () => _putBytesInternal(
         storagePath: storagePath,
         bytes: bytes,
@@ -59,16 +59,16 @@ abstract final class ChurchChatMediaStorage {
     );
   }
 
-  static Future<void> putBytes({
+  static Future<String> putBytes({
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await FirebaseBootstrapService.runGuarded(
+    return FirebaseBootstrapService.runGuarded(
       () async {
         await _ensureChatStorageReady();
-        await _putBytesInternal(
+        return _putBytesInternal(
           storagePath: storagePath,
           bytes: bytes,
           contentType: contentType,
@@ -79,7 +79,7 @@ abstract final class ChurchChatMediaStorage {
     );
   }
 
-  static Future<void> _putBytesInternal({
+  static Future<String> _putBytesInternal({
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
@@ -87,7 +87,7 @@ abstract final class ChurchChatMediaStorage {
   }) async {
     await _ensureChatStorageReady(fast: true);
     try {
-      await YahwehMediaUploadPipeline.uploadPreparedBytes(
+      return await YahwehMediaUploadPipeline.uploadPreparedBytes(
         storagePath: storagePath,
         bytes: bytes,
         contentType: contentType,
@@ -104,7 +104,7 @@ abstract final class ChurchChatMediaStorage {
     }
   }
 
-  static Future<void> putFile({
+  static Future<String> putFile({
     required String storagePath,
     required String localPath,
     required String contentType,
@@ -113,7 +113,7 @@ abstract final class ChurchChatMediaStorage {
     if (kIsWeb) {
       throw UnsupportedError('putFile do chat não suportado na web.');
     }
-    await FirebaseBootstrapService.runGuarded(
+    return FirebaseBootstrapService.runGuarded(
       () async {
         await _ensureChatStorageReady();
         final file = File(localPath);
@@ -121,7 +121,7 @@ abstract final class ChurchChatMediaStorage {
           throw StateError('Ficheiro não encontrado no aparelho.');
         }
         try {
-          await MediaUploadService.uploadFileWithRetry(
+          return await MediaUploadService.uploadFileWithRetry(
             storagePath: storagePath,
             file: file,
             contentType: contentType,

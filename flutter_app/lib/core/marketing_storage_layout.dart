@@ -58,10 +58,6 @@ abstract final class MarketingStorageLayout {
   static String legacyClienteShowcasePhotoPath(String entryId) =>
       '${clienteShowcaseFolder(entryId)}/capa.jpg';
 
-  @Deprecated('Use resolveClienteCapaStoragePath(item) ou marketing path com igrejaTenantId')
-  static String clienteShowcasePhotoPath(String entryId) =>
-      legacyClienteShowcasePhotoPath(entryId);
-
   /// Caminho Storage para exibir capa: `fotoPath` gravado → `igrejas/{tenant}/marketing_destaque/capa.jpg` → legado por [id].
   static String resolveClienteCapaStoragePath(Map<String, dynamic> item) {
     final fp = (item['fotoPath'] ?? '').toString().trim();

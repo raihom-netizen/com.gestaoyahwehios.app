@@ -109,10 +109,15 @@ abstract final class PatrimonioPublishService {
     void Function(double progress)? onUploadProgress,
   }) async {
     Object? bootstrapLast;
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       try {
         if (attempt > 0) {
-          FirebaseBootstrapService.resetPublishWarmState();
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+            bootstrapLast ?? StateError('core/no-app'),
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: 240 * (attempt + 1)),
+          );
         }
         final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
           module: YahwehMediaModule.patrimonio,
@@ -120,17 +125,15 @@ abstract final class PatrimonioPublishService {
           withPhotos: uploadsBySlot.isNotEmpty || newImages.isNotEmpty,
         );
         if (!ok) {
-          throw StateError('Firebase indisponível para publicar patrimônio.');
+          throw StateError(
+            'Firebase não inicializou (core/no-app).',
+          );
         }
         bootstrapLast = null;
         break;
       } catch (e) {
         bootstrapLast = e;
-        if (attempt < 2 && isFirebaseNoAppError(e)) {
-          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
-          await Future<void>.delayed(
-            Duration(milliseconds: 280 * (attempt + 1)),
-          );
+        if (attempt < 4 && isFirebaseNoAppError(e)) {
           continue;
         }
         rethrow;

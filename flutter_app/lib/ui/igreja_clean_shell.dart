@@ -774,10 +774,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
   }
 
-  @Deprecated('Use _bootstrapShellTenantDoc')
-  Future<void> _preloadTenantDocSnapshot() =>
-      _bootstrapShellTenantDoc(forceRefresh: false);
-
   Future<void> _hydrateTenantDocFromFallbacks(String tid) async {
     final id = tid.trim();
     if (id.isEmpty) return;

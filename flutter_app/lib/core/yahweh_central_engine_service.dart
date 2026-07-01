@@ -5,7 +5,6 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
-import 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
 import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
@@ -106,36 +105,6 @@ abstract final class YahwehCentralEngineService {
     );
     scheduleBackgroundSync(reason: 'finance_comprovante');
   }
-
-  /// Feed (aviso/evento) — Firestore imediato + fotos em background.
-  static Future<String> publishFeedWriteFirst({
-    required DocumentReference<Map<String, dynamic>> docRef,
-    required String churchId,
-    required String docId,
-    required String postType,
-    required Map<String, dynamic> corePayload,
-    required bool isNewDoc,
-    required List<String> existingUrls,
-    required int startSlotIndex,
-    required bool hasVideo,
-    List<Uint8List>? newImagesBytes,
-    List<String>? newImagePaths,
-    void Function(double progress)? onUploadProgress,
-  }) =>
-      GestaoYahwehWriteFirstPublishService.publishFeedWithPendingMedia(
-        docRef: docRef,
-        churchId: ChurchRepository.churchId(churchId),
-        docId: docId,
-        postType: postType,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        onUploadProgress: onUploadProgress,
-      );
 
   /// Alias — preferir [scheduleBackgroundSync].
   static void ensureBackgroundSync({String reason = 'central_engine'}) =>
@@ -253,7 +222,7 @@ abstract final class YahwehCentralEngineService {
         YahwehCentralModule.eventos =>
           'EventoStrictPublishService + MuralPublishOutboxService. Vídeo ≤90s video/mp4.',
         YahwehCentralModule.chat =>
-          'ChatStrictPublishService + ChurchChatMediaOutboxService (storagePath, não downloadURL).',
+          'ChurchChatMediaSendService: Storage → URL https → Firestore (mediaUrl + storagePath).',
         YahwehCentralModule.certificados ||
         YahwehCentralModule.transferencias =>
           'PDF/binário directo — StorageService + path canónico certificados/ ou transferencias/. '
@@ -265,35 +234,6 @@ abstract final class YahwehCentralEngineService {
           'Sem mídia obrigatória: YahwehCentralEngineService.persistTextOnly. '
           'Com anexo pontual: YahwehMediaUploadPipeline + TenantOfflineWrite.',
       };
-
-  /// **Texto only** via [persistTextOnly]. Com mídia use:
-  /// - avisos → [executeInstantSaveAviso]
-  /// - financeiro comprovante → [queueFinanceComprovante] após gravar lançamento
-  static Future<void> executeInstantSave({
-    required String collectionId,
-    required String docId,
-    required String igrejaId,
-    required Map<String, dynamic> payloadFields,
-    Map<String, dynamic>? mediaPayloadHint,
-  }) async {
-    final module = _moduleFromCollectionId(collectionId);
-    if (mediaPayloadHint != null && mediaPayloadHint.isNotEmpty) {
-      final hint = switch (module) {
-        YahwehCentralModule.avisos =>
-          'Use YahwehCentralEngineService.executeInstantSaveAviso(...)',
-        YahwehCentralModule.financeiro =>
-          'Grave o lançamento e use YahwehCentralEngineService.queueFinanceComprovante(...)',
-        _ => moduleGuide(module),
-      };
-      throw UnsupportedError('Mídia no módulo «$collectionId»: $hint');
-    }
-    await persistTextOnly(
-      module: module,
-      churchId: igrejaId,
-      docId: docId,
-      fields: payloadFields,
-    );
-  }
 
   /// Foto de perfil única — sobrescreve `igrejas/{id}/membros/{folder}/foto_perfil.jpg`
   /// e grava URL com `v=cb{revision}` + [fotoUrlCacheRevision] no Firestore.
@@ -392,20 +332,5 @@ abstract final class YahwehCentralEngineService {
     );
     scheduleBackgroundSync(reason: 'logo_igreja');
     return upload.storagePath;
-  }
-
-  static YahwehCentralModule _moduleFromCollectionId(String collectionId) {
-    final key = OfflineModules.forCollection(collectionId);
-    return switch (key) {
-      OfflineModules.membros => YahwehCentralModule.membros,
-      OfflineModules.eventos => YahwehCentralModule.eventos,
-      OfflineModules.avisos => YahwehCentralModule.avisos,
-      OfflineModules.patrimonio => YahwehCentralModule.patrimonio,
-      OfflineModules.financeiro => YahwehCentralModule.financeiro,
-      OfflineModules.escalas => YahwehCentralModule.escalas,
-      OfflineModules.pedidosOracao => YahwehCentralModule.pedidosOracao,
-      OfflineModules.chat => YahwehCentralModule.chat,
-      _ => YahwehCentralModule.fornecedores,
-    };
   }
 }

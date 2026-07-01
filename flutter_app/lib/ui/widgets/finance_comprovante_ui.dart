@@ -23,7 +23,16 @@ abstract final class FinanceComprovanteUi {
       successMessage: successMessage ?? 'Comprovante enviado.',
       closeEditor: closeEditor ?? () {},
       action: (report) async {
-        await YahwehModuleMediaGate.assertReadyForUploadAction();
+        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+          context: context,
+          module: YahwehMediaModule.financeiro,
+          logLabel: 'finance_comprovante_ui',
+        );
+        if (!ok) {
+          throw StateError(
+            'Firebase não inicializou (core/no-app).',
+          );
+        }
         return action(report);
       },
     );

@@ -2,7 +2,7 @@ import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 
 /// Campos canónicos de mensagem do Chat Igreja (Firestore).
 ///
-/// Escrita: [ChurchCanonicalMediaContract.chatMediaWritePatch] (path-only).
+/// Escrita: [ChurchCanonicalMediaContract.chatMediaWritePatch] (path + URL https).
 /// Leitura: delega ao contrato canónico partilhado.
 abstract final class ChurchChatMessageFields {
   ChurchChatMessageFields._();
@@ -116,10 +116,12 @@ abstract final class ChurchChatMessageFields {
     return out;
   }
 
-  /// Campos de mídia canónicos (Storage path + metadados).
+  /// Campos de mídia canónicos (Storage path + URL https + metadados).
   static Map<String, dynamic> mediaWritePatch({
     required String storagePath,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     String? fileName,
     int? fileSize,
     int? voiceDurationSeconds,
@@ -129,6 +131,8 @@ abstract final class ChurchChatMessageFields {
         ChurchCanonicalMediaContract.chatMediaWritePatch(
           storagePath: storagePath,
           thumbStoragePath: thumbStoragePath,
+          mediaUrl: mediaUrl,
+          thumbUrl: thumbUrl,
           fileName: fileName,
           fileSize: fileSize,
           voiceDurationSeconds: voiceDurationSeconds,

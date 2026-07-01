@@ -13,9 +13,6 @@ abstract final class ChurchChatUploadsService {
 
   static const statusQueued = 'queued';
   static const statusUploading = 'uploading';
-  /// Legado — usar [statusQueued]. Nunca gravar `waiting_network` (travava UI).
-  @Deprecated('Use statusQueued')
-  static const statusWaitingNetwork = statusQueued;
   static const statusRetrying = 'retrying';
   static const statusDone = 'done';
   static const statusFailed = 'failed';
@@ -96,13 +93,6 @@ abstract final class ChurchChatUploadsService {
       status: statusQueued,
     );
   }
-
-  @Deprecated('Use markQueued')
-  static Future<void> markWaitingNetwork({
-    required String tenantId,
-    required String uploadId,
-  }) =>
-      markQueued(tenantId: tenantId, uploadId: uploadId);
 
   static Future<void> markRetrying({
     required String tenantId,

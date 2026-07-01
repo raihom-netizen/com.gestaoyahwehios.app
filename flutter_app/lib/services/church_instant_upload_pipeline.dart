@@ -5,8 +5,8 @@ import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
@@ -129,8 +129,7 @@ abstract final class ChurchInstantUploadPipeline {
       try {
         if (attempt > 0) {
           FastMediaPublishBootstrap.resetSessionWarm();
-          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+          await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: true);
         }
         await ensureFirebaseCore(requireAuth: true);
         return await _uploadSimpleFeedPhotoSlotOnce(

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
@@ -84,16 +84,16 @@ abstract final class PatrimonioSaveService {
     }
 
     Object? last;
-    for (var attempt = 0; attempt < 2; attempt++) {
+    for (var attempt = 0; attempt < 3; attempt++) {
       try {
         await runPublish();
         return;
       } catch (e, st) {
         last = e;
-        if (attempt == 0 && isFirebaseNoAppError(e)) {
-          FirebaseBootstrapService.resetPublishWarmState();
-          await FirebaseBootstrapService.ensureAlwaysOn(
-            refreshAuthToken: true,
+        if (attempt < 2 && isFirebaseNoAppError(e)) {
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
+          await Future<void>.delayed(
+            Duration(milliseconds: 280 * (attempt + 1)),
           );
           continue;
         }

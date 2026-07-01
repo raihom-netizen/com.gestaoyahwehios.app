@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
@@ -19,6 +20,8 @@ abstract final class ChatStrictPublishService {
     required String storagePath,
     String? fileName,
     String? thumbStoragePath,
+    String? mediaUrl,
+    String? thumbUrl,
     int? fileSize,
     bool skipStorageVerify = false,
     bool skipServerRecheck = false,
@@ -62,6 +65,21 @@ abstract final class ChatStrictPublishService {
       );
     }
 
+    final resolvedUrl = (mediaUrl ?? '').trim().isNotEmpty
+        ? mediaUrl!.trim()
+        : await DirectStorageUrlPublish.resolveUrl(storagePath);
+    String? resolvedThumbUrl;
+    final thumb = (thumbStoragePath ?? '').trim();
+    if (thumb.isNotEmpty) {
+      if ((thumbUrl ?? '').trim().isNotEmpty) {
+        resolvedThumbUrl = thumbUrl!.trim();
+      } else {
+        try {
+          resolvedThumbUrl = await DirectStorageUrlPublish.resolveUrl(thumb);
+        } catch (_) {}
+      }
+    }
+
     await ChurchChatService.completeMediaUploadMessageDirect(
       resolvedTenant: resolvedTenant,
       threadId: threadId,
@@ -69,6 +87,8 @@ abstract final class ChatStrictPublishService {
       storagePath: storagePath,
       fileName: fileName,
       thumbStoragePath: thumbStoragePath,
+      mediaUrl: resolvedUrl,
+      thumbUrl: resolvedThumbUrl,
       fileSize: fileSize,
     );
 
