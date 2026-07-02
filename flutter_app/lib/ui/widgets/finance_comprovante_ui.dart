@@ -1,7 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 
 /// Upload de comprovante — barra global estilo WhatsApp (não bloqueia o ecrã).
@@ -23,16 +23,7 @@ abstract final class FinanceComprovanteUi {
       successMessage: successMessage ?? 'Comprovante enviado.',
       closeEditor: closeEditor ?? () {},
       action: (report) async {
-        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-          context: context,
-          module: YahwehMediaModule.financeiro,
-          logLabel: 'finance_comprovante_ui',
-        );
-        if (!ok) {
-          throw StateError(
-            'Firebase não inicializou (core/no-app).',
-          );
-        }
+        await DirectStorageUrlPublish.ensureReady();
         return action(report);
       },
     );

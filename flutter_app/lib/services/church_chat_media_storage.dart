@@ -4,56 +4,58 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
-/// Upload Storage do chat — delega a [YahwehMediaUploadPipeline] / [MediaUploadService]
-/// após bootstrap (`ensureStorageAlwaysLinked` / `EcoFirePublishBootstrap`).
+/// Upload Storage do chat — [ChurchCentralStorageUpload] → URL https.
 abstract final class ChurchChatMediaStorage {
   ChurchChatMediaStorage._();
 
   static const int _maxAttempts = 3;
 
-  static Future<void> _ensureChatStorageReady({bool fast = false}) async {
+  static Future<void> _ensureChatStorageReady() async {
     await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'chat_storage');
-    await ensureFirebaseReadyForMediaUpload();
-    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      try {
-        FirebaseBootstrapService.probeStorageLinked();
-        return;
-      } catch (_) {
-        FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-      }
-    }
-    if (fast) {
-      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
-        refreshAuthToken: true,
-      );
-      return;
-    }
     await DirectStorageUrlPublish.ensureReady();
   }
 
-  /// Caminho rápido: bootstrap + upload → URL https (EcoFire / Controle Total).
   static Future<String> putBytesFast({
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    return FirebaseBootstrapService.runGuarded(
-      () => _putBytesInternal(
-        storagePath: storagePath,
-        bytes: bytes,
-        contentType: contentType,
-        onProgress: onProgress,
-      ),
-      debugLabel: 'chat_putBytesFast',
-    );
+    Object? last;
+    for (var attempt = 0; attempt < _maxAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
+          if (isFirebaseNoAppError(last ?? '')) {
+            await DirectStorageUrlPublish.ensureReady();
+          }
+        }
+        await ensureFirebaseReadyForChatSend();
+        return await _putBytesInternal(
+          storagePath: storagePath,
+          bytes: bytes,
+          contentType: contentType,
+          onProgress: onProgress,
+        );
+      } catch (e, st) {
+        last = e;
+        if (CrashlyticsService.shouldReport(e)) {
+          unawaited(CrashlyticsService.record(e, st, reason: 'chat_putBytesFast'));
+        }
+      }
+    }
+    if (last != null) {
+      if (last is Exception) throw last;
+      throw StateError(last.toString());
+    }
+    throw StateError('Falha ao enviar ficheiro do chat.');
   }
 
   static Future<String> putBytes({
@@ -62,17 +64,12 @@ abstract final class ChurchChatMediaStorage {
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    return FirebaseBootstrapService.runGuarded(
-      () async {
-        await _ensureChatStorageReady();
-        return _putBytesInternal(
-          storagePath: storagePath,
-          bytes: bytes,
-          contentType: contentType,
-          onProgress: onProgress,
-        );
-      },
-      debugLabel: 'chat_putBytes',
+    await _ensureChatStorageReady();
+    return _putBytesInternal(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      onProgress: onProgress,
     );
   }
 
@@ -82,23 +79,14 @@ abstract final class ChurchChatMediaStorage {
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await _ensureChatStorageReady(fast: true);
-    try {
-      return await YahwehMediaUploadPipeline.uploadPreparedBytes(
-        storagePath: storagePath,
-        bytes: bytes,
-        contentType: contentType,
-        maxAttempts: _maxAttempts,
-        onProgress: onProgress,
-      );
-    } catch (e, st) {
-      if (CrashlyticsService.shouldReport(e)) {
-        unawaited(
-          CrashlyticsService.record(e, st, reason: 'chat_putBytes'),
-        );
-      }
-      rethrow;
-    }
+    final result = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
+      storagePath: storagePath,
+      bytes: bytes,
+      mimeType: contentType,
+      logLabel: 'chat_media',
+      onProgress: onProgress,
+    );
+    return result.downloadUrl;
   }
 
   static Future<String> putFile({
@@ -110,32 +98,20 @@ abstract final class ChurchChatMediaStorage {
     if (kIsWeb) {
       throw UnsupportedError('putFile do chat não suportado na web.');
     }
-    return FirebaseBootstrapService.runGuarded(
-      () async {
-        await _ensureChatStorageReady();
-        final file = File(localPath);
-        if (!await file.exists()) {
-          throw StateError('Ficheiro não encontrado no aparelho.');
-        }
-        try {
-          return await MediaUploadService.uploadFileWithRetry(
-            storagePath: storagePath,
-            file: file,
-            contentType: contentType,
-            maxAttempts: _maxAttempts,
-            onProgress: onProgress,
-            skipRecompress: true,
-          );
-        } catch (e, st) {
-          if (CrashlyticsService.shouldReport(e)) {
-            unawaited(
-              CrashlyticsService.record(e, st, reason: 'chat_putFile'),
-            );
-          }
-          rethrow;
-        }
-      },
-      debugLabel: 'chat_putFile',
+    await _ensureChatStorageReady();
+    final file = File(localPath);
+    if (!await file.exists()) {
+      throw StateError('Ficheiro não encontrado no aparelho.');
+    }
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw StateError('Ficheiro vazio — selecione outro.');
+    }
+    return _putBytesInternal(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      onProgress: onProgress,
     );
   }
 }

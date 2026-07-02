@@ -1,28 +1,18 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
-import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
-import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload de fotos de aviso — `igrejas/{churchId}/avisos/{postId}/…`.
 ///
-/// Compressão obrigatória + [UnifiedUploadService] (anti `firebase_core/no-app`).
+/// Pipeline único: [ChurchCentralStorageUpload] → URL https → Firestore.
 abstract final class AvisoMediaUpload {
   AvisoMediaUpload._();
 
   static const Duration uploadTimeout = Duration(seconds: 45);
   static const int maxParallelSlots = 5;
-
-  static Future<void> _ensureUploadReady() async {
-    await EcoFireDirectFirebase.ensureForStoragePut();
-  }
 
   static Future<EcoFireFeedPhotoSlot> uploadPhotoSlot({
     required String churchId,
@@ -41,28 +31,15 @@ abstract final class AvisoMediaUpload {
       throw StateError('Imagem vazia — selecione outra foto.');
     }
 
-    await _ensureUploadReady();
     EcoFireFlow.log('AVISO_PHOTO slot $pid#$slotIndex');
 
-    final processed = alreadyCompressed
-        ? (bytes: rawBytes, mime: 'image/jpeg')
-        : await EcoFireImageProcess.processForFeedPhoto(rawBytes);
-
-    final storagePath =
-        ChurchStorageLayout.avisoPostPhotoPath(cid, pid, slotIndex);
-    LegacyPathGuard.assertCanonicalStoragePath(
-      storagePath,
-      context: 'aviso_photo',
-    );
-
-    final url = await UnifiedUploadService.uploadImage(
-      storagePath: storagePath,
-      bytes: processed.bytes,
-      contentType: processed.mime,
-      module: YahwehUploadModule.generic,
-      skipClientPrepare: true,
+    final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
+      churchId: cid,
+      postId: pid,
+      slotIndex: slotIndex,
+      rawBytes: rawBytes,
+      alreadyCompressed: alreadyCompressed,
       onProgress: onProgress,
-      maxAttempts: 4,
     ).timeout(
       uploadTimeout,
       onTimeout: () => throw TimeoutException(
@@ -70,12 +47,12 @@ abstract final class AvisoMediaUpload {
       ),
     );
 
-    EcoFireFlow.log('AVISO_PHOTO OK $storagePath');
+    EcoFireFlow.log('AVISO_PHOTO OK ${uploaded.storagePath}');
     return EcoFireFeedPhotoSlot(
-      fullUrl: url,
-      thumbUrl: url,
-      fullPath: storagePath,
-      thumbPath: storagePath,
+      fullUrl: uploaded.downloadUrl,
+      thumbUrl: uploaded.downloadUrl,
+      fullPath: uploaded.storagePath,
+      thumbPath: uploaded.storagePath,
     );
   }
 
@@ -90,66 +67,28 @@ abstract final class AvisoMediaUpload {
   }) async {
     if (bytesList.isEmpty) return const [];
 
-    await _ensureUploadReady();
-
     final slots = List<EcoFireFeedPhotoSlot?>.filled(bytesList.length, null);
     var completed = 0;
-    Object? firstError;
-    StackTrace? firstStack;
 
     Future<void> uploadOne(int i) async {
-      try {
-        slots[i] = await uploadPhotoSlot(
-          churchId: churchId,
-          postId: postId,
-          slotIndex: startSlotIndex + i,
-          rawBytes: bytesList[i],
-          alreadyCompressed: alreadyCompressed,
-        );
-      } catch (e, st) {
-        firstError ??= e;
-        firstStack ??= st;
-        unawaited(
-          CrashlyticsService.record(
-            e,
-            st,
-            reason: 'aviso_photo_batch_slot_$i',
-          ),
-        );
-        rethrow;
-      } finally {
-        completed++;
-        onProgress?.call(completed / bytesList.length);
-      }
+      slots[i] = await uploadPhotoSlot(
+        churchId: churchId,
+        postId: postId,
+        slotIndex: startSlotIndex + i,
+        rawBytes: bytesList[i],
+        alreadyCompressed: alreadyCompressed,
+      );
+      completed++;
+      onProgress?.call(completed / bytesList.length);
     }
 
     for (var start = 0; start < bytesList.length; start += maxParallelSlots) {
       final end = (start + maxParallelSlots).clamp(0, bytesList.length);
-      try {
-        await Future.wait([
-          for (var i = start; i < end; i++) uploadOne(i),
-        ]);
-      } catch (_) {
-        if (firstError != null) {
-          if (firstError is Exception) throw firstError!;
-          throw StateError(firstError.toString());
-        }
-        rethrow;
-      }
+      await Future.wait([
+        for (var i = start; i < end; i++) uploadOne(i),
+      ]);
     }
 
-    final out = slots.whereType<EcoFireFeedPhotoSlot>().toList();
-    if (out.length != bytesList.length && firstError != null) {
-      unawaited(
-        CrashlyticsService.record(
-          firstError!,
-          firstStack ?? StackTrace.current,
-          reason: 'aviso_photo_batch_incomplete',
-        ),
-      );
-      if (firstError is Exception) throw firstError!;
-      throw StateError(firstError.toString());
-    }
-    return out;
+    return slots.whereType<EcoFireFeedPhotoSlot>().toList();
   }
 }

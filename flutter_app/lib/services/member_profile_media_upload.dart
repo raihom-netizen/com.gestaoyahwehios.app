@@ -1,15 +1,14 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload foto perfil membro — `igrejas/{churchId}/membros/{folderId}/foto_perfil.jpg`.
 ///
-/// Compressão obrigatória (via [MemberProfileVariantsService.encodeProfileTiers])
-/// + [UnifiedUploadService] (anti `firebase_core/no-app`).
+/// Pipeline único: [ChurchCentralStorageUpload] → URL https → Firestore.
 abstract final class MemberProfileMediaUpload {
   MemberProfileMediaUpload._();
 
@@ -34,19 +33,21 @@ abstract final class MemberProfileMediaUpload {
       context: 'membro_profile_photo',
     );
 
-    await ensureUploadReady(requireAuth: requireAuth);
-    return YahwehMediaUploadPipeline.uploadPreparedBytes(
+    final uploaded = await ChurchCentralStorageUpload.uploadImageAtPath(
       storagePath: storagePath,
-      bytes: bytes,
-      contentType: contentType,
-      maxAttempts: 4,
+      rawBytes: bytes,
+      logLabel: 'membro_profile_photo',
+      alreadyCompressed: true,
+      compressForFeed: false,
       onProgress: onProgress,
+      requireAuth: requireAuth,
     ).timeout(
       uploadTimeout,
       onTimeout: () => throw TimeoutException(
         'Upload da foto demorou demais. Verifique a rede.',
       ),
     );
+    return uploaded.downloadUrl;
   }
 
   static Future<String> uploadProfileFull({
@@ -56,17 +57,13 @@ abstract final class MemberProfileMediaUpload {
     bool requireAuth = true,
     void Function(double progress)? onProgress,
   }) async {
-    final path = ChurchStorageLayout.memberProfilePhotoPath(
-      churchId.trim(),
-      storageFolderId.trim(),
-    );
-    return uploadProfileBytes(
-      storagePath: path,
-      bytes: fullBytes,
-      contentType: 'image/jpeg',
-      requireAuth: requireAuth,
+    final uploaded = await ChurchCentralStorageUpload.uploadMemberProfilePhoto(
+      churchId: churchId.trim(),
+      storageFolderId: storageFolderId.trim(),
+      fullBytes: fullBytes,
       onProgress: onProgress,
     );
+    return uploaded.downloadUrl;
   }
 
   static Future<String> uploadProfileThumb({

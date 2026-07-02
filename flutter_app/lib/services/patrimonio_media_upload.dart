@@ -1,26 +1,19 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/foto_N.jpg`.
 ///
-/// Compressão obrigatória + [UnifiedUploadService] (anti `firebase_core/no-app`).
+/// Pipeline único: [ChurchCentralStorageUpload] → URL https → Firestore.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
   static const Duration uploadTimeout = Duration(seconds: 60);
-
-  static Future<void> _ensureUploadReady() async {
-    await DirectStorageUrlPublish.ensureReady();
-  }
 
   static Future<PatrimonioGalleryUploadResult> uploadGalleryPhoto({
     required String churchId,
@@ -45,10 +38,6 @@ abstract final class PatrimonioMediaUpload {
       );
     }
 
-    if (ensureReady) {
-      await _ensureUploadReady();
-    }
-
     final path =
         ChurchStorageLayout.patrimonioPhotoPath(cid, iid, slotIndex);
     LegacyPathGuard.assertCanonicalStoragePath(
@@ -56,116 +45,78 @@ abstract final class PatrimonioMediaUpload {
       context: 'patrimonio_photo',
     );
 
-    final bytes = await _compressForUpload(rawBytes);
-
-    final url = await UnifiedUploadService.uploadImage(
-      storagePath: path,
-      bytes: bytes,
-      contentType: 'image/jpeg',
-      module: YahwehUploadModule.generic,
-      skipClientPrepare: true,
-      onProgress: onProgress,
-      maxAttempts: 4,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
-      ),
-    );
-
-    return PatrimonioGalleryUploadResult(
-      downloadUrl: url,
-      storagePath: path,
-      slotIndex: slotIndex,
-    );
-  }
-
-  /// Sempre comprime em isolate — nunca envia original ao Storage.
-  static Future<Uint8List> _compressForUpload(Uint8List rawBytes) async {
-    return MediaOptimizationService.optimizeForReceipt(rawBytes);
-  }
-
-  static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosSequential({
-    required String churchId,
-    required String itemDocId,
-    required List<Uint8List> images,
-    required int startSlot,
-    void Function(double batchProgress)? onBatchProgress,
-    bool skipPrepare = false,
-  }) async =>
-      uploadGalleryPhotosParallel(
-        churchId: churchId,
-        itemDocId: itemDocId,
-        images: images,
-        startSlot: startSlot,
-        onBatchProgress: onBatchProgress,
-        skipPrepare: skipPrepare,
-        maxParallel: 1,
+    try {
+      final uploaded = await ChurchCentralStorageUpload.uploadPatrimonioPhoto(
+        churchId: cid,
+        itemDocId: iid,
+        slotIndex: slotIndex,
+        rawBytes: rawBytes,
+        onProgress: onProgress,
+      ).timeout(
+        uploadTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
+        ),
       );
 
-  /// Até [maxParallel] fotos em paralelo — [Future.wait] seguro via [runGuarded].
+      return PatrimonioGalleryUploadResult(
+        downloadUrl: uploaded.downloadUrl,
+        storagePath: uploaded.storagePath,
+        slotIndex: slotIndex,
+      );
+    } catch (e, st) {
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'patrimonio_upload_$slotIndex'),
+      );
+      rethrow;
+    }
+  }
+
+  /// Várias fotos em paralelo (máx. [maxParallel] simultâneas).
   static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosParallel({
     required String churchId,
     required String itemDocId,
     required List<Uint8List> images,
     required int startSlot,
-    void Function(double batchProgress)? onBatchProgress,
-    bool skipPrepare = false,
     int maxParallel = 4,
+    void Function(double progress)? onBatchProgress,
   }) async {
     if (images.isEmpty) return const [];
-    final count =
-        images.length.clamp(0, kMaxPatrimonioPhotosPerItem - startSlot);
-    if (count <= 0) return const [];
+    final cid = churchId.trim();
+    final iid = itemDocId.trim();
+    if (cid.isEmpty || iid.isEmpty) {
+      throw ArgumentError('churchId e itemDocId são obrigatórios.');
+    }
 
-    await _ensureUploadReady();
-
-    final parallel = maxParallel.clamp(1, 2);
-    final results = List<PatrimonioGalleryUploadResult?>.filled(count, null);
+    final results = <PatrimonioGalleryUploadResult>[];
     var completed = 0;
+    final total = images.length;
+    final parallel = maxParallel.clamp(1, kMaxPatrimonioPhotosPerItem);
 
-    Future<PatrimonioGalleryUploadResult> uploadOne(int i) async {
-      final slot = startSlot + i;
-      try {
-        final result = await uploadGalleryPhoto(
-          churchId: churchId,
-          itemDocId: itemDocId,
-          slotIndex: slot,
-          rawBytes: images[i],
-          skipPrepare: skipPrepare,
-          ensureReady: false,
-        );
-        results[i] = result;
-        completed++;
-        onBatchProgress?.call(completed / count);
-        return result;
-      } catch (e, st) {
-        if (CrashlyticsService.shouldReport(e)) {
-          unawaited(
-            CrashlyticsService.record(
-              e,
-              st,
-              reason: 'patrimonio_photo_slot_$slot',
-            ),
+    for (var batchStart = 0; batchStart < images.length; batchStart += parallel) {
+      final batchEnd = (batchStart + parallel).clamp(0, images.length);
+      final batch = images.sublist(batchStart, batchEnd);
+      final batchResults = await Future.wait(
+        List.generate(batch.length, (i) {
+          final slot = startSlot + batchStart + i;
+          return uploadGalleryPhoto(
+            churchId: cid,
+            itemDocId: iid,
+            slotIndex: slot,
+            rawBytes: batch[i],
           );
-        }
-        rethrow;
+        }),
+      );
+      for (final r in batchResults) {
+        results.add(r);
+        completed++;
+        onBatchProgress?.call(completed / total);
       }
     }
-
-    for (var start = 0; start < count; start += parallel) {
-      final end = (start + parallel).clamp(0, count);
-      await Future.wait([
-        for (var i = start; i < end; i++) uploadOne(i),
-      ]);
-    }
-
-    onBatchProgress?.call(1.0);
-    return results.whereType<PatrimonioGalleryUploadResult>().toList();
+    return results;
   }
 }
 
-/// Resultado de upload de galeria — um ficheiro por slot na pasta do bem.
 class PatrimonioGalleryUploadResult {
   const PatrimonioGalleryUploadResult({
     required this.downloadUrl,

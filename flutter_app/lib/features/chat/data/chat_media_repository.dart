@@ -2,7 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 

@@ -2301,7 +2301,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (p.failed) return p.errorMessage ?? 'Falha no envio';
     final clamped = progress.clamp(0.0, 1.0);
     if (clamped >= 1) return 'Enviado';
-    if (clamped >= 0.88) return 'A confirmar envio...';
+    if (clamped >= 0.82) return 'A confirmar envio...';
     final pct = (clamped * 100).round().clamp(0, 100);
     if (mediaLabel != null) {
       return 'A enviar $mediaLabel... $pct%';
@@ -2410,17 +2410,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     await _awaitOperationalTenantId();
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      final i =
-          _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-      if (i >= 0) {
-        _pendingOutbound[i].failed = true;
-        _pendingOutbound[i].errorMessage =
-            'Firebase ainda não está pronto. Toque em «Tentar de novo».';
-        if (mounted) setState(() {});
-      }
-      return;
-    }
     final replyTo =
         pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
     final uploadBytes = await _bytesForPendingUpload(
@@ -3335,16 +3324,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ),
         );
       }
-      return;
-    }
-
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      if (mounted) {
-        _showChatAttachmentError(
-          'Firebase ainda não está pronto. Aguarde e tente gravar de novo.',
-        );
-      }
-      await _chatAudio.stopRecording(send: false);
       return;
     }
 

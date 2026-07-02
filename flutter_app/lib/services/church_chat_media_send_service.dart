@@ -263,9 +263,11 @@ abstract final class ChurchChatMediaSendService {
           storagePath: storagePath,
           bytes: prepared.fullBytes,
           contentType: prepared.fullMime,
-          onProgress: (t) => _mapProgress(reportProgress, 0.2, 0.82, t),
+          onProgress: (t) => _mapProgress(reportProgress, 0.2, 0.78, t),
         );
+        reportProgress(0.82);
 
+        // Thumb não bloqueia envio — timeout curto; Firestore segue com imagem principal.
         if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
           thumbStoragePath =
               ChurchChatService.buildChatImageThumbStoragePathForMessage(
@@ -278,12 +280,13 @@ abstract final class ChurchChatMediaSendService {
               bytes: prepared.thumbBytes!,
               contentType: 'image/webp',
               onProgress: (t) => _mapProgress(reportProgress, 0.82, 0.88, t),
-            ).timeout(const Duration(seconds: 15));
+            ).timeout(const Duration(seconds: 8));
           } catch (_) {
             thumbStoragePath = null;
             thumbUrl = null;
           }
         }
+        reportProgress(0.88);
       } else if (pending.kind == 'video') {
         final mime = pending.mime.isNotEmpty ? pending.mime : 'video/mp4';
         PreparedChatVideo? preparedVideo;

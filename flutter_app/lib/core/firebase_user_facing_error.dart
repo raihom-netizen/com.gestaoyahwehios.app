@@ -115,6 +115,7 @@ String formatFirebaseErrorForUser(
 
 bool isFirebaseNoAppError(Object e) {
   final low = e.toString().toLowerCase();
+  if (low.contains('bucket vazio')) return false;
   return low.contains('no firebase app') ||
       low.contains('firebase.initializeapp') ||
       low.contains('core/no-app') ||

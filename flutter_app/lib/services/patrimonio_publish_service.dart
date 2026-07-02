@@ -2,17 +2,13 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
@@ -108,41 +104,7 @@ abstract final class PatrimonioPublishService {
     List<String> existingUrls = const [],
     void Function(double progress)? onUploadProgress,
   }) async {
-    Object? bootstrapLast;
-    for (var attempt = 0; attempt < 5; attempt++) {
-      try {
-        if (attempt > 0) {
-          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
-            bootstrapLast ?? StateError('core/no-app'),
-          );
-          await Future<void>.delayed(
-            Duration(milliseconds: 240 * (attempt + 1)),
-          );
-        }
-        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-          module: YahwehMediaModule.patrimonio,
-          logLabel: 'patrimonio_publish',
-          withPhotos: uploadsBySlot.isNotEmpty || newImages.isNotEmpty,
-        );
-        if (!ok) {
-          throw StateError(
-            'Firebase não inicializou (core/no-app).',
-          );
-        }
-        bootstrapLast = null;
-        break;
-      } catch (e) {
-        bootstrapLast = e;
-        if (attempt < 4 && isFirebaseNoAppError(e)) {
-          continue;
-        }
-        rethrow;
-      }
-    }
-    if (bootstrapLast != null) {
-      if (bootstrapLast is Exception) throw bootstrapLast;
-      throw StateError(bootstrapLast.toString());
-    }
+    await DirectStorageUrlPublish.ensureReady();
 
     unawaited(
       PatrimonioPublishVerificationService.logPublishPhase(

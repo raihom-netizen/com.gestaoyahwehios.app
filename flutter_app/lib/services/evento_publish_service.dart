@@ -80,16 +80,6 @@ abstract final class EventoPublishService {
       throw StateError('Adicione pelo menos uma foto ou um vídeo ao evento.');
     }
 
-    await prepareFullPipeline(
-      logLabel: hasNewPhotos || localVideo.isNotEmpty || hasVideo
-          ? 'evento_publish_media'
-          : 'evento_publish',
-      withMedia: hasNewPhotos || localVideo.isNotEmpty || hasVideo,
-      onProgress: onUploadProgress == null
-          ? null
-          : (p) => onUploadProgress!(p.clamp(0.06, 0.14)),
-    );
-
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     final payload = Map<String, dynamic>.from(corePayload);
 

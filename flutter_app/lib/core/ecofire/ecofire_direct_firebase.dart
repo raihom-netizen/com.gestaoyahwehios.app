@@ -99,12 +99,31 @@ abstract final class EcoFireDirectFirebase {
 
   /// Bucket Storage ligado ao app [DEFAULT].
   static Future<void> ensureStorageLinked() async {
-    final app = await ensureDefaultApp();
-    final bucket = FirebaseStorage.instanceFor(app: app).bucket;
-    if (bucket.isEmpty) {
-      throw StateError('Firebase Storage indisponível (bucket vazio).');
+    Object? last;
+    for (var attempt = 0; attempt < 4; attempt++) {
+      try {
+        if (attempt > 0) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 160 + 200 * attempt),
+          );
+        }
+        final app = await ensureDefaultApp();
+        FirebaseBootstrapService.refreshCachedApp();
+        final bucket = FirebaseStorage.instanceFor(app: app).bucket;
+        if (bucket.isEmpty) {
+          throw StateError('Firebase Storage indisponível (bucket vazio).');
+        }
+        return;
+      } catch (e) {
+        last = e;
+        if (attempt < 3) continue;
+      }
     }
-    FirebaseBootstrapService.probeStorageLinked();
+    if (last != null) {
+      if (last is Exception) throw last;
+      throw StateError(last.toString());
+    }
+    throw StateError('Firebase Storage indisponível.');
   }
 
   /// Sessão Auth válida antes de upload/gravação.

@@ -55,6 +55,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -8110,10 +8111,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     unawaited(_maybeRepairStuckPhotos(data));
     unawaited(ImmediateMediaWarm.warmPatrimonio());
     unawaited(
-      YahwehModuleMediaGate.prepareForPublishUpload(
-        module: YahwehMediaModule.patrimonio,
-        logLabel: 'patrimonio_editor_open',
-      ).catchError((_) => false),
+      DirectStorageUrlPublish.ensureReady(requireAuth: false).catchError((_) {}),
     );
     unawaited(
       FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
@@ -8782,14 +8780,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
     try {
       YahwehFlowLog.patrimonioStart();
-      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-        context: context,
-        module: YahwehMediaModule.patrimonio,
-        logLabel: 'patrimonio_save',
-        withPhotos: _slotPending.any((b) => b != null),
-      )) {
-        return;
-      }
       final tenantId = _churchIdForPublish;
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();
@@ -8917,7 +8907,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
-      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (!mounted) return;
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         final offlinePayload = buildCorePayload();

@@ -74,14 +74,6 @@ abstract final class AvisoPublishService {
       throw StateError('Adicione pelo menos uma foto válida ao aviso.');
     }
 
-    await prepareFullPipeline(
-      logLabel: hasNewPhotos ? 'aviso_publish_photos' : 'aviso_publish',
-      withPhotos: hasNewPhotos,
-      onProgress: onUploadProgress == null
-          ? null
-          : (p) => onUploadProgress!(p.clamp(0.06, 0.14)),
-    );
-
     try {
       return await ChurchFeedLinearPublishService.publishAviso(
         docRef: docRef,

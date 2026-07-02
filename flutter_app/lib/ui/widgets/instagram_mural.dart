@@ -3547,13 +3547,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-        context: context,
-        module: YahwehMediaModule.avisos,
-        logLabel: 'mural_aviso_save',
-      )) {
-        return;
-      }
       List<Uint8List> compressedPhotos;
       try {
         compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();

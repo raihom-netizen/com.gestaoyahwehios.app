@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2045: Patrimônio/financeiro/membros/logo — fim gate bloqueante; pilar ChurchCentralStorageUpload em todos.
 /// 11.2.305+2042: Upload unificado DirectStorageUrlPublish — bytes mobile em avisos/eventos; todos módulos (membro, patrimônio, financeiro, logo, chat) mesmo gate Storage→URL.
 /// 11.2.305+2041: Fix upload mobile — bytes comprimidos iam para Storage (paths null); fim reset Firebase no publish.
 /// 11.2.305+2040: Deploy completo — upload Storage→URL direto (chat/mídia), limpeza código legado, EcoFire anti core/no-app, regras/functions/web/AAB/iOS.
@@ -438,7 +439,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2042';
+const String appBuildNumber = '2045';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

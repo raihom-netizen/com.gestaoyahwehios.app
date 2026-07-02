@@ -35,14 +35,15 @@ class ChatAudioService {
     final recorder = AudioRecorder();
     var permitted = await recorder.hasPermission();
     if (!permitted) {
-      // Segunda tentativa — alguns devices Android pedem diálogo só após start.
       try {
         permitted = await recorder.hasPermission();
       } catch (_) {}
     }
     if (!permitted) {
       await recorder.dispose();
-      return null;
+      throw StateError(
+        'Permissão de microfone negada. Ative em Ajustes do telefone.',
+      );
     }
 
     _encoder = AudioEncoder.aacLc;

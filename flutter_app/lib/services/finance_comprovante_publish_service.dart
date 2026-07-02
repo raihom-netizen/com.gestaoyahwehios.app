@@ -4,10 +4,10 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -450,14 +450,16 @@ abstract final class FinanceComprovantePublishService {
       ext: ext,
     );
 
-    final contentType = ext == 'pdf'
-        ? 'application/pdf'
-        : (ext == 'png' ? 'image/png' : 'image/jpeg');
+    final optimized = await _optimizedForUpload(
+      rawBytes: rawBytes,
+      mimeType: mimeType,
+    );
 
-    final url = await EcoFireStorageUpload.putData(
+    final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: path,
-      bytes: rawBytes,
-      mimeType: contentType,
+      bytes: optimized.bytes,
+      mimeType: optimized.mimeType,
+      logLabel: 'finance_comprovante',
       onProgress: (p) => onProgress?.call(0.15 + p * 0.75),
     ).timeout(
       const Duration(seconds: 45),
@@ -479,9 +481,9 @@ abstract final class FinanceComprovantePublishService {
 
     onProgress?.call(0.95);
     return FinanceComprovantePersistResult(
-      url: sanitizeImageUrl(url),
-      storagePath: path,
-      mimeType: contentType,
+      url: uploaded.downloadUrl,
+      storagePath: uploaded.storagePath,
+      mimeType: optimized.mimeType,
       fileName: safeName,
     );
   }

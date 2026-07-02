@@ -14,15 +14,16 @@ import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser, isFirebaseNoAppError;
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+    show formatFirebaseErrorForUser;
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -635,10 +636,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     unawaited(_bootstrapCadastro());
     unawaited(
-      YahwehModuleMediaGate.prepareForPublishUpload(
-        module: YahwehMediaModule.cadastro,
-        logLabel: 'igreja_cadastro_open',
-      ).catchError((_) => false),
+      DirectStorageUrlPublish.ensureReady(requireAuth: false).catchError((_) {}),
     );
   }
 
@@ -1829,19 +1827,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _logoUploadPhase = 'uploading';
     }
     try {
-      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-        context: context,
-        module: YahwehMediaModule.cadastro,
-        logLabel: 'igreja_logo_upload',
-      )) {
-        if (mounted) {
-          setState(() {
-            _uploadingLogo = false;
-            _logoUploadPhase = '';
-          });
-        }
-        return false;
-      }
       final resolvedId = await _resolveTenantIdForSave();
       final png =
           await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
@@ -1859,42 +1844,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
-      Object? uploadLast;
-      late final String logoUrl;
-      for (var attempt = 0; attempt < 3; attempt++) {
-        try {
-          if (attempt > 0) {
-            await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
-              uploadLast ?? StateError('core/no-app'),
-            );
-            await Future<void>.delayed(
-              Duration(milliseconds: 280 * (attempt + 1)),
-            );
-          }
-          logoUrl = await DirectStorageUrlPublish.uploadBytes(
-            storagePath: identityPath,
-            bytes: png,
-            mimeType: 'image/png',
-            onProgress: suppressProgressUi
-                ? null
-                : (p) {
-                    if (!mounted) return;
-                    setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
-                  },
-          );
-          uploadLast = null;
-          break;
-        } catch (e) {
-          uploadLast = e;
-          if (attempt < 2 && isFirebaseNoAppError(e)) continue;
-          rethrow;
-        }
-      }
-      if (uploadLast != null) {
-        if (uploadLast is Exception) throw uploadLast;
-        throw StateError(uploadLast.toString());
-      }
-      final url = logoUrl;
+      final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
+        churchId: resolvedId,
+        pngBytes: png,
+        onProgress: suppressProgressUi
+            ? null
+            : (p) {
+                if (!mounted) return;
+                setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
+              },
+      );
+      final url = uploaded.downloadUrl;
       if (!mounted) return true;
       setState(() {
         _logoUrl = url;
@@ -1939,7 +1899,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       return true;
     } catch (e) {
-      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (mounted) {
         setState(() {
           _uploadingLogo = false;

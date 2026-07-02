@@ -226,7 +226,10 @@ abstract final class FirebaseBootstrapService {
     final app = defaultApp;
     final bucket = FirebaseStorage.instanceFor(app: app).bucket;
     if (bucket.isEmpty) {
-      throw StateError('Firebase Storage indisponível (core/no-app, bucket vazio).');
+      throw StateError(
+        'Firebase Storage indisponível (bucket vazio). '
+        'Reabra o app ou use Configurações → Trocar de conta.',
+      );
     }
   }
 

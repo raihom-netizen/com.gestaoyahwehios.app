@@ -3,12 +3,11 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -89,14 +88,7 @@ abstract final class MemberProfilePhotoSaveService {
     return FirebaseBootstrapService.runGuarded(
       () async {
         onPhase?.call('A preparar Firebase…');
-        final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-          module: YahwehMediaModule.membros,
-          logLabel: 'membro_foto',
-          requireAuth: requireAuth,
-        );
-        if (!ok) {
-          throw StateError('Firebase indisponível para enviar foto do membro.');
-        }
+        await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
 
         final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
         final docId = memberDocId.trim();

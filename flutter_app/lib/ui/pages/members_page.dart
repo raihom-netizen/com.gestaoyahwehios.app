@@ -320,7 +320,6 @@ class _MembersPageState extends State<MembersPage> {
   }) async {
     GlobalUploadProgress.instance.start('A enviar foto de perfil…');
     try {
-      await YahwehModuleMediaGate.assertReadyForUploadAction(withPhotos: true);
       final result = await YahwehCentralEngineService.executeSingleProfileSave(
         collectionId: 'membros',
         docId: memberDocId,
@@ -332,9 +331,6 @@ class _MembersPageState extends State<MembersPage> {
       );
       if (!mounted) return;
       _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
-    } catch (e) {
-      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
-      rethrow;
     } finally {
       GlobalUploadProgress.instance.end();
     }
