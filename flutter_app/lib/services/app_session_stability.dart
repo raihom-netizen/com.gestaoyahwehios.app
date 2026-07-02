@@ -40,6 +40,11 @@ abstract final class AppSessionStability {
   static const Duration _masterCacheTtl = Duration(hours: 12);
   static const Duration _sessionKeepaliveInterval = Duration(minutes: 4);
 
+  static Timer? _webResumeCoalesce;
+  static DateTime? _lastResumeListenersAt;
+  static const Duration _webResumeCoalesceDelay = Duration(milliseconds: 400);
+  static const Duration _webResumeListenersMinGap = Duration(seconds: 90);
+
   /// Regista lifecycle + visibilidade da aba (web). Idempotente.
   static void bindGlobal(WidgetsBindingObserver observer) {
     if (_bound) return;
@@ -99,6 +104,17 @@ abstract final class AppSessionStability {
 
   /// Chamado ao voltar do background / foco na aba (web + mobile).
   static void onGlobalResume({bool force = false}) {
+    if (kIsWeb && !force) {
+      _webResumeCoalesce?.cancel();
+      _webResumeCoalesce = Timer(_webResumeCoalesceDelay, () {
+        _onGlobalResumeImpl(force: force);
+      });
+      return;
+    }
+    _onGlobalResumeImpl(force: force);
+  }
+
+  static void _onGlobalResumeImpl({bool force = false}) {
     final u = firebaseDefaultAuth.currentUser;
     if (u != null && !u.isAnonymous) {
       _stickyUser = u;
@@ -106,20 +122,28 @@ abstract final class AppSessionStability {
     final runHeavy = force || FirebaseAuthTokenGuard.shouldHandleAppResume();
     if (runHeavy && !(kIsWeb && WebPanelStability.isSessionExpired)) {
       if (kIsWeb) {
-        unawaited(FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: true));
+        unawaited(
+          FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: false),
+        );
       } else {
         unawaited(AppFinalizeBootstrap.onAppResume());
       }
-      if (kIsWeb) {
-        unawaited(FirestoreWebGuard.bindWebHostingDomainSession());
-      }
     }
-    for (final cb in List<void Function()>.from(_resumeListeners)) {
-      try {
-        cb();
-      } catch (e, st) {
-        if (kDebugMode) {
-          debugPrint('AppSessionStability resume listener: $e\n$st');
+    final now = DateTime.now();
+    final lastListeners = _lastResumeListenersAt;
+    final skipListeners = kIsWeb &&
+        !force &&
+        lastListeners != null &&
+        now.difference(lastListeners) < _webResumeListenersMinGap;
+    if (!skipListeners) {
+      _lastResumeListenersAt = now;
+      for (final cb in List<void Function()>.from(_resumeListeners)) {
+        try {
+          cb();
+        } catch (e, st) {
+          if (kDebugMode) {
+            debugPrint('AppSessionStability resume listener: $e\n$st');
+          }
         }
       }
     }

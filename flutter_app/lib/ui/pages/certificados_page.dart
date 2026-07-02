@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -33,6 +33,8 @@ import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
@@ -46,6 +48,8 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -399,23 +403,64 @@ class _CertificadosPageState extends State<CertificadosPage> {
     return _CertMembersListSnapshot(docs);
   }
 
+  void _applyMembersDocs(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    if (docs.isEmpty) return;
+    final tid = _effectiveTenantId;
+    if (tid.isNotEmpty) {
+      ChurchCertificadosLoadService.putRam(tid, docs);
+      _CertificadosMembersRamCache.put(tid, docs);
+    }
+    _membersLoadSoftError = null;
+    _seedMemberDocs = docs;
+    _membersFuture = Future.value(_CertMembersListSnapshot(docs));
+    _membersSyncing = false;
+  }
+
+  Future<void> _trySeedMembersFromDirectory(String churchId) async {
+    if (churchId.isEmpty || _seedMemberDocs.isNotEmpty) return;
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(churchId)
+          .timeout(const Duration(seconds: 5));
+      if (!dir.hasEntries || !mounted) return;
+      final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
+        churchId,
+        dir,
+      );
+      if (merged.docs.isEmpty) return;
+      setState(() {
+        _seedMemberDocs = merged.docs;
+        _membersFuture = Future.value(_CertMembersListSnapshot(merged.docs));
+        _membersSyncing = true;
+      });
+    } catch (e, st) {
+      debugPrint('Certificados directory seed: $e\n$st');
+    }
+  }
+
   Future<void> _openCertificadosFast() async {
     final tid = _effectiveTenantId;
     if (tid.isEmpty) return;
-    if (mounted) setState(() => _membersSyncing = true);
+    final hadLocal = _seedMemberDocs.isNotEmpty;
+    if (!hadLocal) {
+      await _trySeedMembersFromDirectory(tid);
+    }
+    if (!hadLocal && _seedMemberDocs.isEmpty && mounted) {
+      setState(() => _membersSyncing = true);
+    }
     try {
-      final docs = await _fetchAllMemberDocs();
+      final result = await ChurchCertificadosLoadService.load(
+        seedTenantId: tid,
+        forceRefresh: false,
+      );
       if (!mounted) return;
-      if (docs.isNotEmpty) {
-        ChurchCertificadosLoadService.putRam(tid, docs);
-        _CertificadosMembersRamCache.put(tid, docs);
+      if (result.docs.isEmpty) {
+        setState(() => _membersSyncing = false);
+        return;
       }
-      setState(() {
-        _membersLoadSoftError = null;
-        _seedMemberDocs = docs;
-        _membersFuture = Future.value(_CertMembersListSnapshot(docs));
-        _membersSyncing = false;
-      });
+      if (result.churchId.trim().isNotEmpty) {
+        _operationalTenantId = result.churchId.trim();
+      }
+      setState(() => _applyMembersDocs(result.docs));
     } catch (e, st) {
       debugPrint('Certificados _openCertificadosFast: $e\n$st');
       if (mounted) setState(() => _membersSyncing = false);
@@ -455,11 +500,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
   @override
   void initState() {
     super.initState();
-    _operationalTenantId = ChurchRepository.churchId(widget.tenantId.trim());
+    _operationalTenantId = ChurchPanelTenant.forFirestore(widget.tenantId.trim());
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded());
     final hint = _effectiveTenantId;
     final ram = ChurchCertificadosLoadService.peekRam(hint) ??
-        (hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null);
+        (hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null) ??
+        (hint.isNotEmpty ? ChurchMembersLoadService.peekRamAny(hint) : null);
     if (ram != null && ram.isNotEmpty) {
       _seedMemberDocs = List.from(ram);
       _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
@@ -473,6 +519,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
       warmCertificatePdfFontAssets();
       _scheduleWarmCertificatePdfAssets();
     });
+    if (kIsWeb) {
+      Timer(const Duration(seconds: 14), () {
+        if (mounted && _membersSyncing && _seedMemberDocs.isEmpty) {
+          setState(() => _membersSyncing = false);
+        }
+      });
+    }
   }
 
   void _scheduleWarmCertificatePdfAssets({
@@ -990,33 +1043,11 @@ class _CertificadosPageState extends State<CertificadosPage> {
         final pageEdge = ThemeCleanPremium.pagePadding(context);
         return DefaultTabController(
           length: 3,
-          child: Column(
+          child: YahwehWisdomPanelBackdrop(
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CertificadosHeroHeader(
-                tenantId: _effectiveTenantId,
-                tenantData: _tenantData,
-                totalMembros: allDocs.length,
-                syncing: _membersSyncing,
-              ),
-              Material(
-                color: Colors.white,
-                child: TabBar(
-                  indicatorColor: const Color(0xFF7C3AED),
-                  indicatorWeight: 3,
-                  labelColor: const Color(0xFF7C3AED),
-                  unselectedLabelColor: Colors.grey.shade600,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Membros'),
-                    Tab(text: 'Painel de emissões'),
-                    Tab(text: 'Histórico de emissão'),
-                  ],
-                ),
-              ),
+              _CertificadosColoredTabBar(syncing: _membersSyncing),
               Expanded(
                 child: TabBarView(
                   children: [
@@ -1775,6 +1806,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
               ),
             ],
           ),
+        ),
         );
       },
     );
@@ -2983,57 +3015,83 @@ class _CertificadosPageState extends State<CertificadosPage> {
       required VoidCallback close,
       required bool compactHeader,
     }) {
-      var visualId = 'classico_dourado';
+      var visualId =
+          (_certConfig?['defaultVisualTemplateId'] ?? 'classico_dourado')
+              .toString()
+              .trim();
+      if (certificateVisualTemplateById(visualId) == null) {
+        visualId = 'classico_dourado';
+      }
       return StatefulBuilder(
         builder: (context, setModal) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (!compactHeader) const SizedBox(height: 8),
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  ThemeCleanPremium.spaceLg,
-                  compactHeader ? ThemeCleanPremium.spaceMd : 8,
-                  ThemeCleanPremium.spaceSm,
-                  ThemeCleanPremium.spaceSm,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Escolher certificado',
-                        style: TextStyle(
-                          fontSize: compactHeader ? 18 : 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.grey.shade900,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: close,
-                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                      label: const Text('Voltar'),
-                    ),
-                    TextButton(
-                      onPressed: close,
-                      child: const Text('Cancelar'),
-                    ),
-                  ],
-                ),
-              ),
               if (!compactHeader)
                 Center(
                   child: Container(
                     width: 40,
                     height: 4,
-                    margin: const EdgeInsets.only(bottom: 8),
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
                     decoration: BoxDecoration(
                       color: Colors.grey.shade400,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
                 ),
+              Container(
+                margin: EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceLg,
+                  compactHeader ? ThemeCleanPremium.spaceMd : 4,
+                  ThemeCleanPremium.spaceLg,
+                  ThemeCleanPremium.spaceSm,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: close,
+                      tooltip: 'Voltar',
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        Icons.arrow_back_rounded,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        'Escolher certificado',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                          fontSize: compactHeader ? 18 : 17,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.onSurface,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: close,
+                      child: Text(
+                        'Cancelar',
+                        style: TextStyle(
+                          color: ThemeCleanPremium.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   ThemeCleanPremium.spaceLg,
@@ -3073,7 +3131,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                   borderRadius: BorderRadius.circular(16),
                                   border: Border.all(
                                     color: sel
-                                        ? ThemeCleanPremium.primary
+                                        ? vt.previewBorder
                                         : Colors.grey.shade300,
                                     width: sel ? 2.5 : 1,
                                   ),
@@ -3387,7 +3445,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       pageContext,
       MaterialPageRoute(
         builder: (_) => _CertEditorPage(
-          tenantId: widget.tenantId,
+          tenantId: _effectiveTenantId,
           onReemitir: (cid) =>
               _reemitirCertificadoPorProtocolo(pageContext, cid),
           memberFirestoreDocId: memberDoc.id,
@@ -3422,114 +3480,140 @@ class _CertificadosPageState extends State<CertificadosPage> {
   }
 }
 
-class _CertificadosHeroHeader extends StatelessWidget {
-  const _CertificadosHeroHeader({
-    required this.tenantId,
-    required this.tenantData,
-    required this.totalMembros,
-    required this.syncing,
-  });
+class _CertificadosColoredTabBar extends StatelessWidget {
+  const _CertificadosColoredTabBar({required this.syncing});
 
-  final String tenantId;
-  final Map<String, dynamic>? tenantData;
-  final int totalMembros;
   final bool syncing;
+
+  static const _tabs = <({String label, IconData icon, Color color})>[
+    (label: 'Membros', icon: Icons.people_alt_rounded, color: Color(0xFF2563EB)),
+    (
+      label: 'Painel',
+      icon: Icons.dashboard_customize_rounded,
+      color: Color(0xFF7C3AED),
+    ),
+    (label: 'Histórico', icon: Icons.history_rounded, color: Color(0xFF059669)),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF6D28D9),
-            Color(0xFF7C3AED),
-            Color(0xFF2563EB),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF7C3AED).withValues(alpha: 0.28),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
+    final controller = DefaultTabController.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            ThemeCleanPremium.pagePadding(context).left,
+            10,
+            ThemeCleanPremium.pagePadding(context).right,
+            syncing ? 6 : 8,
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          StableChurchLogo(
-            tenantId: tenantId,
-            tenantData: tenantData,
-            width: 56,
-            height: 56,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Certificados Premium',
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  syncing
-                      ? 'Sincronizando membros…'
-                      : '$totalMembros membros prontos para emissão',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (syncing)
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.2,
-                color: Colors.white,
-              ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+          child: AnimatedBuilder(
+            animation: controller,
+            builder: (context, _) {
+              final selected = controller.index;
+              return Row(
                 children: [
-                  const Icon(Icons.verified_rounded,
-                      color: Colors.white, size: 18),
-                  const SizedBox(width: 6),
-                  Text(
-                    '$totalMembros',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                  for (var i = 0; i < _tabs.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    Expanded(
+                      child: _CertificadosTabButton(
+                        label: _tabs[i].label,
+                        icon: _tabs[i].icon,
+                        color: _tabs[i].color,
+                        selected: selected == i,
+                        onTap: () => controller.animateTo(i),
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ),
+              );
+            },
+          ),
+        ),
+        if (syncing)
+          const LinearProgressIndicator(
+            minHeight: 2,
+            backgroundColor: Color(0xFFE2E8F0),
+            color: Color(0xFF7C3AED),
+          ),
+      ],
+    );
+  }
+}
+
+class _CertificadosTabButton extends StatelessWidget {
+  const _CertificadosTabButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final minH = ThemeCleanPremium.isMobile(context)
+        ? ThemeCleanPremium.minTouchTarget
+        : 48.0;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          constraints: BoxConstraints(minHeight: minH),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            color: selected ? color : color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? color : color.withValues(alpha: 0.45),
+              width: selected ? 2.5 : 1,
             ),
-        ],
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.32),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected ? Colors.white : color,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? Colors.white : color,
+                  letterSpacing: -0.1,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -5615,7 +5699,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(
                               color: sel
-                                  ? ThemeCleanPremium.primary
+                                  ? vt.previewBorder
                                   : Colors.grey.shade300,
                               width: sel ? 2.5 : 1,
                             ),
@@ -6595,30 +6679,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     final qrUrl =
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
 
-    if (!_isCasamento) {
-      onProgress?.call('Gerando PDF na nuvem…', 0.15);
-      final cloudBytes = await CertificateCloudPdfService.generateSingleMemberPdf(
-        tenantId: widget.tenantId,
-        memberId: widget.memberFirestoreDocId,
-        templateId: widget.template.id,
-        certificadoId: protocolId,
-      );
-      if (cloudBytes != null && cloudBytes.isNotEmpty) {
-        unawaited(
-          CertificateEmitidoService.registerEmissao(
-            tenantId: widget.tenantId,
-            snapshot: snapshot,
-            certificadoId: protocolId,
-          ).catchError((e, st) {
-            debugPrint('Certificados cloud registerEmissao: $e\n$st');
-            return protocolId;
-          }),
-        );
-        onProgress?.call('PDF pronto', 1.0);
-        return (bytes: cloudBytes.toList(), protocolId: protocolId);
-      }
-      onProgress?.call('Montando PDF premium…', 0.2);
-    }
+    // Pipeline local Gala Luxo — respeita modelo visual (Clássico/Pergaminho/Moderno).
+    // A CF `gerarCertificadoPdf` ignora `visualTemplateId` (PDF básico).
+    onProgress?.call('Montando PDF premium…', 0.2);
 
     final bytes = await runCertificatePdfPipeline(
       CertPdfPipelineParams(

@@ -22,6 +22,8 @@ class ChurchTenantOfflineWarmupService {
   bool _warmupDoneThisSession = false;
   bool _heavyWarmupScheduled = false;
   bool _warmupRunning = false;
+  DateTime? _lastLightResumeAt;
+  static const Duration _lightResumeMinGap = Duration(minutes: 4);
   final StreamController<bool> _warmupCtrl =
       StreamController<bool>.broadcast();
 
@@ -40,6 +42,14 @@ class ChurchTenantOfflineWarmupService {
     if (tid.isEmpty) return;
     if (!AppConnectivityService.instance.isOnline) return;
     if (firebaseDefaultAuth.currentUser == null) return;
+    if (kIsWeb) {
+      final last = _lastLightResumeAt;
+      if (last != null &&
+          DateTime.now().difference(last) < _lightResumeMinGap) {
+        return;
+      }
+      _lastLightResumeAt = DateTime.now();
+    }
     unawaited(_runWarmup(tid, light: true));
   }
 

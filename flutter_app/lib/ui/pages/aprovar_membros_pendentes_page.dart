@@ -8,6 +8,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -16,6 +19,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
@@ -73,15 +78,15 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
-  String get _churchId => ChurchRepository.churchId(_tid);
+  String get _churchId => ChurchPanelTenant.forFirestore(_tid);
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
       ChurchUiCollections.membros(_churchId);
 
   void _seedPendentesFromCache() {
-    final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
-    if (ram == null) return;
-    _pendentesDocs = ram;
+    final instant = ChurchAprovacoesLoadService.peekInstant(_churchId);
+    if (instant == null) return;
+    _pendentesDocs = instant.docs;
     _pendentesLoading = false;
     _showingStaleCache = true;
   }
@@ -97,24 +102,6 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     });
   }
 
-  Future<void> _primePendentesFromCache() async {
-    if (_pendentesDocs.isNotEmpty || !mounted) return;
-    try {
-      final result = await ChurchAprovacoesLoadService.loadPendentes(
-        seedTenantId: _churchId,
-      ).timeout(const Duration(milliseconds: 1800));
-      if (!mounted) return;
-      setState(() {
-        if (_pendentesDocs.isEmpty) {
-          _pendentesDocs = result.docs;
-        }
-        _pendentesLoading = false;
-        _showingStaleCache = result.fromCache;
-        _pendentesError = null;
-      });
-    } catch (_) {}
-  }
-
   Future<void> _loadPendentes({bool forceRefresh = false}) async {
     if (!mounted) return;
     setState(() {
@@ -124,18 +111,16 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       );
       if (forceRefresh) _pendentesError = null;
     });
+    _startWebLoadingCap();
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final hadLocal = _pendentesDocs.isNotEmpty;
-      final result = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchAprovacoesLoadService.loadPendentes(
-          seedTenantId: _churchId,
-          forceRefresh: forceRefresh,
-        ),
-        maxAttempts: 4,
-      ).timeout(PanelResilientLoad.queryCap);
+      final result = await ChurchAprovacoesLoadService.loadPendentes(
+        seedTenantId: _churchId,
+        forceRefresh: forceRefresh,
+      );
       if (!mounted) return;
       final ui = PanelResilientLoad.afterFetch(
         hadLocalData: hadLocal,
@@ -149,20 +134,34 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
           _pendentesDocs = result.docs;
         }
         _showingStaleCache = ui.showingStaleCache;
-        _pendentesError = ui.loadError;
+        // Lista vazia sem softError = nenhum pendente (sucesso).
+        _pendentesError = result.hasHardError && result.docs.isEmpty
+            ? ui.loadError ?? result.softError
+            : (result.docs.isEmpty ? null : ui.loadError);
         if (result.churchId.isNotEmpty) {
           _effectiveTenantId = result.churchId;
         }
       });
     } catch (e) {
       if (!mounted) return;
+      final instant = ChurchAprovacoesLoadService.peekInstant(_churchId);
+      if (instant != null) {
+        setState(() {
+          _pendentesDocs = instant.docs;
+          _showingStaleCache = true;
+          _pendentesError = null;
+        });
+        return;
+      }
       final ui = PanelResilientLoad.afterError(
         hadLocalData: _pendentesDocs.isNotEmpty,
         error: e,
       );
       setState(() {
         _showingStaleCache = ui.showingStaleCache;
-        _pendentesError = ui.loadError;
+        _pendentesError = _pendentesDocs.isEmpty
+            ? formatFirebaseErrorForUser(e, logToCrashlytics: false)
+            : ui.loadError;
       });
     } finally {
       _webLoadCap?.cancel();
@@ -175,21 +174,12 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _tabCtrl = TabController(length: 2, vsync: this);
     _tabCtrl.addListener(() {
       if (mounted) setState(() {});
     });
     _seedPendentesFromCache();
-    _startWebLoadingCap();
-    unawaited(_primePendentesFromCache());
-    unawaited(
-      ChurchRepository.listCacheFirst(
-        module: ChurchRepository.membros,
-        churchIdHint: _churchId,
-        limit: 500,
-      ),
-    );
     unawaited(_loadPendentes());
   }
 
@@ -197,7 +187,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   void didUpdateWidget(covariant AprovarMembrosPendentesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+      _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
       _tenantLinkageCache = null;
       _pendentesDocs = [];
       _selecionados.clear();
@@ -522,7 +512,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: null,
-      body: SafeArea(
+      body: YahwehWisdomPanelBackdrop(
+        child: SafeArea(
         top: !widget.embeddedInShell,
         bottom: true,
         child: Column(
@@ -541,15 +532,16 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
           ],
         ),
       ),
+      ),
     );
   }
 
-  /// Faixa compacta (gradiente + sombra) — substitui AppBar+TabBar que ocupava ~¼ da tela.
+  /// Faixa compacta — Pendentes / Histórico colada ao topo (máximo espaço para lista).
   Widget _buildPremiumTabsStrip() {
     final pad = ThemeCleanPremium.pagePadding(context);
-    final topGap = widget.embeddedInShell ? 2.0 : 6.0;
+    final topGap = widget.embeddedInShell ? 0.0 : 4.0;
     return Padding(
-      padding: EdgeInsets.fromLTRB(pad.left, topGap, pad.right, 8),
+      padding: EdgeInsets.fromLTRB(pad.left, topGap, pad.right, 6),
       child: Container(
         decoration: BoxDecoration(
           gradient: _AprovacoesPremiumTheme.heroGradient,
@@ -588,6 +580,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                       label: 'Pendentes',
                       icon: Icons.pending_actions_rounded,
                       selected: _tabCtrl.index == 0,
+                      badge: _pendentesDocs.isNotEmpty
+                          ? '${_pendentesDocs.length}'
+                          : null,
                       onTap: () => _tabCtrl.animateTo(0),
                     ),
                   ),
@@ -613,6 +608,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     required IconData icon,
     required bool selected,
     required VoidCallback onTap,
+    String? badge,
   }) {
     return Material(
       color: Colors.transparent,
@@ -647,6 +643,25 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                   ),
                 ),
               ),
+              if (badge != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    badge,
+                    style: TextStyle(
+                      color: _AprovacoesPremiumTheme.emerald,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -679,27 +694,21 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
     return Column(
       children: [
-        Padding(
-          padding: ThemeCleanPremium.pagePadding(context).copyWith(
-            top: 12,
-            bottom: 0,
+        if (_showingStaleCache || _pendentesError != null || (_pendentesLoading && hasLocal))
+          Padding(
+            padding: ThemeCleanPremium.pagePadding(context).copyWith(
+              top: 8,
+              bottom: 0,
+            ),
+            child: ChurchPanelResilientLoadBanner(
+              hasLocalData: hasLocal,
+              isSyncing: _pendentesLoading && hasLocal,
+              showStaleCache: _showingStaleCache && !_pendentesLoading,
+              errorTitle: 'Não foi possível carregar os membros pendentes',
+              error: _pendentesError,
+              onRetry: () => unawaited(_loadPendentes(forceRefresh: true)),
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ChurchPanelResilientLoadBanner(
-                hasLocalData: hasLocal,
-                isSyncing: _pendentesLoading && hasLocal,
-                showStaleCache: _showingStaleCache && !_pendentesLoading,
-                errorTitle: 'Não foi possível carregar os membros pendentes',
-                error: _pendentesError,
-                onRetry: () => unawaited(_loadPendentes(forceRefresh: true)),
-              ),
-              const SizedBox(height: 8),
-              _AprovacoesHeroHeader(pendentesCount: docs.length),
-            ],
-          ),
-        ),
         if (_selecionados.isNotEmpty)
           Container(
             color: _AprovacoesPremiumTheme.emerald,
@@ -967,85 +976,6 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   static String _photoUrlFromData(Map<String, dynamic> data) => imageUrlFromMap(data);
 }
 
-class _AprovacoesHeroHeader extends StatelessWidget {
-  const _AprovacoesHeroHeader({required this.pendentesCount});
-
-  final int pendentesCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-      decoration: BoxDecoration(
-        gradient: _AprovacoesPremiumTheme.heroGradient,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _AprovacoesPremiumTheme.emerald.withValues(alpha: 0.35),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.how_to_reg_rounded,
-                color: Colors.white, size: 28),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Aprovações rápidas',
-                  style: tt.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                Text(
-                  'Cadastros públicos aguardando gestor',
-                  style: tt.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                '$pendentesCount',
-                style: tt.headlineMedium?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              Text(
-                'pendentes',
-                style: tt.labelSmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ── Empty state premium ─────────────────────────────────────────────────────
 
 class _PremiumEmptyPendentes extends StatelessWidget {
@@ -1175,15 +1105,12 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final range = _effectiveRange;
-      final result = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchAprovacoesLoadService.loadHistorico(
-          seedTenantId: widget.churchId,
-          rangeStart: range.$1,
-          rangeEnd: range.$2,
-          forceRefresh: forceRefresh,
-        ),
-        maxAttempts: 4,
-      ).timeout(PanelResilientLoad.queryCap);
+      final result = await ChurchAprovacoesLoadService.loadHistorico(
+        seedTenantId: widget.churchId,
+        rangeStart: range.$1,
+        rangeEnd: range.$2,
+        forceRefresh: forceRefresh,
+      );
       final data = _HistoryData.fromSnapshots(
         range.$1,
         range.$2,

@@ -126,6 +126,25 @@ service cloud.firestore {
         || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
         || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'departamentos'));
     }
+    /// CatÃ¡logo de cargos/funÃ§Ãµes — pastoral, tesouraria, lÃ­deres e permissÃ£o granular `cargos`.
+    function canWriteIgrejaCargos(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'cargos'));
+    }
+    /// Agenda interna — mural/pastoral/lÃ­deres + permissÃ£o granular `agenda_edicao`.
+    function canWriteIgrejaAgenda(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || canWriteMuralFeed(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'agenda_edicao'));
+    }
     function canPost() { return canManageChurch(); }
     // Acesso Ã  igreja por e-mail do gestor (evita permission-denied em PresenÃ§a, Eventos, etc. quando claims/users ainda nÃ£o tÃªm igrejaId)
     function emailMatchesTenant(tenantId) {
@@ -802,7 +821,7 @@ service cloud.firestore {
       }
       match /cargos/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow write: if canWriteIgrejaCargos(id);
       }
       match /funcoesControle/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
@@ -1164,7 +1183,7 @@ service cloud.firestore {
       // Escrita: permissÃ£o granular `eventos` + papÃ©is do mural (nÃ£o sÃ³ gestor â€” igual `noticias`).
       match /agenda/{eventId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if canWriteMuralFeed(id);
+        allow write: if canWriteIgrejaAgenda(id);
       }
 
       // Chat membro-a-membro / grupos por departamento (retenÃ§Ã£o por expiresAt â€” limpeza via Cloud Function).

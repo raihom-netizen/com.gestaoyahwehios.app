@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -615,5 +616,129 @@ abstract final class ChurchAgendaLoadService {
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith(churchId));
     await TenantModuleHiveCache.clearModule(churchId, TenantModuleKeys.agenda);
+  }
+
+  static void _invalidateFromRef(DocumentReference<Map<String, dynamic>> ref) {
+    final parts = ref.path.split('/');
+    if (parts.length >= 2 && parts[0] == 'igrejas') {
+      invalidate(parts[1]);
+    }
+  }
+
+  static Future<void> _prepareWrite() async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+  }
+
+  /// Atualiza doc existente em `igrejas/{churchId}/agenda/{id}`.
+  static Future<void> updateAgendaEvent({
+    required DocumentReference<Map<String, dynamic>> ref,
+    required Map<String, dynamic> payload,
+  }) async {
+    await _prepareWrite();
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => ref.update(payload),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+    _invalidateFromRef(ref);
+  }
+
+  /// Cria doc em `igrejas/{churchId}/agenda/{id}`.
+  static Future<void> setAgendaEvent({
+    required DocumentReference<Map<String, dynamic>> ref,
+    required Map<String, dynamic> payload,
+  }) async {
+    await _prepareWrite();
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => ref.set(payload),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+    _invalidateFromRef(ref);
+  }
+
+  /// Commit de batch (vários creates/deletes da agenda).
+  static Future<void> commitAgendaBatch(WriteBatch batch) async {
+    await _prepareWrite();
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => batch.commit(),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+  }
+
+  /// Exclui doc da agenda.
+  static Future<void> deleteAgendaEvent(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    await _prepareWrite();
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => ref.delete(),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+    _invalidateFromRef(ref);
+  }
+
+  /// Exclui vários docs da agenda por id (chunks de batch).
+  static Future<void> deleteAgendaEventsByIds({
+    required String churchId,
+    required Iterable<String> docIds,
+  }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    if (cid.isEmpty) throw StateError('Igreja não identificada.');
+    final ids = docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    if (ids.isEmpty) return;
+    const chunk = 450;
+    for (var i = 0; i < ids.length; i += chunk) {
+      final batch = ChurchRepository.batch();
+      for (final id in ids.skip(i).take(chunk)) {
+        batch.delete(ChurchUiCollections.agenda(cid).doc(id));
+      }
+      await commitAgendaBatch(batch);
+    }
+    await invalidate(cid);
+  }
+
+  /// Query + exclusão por intervalo de `startTime`.
+  static Future<int> deleteAgendaDocsInRange({
+    required String churchId,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    if (cid.isEmpty) throw StateError('Igreja não identificada.');
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchUiCollections.agenda(cid)
+          .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+          .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .get(),
+      maxAttempts: 4,
+    );
+    if (snap.docs.isEmpty) return 0;
+    const chunk = 450;
+    for (var i = 0; i < snap.docs.length; i += chunk) {
+      final batch = ChurchRepository.batch();
+      for (final d in snap.docs.skip(i).take(chunk)) {
+        batch.delete(d.reference);
+      }
+      await commitAgendaBatch(batch);
+    }
+    await invalidate(cid);
+    return snap.docs.length;
   }
 }

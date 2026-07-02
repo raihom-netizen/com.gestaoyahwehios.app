@@ -44,7 +44,7 @@ abstract final class YahwehPerformanceV4 {
   /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
   static const int dashboardStatsSampleLimit = 100;
   /// Amostra para gráficos/resumo — não carregar histórico completo no 1.º frame.
-  static const int financeChartsSampleLimit = 200;
+  static const int financeChartsSampleLimit = 60;
   static const int financeListInitialLimit = blindListPageSize;
   static const int financeListPageStep = blindListPageSize;
   static const int publicFeedPageSize = 20;
@@ -70,6 +70,8 @@ abstract final class YahwehPerformanceV4 {
   static const int memberCardListPageSize = 40;
   static const int memberCardSignatoryQueryLimit = 24;
   static const int memberCardPdfPhotoParallel = 8;
+  static const int memberCardPdfRasterParallel = 4;
+  static const int memberCardPdfCaptureDelayMs = 10;
   static const int patrimonioListPageSize = 20;
   static const int financeSummaryFirstLimit = 20;
 

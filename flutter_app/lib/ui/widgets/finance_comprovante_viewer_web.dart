@@ -1,5 +1,6 @@
 // ignore: avoid_web_libraries_in_flutter
 import 'dart:html' as html;
+import 'dart:typed_data';
 import 'dart:ui_web' as ui_web;
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -118,6 +119,83 @@ Future<void> showFinanceComprovanteWebEmbed({
                       : _looksLikePdf(mimeType, fileName, url)
                           ? _ComprovanteIframe(src: url)
                           : _ComprovanteIframe(src: url),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// Web: visualizar bytes locais (Storage getData) — evita URL expirada/CORS.
+Future<void> showFinanceComprovanteWebBytes({
+  required BuildContext context,
+  required Uint8List bytes,
+  required String fileName,
+  required String mimeType,
+}) async {
+  if (bytes.isEmpty) return;
+  if (_looksLikePdf(mimeType, fileName, '')) {
+    final blob = html.Blob([bytes], mimeType);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    try {
+      await showFinanceComprovanteWebEmbed(
+        context: context,
+        url: url,
+        fileName: fileName,
+        mimeType: mimeType,
+      );
+    } finally {
+      html.Url.revokeObjectUrl(url);
+    }
+    return;
+  }
+  await showDialog<void>(
+    context: context,
+    barrierColor: Colors.black87,
+    builder: (ctx) => Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      backgroundColor: const Color(0xFF1C1C1E),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 960,
+          maxHeight: MediaQuery.of(ctx).size.height * 0.92,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  ),
+                  Expanded(
+                    child: Text(
+                      fileName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: InteractiveViewer(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
                 ),
               ),
             ),

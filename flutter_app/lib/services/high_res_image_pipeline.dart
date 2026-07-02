@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_image_encode_isolate.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
@@ -81,9 +82,9 @@ Future<XFile?> pickCropEncodeWebp({
   }
   final picked = await picker.pickImage(
     source: source,
-    imageQuality: kIsWeb ? 100 : kEventoAvisoFeedWebpQuality,
-    maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
-    maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : kEffectiveFeedEncodeMaxEdgePx.toDouble(),
+    imageQuality: kIsWeb ? kEventoAvisoFeedWebpQuality : kEffectiveMuralFeedWebpQuality,
+    maxWidth: kEffectiveFeedEncodeMaxEdgePx.toDouble(),
+    maxHeight: kEffectiveFeedEncodeMaxEdgePx.toDouble(),
   );
   if (picked == null) return null;
   if (ctx != null && !ctx.mounted) return null;
@@ -133,9 +134,13 @@ Future<XFile?> _flutterFeedCropAndEncode(
       if (kIsWeb) return _encodeFeedImageFromXFile(working);
       return null;
     }
+    final capped = await ImageHelper.compressImageUnderMaxBytes(
+      croppedBytes,
+      maxBytes: kEventoFotoMaxUploadBytes,
+    );
     final edge = kEffectiveFeedEncodeMaxEdgePx;
     return _bytesToWebpXFile(
-      croppedBytes,
+      capped,
       quality: webpOutputQuality,
       encodeMaxWidth: edge,
       encodeMaxHeight: edge,

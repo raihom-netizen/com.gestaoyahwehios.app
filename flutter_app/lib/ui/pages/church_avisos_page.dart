@@ -1,13 +1,19 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Módulo Avisos — publicação para toda a igreja (índice shell 7).
 class ChurchAvisosPage extends StatefulWidget {
@@ -28,12 +34,19 @@ class ChurchAvisosPage extends StatefulWidget {
   State<ChurchAvisosPage> createState() => _ChurchAvisosPageState();
 }
 
+/// Filtro rápido da grelha de avisos.
+enum _AvisoGridFilter { todos, permanentes, comVencimento, comFoto }
+
 class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   final Set<String> _selected = {};
   bool _selectionMode = false;
   bool _loading = false;
   List<ChurchAvisoItem> _items = const [];
-  Map<String, Map<String, dynamic>> _rawById = {};
+  String? _loadError;
+  bool _showingStaleCache = false;
+  _AvisoGridFilter _filtro = _AvisoGridFilter.todos;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _sortDateAsc = true;
 
   bool get _canManage =>
       ChurchAvisosService.canManage(widget.role, permissions: widget.permissions);
@@ -41,27 +54,100 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   @override
   void initState() {
     super.initState();
+    _searchCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<ChurchAvisoItem> get _visibleItems {
+    var list = ChurchAvisosLoadService.sortItemsByDate(
+      _items,
+      ascending: _sortDateAsc,
+    );
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      list = list
+          .where(
+            (a) =>
+                a.title.toLowerCase().contains(q) ||
+                a.body.toLowerCase().contains(q),
+          )
+          .toList();
+    }
+    switch (_filtro) {
+      case _AvisoGridFilter.permanentes:
+        list = list.where((a) => a.permanent).toList();
+      case _AvisoGridFilter.comVencimento:
+        list = list.where((a) => !a.permanent && a.expiresAt != null).toList();
+      case _AvisoGridFilter.comFoto:
+        list = list.where((a) => a.hasImages).toList();
+      case _AvisoGridFilter.todos:
+        break;
+    }
+    return list;
+  }
+
+  void _removeLocalIds(Set<String> ids) {
+    if (ids.isEmpty) return;
+    setState(() {
+      _items = _items.where((i) => !ids.contains(i.id)).toList();
+      _selected.removeWhere(ids.contains);
+    });
   }
 
   Future<void> _reload() async {
     if (!mounted) return;
-    setState(() => _loading = _items.isEmpty);
+    final hadLocal = _items.isNotEmpty;
+    setState(() {
+      _loading = _items.isEmpty;
+      if (!hadLocal) _loadError = null;
+    });
     try {
-      final list = await ChurchAvisosLoadService.loadActive(
-        churchIdHint: widget.tenantId,
-        limit: ChurchAvisosLoadService.kModuleListLimit,
-      );
-      if (!mounted) return;
-      setState(() => _items = list);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Falha ao carregar avisos: $e'),
-        );
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      final list = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchAvisosLoadService.loadActive(
+          churchIdHint: widget.tenantId,
+          limit: ChurchAvisosLoadService.kModuleListLimit,
+        ),
+        maxAttempts: 4,
+      ).timeout(PanelResilientLoad.queryCap);
+      if (!mounted) return;
+      final ui = PanelResilientLoad.afterFetch(
+        hadLocalData: hadLocal,
+        newItems: list,
+        fromCache: false,
+      );
+      setState(() {
+        if (list.isNotEmpty || !hadLocal) {
+          _items = ChurchAvisosLoadService.sortItemsByDate(
+            list,
+            ascending: _sortDateAsc,
+          );
+        }
+        _loading = false;
+        _showingStaleCache = ui.showingStaleCache;
+        _loadError = ui.loadError;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: hadLocal,
+        error: e,
+      );
+      setState(() {
+        _loading = false;
+        _showingStaleCache = ui.showingStaleCache;
+        _loadError = ui.loadError ?? e.toString();
+      });
     }
   }
 
@@ -82,16 +168,28 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   Future<void> _confirmDeleteOne(ChurchAvisoItem item) async {
     final ok = await _showDeleteConfirmDialog(count: 1);
     if (ok != true) return;
-    await ChurchAvisosService.deleteOne(
-      churchIdHint: widget.tenantId,
-      docId: item.id,
-      data: _rawById[item.id],
-    );
-    if (mounted) {
+    _removeLocalIds({item.id});
+    try {
+      await ChurchAvisosService.deleteOne(
+        churchIdHint: widget.tenantId,
+        docId: item.id,
+      );
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Aviso excluído.'),
         );
-      await _reload();
+        unawaited(_reload());
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatFirebaseErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+        unawaited(_reload());
+      }
     }
   }
 
@@ -100,22 +198,33 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     final count = _selected.length;
     final ok = await _showDeleteConfirmDialog(count: count);
     if (ok != true) return;
-    setState(() => _loading = true);
+    final ids = Set<String>.from(_selected);
+    setState(() {
+      _loading = true;
+      _selectionMode = false;
+      _selected.clear();
+    });
+    _removeLocalIds(ids);
     try {
-      await ChurchAvisosService.deleteMany(
+      final n = await ChurchAvisosService.deleteMany(
         churchIdHint: widget.tenantId,
-        docIds: _selected,
-        dataById: _rawById,
+        docIds: ids,
       );
       if (mounted) {
-        setState(() {
-          _selected.clear();
-          _selectionMode = false;
-        });
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('$count aviso(s) excluído(s).'),
+          ThemeCleanPremium.feedbackSnackBar('$n aviso(s) excluído(s).'),
         );
-        await _reload();
+        unawaited(_reload());
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatFirebaseErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+        unawaited(_reload());
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -154,115 +263,251 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     );
   }
 
+  Widget _buildFilterBar() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _searchCtrl,
+          decoration: InputDecoration(
+            hintText: 'Buscar aviso…',
+            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.grey.shade200),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: Colors.grey.shade200),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _filterChip('Todos', _AvisoGridFilter.todos),
+              const SizedBox(width: 8),
+              _filterChip('Permanentes', _AvisoGridFilter.permanentes),
+              const SizedBox(width: 8),
+              _filterChip('Com vencimento', _AvisoGridFilter.comVencimento),
+              const SizedBox(width: 8),
+              _filterChip('Com foto', _AvisoGridFilter.comFoto),
+              const SizedBox(width: 8),
+              FilterChip(
+                label: Text(_sortDateAsc ? 'Data ↑ antigos' : 'Data ↓ recentes'),
+                selected: true,
+                onSelected: (_) => setState(() => _sortDateAsc = !_sortDateAsc),
+                avatar: Icon(
+                  _sortDateAsc
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
+                  size: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterChip(String label, _AvisoGridFilter value) {
+    final sel = _filtro == value;
+    return FilterChip(
+      label: Text(label),
+      selected: sel,
+      onSelected: (_) => setState(() => _filtro = value),
+      selectedColor: const Color(0xFF0EA5E9).withValues(alpha: 0.18),
+      checkmarkColor: const Color(0xFF0EA5E9),
+    );
+  }
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return '—';
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final padding = ThemeCleanPremium.pagePadding(context);
+    final visible = _visibleItems;
+    final crossAxisCount = MediaQuery.sizeOf(context).width >= 720 ? 3 : 2;
+
     final body = SafeArea(
       child: RefreshIndicator(
         onRefresh: _reload,
-        child: ListView(
-          padding: ThemeCleanPremium.pagePadding(context),
-          children: [
-            ChurchAvisosCarousel(churchIdHint: widget.tenantId, compact: true),
-            const SizedBox(height: ThemeCleanPremium.spaceMd),
-            if (_canManage) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _loading ? null : _openCreateSheet,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: const Text('Novo aviso'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: [
+            SliverPadding(
+              padding: padding,
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  if (_showingStaleCache && _items.isNotEmpty)
+                    const ChurchPanelOfflineStaleBanner(
+                      message: 'Mostrando avisos em cache — sincronizando…',
+                    ),
+                  if (_loadError != null && _items.isEmpty)
+                    ChurchPanelErrorBody(
+                      title: 'Não foi possível carregar os avisos.',
+                      error: _loadError,
+                      onRetry: _reload,
+                    ),
+                  if (_loadError == null || _items.isNotEmpty) ...[
+                    ChurchAvisosCarousel(
+                      churchIdHint: widget.tenantId,
+                      compact: true,
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    _buildFilterBar(),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    if (_canManage) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _loading ? null : _openCreateSheet,
+                              icon: const Icon(Icons.add_photo_alternate_outlined),
+                              label: const Text('Novo aviso'),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip:
+                                _selectionMode ? 'Cancelar seleção' : 'Selecionar',
+                            onPressed: () => setState(() {
+                              _selectionMode = !_selectionMode;
+                              if (!_selectionMode) _selected.clear();
+                            }),
+                            icon: Icon(
+                              _selectionMode
+                                  ? Icons.close_rounded
+                                  : Icons.checklist_rounded,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_selectionMode) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            TextButton(
+                              onPressed: visible.isEmpty
+                                  ? null
+                                  : () => setState(() {
+                                        if (_selected.length == visible.length) {
+                                          _selected.clear();
+                                        } else {
+                                          _selected
+                                            ..clear()
+                                            ..addAll(visible.map((e) => e.id));
+                                        }
+                                      }),
+                              child: Text(
+                                _selected.length == visible.length
+                                    ? 'Desmarcar todos'
+                                    : 'Selecionar todos',
+                              ),
+                            ),
+                            const Spacer(),
+                            FilledButton.icon(
+                              onPressed: _selected.isEmpty || _loading
+                                  ? null
+                                  : _confirmDeleteSelected,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFDC2626),
+                              ),
+                              icon: _loading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(Icons.delete_outline_rounded,
+                                      size: 18),
+                              label: Text('Excluir (${_selected.length})'),
+                            ),
+                          ],
+                        ),
+                      ],
+                      const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    ],
+                    if (_loading && _items.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (visible.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 24),
+                        child: Text(
+                          _items.isEmpty
+                              ? (_canManage
+                                  ? 'Nenhum aviso publicado. Toque em «Novo aviso».'
+                                  : 'Nenhum aviso no momento.')
+                              : 'Nenhum aviso neste filtro.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey.shade600),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filledTonal(
-                    tooltip: _selectionMode ? 'Cancelar seleção' : 'Selecionar',
-                    onPressed: () => setState(() {
-                      _selectionMode = !_selectionMode;
-                      if (!_selectionMode) _selected.clear();
-                    }),
-                    icon: Icon(
-                      _selectionMode
-                          ? Icons.close_rounded
-                          : Icons.checklist_rounded,
-                    ),
-                  ),
-                ],
-              ),
-              if (_selectionMode) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: _items.isEmpty
-                          ? null
-                          : () => setState(() {
-                                if (_selected.length == _items.length) {
-                                  _selected.clear();
-                                } else {
-                                  _selected
-                                    ..clear()
-                                    ..addAll(_items.map((e) => e.id));
-                                }
-                              }),
-                      child: Text(
-                        _selected.length == _items.length
-                            ? 'Desmarcar todos'
-                            : 'Selecionar todos',
-                      ),
-                    ),
-                    const Spacer(),
-                    FilledButton.icon(
-                      onPressed:
-                          _selected.isEmpty ? null : _confirmDeleteSelected,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626),
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: Text('Excluir (${_selected.length})'),
-                    ),
                   ],
+                ]),
+              ),
+            ),
+            if (visible.isNotEmpty)
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  padding.left,
+                  0,
+                  padding.right,
+                  padding.bottom + 24,
                 ),
-              ],
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-            ],
-            if (_loading && _items.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  _canManage
-                      ? 'Nenhum aviso publicado. Toque em «Novo aviso» para começar.'
-                      : 'Nenhum aviso no momento.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey.shade600),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.72,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      final item = visible[index];
+                      return _AvisoGridCard(
+                        item: item,
+                        dateLabel: _formatDate(item.createdAt),
+                        canManage: _canManage,
+                        selectionMode: _selectionMode,
+                        selected: _selected.contains(item.id),
+                        onToggleSelect: () => setState(() {
+                          if (_selected.contains(item.id)) {
+                            _selected.remove(item.id);
+                          } else {
+                            _selected.add(item.id);
+                          }
+                        }),
+                        onDelete: () => _confirmDeleteOne(item),
+                      );
+                    },
+                    childCount: visible.length,
+                  ),
                 ),
-              )
-            else
-              ..._items.map((item) => _AvisoListCard(
-                    item: item,
-                    canManage: _canManage,
-                    selectionMode: _selectionMode,
-                    selected: _selected.contains(item.id),
-                    onToggleSelect: () => setState(() {
-                      if (_selected.contains(item.id)) {
-                        _selected.remove(item.id);
-                      } else {
-                        _selected.add(item.id);
-                      }
-                    }),
-                    onDelete: () => _confirmDeleteOne(item),
-                  )),
+              ),
           ],
         ),
       ),
@@ -276,9 +521,10 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 }
 
-class _AvisoListCard extends StatelessWidget {
-  const _AvisoListCard({
+class _AvisoGridCard extends StatelessWidget {
+  const _AvisoGridCard({
     required this.item,
+    required this.dateLabel,
     required this.canManage,
     required this.selectionMode,
     required this.selected,
@@ -287,6 +533,7 @@ class _AvisoListCard extends StatelessWidget {
   });
 
   final ChurchAvisoItem item;
+  final String dateLabel;
   final bool canManage;
   final bool selectionMode;
   final bool selected;
@@ -295,76 +542,134 @@ class _AvisoListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 0,
+    return Material(
       color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (selectionMode)
-              Checkbox(value: selected, onChanged: (_) => onToggleSelect()),
-            if (item.hasImages)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SafeNetworkImage(
-                  imageUrl: item.imageUrls.first,
-                  width: 72,
-                  height: 72,
-                  fit: BoxFit.cover,
+      elevation: 0,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: selectionMode ? onToggleSelect : null,
+        onLongPress: canManage && !selectionMode ? onDelete : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF0EA5E9)
+                  : const Color(0xFFE2E8F0),
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (item.hasImages)
+                      SafeNetworkImage(
+                        imageUrl: item.imageUrls.first,
+                        fit: BoxFit.cover,
+                      )
+                    else
+                      Container(
+                        color: const Color(0xFFEFF6FF),
+                        child: Icon(
+                          Icons.campaign_outlined,
+                          size: 40,
+                          color: Colors.blue.shade300,
+                        ),
+                      ),
+                    if (selectionMode)
+                      Positioned(
+                        top: 6,
+                        left: 6,
+                        child: Material(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          shape: const CircleBorder(),
+                          child: Checkbox(
+                            value: selected,
+                            onChanged: (_) => onToggleSelect(),
+                          ),
+                        ),
+                      ),
+                    if (canManage && !selectionMode)
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: IconButton(
+                          visualDensity: VisualDensity.compact,
+                          style: IconButton.styleFrom(
+                            backgroundColor:
+                                Colors.white.withValues(alpha: 0.92),
+                          ),
+                          tooltip: 'Excluir',
+                          onPressed: onDelete,
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
+                            color: Colors.red.shade400,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15,
-                    ),
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.title.isEmpty ? 'Aviso' : item.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13.5,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.permanent
+                            ? 'Permanente'
+                            : 'Vence ${_formatExpiry(item.expiresAt)}',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: item.permanent
+                              ? const Color(0xFF059669)
+                              : const Color(0xFFD97706),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'Publicado $dateLabel',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ),
-                  if (item.body.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      item.body,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                    ),
-                  ],
-                  const SizedBox(height: 6),
-                  Text(
-                    item.permanent
-                        ? 'Permanente'
-                        : 'Vence em ${item.expiresAt?.day.toString().padLeft(2, '0')}/${item.expiresAt?.month.toString().padLeft(2, '0')}/${item.expiresAt?.year}',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: item.permanent
-                          ? const Color(0xFF059669)
-                          : const Color(0xFFD97706),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-            if (canManage && !selectionMode)
-              IconButton(
-                tooltip: 'Excluir aviso',
-                onPressed: onDelete,
-                icon: Icon(Icons.delete_outline_rounded,
-                    color: Colors.red.shade400),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  static String _formatExpiry(DateTime? dt) {
+    if (dt == null) return '—';
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 }
 

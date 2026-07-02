@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -546,15 +547,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         return;
       }
 
-      final grouped = await ChurchDepartmentMembersLoadService.loadGroupedByDepartment(
-        seedTenantId: tid,
-      ).timeout(const Duration(seconds: 16));
       final allMembers = await ChurchDepartmentMembersLoadService.loadAllForPicker(
         seedTenantId: tid,
-      ).timeout(const Duration(seconds: 16));
+      ).timeout(const Duration(seconds: 14));
 
       final map = <String, String>{..._cpfToMemberName};
-      final byDept = grouped.byDepartmentId;
+      final byDept = ChurchDepartmentMembersLoadService.groupRowsByDepartmentPublic(
+        allMembers.members,
+      );
       final byCpf = <String, Map<String, dynamic>>{};
 
       for (final row in allMembers.members) {
@@ -1672,9 +1672,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   Future<void> _openWhatsAppForMemberData(Map<String, dynamic> d) async {
-    await ChurchMemberContactChat.openWhatsAppFaleComigo(
-      context,
-      d,
+    ChurchMemberContactChat.tapWhatsApp(
+      context: context,
+      memberData: d,
       tenantId: _tid,
     );
   }
@@ -3639,6 +3639,14 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   void initState() {
     super.initState();
     _memberSearchCtrl.addListener(_onMemberSearchChanged);
+    final instant = ChurchDepartmentMembersLoadService.peekLinkedInstant(
+      widget.tenantId,
+      widget.deptId,
+    );
+    if (instant != null) {
+      _memberRows = instant.members;
+      _hubLoading = false;
+    }
     unawaited(_loadHubData());
   }
 
@@ -3673,36 +3681,41 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     final churchId = ChurchRepository.churchId(widget.tenantId);
     final path =
         'igrejas/$churchId/departamentos/${widget.deptId}/membros_vinculados';
-    if (mounted) {
-      setState(() {
-        _hubLoading = true;
-        _hubError = null;
-      });
+    final hadLocal = _memberRows.isNotEmpty;
+    if (!hadLocal || forceRefresh) {
+      if (mounted) {
+        setState(() {
+          if (!hadLocal) _hubLoading = true;
+          _hubError = null;
+        });
+      }
     }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 
-      final loaded = await ChurchDepartmentMembersLoadService.loadLinked(
+      final loadedFuture = ChurchDepartmentMembersLoadService.loadLinked(
         seedTenantId: widget.tenantId,
         departmentId: widget.deptId,
         forceRefresh: forceRefresh,
       );
+      final deptFuture = FirestoreWebGuard.runWithWebRecovery(
+        () => firestoreDocumentGetReliable(widget.deptRef),
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 10)).catchError((_) => null);
 
-      Map<String, dynamic>? deptData = _deptData;
-      try {
-        final deptSnap = await FirestoreWebGuard.runWithWebRecovery(
-          () => firestoreDocumentGetReliable(widget.deptRef),
-          maxAttempts: 3,
-        ).timeout(const Duration(seconds: 12));
-        deptData = deptSnap.data();
-      } catch (_) {}
+      final loaded = await loadedFuture;
+      final deptSnap = await deptFuture;
 
       if (!mounted) return;
       setState(() {
-        _deptData = deptData;
-        _memberRows = loaded.members;
+        if (loaded.members.isNotEmpty || !hadLocal) {
+          _memberRows = loaded.members;
+        }
+        if (deptSnap != null) {
+          _deptData = deptSnap.data();
+        }
         _hubLoading = false;
         _hubError = loaded.members.isEmpty ? loaded.softError : null;
       });
@@ -3721,10 +3734,14 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         stackTrace: st,
       );
       if (!mounted) return;
-      setState(() {
-        _hubError = e;
-        _hubLoading = false;
-      });
+      if (_memberRows.isEmpty) {
+        setState(() {
+          _hubError = e;
+          _hubLoading = false;
+        });
+      } else {
+        setState(() => _hubLoading = false);
+      }
     } finally {
       if (mounted) setState(() => _hubLoading = false);
     }
@@ -3962,8 +3979,8 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: 'Chat Igreja',
-              onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
+              tooltip: YahwehContactButtonLabels.yahwehChat,
+              onPressed: () => ChurchMemberContactChat.tapYahwehChat(
                 context: context,
                 tenantId: widget.tenantId,
                 memberRole: widget.memberRole,
@@ -3971,19 +3988,18 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 memberData: data,
                 displayName: nome,
                 memberDocId: row.memberDocId,
+                popSheetBeforeNavigate: false,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 22),
             ),
             IconButton(
               tooltip: 'WhatsApp',
-              onPressed: () => unawaited(
-                ChurchMemberContactChat.openWhatsAppFaleComigo(
-                  context,
-                  data,
-                  tenantId: widget.tenantId,
-                  memberDocId: row.memberDocId,
-                ),
+              onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+                context: context,
+                memberData: data,
+                tenantId: widget.tenantId,
+                memberDocId: row.memberDocId,
               ),
               icon: const WhatsappBrandIcon(size: 22),
             ),
@@ -4091,8 +4107,8 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: 'Chat Igreja',
-              onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
+              tooltip: YahwehContactButtonLabels.yahwehChat,
+              onPressed: () => ChurchMemberContactChat.tapYahwehChat(
                 context: context,
                 tenantId: widget.tenantId,
                 memberRole: widget.memberRole,
@@ -4100,19 +4116,18 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 memberData: data,
                 displayName: nome,
                 memberDocId: row.memberDocId,
+                popSheetBeforeNavigate: false,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 20),
             ),
             IconButton(
               tooltip: 'WhatsApp',
-              onPressed: () => unawaited(
-                ChurchMemberContactChat.openWhatsAppFaleComigo(
-                  context,
-                  data,
-                  tenantId: widget.tenantId,
-                  memberDocId: row.memberDocId,
-                ),
+              onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+                context: context,
+                memberData: data,
+                tenantId: widget.tenantId,
+                memberDocId: row.memberDocId,
               ),
               icon: const WhatsappBrandIcon(size: 20),
             ),

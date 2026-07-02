@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -214,23 +213,37 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       return;
     }
     if (idx < 0 || idx >= PatrimonioItemPhotosEditor.maxPhotos) return;
-    final tenantId = widget.churchId.trim();
-    if (tenantId.isNotEmpty) {
-      ChurchCanonicalMediaDeleteService.schedulePatrimonioSlotCleared(
-        tenantId: tenantId,
-        itemId: widget.itemId,
-        slot: idx,
-        existingData: widget.initialData,
-        docRef: widget.docRef,
-      );
-    }
     setState(() {
       _slotUrls[idx] = '';
       _slotPaths[idx] = '';
       _slotPending[idx] = null;
       _slotPendingNames[idx] = '';
     });
-    widget.onChanged?.call();
+    _notifyChanged();
+    unawaited(_persistSlotClear(idx));
+  }
+
+  Future<void> _persistSlotClear(int idx) async {
+    final tenantId = widget.churchId.trim();
+    final itemId = widget.itemId.trim();
+    if (tenantId.isEmpty || itemId.isEmpty || widget.docRef == null) return;
+    try {
+      await PatrimonioPhotosUpdateService.clearSlotNow(
+        churchIdHint: tenantId,
+        itemId: itemId,
+        slot: idx,
+        indexedSlotUrls: List<String>.from(_slotUrls),
+        indexedSlotPaths: List<String>.from(_slotPaths),
+        corePayload: Map<String, dynamic>.from(widget.initialData),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Não foi possível remover a foto: $e',
+        ),
+      );
+    }
   }
 
   Future<void> pickFromGallery() async {
@@ -252,21 +265,34 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       _mediaPicking = true;
       _preparingPhotoCount = 0;
     });
+    _notifyChanged();
     try {
       final List<XFile> list;
       if (vagas == 1) {
-        final single =
-            await MediaHandlerService.instance.pickAndProcessFromGallery(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
+        final single = await MediaHandlerService.instance
+            .pickAndProcessFromGallery(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            )
+            .timeout(
+              const Duration(seconds: 90),
+              onTimeout: () => throw TimeoutException(
+                'Seleção de foto demorou demais.',
+              ),
+            );
         list = single != null ? [single] : [];
       } else {
-        final picked =
-            await MediaHandlerService.instance.pickAndProcessMultipleImages(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
+        final picked = await MediaHandlerService.instance
+            .pickAndProcessMultipleImages(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            )
+            .timeout(
+              const Duration(seconds: 90),
+              onTimeout: () => throw TimeoutException(
+                'Seleção de fotos demorou demais.',
+              ),
+            );
         list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
       }
       if (list.isEmpty || !mounted) return;
@@ -455,6 +481,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           .timeout(const Duration(seconds: 25));
       if (bytes.isEmpty || !mounted) return;
       setState(() {
+        _slotUrls[slot] = '';
+        _slotPaths[slot] = '';
         _slotPending[slot] = bytes;
         _slotPendingNames[slot] =
             picked!.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg';
@@ -550,7 +578,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
             if (canChange && hasContent)
               IconButton(
                 tooltip: 'Trocar foto',
-                onPressed: _mediaPicking ? null : () => replacePhotoAtSlot(slot),
+                onPressed: _mediaPicking ? null : () => unawaited(replacePhotoAtSlot(slot)),
                 icon: Icon(
                   Icons.swap_horiz_rounded,
                   color: ThemeCleanPremium.primary,
@@ -739,8 +767,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Até $max fotos por bem. Storage: '
-                              'igrejas/{igreja}/patrimonio/{item}/foto_N.jpg',
+                              'Até $max fotos por bem. Toque em Guardar para enviar.',
                               style: TextStyle(
                                 fontSize: 13,
                                 height: 1.35,
@@ -942,6 +969,9 @@ class _PatrimonioItemPhotosEditorPageState
               docRef: widget.docRef,
               canChangePhotos: widget.canChangePhotos,
               canRemovePhotos: widget.canRemovePhotos,
+              onChanged: () {
+                if (mounted) setState(() {});
+              },
             ),
           ],
         ),

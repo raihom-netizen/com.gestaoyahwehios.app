@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/services/church_panel_leadership_load_service.dart
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
-import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -352,8 +351,7 @@ class ChurchPanelLeaderWisdomCard extends StatelessWidget {
         children: [
           YahwehSuperPremiumActionButton.chat(
             compact: true,
-            label: 'Chat',
-            onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
+            onPressed: () => ChurchMemberContactChat.tapYahwehChat(
               context: context,
               tenantId: tenantId,
               memberRole: role,
@@ -366,14 +364,11 @@ class ChurchPanelLeaderWisdomCard extends StatelessWidget {
           const SizedBox(width: 6),
           YahwehSuperPremiumActionButton.whatsapp(
             compact: true,
-            label: 'Zap',
-            onPressed: () => unawaited(
-              YahwehWhatsAppService.openForMember(
-                context,
-                data,
-                tenantId: tenantId,
-                memberDocId: entry.memberDocId,
-              ),
+            onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+              context: context,
+              memberData: data,
+              tenantId: tenantId,
+              memberDocId: entry.memberDocId,
             ),
           ),
         ],
@@ -450,14 +445,12 @@ class ChurchPanelLeaderContactTile extends StatelessWidget {
           if (onChat != null)
             YahwehSuperPremiumActionButton.chat(
               compact: true,
-              label: 'Chat',
               onPressed: onChat,
             ),
           if (onChat != null && onWhatsApp != null) const SizedBox(width: 6),
           if (onWhatsApp != null)
             YahwehSuperPremiumActionButton.whatsapp(
               compact: true,
-              label: 'Zap',
               onPressed: onWhatsApp,
             ),
         ],

@@ -577,6 +577,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
+      if (kIsWeb) {
+        final u = FirebaseAuth.instance.currentUser;
+        if (u != null && !u.isAnonymous) return;
+      }
       _kickSessionRestore();
       if (mounted) setState(() {});
     }

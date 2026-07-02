@@ -10,6 +10,8 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart'
     show
@@ -33,7 +35,10 @@ import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show churchTenantLogoUrl, sanitizeImageUrl;
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:screenshot/screenshot.dart';
 
@@ -105,9 +110,12 @@ class _MemberCardPageState extends State<MemberCardPage>
   final Set<String> _selectedIds = {};
 
   List<_MemberRow> _members = [];
+  List<ChurchSignatoryEntry>? _signersCache;
   bool _loadingMembers = true;
   bool _exportingPdf = false;
+  bool _signingBusy = false;
   Object? _membersError;
+  Map<String, dynamic>? _tenantData;
 
   _MemberRow? _previewMember;
   MemberCardLoadPayload? _cardPayload;
@@ -170,6 +178,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   Future<void> _bootstrap() async {
+    unawaited(_warmTenantData());
     if (widget.cnhFullscreenOnly || _isRestricted) {
       await _loadSingleCard(
         memberId: widget.memberId,
@@ -179,6 +188,99 @@ class _MemberCardPageState extends State<MemberCardPage>
       return;
     }
     await _reloadMembers();
+  }
+
+  Future<void> _warmTenantData() async {
+    final ctx = ChurchContextService.currentChurchData;
+    if (ctx != null && ctx.isNotEmpty) {
+      _tenantData = Map<String, dynamic>.from(ctx);
+      return;
+    }
+    try {
+      final loaded = await ChurchRepository.loadByChurchId(_churchIdResolved);
+      if (loaded.data.isNotEmpty) {
+        _tenantData = Map<String, dynamic>.from(loaded.data);
+      }
+    } catch (_) {}
+  }
+
+  void _rebuildSignersCache() {
+    _signersCache = ChurchSignatoryLoadService.fromMemberDataMaps(
+      _members.map((m) => MapEntry(m.id, m.data)),
+    );
+  }
+
+  Future<List<ChurchSignatoryEntry>> _resolveSignersForPicker() async {
+    final cached = _signersCache;
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    final local = ChurchSignatoryLoadService.fromMemberDataMaps(
+      _members.map((m) => MapEntry(m.id, m.data)),
+    );
+    if (local.isNotEmpty) {
+      _signersCache = local;
+      return local;
+    }
+
+    try {
+      final fromIndex = await MemberCardDirectoryService.loadSignatories(
+        _churchIdResolved,
+      ).timeout(const Duration(seconds: 12));
+      if (fromIndex.isNotEmpty) {
+        final mapped = fromIndex
+            .map(
+              (s) => ChurchSignatoryEntry(
+                memberId: s.memberId,
+                nome: s.nome,
+                cargo: s.cargo,
+                cpfDigits: s.cpf?.replaceAll(RegExp(r'\D'), ''),
+                assinaturaUrl: s.assinaturaUrl,
+              ),
+            )
+            .toList();
+        _signersCache = mapped;
+        return mapped;
+      }
+    } catch (_) {}
+
+    try {
+      final loaded = await ChurchSignatoryLoadService.loadEligible(
+        seedTenantId: _churchIdResolved,
+      ).timeout(const Duration(seconds: 14));
+      _signersCache = loaded;
+      return loaded;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  void _applySignLocally(List<String> ids, MemberCardSignatory signatory) {
+    if (ids.isEmpty) return;
+    final idSet = ids.map((e) => e.trim()).toSet();
+    setState(() {
+      _members = _members.map((m) {
+        if (!idSet.contains(m.id)) return m;
+        final d = Map<String, dynamic>.from(m.data);
+        d['carteirinhaAssinadaPor'] = signatory.memberId;
+        d['carteirinhaAssinadaPorNome'] = signatory.nome;
+        d['carteirinhaAssinadaPorCargo'] = signatory.cargo;
+        if (signatory.assinaturaUrl != null &&
+            signatory.assinaturaUrl!.trim().isNotEmpty) {
+          d['carteirinhaAssinaturaUrl'] = signatory.assinaturaUrl!.trim();
+        }
+        d['carteirinhaAssinadaEm'] = DateTime.now().toIso8601String();
+        return _MemberRow(
+          id: m.id,
+          name: m.name,
+          data: d,
+          photoUrl: m.photoUrl,
+        );
+      }).toList();
+      if (_previewMember != null && idSet.contains(_previewMember!.id)) {
+        final pm = _members.firstWhere((m) => m.id == _previewMember!.id);
+        _previewMember = pm;
+      }
+    });
   }
 
   Future<void> _reloadMembers({bool forceRefresh = false}) async {
@@ -204,6 +306,7 @@ class _MemberCardPageState extends State<MemberCardPage>
           _members = _mapEntries(instant);
           _loadingMembers = false;
         });
+        _rebuildSignersCache();
         if (!forceRefresh) {
           unawaited(_refreshMembersInBackground(limit: limit));
           return;
@@ -219,6 +322,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         _members = _mapEntries(entries);
         _loadingMembers = false;
       });
+      _rebuildSignersCache();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -237,6 +341,7 @@ class _MemberCardPageState extends State<MemberCardPage>
       );
       if (!mounted || entries.isEmpty) return;
       setState(() => _members = _mapEntries(entries));
+      _rebuildSignersCache();
     } catch (_) {}
   }
 
@@ -463,7 +568,7 @@ class _MemberCardPageState extends State<MemberCardPage>
     if (_exportingPdf) return;
     setState(() => _exportingPdf = true);
 
-    final total = ids.length;
+    final total = ids.length * 2;
     final progress = ValueNotifier<int>(0);
     if (!context.mounted) {
       setState(() => _exportingPdf = false);
@@ -488,7 +593,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '$d de $total membro(s)',
+                  total > 0
+                      ? '${(d / 2).ceil().clamp(0, ids.length)} de ${ids.length} membro(s)'
+                      : 'Preparando…',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
@@ -518,6 +625,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         memberIds: ids,
         layout: layout,
         memberSeedById: seedById,
+        tenantHint: _tenantData,
         onProgress: (d, _) => progress.value = d,
       );
     } catch (e) {
@@ -652,9 +760,7 @@ class _MemberCardPageState extends State<MemberCardPage>
       );
       return;
     }
-    final signers = await ChurchSignatoryLoadService.loadEligible(
-      seedTenantId: _churchIdResolved,
-    );
+    final signers = await _resolveSignersForPicker();
     if (!context.mounted) return;
     final picked = await showChurchSignatoryPickerSheet(
       context,
@@ -688,25 +794,47 @@ class _MemberCardPageState extends State<MemberCardPage>
       ),
     );
     if (ok != true || !context.mounted) return;
-    final r = await MemberCardSignService.signBatch(
-      tenantId: _churchIdResolved,
-      memberIds: ids,
-      signatory: signatory,
-    );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar(
-        r.fail == 0
-            ? '${r.ok} carteirinha(s) assinada(s).'
-            : 'Assinadas: ${r.ok}. Falhas: ${r.fail}.',
-      ),
-    );
-    await _reloadMembers();
-    if (_previewMember != null) {
-      await _loadSingleCard(
-        memberId: _previewMember!.id,
-        seed: _previewMember!.data,
+    setState(() => _signingBusy = true);
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
+      final r = await MemberCardSignService.signBatch(
+        tenantId: _churchIdResolved,
+        memberIds: ids,
+        signatory: signatory,
       );
+      if (!mounted) return;
+      if (r.ok > 0 && r.fail == 0) {
+        _applySignLocally(ids, signatory);
+      }
+      if (!context.mounted) return;
+      final msg = r.fail == 0
+          ? '${r.ok} carteirinha(s) assinada(s).'
+          : r.ok > 0
+              ? 'Assinadas: ${r.ok}. Falhas: ${r.fail}.'
+              : (r.lastError != null && r.lastError!.trim().isNotEmpty
+                  ? 'Não foi possível assinar: ${r.lastError!.trim()}'
+                  : 'Não foi possível assinar. Verifique permissão e conexão.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(msg),
+      );
+      if (r.ok > 0) {
+        unawaited(_reloadMembers(forceRefresh: false));
+        if (_previewMember != null) {
+          unawaited(_loadSingleCard(
+            memberId: _previewMember!.id,
+            seed: _previewMember!.data,
+          ));
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar('Erro ao assinar: $e'),
+      );
+    } finally {
+      if (mounted) setState(() => _signingBusy = false);
     }
   }
 
@@ -846,10 +974,7 @@ class _MemberCardPageState extends State<MemberCardPage>
               ),
               foregroundColor: Colors.white,
             ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: ThemeCleanPremium.churchPanelBodyGradient,
-        ),
+      body: YahwehWisdomPanelBackdrop(
         child: SafeArea(
           top: !hideAppBar,
           child: tabBody,
@@ -1151,61 +1276,127 @@ class _MemberCardPageState extends State<MemberCardPage>
           padding: pad,
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              Container(
+              YahwehWisdomSectionCard(
+                borderTint: const Color(0xFF10B981),
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      _gradC.withValues(alpha: 0.12),
-                      _gradA.withValues(alpha: 0.08),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _gradC.withValues(alpha: 0.25)),
-                ),
-                child: Text(
-                  n == 0
-                      ? 'Marque membros na lista (checkbox) ou abra um cartão e assine só ele.'
-                      : '$n membro(s) selecionado(s) para assinatura.',
-                  style: const TextStyle(fontWeight: FontWeight.w600, height: 1.4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    churchWisdomModuleIconLeading(
+                      icon: Icons.draw_rounded,
+                      accent: const Color(0xFF10B981),
+                      size: 48,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Assinatura digital',
+                            style: GoogleFonts.poppins(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: const Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            n == 0
+                                ? 'Marque membros na lista ou abra um cartão para assinar só ele.'
+                                : '$n membro(s) selecionado(s) para assinatura.',
+                            style: GoogleFonts.poppins(
+                              fontSize: 13,
+                              height: 1.45,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 16),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: _gradB,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
                   ),
+                  boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
                 ),
-                onPressed: _exportingPdf
-                    ? null
-                    : () => unawaited(_exportSelectedPdf(context)),
-                icon: const Icon(Icons.picture_as_pdf_rounded),
-                label: Text(
-                  n == 0
-                      ? 'Exportar PDF (preview ou selecionados)'
-                      : 'Exportar PDF ($n)',
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  onPressed: _exportingPdf
+                      ? null
+                      : () => unawaited(_exportSelectedPdf(context)),
+                  icon: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white),
+                  label: Text(
+                    n == 0
+                        ? 'Exportar PDF (preview ou selecionados)'
+                        : 'Exportar PDF ($n)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: _gradA,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+              const SizedBox(height: 12),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7C3AED), Color(0xFFEC4899)],
                   ),
+                  boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
                 ),
-                onPressed: () => unawaited(_signSelected(context)),
-                icon: const Icon(Icons.draw_rounded),
-                label: Text(
-                  n == 0 ? 'Assinar membro em preview' : 'Assinar $n selecionado(s)',
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  onPressed: _signingBusy
+                      ? null
+                      : () => unawaited(_signSelected(context)),
+                  icon: _signingBusy
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.draw_rounded, color: Colors.white),
+                  label: Text(
+                    n == 0
+                        ? 'Assinar membro em preview'
+                        : 'Assinar $n selecionado(s)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
               ),
               if (n > 0) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 TextButton(
                   onPressed: () => setState(_selectedIds.clear),
                   child: const Text('Limpar seleção'),

@@ -14,6 +14,9 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de eventos — `igrejas/{churchId}/eventos`.
@@ -939,5 +942,94 @@ abstract final class ChurchEventosLoadService {
           : kDefaultFeedLimit,
     );
     await _persistHive(result.churchId, result.docs);
+  }
+
+  static Future<void> _deleteLegacyEventsMirror(
+    String churchId,
+    Iterable<String> docIds,
+  ) async {
+    try {
+      final batch = ChurchRepository.batch();
+      final legacy = firebaseDefaultFirestore
+          .collection(ChurchDataPaths.rootCollection)
+          .doc(churchId)
+          .collection(ChurchDataPaths.legacyEventosEn);
+      for (final id in docIds) {
+        batch.delete(legacy.doc(id));
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint('EVENTOS legacy mirror delete: $e');
+    }
+  }
+
+  /// Exclui um evento — Firestore + Storage (background) + cache RAM.
+  static Future<void> deleteOne({
+    required String churchIdHint,
+    required String docId,
+    Map<String, dynamic>? data,
+  }) async {
+    await deleteMany(
+      churchIdHint: churchIdHint,
+      docIds: [docId],
+      dataById: data != null ? {docId: data} : const {},
+    );
+  }
+
+  /// Exclusão em lote — Web: CF Admin SDK com fallback batch directo.
+  static Future<int> deleteMany({
+    required String churchIdHint,
+    required Iterable<String> docIds,
+    Map<String, Map<String, dynamic>> dataById = const {},
+  }) async {
+    final cid = _resolve(churchIdHint);
+    final ids = docIds
+        .map((e) => e.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cid.isEmpty || ids.isEmpty) return 0;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+
+    final col = ChurchUiCollections.eventos(cid);
+    const chunkSize = 450;
+
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final slice = ids.sublist(
+        i,
+        i + chunkSize > ids.length ? ids.length : i + chunkSize,
+      );
+      await AdminFeedFirestoreBridge.deleteFeedPosts(
+        churchId: cid,
+        collection: 'eventos',
+        docIds: slice,
+        directDelete: () => FirestoreWebGuard.runWithWebRecovery(
+          () async {
+            final batch = ChurchRepository.batch();
+            for (final id in slice) {
+              batch.delete(col.doc(id));
+            }
+            await batch.commit();
+          },
+          maxAttempts: 4,
+        ),
+      );
+      for (final id in slice) {
+        ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
+          tenantId: cid,
+          postId: id,
+          isEvento: true,
+          data: dataById[id],
+        );
+      }
+      unawaited(_deleteLegacyEventsMirror(cid, slice));
+    }
+
+    removeFromRam(cid, ids);
+    invalidate(cid);
+    return ids.length;
   }
 }

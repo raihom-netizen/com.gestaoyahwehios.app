@@ -6,9 +6,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -17,7 +20,8 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -99,7 +103,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   List<({String id, String name})> _deptFilterItems = [];
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
-  int _membersQueryLimit = 600;
   String? _membersLoadSoftError;
   Future<ReportPdfBranding>? _brandingFuture;
   ReportPdfBranding? _brandingReady;
@@ -112,21 +115,17 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   DateTimeRange? _histCustomRange;
   int _historicoStreamGen = 0;
 
-  DocumentReference<Map<String, dynamic>> get _configRef {
-    final id = ChurchRepository.churchId(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
-    return ChurchUiCollections.config(id).doc('cartas');
-  }
+  DocumentReference<Map<String, dynamic>> get _configRef =>
+      ChurchUiCollections.config(_loadChurchId).doc('cartas');
 
-  CollectionReference<Map<String, dynamic>> get _historicoCol {
-    final id = ChurchRepository.churchId(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
-    return ChurchUiCollections.transferencias(id);
-  }
+  CollectionReference<Map<String, dynamic>> get _historicoCol =>
+      ChurchUiCollections.transferencias(_loadChurchId);
 
   String _effectiveTenantId = '';
+
+  String get _loadChurchId => ChurchPanelTenant.forFirestore(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
 
   @override
   void initState() {
@@ -137,7 +136,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         setState(() {});
       }
     });
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _missionCtrl.text = 'evangelizar, discipular e servir a comunidade';
     _tplApresentacaoCtrl.text =
         kDefaultChurchLetterApresentacaoTemplate.trim();
@@ -148,19 +147,70 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (ctxData != null && ctxData.isNotEmpty) {
       _tenant = Map<String, dynamic>.from(ctxData);
     }
-    _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
+    _seedMembersFromLocalCaches();
     unawaited(_openChurchLettersFast());
     unawaited(_bootstrap());
     unawaited(_loadDepartmentsForLetters());
     unawaited(_prewarmPdfEmitAssets());
+    if (kIsWeb) {
+      Timer(const Duration(seconds: 14), () {
+        if (mounted && _membersSyncing && _seedMemberDocs.isEmpty) {
+          setState(() => _membersSyncing = false);
+        }
+      });
+    }
+  }
+
+  void _seedMembersFromLocalCaches() {
+    final tid = _loadChurchId;
+    if (tid.isEmpty) {
+      _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
+      return;
+    }
+    final docs = _peekLocalMemberDocs(tid);
+    if (docs == null || docs.isEmpty) {
+      _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
+      return;
+    }
+    _seedMemberDocs = docs;
+    _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
+    _applyDefaultSignerFromLoadedMembers(docs, onlyIfUnset: true);
+    _membersSyncing = false;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekLocalMemberDocs(
+    String churchId,
+  ) {
+    final tid = churchId.trim();
+    if (tid.isEmpty) return null;
+    return _ChurchLettersMembersRamCache.peek(tid) ??
+        ChurchCertificadosLoadService.peekRam(tid) ??
+        ChurchMembersLoadService.peekRamAny(tid);
+  }
+
+  void _applyMembersDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    required bool syncing,
+    String? churchIdOverride,
+  }) {
+    if (docs.isEmpty) return;
+    final tid = (churchIdOverride ?? _loadChurchId).trim();
+    if (tid.isNotEmpty) {
+      _ChurchLettersMembersRamCache.put(tid, docs);
+      if (tid != _effectiveTenantId) {
+        _effectiveTenantId = tid;
+      }
+    }
+    _membersLoadSoftError = null;
+    _seedMemberDocs = docs;
+    _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
+    _applyDefaultSignerFromLoadedMembers(docs, onlyIfUnset: true);
+    _syncSelectedMembersCache();
+    _membersSyncing = syncing;
   }
 
   Future<void> _loadDepartmentsForLetters({bool forceRefresh = false}) async {
-    final churchId = ChurchRepository.churchId(
-      _effectiveTenantId.isNotEmpty
-          ? _effectiveTenantId
-          : widget.tenantId.trim(),
-    );
+    final churchId = _loadChurchId;
     if (churchId.isEmpty) return;
 
     if (!forceRefresh) {
@@ -203,11 +253,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       if (mounted) setState(() => _tenant = Map<String, dynamic>.from(ctx));
       return Map<String, dynamic>.from(ctx);
     }
-    final churchId = ChurchRepository.churchId(
-      _effectiveTenantId.isNotEmpty
-          ? _effectiveTenantId
-          : widget.tenantId.trim(),
-    );
+    final churchId = _loadChurchId;
     if (churchId.isEmpty) return const {};
 
     try {
@@ -404,9 +450,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchMemberDocs({bool forceRefresh = false}) async {
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
+    final tid = _loadChurchId;
     if (tid.isEmpty) return const [];
     final result = await ChurchCertificadosLoadService.load(
       seedTenantId: tid,
@@ -417,28 +461,47 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         result.churchId.trim() != _effectiveTenantId) {
       _effectiveTenantId = result.churchId.trim();
     }
-    if (result.docs.length <= _membersQueryLimit) return result.docs;
-    return result.docs.take(_membersQueryLimit).toList();
+    return result.docs;
+  }
+
+  Future<void> _trySeedMembersFromDirectory(String churchId) async {
+    if (churchId.isEmpty || _seedMemberDocs.isNotEmpty) return;
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(churchId)
+          .timeout(const Duration(seconds: 5));
+      if (!dir.hasEntries) return;
+      final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
+        churchId,
+        dir,
+      );
+      if (merged.docs.isEmpty || !mounted) return;
+      setState(() => _applyMembersDocs(merged.docs, syncing: true));
+    } catch (e, st) {
+      debugPrint('ChurchLetters directory seed: $e\n$st');
+    }
   }
 
   Future<void> _openChurchLettersFast() async {
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
+    final tid = _loadChurchId;
     if (tid.isEmpty) return;
-    if (mounted) setState(() => _membersSyncing = true);
+
+    final hadLocal = _seedMemberDocs.isNotEmpty;
+    if (!hadLocal) {
+      await _trySeedMembersFromDirectory(tid);
+    }
+
+    if (!hadLocal && _seedMemberDocs.isEmpty && mounted) {
+      setState(() => _membersSyncing = true);
+    }
+
     try {
-      final docs = await _fetchMemberDocs(forceRefresh: true);
-      if (!mounted || docs.isEmpty) return;
-      _ChurchLettersMembersRamCache.put(tid, docs);
-      setState(() {
-        _membersLoadSoftError = null;
-        _seedMemberDocs = docs;
-        _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
-        _applyDefaultSignerFromLoadedMembers(docs, onlyIfUnset: false);
-        _syncSelectedMembersCache();
-        _membersSyncing = false;
-      });
+      final docs = await _fetchMemberDocs(forceRefresh: false);
+      if (!mounted) return;
+      if (docs.isEmpty) {
+        setState(() => _membersSyncing = false);
+        return;
+      }
+      setState(() => _applyMembersDocs(docs, syncing: false));
     } catch (e, st) {
       debugPrint('ChurchLetters _openChurchLettersFast: $e\n$st');
       if (mounted) {
@@ -451,7 +514,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<void> _bootstrap() async {
-    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
+    final churchId = _loadChurchId;
     if (churchId.isNotEmpty && mounted) {
       setState(() => _effectiveTenantId = churchId);
     }
@@ -579,8 +642,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final tid = _effectiveTenantId.trim();
     if (tid.isEmpty) return;
 
-    final op = ChurchRepository.churchId(tid.trim());
-    final col =         ChurchUiCollections.membros(op);
+    final op = _loadChurchId;
+    final col = ChurchUiCollections.membros(op);
 
     DocumentSnapshot<Map<String, dynamic>>? memDoc;
     final user = FirebaseAuth.instance.currentUser;
@@ -675,9 +738,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   void _refreshMembers() {
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
+    final tid = _loadChurchId;
     if (tid.isNotEmpty) {
       ChurchCertificadosLoadService.invalidate(tid);
       _ChurchLettersMembersRamCache.invalidate(tid);
@@ -693,16 +754,11 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       try {
         final docs = await _fetchMemberDocs(forceRefresh: true);
         if (!mounted) return;
-        if (docs.isNotEmpty) {
-          _ChurchLettersMembersRamCache.put(tid, docs);
+        if (docs.isEmpty) {
+          setState(() => _membersSyncing = false);
+          return;
         }
-        setState(() {
-          _membersLoadSoftError = null;
-          _seedMemberDocs = docs;
-          _applyDefaultSignerFromLoadedMembers(docs);
-          _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
-          _membersSyncing = false;
-        });
+        setState(() => _applyMembersDocs(docs, syncing: false));
       } catch (e, st) {
         debugPrint('ChurchLetters _refreshMembers: $e\n$st');
         if (mounted) {
@@ -798,33 +854,21 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final local = _cityStateLine();
     final gestor = _gestorNomeExibicao;
     final cargo = _gestorCargoExibicao;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            accent.withValues(alpha: 0.08),
-            Colors.white,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: accent.withValues(alpha: 0.14)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.church_rounded, color: accent, size: 22),
-              const SizedBox(width: 8),
+              churchWisdomModuleIconLeading(
+                icon: Icons.church_rounded,
+                accent: accent,
+                size: 44,
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   igreja,
-                  style: TextStyle(
+                  style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
                     color: accent,
@@ -887,7 +931,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             ),
           ],
         ],
-      ),
     );
   }
 
@@ -1007,9 +1050,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (_brandingReady != null) {
       return Future.value(_brandingReady!);
     }
-    _brandingFuture ??= loadReportPdfBranding(
-      ChurchRepository.churchId(_effectiveTenantId),
-    ).then((b) {
+    _brandingFuture ??= loadReportPdfBranding(_loadChurchId).then((b) {
       _brandingReady = b;
       return b;
     });
@@ -1095,6 +1136,53 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         _CartaKind.transferencia => const Color(0xFFEA580C),
         _CartaKind.agradecimento => const Color(0xFF16A34A),
       };
+
+  Color _tabAccent(int tabIdx) => switch (tabIdx) {
+        0 => const Color(0xFF2563EB),
+        1 => const Color(0xFFEA580C),
+        2 => const Color(0xFF16A34A),
+        _ => const Color(0xFF7C3AED),
+      };
+
+  Widget _buildModuleHeaderWisdom() {
+    const accent = Color(0xFF6366F1);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        churchWisdomModuleIconLeading(
+          icon: Icons.mail_rounded,
+          accent: accent,
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Cartas e transferências',
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.3,
+                  color: const Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Cartas oficiais e mudança de igreja — PDF em normas cultas, até 2 assinaturas e histórico na nuvem.',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
   /// Botões do histórico — coloridos; empilham no mobile e alinham em linha no web/tablet.
   Widget _buildHistoricoActionBar({
@@ -1285,9 +1373,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         permissions: widget.permissions)) {
       return;
     }
-    final churchId = ChurchRepository.churchId(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
+    final churchId = _loadChurchId;
     if (churchId.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1738,8 +1824,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       );
     }
 
-    final accent = ThemeCleanPremium.primary;
-    final fieldRadius = BorderRadius.circular(12);
+    final tabIdx = _tabs.index;
+    final isHistorico = tabIdx == 3;
+    final transferenciaTab = tabIdx == 1;
+    final agradecimentoTab = tabIdx == 2;
+
+    final accent = _tabAccent(tabIdx);
+
+    final fieldRadius = BorderRadius.circular(16);
     final fieldBorder = OutlineInputBorder(borderRadius: fieldRadius);
     InputDecoration premiumField(String label,
             {String? hint, String? helper, int? maxLines}) =>
@@ -1759,14 +1851,10 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           alignLabelWithHint: maxLines != null && maxLines > 1,
         );
 
-    final tabIdx = _tabs.index;
-    final isHistorico = tabIdx == 3;
-    final transferenciaTab = tabIdx == 1;
-    final agradecimentoTab = tabIdx == 2;
-
     return Stack(
       children: [
-        SingleChildScrollView(
+        YahwehWisdomPanelBackdrop(
+          child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             16,
             widget.embeddedInShell ? 8 : 16,
@@ -1777,16 +1865,11 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (widget.embeddedInShell)
-                ModuleHeaderPremium(
-                  title: 'Cartas e transferências',
-                  icon: Icons.article_rounded,
-                  subtitle:
-                      'PDF em normas cultas (margens amplas, parágrafos justificados com recuo, assinatura centralizada). Apresentação, transferência e agradecimento — até 2 assinaturas do cadastro e histórico na nuvem.',
-                )
+                _buildModuleHeaderWisdom()
               else ...[
                 Text(
                   'Emita cartas com a identidade visual do sistema: logo e dados da igreja no topo, texto personalizável e lista de membros.',
-                  style: TextStyle(
+                  style: GoogleFonts.poppins(
                     fontSize: 13.5,
                     height: 1.4,
                     color: Colors.grey.shade700,
@@ -1796,22 +1879,17 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 const SizedBox(height: 16),
               ],
               if (widget.embeddedInShell) const SizedBox(height: 12),
-              _buildChurchIdentityCard(accent),
+              YahwehWisdomSectionCard(
+                borderTint: accent,
+                padding: const EdgeInsets.all(14),
+                child: _buildChurchIdentityCard(accent),
+              ),
               const SizedBox(height: 12),
               Container(
-                decoration: BoxDecoration(
+                decoration: YahwehWisdomVisualKit.moduleBodyGradient(accent).copyWith(
                   borderRadius:
                       BorderRadius.circular(ThemeCleanPremium.radiusLg + 1),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      accent,
-                      accent.withValues(alpha: 0.82),
-                      ThemeCleanPremium.primaryLight,
-                    ],
-                  ),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
                 ),
                 child: Container(
                   margin: const EdgeInsets.all(1.4),
@@ -1819,23 +1897,26 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     color: Colors.white,
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.05),
-                        blurRadius: 14,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
                   ),
                   clipBehavior: Clip.antiAlias,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      ColoredBox(
-                        color: accent,
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              accent,
+                              Color.lerp(accent, Colors.white, 0.35)!,
+                            ],
+                          ),
+                        ),
                         child: ChurchPanelPillTabBar(
                           controller: _tabs,
                           dense: true,
+                          accentColor: accent,
                           tabs: const [
                             Tab(text: 'Apresentação'),
                             Tab(text: 'Transferência'),
@@ -2393,6 +2474,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
               ],
             ],
           ),
+        ),
         ),
         if (_pdfBusy)
           Container(

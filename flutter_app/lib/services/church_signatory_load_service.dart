@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -88,7 +89,7 @@ abstract final class ChurchSignatoryLoadService {
     }
 
     await Future.wait(
-      _roleQueryKeys.map((role) async {
+      _roleQueryKeys.take(kIsWeb ? 6 : _roleQueryKeys.length).map((role) async {
         try {
           final snap = await col
               .where('FUNCOES', arrayContains: role)
@@ -120,6 +121,44 @@ abstract final class ChurchSignatoryLoadService {
       }
     } catch (_) {}
 
+    final list = byId.values.toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+    return list;
+  }
+
+  /// Signatários a partir de membros já carregados na RAM (zero query Firestore).
+  static List<ChurchSignatoryEntry> fromMemberDataMaps(
+    Iterable<MapEntry<String, Map<String, dynamic>>> members,
+  ) {
+    final byId = <String, ChurchSignatoryEntry>{};
+    final seenCpfs = <String>{};
+    for (final entry in members) {
+      final id = entry.key.trim();
+      if (id.isEmpty || byId.containsKey(id)) continue;
+      final d = entry.value;
+      if (!memberCanSignChurchDocuments(d)) continue;
+      final nome =
+          (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '').toString().trim();
+      if (nome.isEmpty) continue;
+      final cpf = (d['CPF'] ?? d['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+      if (cpf.length == 11) {
+        if (seenCpfs.contains(cpf)) continue;
+        seenCpfs.add(cpf);
+      }
+      final url =
+          (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
+      final path =
+          (d['assinaturaStoragePath'] ?? '').toString().trim();
+      byId[id] = ChurchSignatoryEntry(
+        memberId: id,
+        nome: nome,
+        cargo: signatoryCargoDisplayLabel(d),
+        cpfDigits: cpf.length == 11 ? cpf : null,
+        assinaturaUrl: url.isNotEmpty ? url : (path.isNotEmpty ? path : null),
+      );
+    }
     final list = byId.values.toList()
       ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     return list;

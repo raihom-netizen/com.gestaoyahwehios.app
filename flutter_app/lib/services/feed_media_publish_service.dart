@@ -10,6 +10,8 @@ import 'package:gestao_yahweh/services/feed_media_publish_fast.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Fachada legada — **toda** publicação mural/feed delega a [PublicationEngine].
@@ -111,9 +113,27 @@ abstract final class FeedMediaPublishService {
       clearPublishError: true,
     );
     if (isNewDoc) {
-      await docRef.set(patch);
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: docRef,
+        data: patch,
+        isNewDoc: true,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => docRef.set(patch),
+          maxAttempts: 4,
+          criticalWrite: true,
+        ),
+      );
     } else {
-      await docRef.set(patch, SetOptions(merge: true));
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: docRef,
+        data: patch,
+        isNewDoc: false,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => docRef.set(patch, SetOptions(merge: true)),
+          maxAttempts: 4,
+          criticalWrite: true,
+        ),
+      );
     }
     return docRef.id;
   }

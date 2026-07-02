@@ -1,11 +1,9 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_birthday_year_load_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -648,15 +646,15 @@ class _BirthdayPersonTile extends StatelessWidget {
                           Expanded(
                             child: YahwehSuperPremiumActionButton.chat(
                               compact: true,
-                              label: 'Chat',
                               onPressed: () =>
-                                  ChurchMemberContactChat.openChatIgrejaUnawaited(
+                                  ChurchBirthdayParabenizar.openChatUnawaited(
                                 context: context,
                                 tenantId: tenantId,
                                 memberRole: memberRole,
-                                viewerCpfDigits: viewerCpfDigits,
+                                memberCpfDigits: viewerCpfDigits,
                                 memberData: data,
                                 displayName: nome,
+                                primeiroNome: primeiro,
                                 memberDocId: entry.memberDocId,
                               ),
                             ),
@@ -666,26 +664,16 @@ class _BirthdayPersonTile extends StatelessWidget {
                             child: YahwehSuperPremiumActionButton.whatsapp(
                               compact: true,
                               label: 'WhatsApp',
-                              onPressed: () {
-                                if (fone.length >= 10) {
-                                  unawaited(
-                                    YahwehWhatsAppService.openBirthdayWish(
-                                      context,
-                                      firstName: primeiro,
-                                      phoneDigits: fone,
-                                    ),
-                                  );
-                                } else {
-                                  unawaited(
-                                    YahwehWhatsAppService.openForMember(
-                                      context,
-                                      data,
-                                      tenantId: tenantId,
-                                      memberDocId: entry.memberDocId,
-                                    ),
-                                  );
-                                }
-                              },
+                              onPressed: () =>
+                                  ChurchMemberContactChat.tapWhatsApp(
+                                context: context,
+                                memberData: data,
+                                tenantId: tenantId,
+                                memberDocId: entry.memberDocId,
+                                message: ChurchBirthdayParabenizar.messageFor(
+                                  primeiro,
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -726,16 +714,16 @@ class _BirthdayPersonTile extends StatelessWidget {
                   children: [
                     Expanded(
                       child: YahwehSuperPremiumActionButton.chat(
-                        compact: true,
-                        label: 'Chat',
-                        onPressed: () =>
-                            ChurchMemberContactChat.openChatIgrejaUnawaited(
+                              compact: true,
+                              onPressed: () =>
+                            ChurchBirthdayParabenizar.openChatUnawaited(
                           context: context,
                           tenantId: tenantId,
                           memberRole: memberRole,
-                          viewerCpfDigits: viewerCpfDigits,
+                          memberCpfDigits: viewerCpfDigits,
                           memberData: data,
                           displayName: nome,
+                          primeiroNome: primeiro,
                           memberDocId: entry.memberDocId,
                         ),
                       ),
@@ -745,26 +733,13 @@ class _BirthdayPersonTile extends StatelessWidget {
                       child: YahwehSuperPremiumActionButton.whatsapp(
                         compact: true,
                         label: 'WhatsApp',
-                        onPressed: () {
-                          if (fone.length >= 10) {
-                            unawaited(
-                              YahwehWhatsAppService.openBirthdayWish(
-                                context,
-                                firstName: primeiro,
-                                phoneDigits: fone,
-                              ),
-                            );
-                          } else {
-                            unawaited(
-                              YahwehWhatsAppService.openForMember(
-                                context,
-                                data,
-                                tenantId: tenantId,
-                                memberDocId: entry.memberDocId,
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+                          context: context,
+                          memberData: data,
+                          tenantId: tenantId,
+                          memberDocId: entry.memberDocId,
+                          message: ChurchBirthdayParabenizar.messageFor(primeiro),
+                        ),
                       ),
                     ),
                   ],

@@ -31,6 +31,7 @@ import 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dar
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -970,16 +971,15 @@ class FinancePage extends StatefulWidget {
 class _FinancePageState extends State<FinancePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtrl;
-  /// Mesmo critério que Eventos/Chat: doc operacional (cluster irmão) ganha sobre hint.
   String? _firestoreTenantId;
   bool _financeBootstrapDone = false;
+  /// Doc canónico `igrejas/{churchId}` — produção Firebase/Storage.
   String get _tid {
     final hint = (_firestoreTenantId ?? '').trim().isNotEmpty
         ? _firestoreTenantId!.trim()
         : widget.tenantId.trim();
-    return ChurchRepository.churchId(hint).isNotEmpty
-        ? ChurchRepository.churchId(hint)
-        : hint;
+    final resolved = ChurchPanelTenant.forFirestore(hint);
+    return resolved.isNotEmpty ? resolved : hint;
   }
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
@@ -1010,9 +1010,13 @@ class _FinancePageState extends State<FinancePage>
     }
   }
 
-  void _notifyFinanceChanged() {
+  void _notifyFinanceChanged({bool invalidateCache = true}) {
     if (!mounted) return;
-    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(_tid));
+    if (invalidateCache) {
+      unawaited(ChurchFinanceRealtimeService.onFinanceMutation(_tid));
+    } else {
+      ChurchFinanceRealtimeService.mutationEpoch.value++;
+    }
     setState(() => _financeRevision++);
   }
 
@@ -1031,13 +1035,14 @@ class _FinancePageState extends State<FinancePage>
 
   void _scheduleFinanceRealtimeRefresh() {
     _financeRealtimeDebounce?.cancel();
-    _financeRealtimeDebounce = Timer(const Duration(milliseconds: 300), () {
+    _financeRealtimeDebounce = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      _notifyFinanceChanged();
+      _notifyFinanceChanged(invalidateCache: false);
     });
   }
 
   void _startFinanceRealtimeSync() {
+    if (kIsWeb) return;
     for (final s in _financeRealtimeSubs) {
       unawaited(s.cancel());
     }
@@ -1067,7 +1072,7 @@ class _FinancePageState extends State<FinancePage>
 
   Future<void> _bootstrapFirestoreTenant() async {
     if (!mounted) return;
-    final churchId = ChurchRepository.churchId(widget.tenantId);
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (churchId.isEmpty) {
       setState(() {
         _firestoreTenantId = null;
@@ -1081,7 +1086,9 @@ class _FinancePageState extends State<FinancePage>
     });
     _startFinanceRealtimeSync();
     unawaited(_warmFinanceData(churchId));
-    unawaited(_resolveOperationalTenantInBackground());
+    unawaited(
+      FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(churchId),
+    );
   }
 
   Future<void> _warmFinanceData(String tenantId) async {
@@ -1098,9 +1105,6 @@ class _FinancePageState extends State<FinancePage>
         ),
         ChurchFinanceLoadService.loadContas(seedTenantId: tid),
       ]);
-      if (mounted) {
-        _notifyFinanceChanged();
-      }
       unawaited(
         FinanceComprovantePublishService.reconcileStuckComprovantes(
           tenantId: tid,
@@ -1123,20 +1127,6 @@ class _FinancePageState extends State<FinancePage>
     }
   }
 
-  Future<void> _resolveOperationalTenantInBackground() async {
-    try {
-      final tid = ChurchRepository.churchId(widget.tenantId);
-      if (!mounted || tid.isEmpty) return;
-      if (tid != _firestoreTenantId) {
-        setState(() => _firestoreTenantId = tid);
-        _notifyFinanceChanged();
-      }
-      unawaited(
-        FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(tid),
-      );
-    } catch (_) {}
-  }
-
   @override
   void initState() {
     super.initState();
@@ -1146,7 +1136,7 @@ class _FinancePageState extends State<FinancePage>
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
     unawaited(_bootstrapFirestoreTenant());
-    _prewarmFinanceCaches(ChurchRepository.churchId(widget.tenantId));
+    _prewarmFinanceCaches(ChurchPanelTenant.forFirestore(widget.tenantId));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
     });
@@ -1555,7 +1545,7 @@ class _FinancePageState extends State<FinancePage>
             controller: _tabCtrl,
             children: [
               _ResumoTab(
-                key: ValueKey('resumo_${_tid}_$_financeRevision'),
+                key: ValueKey('resumo_$_tid'),
                 financeCol: _financeCol,
                 tenantId: _tid,
                 role: widget.role,
@@ -1563,7 +1553,7 @@ class _FinancePageState extends State<FinancePage>
                 onFinanceChanged: _notifyFinanceChanged,
               ),
               _LancamentosTab(
-                key: ValueKey('lanc_${_tid}_$_financeRevision'),
+                key: ValueKey('lanc_$_tid'),
                 financeCol: _financeCol,
                 tenantId: _tid,
                 role: widget.role,
@@ -2320,8 +2310,11 @@ class _ResumoTabState extends State<_ResumoTab> {
     super.dispose();
   }
 
-  Future<List<dynamic>> _loadFinanceBundle({required bool forceFresh}) async {
-    final tid = ChurchRepository.churchId(widget.tenantId);
+  Future<List<dynamic>> _loadFinanceBundle({
+    required bool forceFresh,
+    bool forceServer = false,
+  }) async {
+    final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
@@ -2330,12 +2323,12 @@ class _ResumoTabState extends State<_ResumoTab> {
       seedTenantId: tid,
       limit: limit,
       forceRefresh: forceFresh,
-      forceServer: forceFresh,
+      forceServer: forceServer,
     );
     final c = await ChurchFinanceLoadService.loadContas(
       seedTenantId: tid,
       forceRefresh: forceFresh,
-      forceServer: forceFresh,
+      forceServer: forceServer,
     );
     final s = await FinanceTenantSettings.load(tid);
     unawaited(
@@ -2370,7 +2363,7 @@ class _ResumoTabState extends State<_ResumoTab> {
   }
 
   void _seedFinanceCaches(int limit) {
-    final churchId = ChurchRepository.churchId(widget.tenantId);
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _seedFinanceDocs =
         ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
             ChurchFinanceLoadService.peekLancamentosRam(churchId, limit: limit) ??
@@ -2379,7 +2372,7 @@ class _ResumoTabState extends State<_ResumoTab> {
         ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
   }
 
-  void _reloadFutures({bool forceFresh = false}) {
+  void _reloadFutures({bool forceFresh = false, bool forceServer = false}) {
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
 
     if (!forceFresh) {
@@ -2391,7 +2384,7 @@ class _ResumoTabState extends State<_ResumoTab> {
 
     final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
         (_seedContasDocs?.isNotEmpty ?? false);
-    _fetching = true;
+    _fetching = !hadLocal;
     if (!forceFresh && hadLocal) {
       _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: true);
     }
@@ -2408,7 +2401,7 @@ class _ResumoTabState extends State<_ResumoTab> {
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    unawaited(_loadFinanceBundle(forceFresh: forceFresh).then((fresh) {
+    unawaited(_loadFinanceBundle(forceFresh: forceFresh, forceServer: forceServer).then((fresh) {
       if (!mounted) return;
       _webLoadCap?.cancel();
       setState(() {
@@ -2457,12 +2450,12 @@ class _ResumoTabState extends State<_ResumoTab> {
       return;
     }
     if (oldWidget.financeRevision != widget.financeRevision) {
-      setState(() => _reloadFutures(forceFresh: true));
+      setState(() => _reloadFutures(forceFresh: false));
     }
   }
 
   Future<void> _refresh() async {
-    setState(() => _reloadFutures(forceFresh: true));
+    setState(() => _reloadFutures(forceFresh: true, forceServer: true));
   }
 
   Widget _buildPieChart(List<MapEntry<String, double>> entries, double total,
@@ -4399,8 +4392,11 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     );
   }
 
-  Future<List<dynamic>> _loadLancamentosBundle({required bool forceFresh}) async {
-    final tid = ChurchRepository.churchId(widget.tenantId);
+  Future<List<dynamic>> _loadLancamentosBundle({
+    required bool forceFresh,
+    bool forceServer = false,
+  }) async {
+    final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
@@ -4408,12 +4404,12 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       seedTenantId: tid,
       limit: _financePageSize,
       forceRefresh: forceFresh,
-      forceServer: forceFresh,
+      forceServer: forceServer,
     );
     final c = await ChurchFinanceLoadService.loadContas(
       seedTenantId: tid,
       forceRefresh: forceFresh,
-      forceServer: forceFresh,
+      forceServer: forceServer,
     );
     if (mounted) {
       final hadLocal = _lancamentosHasLocalData;
@@ -4435,7 +4431,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   }
 
   void _seedLancamentosCaches() {
-    final churchId = ChurchRepository.churchId(widget.tenantId);
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _seedFinanceDocs =
         ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
             ChurchFinanceLoadService.peekLancamentosRam(
@@ -4447,7 +4443,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
         ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
   }
 
-  void _reloadFutures({bool forceFresh = false}) {
+  void _reloadFutures({bool forceFresh = false, bool forceServer = false}) {
     if (!forceFresh) {
       _seedLancamentosCaches();
     } else {
@@ -4457,7 +4453,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     }
 
     final hadLocal = _lancamentosHasLocalData;
-    _fetching = true;
+    _fetching = !hadLocal;
     if (!forceFresh && hadLocal) _showingStaleCache = true;
     if (forceFresh) _loadHint = null;
     _startLancamentosWebCap();
@@ -4468,7 +4464,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    unawaited(_loadLancamentosBundle(forceFresh: forceFresh)
+    unawaited(_loadLancamentosBundle(forceFresh: forceFresh, forceServer: forceServer)
         .timeout(PanelResilientLoad.queryCap)
         .then((fresh) {
       if (!mounted) return;
@@ -4532,7 +4528,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     setState(() => _financeLoadingMore = true);
     unawaited(
       ChurchFinanceLoadService.loadLancamentosPage(
-        seedTenantId: ChurchRepository.churchId(widget.tenantId),
+        seedTenantId: ChurchPanelTenant.forFirestore(widget.tenantId),
         limit: _financePageSize,
         startAfter: startAfter,
       )
@@ -4577,12 +4573,12 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       return;
     }
     if (oldWidget.financeRevision != widget.financeRevision) {
-      setState(() => _reloadFutures(forceFresh: true));
+      setState(() => _reloadFutures(forceFresh: false));
     }
   }
 
   void _refresh() {
-    setState(() => _reloadFutures(forceFresh: true));
+    setState(() => _reloadFutures(forceFresh: true, forceServer: true));
   }
 
   @override

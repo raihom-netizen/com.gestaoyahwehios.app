@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
@@ -24,6 +25,7 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_category_chip_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_cells.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_shell.dart';
+import 'package:gestao_yahweh/ui/widgets/church_agenda_wisdom_ui.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
@@ -49,18 +51,22 @@ int _compareAgendaDayKeysAscending(String a, String b) {
   }
 }
 
-/// Cores premium — Agenda (azul / índigo / ciano).
+/// Cores premium — Agenda (paridade WISDOMAPP).
 abstract final class _AgendaPremiumTheme {
   _AgendaPremiumTheme._();
 
-  static const indigo = Color(0xFF4F46E5);
-  static const cyan = Color(0xFF0891B2);
-  static const sky = Color(0xFF0EA5E9);
+  static const indigo = ChurchAgendaWisdomUi.navy;
+  static const cyan = ChurchAgendaWisdomUi.particularesTeal;
+  static const sky = ChurchAgendaWisdomUi.actionBlue;
 
   static const heroGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFF4F46E5), Color(0xFF0891B2), Color(0xFF0EA5E9)],
+    colors: [
+      ChurchAgendaWisdomUi.navy,
+      ChurchAgendaWisdomUi.particularesTeal,
+      ChurchAgendaWisdomUi.actionBlue,
+    ],
   );
 }
 
@@ -160,6 +166,7 @@ class _CalendarPageState extends State<CalendarPage>
   bool _agendaBulkSelectMode = false;
   final Set<String> _agendaSelectedIds = {};
   List<String> _customTipos = [];
+  ChurchAgendaWisdomFilter _wisdomFilter = ChurchAgendaWisdomFilter.particulares;
   /// Categorias personalizadas (`event_categories`) — mesma coleção do Mural de eventos.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventCategoryDocs = [];
   ReportPdfBranding? _pdfBrandingReady;
@@ -611,6 +618,9 @@ class _CalendarPageState extends State<CalendarPage>
   bool get _embeddedMobile =>
       widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
 
+  bool get _agendaOverlayAsDialog =>
+      kIsWeb || MediaQuery.sizeOf(context).width >= 720;
+
   bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
         widget.role,
         permissions: widget.permissions,
@@ -631,7 +641,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   String get _tid => _churchId;
 
-  String get _churchId => ChurchRepository.churchId(
+  String get _churchId => ChurchPanelTenant.forFirestore(
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
@@ -660,7 +670,7 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Future<void> _bootstrapAgendaTenant() async {
-    final resolved = ChurchRepository.churchId(widget.tenantId).trim();
+    final resolved = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
     if (resolved.isEmpty || !mounted) return;
     if (resolved == _effectiveTenantId) return;
     setState(() => _effectiveTenantId = resolved);
@@ -713,7 +723,7 @@ class _CalendarPageState extends State<CalendarPage>
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
     _loadCustomTipos();
     unawaited(_loadEventCategories());
     final now = DateTime.now();
@@ -818,7 +828,7 @@ class _CalendarPageState extends State<CalendarPage>
   void didUpdateWidget(covariant CalendarPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+      _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
       _legacyEventsByDay = {};
       _eventsByDay = {};
       _agendaDocs = [];
@@ -933,21 +943,11 @@ class _CalendarPageState extends State<CalendarPage>
 
   /// Remove documentos `agenda` com `startTime` no intervalo inclusive (mural/cultos não entram).
   Future<int> _deleteAgendaDocsInRange(DateTime start, DateTime end) async {
-    final snap = await _agenda
-        .where('startTime',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .get();
-    if (snap.docs.isEmpty) return 0;
-    const chunk = 450;
-    for (var i = 0; i < snap.docs.length; i += chunk) {
-      final batch = ChurchRepository.batch();
-      for (final d in snap.docs.skip(i).take(chunk)) {
-        batch.delete(d.reference);
-      }
-      await batch.commit();
-    }
-    return snap.docs.length;
+    return ChurchAgendaLoadService.deleteAgendaDocsInRange(
+      churchId: _churchId,
+      start: start,
+      end: end,
+    );
   }
 
   Future<void> _confirmAndDeleteAgendaRange(
@@ -977,6 +977,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       builder: (dctx) => AlertDialog(
         title: const Text('Remover eventos da agenda?'),
         content: Text(
@@ -1029,6 +1030,7 @@ class _CalendarPageState extends State<CalendarPage>
     final primary = ThemeCleanPremium.primary;
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
@@ -1302,6 +1304,7 @@ class _CalendarPageState extends State<CalendarPage>
     final n = ids.length;
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       builder: (dctx) => AlertDialog(
         title: const Text('Remover selecionados?'),
         content: Text(
@@ -1326,14 +1329,10 @@ class _CalendarPageState extends State<CalendarPage>
     );
     if (ok != true || !mounted) return;
     try {
-      const chunk = 450;
-      for (var i = 0; i < ids.length; i += chunk) {
-        final batch = ChurchRepository.batch();
-        for (final id in ids.skip(i).take(chunk)) {
-          batch.delete(_agenda.doc(id));
-        }
-        await batch.commit();
-      }
+      await ChurchAgendaLoadService.deleteAgendaEventsByIds(
+        churchId: _churchId,
+        docIds: ids,
+      );
       _clearAgendaBulkUi();
       await _reloadCalendar(forceRefresh: true);
       if (mounted) {
@@ -2521,7 +2520,21 @@ class _CalendarPageState extends State<CalendarPage>
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        ChurchAgendaWisdomUi.filterToggleRow(
+          selected: _wisdomFilter,
+          showFinance: _canShowAgendaFinance,
+          onChanged: (v) => setState(() => _wisdomFilter = v),
+        ),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
+        ChurchAgendaWisdomUi.holidaySummaryCard(
+          year: _focusedMonth.year,
+          month: _focusedMonth.month,
+          onExportPdf: _exportAgendaPdf,
+          exporting: _exportingPdf,
+        ),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildTableCalendarCard(),
+        ChurchAgendaWisdomUi.calendarLegend(),
         if (_loading)
           const Padding(
             padding: EdgeInsets.all(ThemeCleanPremium.spaceSm),
@@ -2561,6 +2574,7 @@ class _CalendarPageState extends State<CalendarPage>
     final rowH = isMobile ? 76.0 : 64.0;
     final dowH = isMobile ? 34.0 : 30.0;
     final cellFs = isMobile ? 17.0 : 15.5;
+    final wisdomPrimary = ChurchAgendaWisdomUi.navy;
     return ChurchAgendaCalendarPremiumShell(
       child: TableCalendar<_CalendarEvent>(
           locale: 'pt_BR',
@@ -2579,20 +2593,22 @@ class _CalendarPageState extends State<CalendarPage>
           eventLoader: (day) => _eventsByDay[_dayKey(day)] ?? const [],
           calendarStyle: ControleTotalCalendarTheme.calendarStyle(
             cellFs: cellFs,
-            primary: ThemeCleanPremium.primary,
+            primary: wisdomPrimary,
             onSurface: ThemeCleanPremium.onSurface,
             cellMargin: const EdgeInsets.all(1.85),
           ),
           daysOfWeekStyle: DaysOfWeekStyle(
             weekdayStyle: GoogleFonts.poppins(
-              fontSize: isMobile ? 13 : 12,
-              fontWeight: FontWeight.w700,
-              color: ThemeCleanPremium.onSurfaceVariant,
+              fontSize: isMobile ? 12.5 : 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+              color: const Color(0xFF475569),
             ),
             weekendStyle: GoogleFonts.poppins(
-              fontSize: isMobile ? 13 : 12,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey.shade500,
+              fontSize: isMobile ? 12.5 : 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
+              color: const Color(0xFFBE123C),
             ),
           ),
           headerStyle: HeaderStyle(
@@ -3117,107 +3133,11 @@ class _CalendarPageState extends State<CalendarPage>
     final monthLabel =
         rawMonth.isEmpty ? '' : '${rawMonth[0].toUpperCase()}${rawMonth.substring(1)}';
 
-    final radius = BorderRadius.circular(ThemeCleanPremium.radiusMd);
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: Material(
-          color: ThemeCleanPremium.cardBackground,
-          child: InkWell(
-            onTap: () => unawaited(_openFocusedMonthEventsSheet()),
-            child: Padding(
-              padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.analytics_rounded,
-                          color: ThemeCleanPremium.primary, size: 22),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          monthLabel,
-                          style: GoogleFonts.poppins(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                        size: 26,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    total == 0
-                        ? 'Nenhum evento neste mês na faixa carregada.'
-                        : '$total evento${total == 1 ? '' : 's'} no mês',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.primary,
-                    ),
-                  ),
-                  if (total > 0 && byCat.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    ...byCat.entries.map((en) {
-                      final label = _categoryLabels[en.key] ?? en.key;
-                      final col = _categoryColors[en.key] ??
-                          ThemeCleanPremium.onSurfaceVariant;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 10,
-                              height: 10,
-                              decoration: BoxDecoration(
-                                  color: col, shape: BoxShape.circle),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                label,
-                                style: GoogleFonts.poppins(
-                                    fontSize: 15, fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                            Text(
-                              '${en.value}',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 15, fontWeight: FontWeight.w700),
-                            ),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                  const SizedBox(height: 8),
-                  Text(
-                    'Toque para ver todos os eventos',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    return ChurchAgendaWisdomUi.monthSummaryCard(
+      monthLabel: monthLabel,
+      filter: _wisdomFilter,
+      total: total,
+      onTap: () => unawaited(_openFocusedMonthEventsSheet()),
     );
   }
 
@@ -3445,6 +3365,7 @@ class _CalendarPageState extends State<CalendarPage>
 
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
@@ -4053,13 +3974,14 @@ class _CalendarPageState extends State<CalendarPage>
     for (final d in q.docs) {
       batch.delete(d.reference);
     }
-    await batch.commit();
+    await ChurchAgendaLoadService.commitAgendaBatch(batch);
   }
 
   void _showEventDetails(_CalendarEvent ev) {
     if (ev.id.startsWith('virt_tpl_')) {
       showModalBottomSheet<void>(
         context: context,
+        useRootNavigator: widget.embeddedInShell,
         isScrollControlled: true,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
@@ -4129,6 +4051,7 @@ class _CalendarPageState extends State<CalendarPage>
     final color = _eventPaletteColor(ev);
     showModalBottomSheet(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusXl)),
@@ -4571,6 +4494,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (ev.source != 'agenda' || !_canWrite) return;
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       builder: (dctx) => AlertDialog(
         title: const Text('Remover este evento?'),
         content: const Text(
@@ -4592,7 +4516,7 @@ class _CalendarPageState extends State<CalendarPage>
     );
     if (ok != true || !mounted) return;
     try {
-      await _agenda.doc(ev.id).delete();
+      await ChurchAgendaLoadService.deleteAgendaEvent(_agenda.doc(ev.id));
       if (sheetContext != null && sheetContext.mounted) {
         Navigator.pop(sheetContext);
       }
@@ -4620,6 +4544,7 @@ class _CalendarPageState extends State<CalendarPage>
     final multi = ids.length > 1;
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       builder: (dctx) => AlertDialog(
         title: Text(multi
             ? 'Remover todos os eventos deste dia?'
@@ -4680,7 +4605,8 @@ class _CalendarPageState extends State<CalendarPage>
     required ScrollController? scrollController,
     required bool useDialogLayout,
   }) {
-    final primary = ThemeCleanPremium.primary;
+    final primary = ChurchAgendaWisdomUi.navy;
+    final actionBlue = ChurchAgendaWisdomUi.actionBlue;
     final padH = useDialogLayout ? 24.0 : 20.0;
     final isMobile = ThemeCleanPremium.isMobile(ctx);
 
@@ -5031,6 +4957,7 @@ class _CalendarPageState extends State<CalendarPage>
                       fontWeight: FontWeight.w700, fontSize: 15),
                 ),
                 style: FilledButton.styleFrom(
+                  backgroundColor: actionBlue,
                   padding: EdgeInsets.symmetric(
                       vertical: isMobile ? 16 : 14),
                   minimumSize:
@@ -5156,6 +5083,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (useDialog) {
       await showDialog<void>(
         context: context,
+        useRootNavigator: widget.embeddedInShell,
         barrierDismissible: true,
         builder: (ctx) {
           return Dialog(
@@ -5188,6 +5116,7 @@ class _CalendarPageState extends State<CalendarPage>
 
     await showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: widget.embeddedInShell,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
@@ -5354,6 +5283,7 @@ class _CalendarPageState extends State<CalendarPage>
       }
       final pick = await showModalBottomSheet<_AgendaTplPick>(
         context: context,
+        useRootNavigator: widget.embeddedInShell,
         isScrollControlled: true,
         shape: const RoundedRectangleBorder(
           borderRadius:
@@ -5568,15 +5498,12 @@ class _CalendarPageState extends State<CalendarPage>
     final saving = ValueNotifier<bool>(false);
 
     if (!mounted) return;
-    final savedDate = await showModalBottomSheet<DateTime?>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusXl)),
-      ),
-      builder: (ctx) => SizedBox(
-        height: MediaQuery.sizeOf(ctx).height * 0.92,
+    Widget addEventForm(BuildContext ctx) {
+      final formHeight = _agendaOverlayAsDialog
+          ? math.min(680.0, MediaQuery.sizeOf(ctx).height * 0.92)
+          : MediaQuery.sizeOf(ctx).height * 0.92;
+      return SizedBox(
+        height: formHeight,
         child: Padding(
           padding: EdgeInsets.fromLTRB(
             ThemeCleanPremium.spaceLg,
@@ -5719,9 +5646,8 @@ class _CalendarPageState extends State<CalendarPage>
                           );
                           if (ok != true || nome.text.trim().isEmpty) return;
                           try {
-                            await FirebaseAuth.instance.currentUser
-                                ?.getIdToken(true);
-                            final op = ChurchRepository.churchId(widget.tenantId.trim());
+                            final op = ChurchPanelTenant.forFirestore(
+                                widget.tenantId.trim());
                             final ref = await                                 ChurchUiCollections.churchDoc(op)
                                 .collection('event_categories')
                                 .add({
@@ -6324,8 +6250,6 @@ class _CalendarPageState extends State<CalendarPage>
                           }
                           saving.value = true;
                           try {
-                            await FirebaseAuth.instance.currentUser
-                                ?.getIdToken(true);
                             var dayStart = DateTime(
                               dateStartNotifier.value.year,
                               dateStartNotifier.value.month,
@@ -6425,7 +6349,12 @@ class _CalendarPageState extends State<CalendarPage>
                                 upd['eventCategoryColor'] = FieldValue.delete();
                               }
                               if (nid.isNotEmpty) upd['noticiaId'] = nid;
-                              await _agenda.doc(existing.id).update(upd);
+                              await ChurchAgendaLoadService.updateAgendaEvent(
+                                ref: _agenda.doc(existing.id),
+                                payload: upd,
+                              );
+                              unawaited(
+                                  ChurchAgendaLoadService.invalidate(_churchId));
                               if (ctx.mounted) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(
@@ -6513,7 +6442,8 @@ class _CalendarPageState extends State<CalendarPage>
                                   }
                                   batch.set(ref, row);
                                 }
-                                await batch.commit();
+                                await ChurchAgendaLoadService.commitAgendaBatch(
+                                    batch);
                               } else {
                                 // Vários dias: um documento na agenda por dia, mesmos horários em cada dia.
                                 final batch = ChurchRepository.batch();
@@ -6567,8 +6497,11 @@ class _CalendarPageState extends State<CalendarPage>
                                   }
                                   batch.set(ref, row);
                                 }
-                                await batch.commit();
+                                await ChurchAgendaLoadService.commitAgendaBatch(
+                                    batch);
                               }
+                              unawaited(
+                                  ChurchAgendaLoadService.invalidate(_churchId));
                               if (ctx.mounted) {
                                 if (!isSameDay(dayStart, dayEnd)) {
                                   final n =
@@ -6628,15 +6561,43 @@ class _CalendarPageState extends State<CalendarPage>
             ],
           ),
         ),
-      ),
-    );
+      );
+    }
+
+    final DateTime? savedDate;
+    if (_agendaOverlayAsDialog) {
+      savedDate = await showDialog<DateTime?>(
+        context: context,
+        useRootNavigator: widget.embeddedInShell,
+        builder: (ctx) => Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: addEventForm(ctx),
+        ),
+      );
+    } else {
+      savedDate = await showModalBottomSheet<DateTime?>(
+        context: context,
+        useRootNavigator: widget.embeddedInShell,
+        isScrollControlled: true,
+        useSafeArea: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+              top: Radius.circular(ThemeCleanPremium.radiusXl)),
+        ),
+        builder: addEventForm,
+      );
+    }
     if (!mounted) return;
-    if (savedDate != null) {
+    final picked = savedDate;
+    if (picked != null) {
       setState(() {
-        _selectedDay =
-            DateTime(savedDate.year, savedDate.month, savedDate.day);
+        _selectedDay = DateTime(picked.year, picked.month, picked.day);
         _focusedDay = _selectedDay!;
-        _focusedMonth = DateTime(savedDate.year, savedDate.month, 1);
+        _focusedMonth = DateTime(picked.year, picked.month, 1);
       });
       await _reloadCalendar(forceRefresh: true);
     }

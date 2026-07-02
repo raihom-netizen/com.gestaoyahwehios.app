@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -72,7 +73,14 @@ abstract final class ChurchAprovacoesLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
-  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+  static String _resolve(String hint) =>
+      ChurchPanelTenant.forFirestore(hint.trim());
+
+  /// Path canónico — `igrejas/{churchId}/membros` (filtro `status=pendente`).
+  static String firestoreMembrosPath(String seedTenantId) {
+    final id = _resolve(seedTenantId);
+    return id.isEmpty ? '' : 'igrejas/$id/membros';
+  }
 
   static String pendentesCacheKey(String churchId) =>
       '${churchId.trim()}_membros_pendente_v3';
@@ -164,6 +172,33 @@ abstract final class ChurchAprovacoesLoadService {
       fromCache: fromCache,
       softError: softError,
     );
+  }
+
+  /// Instantâneo RAM / memória — abertura sem skeleton quando possível.
+  static ChurchAprovacoesPendentesResult? peekInstant(String seedTenantId) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    final ram = peekPendentesRam(churchId);
+    if (ram != null) {
+      return ChurchAprovacoesPendentesResult(
+        churchId: churchId,
+        docs: ram,
+        readSource: 'ram',
+        fromCache: true,
+      );
+    }
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      pendentesCacheKey(churchId),
+    );
+    if (mem != null) {
+      return _ok(
+        churchId: churchId,
+        allDocs: mem.docs,
+        readSource: 'firestore_mem',
+        fromCache: true,
+      );
+    }
+    return null;
   }
 
   /// Cache local (RAM → Hive → mem Firestore) — **0 pendentes também é válido**.
@@ -268,6 +303,7 @@ abstract final class ChurchAprovacoesLoadService {
 
     final col = ChurchUiCollections.membros(churchId);
     final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    var queriesSucceeded = 0;
 
     Future<void> mergeQuery(
       Query<Map<String, dynamic>> q,
@@ -280,38 +316,70 @@ abstract final class ChurchAprovacoesLoadService {
             maxAttempts: kIsWeb ? 4 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              read,
-              maxAttempts: 4,
-            ).timeout(const Duration(seconds: 14))
-          : await read().timeout(ChurchPanelReadTimeouts.queryCap);
-      for (final d in snap.docs) {
-        byId[d.id] = d;
-      }
+      try {
+        final snap = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                read,
+                maxAttempts: 4,
+              ).timeout(const Duration(seconds: 14))
+            : await read().timeout(ChurchPanelReadTimeouts.queryCap);
+        queriesSucceeded++;
+        for (final d in snap.docs) {
+          byId[d.id] = d;
+        }
+      } catch (_) {}
     }
 
-    await mergeQuery(
-      col.where('status', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
-      'status_lc',
-    ).catchError((_) {});
-
-    await mergeQuery(
-      col.where('STATUS', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
-      'status_uc',
-    ).catchError((_) {});
-
-    await mergeQuery(
-      col
-          .where('PUBLIC_SIGNUP', isEqualTo: true)
-          .limit(kPendentesQueryLimit),
-      'public_signup',
-    ).catchError((_) {});
+    // Paralelo — antes eram 3 round-trips sequenciais (+ scan 800 se vazio).
+    await Future.wait([
+      mergeQuery(
+        col.where('status', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
+        'status_lc',
+      ),
+      mergeQuery(
+        col.where('STATUS', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
+        'status_uc',
+      ),
+      mergeQuery(
+        col
+            .where('PUBLIC_SIGNUP', isEqualTo: true)
+            .limit(kPendentesQueryLimit),
+        'public_signup',
+      ),
+    ]);
 
     final fromQueries =
         byId.values.where((d) => isPendente(d.data())).toList();
-    if (fromQueries.isNotEmpty) return fromQueries;
 
+    // Lista vazia após queries OK = sucesso (não varrer 800 membros).
+    if (queriesSucceeded > 0) return fromQueries;
+
+    // Cache local antes do scan pesado (800 docs).
+    try {
+      final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
+        () => col
+            .limit(kMembrosScanLimit)
+            .get(const GetOptions(source: Source.cache)),
+        maxAttempts: 2,
+      ).timeout(const Duration(seconds: 4));
+      if (cacheSnap.docs.isNotEmpty) {
+        return _filterPendentes(cacheSnap.docs);
+      }
+    } catch (_) {}
+
+    try {
+      final repo = await ChurchRepository.listCacheFirst(
+        module: ChurchRepository.membros,
+        churchIdHint: churchId,
+        limit: kMembrosScanLimit,
+        firestoreCacheKey: cacheKey,
+      );
+      if (repo.items.isNotEmpty) {
+        return _filterPendentes(repo.items);
+      }
+    } catch (_) {}
+
+    // Fallback legado — só se queries + cache falharam.
     final allDocs = await _fetchMembrosScan(churchId, cacheKey);
     return _filterPendentes(allDocs);
   }

@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -47,6 +48,8 @@ abstract final class ChurchSchedulesLoadService {
 
   static const int kEscalasDefaultLimit = 200;
   static const int kEscalasPanelActiveLimit = 30;
+  /// Primeira pintura do painel / Minha Escala — evita timeout web com 200 docs.
+  static const int kEscalasPanelFirstPaintLimit = 80;
   static const int kTemplatesDefaultLimit = 120;
   static const String kTemplatesHiveModule = TenantModuleKeys.escalaTemplates;
 
@@ -195,7 +198,7 @@ abstract final class ChurchSchedulesLoadService {
   }) async {
     final cpf = cpfDigits.replaceAll(RegExp(r'[^0-9]'), '');
     final uid = memberUid.trim();
-    final churchId = ChurchRepository.churchId(seedTenantId.trim());
+    final churchId = ChurchPanelTenant.forFirestore(seedTenantId.trim());
     if (churchId.isEmpty) {
       return ChurchSchedulesLoadResult(
         churchId: churchId,
@@ -527,7 +530,7 @@ abstract final class ChurchSchedulesLoadService {
     int limit = kTemplatesDefaultLimit,
     bool forceRefresh = false,
   }) async {
-    final churchId = ChurchRepository.churchId(seedTenantId.trim());
+    final churchId = ChurchPanelTenant.forFirestore(seedTenantId.trim());
     if (churchId.isEmpty) {
       return ChurchSchedulesLoadResult(
         churchId: '',
@@ -613,7 +616,7 @@ abstract final class ChurchSchedulesLoadService {
       QueryDocumentSnapshot<Map<String, dynamic>> b,
     ) sortDocs,
   }) async {
-    final churchId = ChurchRepository.churchId(seedTenantId.trim());
+    final churchId = ChurchPanelTenant.forFirestore(seedTenantId.trim());
     final path = _path(churchId, collection);
     if (churchId.isEmpty) {
       return ChurchSchedulesLoadResult(

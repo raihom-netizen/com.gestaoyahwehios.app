@@ -9,6 +9,8 @@ import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -16,6 +18,8 @@ import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -45,6 +49,33 @@ String _capitalizeFirstLetter(String s) {
   final t = s.trim();
   if (t.isEmpty) return s;
   return '${t[0].toUpperCase()}${t.substring(1)}';
+}
+
+const _kPtMonthNames = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
+String _formatMonthYearPt(DateTime d) =>
+    '${_kPtMonthNames[d.month - 1]} ${d.year}';
+
+String _safeDateFormatPt(String pattern, DateTime d) {
+  try {
+    return DateFormat(pattern, 'pt_BR').format(d);
+  } catch (_) {
+    if (pattern.contains('MMMM')) return _formatMonthYearPt(d);
+    return DateFormat('dd/MM/yyyy').format(d);
+  }
 }
 
 String _statusLabelPt(String raw) {
@@ -764,11 +795,16 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     Color(0xFF8B5CF6), Color(0xFF0891B2), Color(0xFFDB2777), Color(0xFF059669),
   ];
 
+  static const Color _wisdomAccent = Color(0xFF3B82F6);
+
+  String get _escalasFirestorePath =>
+      ChurchPanelTenant.firestoreRootPath(_churchId);
+
   @override
   void initState() {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _seedFromCaches(_churchId);
     _fetching = _allDocs.isEmpty;
     unawaited(_initLoad());
@@ -796,7 +832,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     });
   }
 
-  String get _churchId => ChurchRepository.churchId(
+  String get _churchId => ChurchPanelTenant.forFirestore(
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
@@ -847,7 +883,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (_allDocs.isEmpty) {
         setState(() {
           _loading = false;
-          _loadError = '$e';
+          _loadError = formatFirebaseErrorForUser(e, logToCrashlytics: false);
         });
       }
     } finally {
@@ -1017,7 +1053,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (_isAdmin) {
         result = await ChurchSchedulesLoadService.loadEscalas(
           seedTenantId: churchId,
-          limit: 200,
+          limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
           forceRefresh: forceRefresh,
         );
       } else if (_cpfDigits.length == 11 || memberUid.isNotEmpty) {
@@ -1025,13 +1061,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           seedTenantId: churchId,
           cpfDigits: _cpfDigits,
           memberUid: memberUid,
-          limit: 200,
+          limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
           forceRefresh: forceRefresh,
         );
       } else {
         result = await ChurchSchedulesLoadService.loadEscalas(
           seedTenantId: churchId,
-          limit: 200,
+          limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
           forceRefresh: forceRefresh,
         );
       }
@@ -1050,6 +1086,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         });
       }
 
+      unawaited(_loadFullEscalasInBackground(churchId, memberUid));
+
       if (!_isAdmin &&
           (_cpfDigits.length == 11 ||
               (FirebaseAuth.instance.currentUser?.uid.trim().isNotEmpty ??
@@ -1060,7 +1098,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _loadError = _allDocs.isEmpty ? '$e' : null;
+          _loadError = _allDocs.isEmpty
+              ? formatFirebaseErrorForUser(e, logToCrashlytics: false)
+              : null;
         });
       }
     } finally {
@@ -1069,6 +1109,35 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         setState(() => _fetching = false);
       }
     }
+  }
+
+  /// Completa lista em background (até 200) sem bloquear abertura.
+  Future<void> _loadFullEscalasInBackground(
+    String churchId,
+    String memberUid,
+  ) async {
+    try {
+      final ChurchSchedulesLoadResult result;
+      if (_isAdmin) {
+        result = await ChurchSchedulesLoadService.loadEscalas(
+          seedTenantId: churchId,
+          limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
+        );
+      } else if (_cpfDigits.length == 11 || memberUid.isNotEmpty) {
+        result = await ChurchSchedulesLoadService.loadEscalasForMember(
+          seedTenantId: churchId,
+          cpfDigits: _cpfDigits,
+          memberUid: memberUid,
+          limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
+        );
+      } else {
+        return;
+      }
+      if (!mounted || result.docs.isEmpty) return;
+      final docs = _filterForUserSync(result.docs);
+      _MySchedulesRamCache.put(churchId, _cpfDigits, docs);
+      setState(() => _allDocs = docs);
+    } catch (_) {}
   }
 
   /// Escalas do departamento do membro — merge em background (não bloqueia abertura).
@@ -1385,7 +1454,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return const SizedBox.shrink();
-    final churchId = ChurchRepository.churchId(tid);
+    final churchId = ChurchPanelTenant.forFirestore(tid);
     if (churchId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: ChurchUiCollections.escalaTrocas(churchId)
@@ -1623,6 +1692,48 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> sorted,
   ) {
     final children = <Widget>[
+      if (widget.embeddedInShell)
+        YahwehWisdomSectionCard(
+          borderTint: _wisdomAccent,
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              churchWisdomModuleIconLeading(
+                icon: Icons.calendar_month_rounded,
+                accent: _wisdomAccent,
+                size: 44,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Minha Escala',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: _wisdomAccent,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Firestore: $_escalasFirestorePath/escalas · '
+                      'escala_trocas',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      if (widget.embeddedInShell) const SizedBox(height: 12),
       _buildIncomingSwapInvites(),
       _buildSummary(now),
       const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -1768,7 +1879,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           ),
         ],
       ),
-      body: SafeArea(
+      body: YahwehWisdomPanelBackdrop(
+        child: SafeArea(
         top: !widget.embeddedInShell,
         child: _loading && _allDocs.isEmpty
             ? const Center(child: ChurchPanelLoadingBody())
@@ -1804,14 +1916,14 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                         icon: const Icon(Icons.event_busy_rounded, size: 20),
                         label: const Text('Dias em que não posso servir'),
                         style: FilledButton.styleFrom(
-                          foregroundColor: ThemeCleanPremium.primary,
+                          foregroundColor: _wisdomAccent,
                           backgroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                               vertical: 14, horizontal: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
-                            side: const BorderSide(
-                              color: _premiumFilterBorderStrong,
+                            side: BorderSide(
+                              color: _wisdomAccent.withValues(alpha: 0.45),
                               width: 1.35,
                             ),
                           ),
@@ -1822,6 +1934,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     ),
                   Expanded(
                     child: RefreshIndicator(
+                      color: _wisdomAccent,
                       onRefresh: () => _load(forceRefresh: true),
                       child: CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(
@@ -1848,6 +1961,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   ),
                 ],
               ),
+      ),
       ),
     );
   }
@@ -2002,7 +2116,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     child: Column(
                       children: [
                         Text(
-                          DateFormat('MMMM yyyy', 'pt_BR').format(_monthCursor),
+                          _capitalizeFirstLetter(
+                            _formatMonthYearPt(_monthCursor),
+                          ),
                           textAlign: TextAlign.center,
                           style: GoogleFonts.poppins(
                             fontSize: 16,
@@ -3102,10 +3218,17 @@ class _SummaryCard extends StatelessWidget {
     final child = Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            color.withValues(alpha: 0.12),
+            Colors.white,
+          ],
+        ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
+        boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
+        border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
       child: Column(children: [
         Icon(icon, color: color, size: 22),

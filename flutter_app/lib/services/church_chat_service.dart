@@ -1460,9 +1460,15 @@ class ChurchChatService {
     required String messageId,
   }) async {
     try {
-      await messagesCol(tenantId, threadId).doc(messageId).delete();
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      }
+      await FirestoreWebGuard.runChatWriteWithRecovery(
+        () => messagesCol(tenantId, threadId).doc(messageId).delete(),
+      );
       return true;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('ChurchChatService.deleteMessage: $e');
       return false;
     }
   }

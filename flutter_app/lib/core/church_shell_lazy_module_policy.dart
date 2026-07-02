@@ -15,12 +15,14 @@ abstract final class ChurchShellLazyModulePolicy {
   /// Índice do dashboard no shell.
   static const int dashboardIndex = ChurchShellIndices.painel;
 
-  /// Atalhos do rodapé mobile — sempre em cache após primeira visita.
+  /// Atalhos do rodapé mobile — Início, Agenda, Membros, Avisos, Eventos, YahwehChat.
   static const Set<int> mobileFooterIndices = {
     ChurchShellIndices.painel,
-    ChurchShellIndices.membros,
     ChurchShellIndices.agenda,
-    ChurchShellIndices.pedidosOracao,
+    ChurchShellIndices.membros,
+    ChurchShellIndices.muralAvisos,
+    ChurchShellIndices.muralEventos,
+    ChurchShellIndices.chatIgreja,
   };
 
   /// Módulos pesados fora do rodapé — não pré-montar no arranque.

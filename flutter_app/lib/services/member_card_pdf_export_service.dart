@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
@@ -50,6 +51,7 @@ abstract final class MemberCardPdfExportService {
     required List<String> memberIds,
     required MemberCardPdfLayout layout,
     Map<String, Map<String, dynamic>> memberSeedById = const {},
+    Map<String, dynamic>? tenantHint,
     void Function(int done, int total)? onProgress,
   }) async {
     final ids = memberIds
@@ -67,7 +69,7 @@ abstract final class MemberCardPdfExportService {
       );
     }
 
-    final resolvedId = ChurchRepository.churchId(churchId);
+    final resolvedId = ChurchPanelTenant.forFirestore(churchId);
     if (resolvedId.isEmpty) {
       return MemberCardPdfExportResult(
         pdfBytes: null,
@@ -79,15 +81,22 @@ abstract final class MemberCardPdfExportService {
       );
     }
 
-    Map<String, dynamic> tenant = {'id': resolvedId};
-    try {
-      final loaded = await ChurchRepository.loadChurchData(
-        seedTenantId: resolvedId,
-      ).timeout(const Duration(seconds: 10));
-      if (loaded.data.isNotEmpty) {
-        tenant = Map<String, dynamic>.from(loaded.data);
-      }
-    } catch (_) {}
+    Map<String, dynamic> tenant = tenantHint != null && tenantHint.isNotEmpty
+        ? Map<String, dynamic>.from(tenantHint)
+        : {'id': resolvedId};
+    if (tenant.length <= 1) {
+      try {
+        final loaded = await ChurchRepository.loadChurchData(
+          seedTenantId: resolvedId,
+        ).timeout(const Duration(seconds: 8));
+        if (loaded.data.isNotEmpty) {
+          tenant = Map<String, dynamic>.from(loaded.data);
+        }
+      } catch (_) {}
+    }
+
+    final idCount = ids.length;
+    final progressTotal = idCount * 2;
 
     List<MemberCardPdfSlice> slices;
     try {
@@ -96,7 +105,7 @@ abstract final class MemberCardPdfExportService {
         tenant: tenant,
         memberIds: ids,
         memberSeedById: memberSeedById,
-        onProgress: onProgress,
+        onProgress: (d, _) => onProgress?.call(d, progressTotal),
       ).timeout(
         const Duration(seconds: 120),
         onTimeout: () => throw TimeoutException(
@@ -146,6 +155,12 @@ abstract final class MemberCardPdfExportService {
         slices: slices,
         layout: layout,
         branding: branding,
+        onRasterProgress: (done, rTotal) {
+          onProgress?.call(
+            idCount + done,
+            progressTotal,
+          );
+        },
       );
     } catch (e, st) {
       buildError = e.toString();

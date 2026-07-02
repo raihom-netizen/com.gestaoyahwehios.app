@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -10,7 +10,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchChatHubDepartmentsService {
   ChurchChatHubDepartmentsService._();
 
-  static String _churchId(String seed) => ChurchPanelTenant.resolve(seed.trim());
+  static String _churchId(String seed) =>
+      ChurchRepository.churchId(seed.trim());
 
   /// RAM / memória Firestore — 1.º frame ao abrir aba Grupos.
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekInstant(

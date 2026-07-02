@@ -30,77 +30,90 @@ class ChurchWisdomModuleListCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final a = accent ?? ThemeCleanPremium.primary;
     final borderRadius = BorderRadius.circular(ThemeCleanPremium.radiusLg);
+    final decoration = BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.white,
+          Color.lerp(Colors.white, a, 0.05)!,
+        ],
+      ),
+      borderRadius: borderRadius,
+      border: Border.all(color: const Color(0xFFE2E8F0)),
+      boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
+    );
     return Padding(
       padding: EdgeInsets.only(bottom: dense ? 8 : 10),
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: borderRadius,
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Colors.white,
-                  Color.lerp(Colors.white, a, 0.05)!,
-                ],
-              ),
-              borderRadius: borderRadius,
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
+        child: Ink(
+          decoration: decoration,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: dense ? 12 : 14,
+              vertical: dense ? 10 : 12,
             ),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: dense ? 12 : 14,
-                vertical: dense ? 10 : 12,
-              ),
-              child: Row(
-                children: [
-                  if (leading != null) ...[
-                    leading!,
-                    SizedBox(width: dense ? 10 : 14),
-                  ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Row(
                       children: [
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w800,
-                            fontSize: dense ? 14 : 15,
-                            letterSpacing: -0.2,
-                            height: 1.25,
-                            color: ThemeCleanPremium.onSurface,
+                        if (leading != null) ...[
+                          leading!,
+                          SizedBox(width: dense ? 10 : 14),
+                        ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.inter(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: dense ? 14 : 15,
+                                  letterSpacing: -0.2,
+                                  height: 1.25,
+                                  color: ThemeCleanPremium.onSurface,
+                                ),
+                              ),
+                              if (subtitle != null &&
+                                  subtitle!.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  subtitle!,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                    height: 1.3,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                        if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle!,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600,
-                              height: 1.3,
-                            ),
+                        if (trailing == null && onTap != null)
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: Colors.grey.shade400,
                           ),
-                        ],
                       ],
                     ),
                   ),
-                  if (trailing != null)
-                    trailing!
-                  else if (onTap != null)
-                    Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 6),
+                  trailing!,
                 ],
-              ),
+              ],
             ),
           ),
         ),

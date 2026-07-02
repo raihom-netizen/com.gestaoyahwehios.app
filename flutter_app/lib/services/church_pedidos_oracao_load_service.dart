@@ -5,16 +5,18 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga pedidos de oração — `igrejas/{churchId}/pedidosOracao`.
 class ChurchPedidosOracaoLoadResult {
@@ -46,6 +48,8 @@ abstract final class ChurchPedidosOracaoLoadService {
   ChurchPedidosOracaoLoadService._();
 
   static const int kDefaultLimit = 300;
+  /// Primeira pintura — evita timeout web com 300 docs.
+  static const int kPanelFirstPaintLimit = 80;
 
   static final Map<
       String,
@@ -56,7 +60,14 @@ abstract final class ChurchPedidosOracaoLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
-  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+  static String _resolve(String hint) =>
+      ChurchPanelTenant.forFirestore(hint.trim());
+
+  /// Path canónico — `igrejas/{churchId}/pedidosOracao`.
+  static String firestorePath(String seedTenantId) {
+    final id = _resolve(seedTenantId);
+    return id.isEmpty ? '' : 'igrejas/$id/pedidosOracao';
+  }
 
   static String _filterSuffix(bool? respondidaFilter) {
     if (respondidaFilter == true) return 'respondidas';
@@ -90,7 +101,6 @@ abstract final class ChurchPedidosOracaoLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    if (docs.isEmpty) return;
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
@@ -226,33 +236,35 @@ abstract final class ChurchPedidosOracaoLoadService {
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.pedidosOracao,
         ).timeout(const Duration(seconds: 2));
-        if (hive.isNotEmpty) {
+        if (updatedAt != null) {
+          final hive = await TenantModuleHiveCache.readDocs(
+            churchId,
+            TenantModuleKeys.pedidosOracao,
+          ).timeout(const Duration(seconds: 2));
           final allDocs =
               _sortByCreatedAt(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (allDocs.isNotEmpty) {
-            _putRam(allKey, allDocs);
-            var docs = _filterRespondida(allDocs, respondidaFilter);
-            docs = _sortByCreatedAt(docs);
-            _putRam(ramKey, docs);
-            unawaited(_refreshInBackground(
-              churchId: churchId,
-              respondidaFilter: respondidaFilter,
-              ramKey: ramKey,
-              allKey: allKey,
-              limit: limit,
-            ));
-            return ChurchPedidosOracaoLoadResult(
-              churchId: churchId,
-              docs: docs.length > limit ? docs.sublist(0, limit) : docs,
-              readSource: 'hive',
-              collectionPath: path,
-              fromCache: true,
-            );
-          }
+          _putRam(allKey, allDocs);
+          var docs = _filterRespondida(allDocs, respondidaFilter);
+          docs = _sortByCreatedAt(docs);
+          _putRam(ramKey, docs);
+          unawaited(_refreshInBackground(
+            churchId: churchId,
+            respondidaFilter: respondidaFilter,
+            ramKey: ramKey,
+            allKey: allKey,
+            limit: limit,
+          ));
+          return ChurchPedidosOracaoLoadResult(
+            churchId: churchId,
+            docs: docs.length > limit ? docs.sublist(0, limit) : docs,
+            readSource: 'hive',
+            collectionPath: path,
+            fromCache: true,
+          );
         }
       } catch (_) {}
 
@@ -432,14 +444,10 @@ abstract final class ChurchPedidosOracaoLoadService {
     } catch (_) {}
   }
 
-  static Future<void> _writePedidoFast(Future<void> Function() write) async {
-    await runFirestorePublishWithRecovery(
-      write,
-      maxAttempts: 2,
-      criticalWrite: true,
-    ).timeout(
-      kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 15),
-    );
+  static Future<void> _prepareWrite() async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
   }
 
   static void removeFromRam(String seedTenantId, Iterable<String> docIds) {
@@ -467,30 +475,39 @@ abstract final class ChurchPedidosOracaoLoadService {
     if (cid.isEmpty) throw StateError('Igreja não identificada.');
 
     final col = ChurchUiCollections.pedidosOracao(cid);
-    final data = ChurchTenantFields.stamp(cid, payload);
 
     if (existingDocId != null && existingDocId.trim().isNotEmpty) {
       final id = existingDocId.trim();
       final ref = col.doc(id);
-      await _writePedidoFast(
-        () => ref.update({
-          ...data,
+      await _prepareWrite();
+      await OptimisticFirestoreWrite.update(
+        ref: ref,
+        data: {
+          ...payload,
           'updatedAt': FieldValue.serverTimestamp(),
-        }),
+        },
+        module: OfflineModules.pedidosOracao,
+        tenantId: cid,
       );
       unawaited(refreshRamFromCache(cid));
       return id;
     }
 
     final docRef = col.doc();
-    final create = Map<String, dynamic>.from(data)
+    final create = Map<String, dynamic>.from(payload)
       ..putIfAbsent('orandoCount', () => 0)
       ..putIfAbsent('orandoUids', () => <String>[])
       ..putIfAbsent(PrayerOrandoMembrosDenorm.field, () => <Map<String, dynamic>>[])
       ..putIfAbsent('respondida', () => false)
       ..['createdAt'] = FieldValue.serverTimestamp();
 
-    await _writePedidoFast(() => docRef.set(create));
+    await _prepareWrite();
+    await OptimisticFirestoreWrite.set(
+      ref: docRef,
+      data: create,
+      module: OfflineModules.pedidosOracao,
+      tenantId: cid,
+    );
     unawaited(refreshRamFromCache(cid));
     return docRef.id;
   }
@@ -720,19 +737,33 @@ abstract final class ChurchPedidosOracaoLoadService {
     const chunkSize = 450;
     final col = ChurchUiCollections.pedidosOracao(churchId);
 
-    for (var i = 0; i < ids.length; i += chunkSize) {
-      final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
-      final slice = ids.sublist(i, end);
-      await runFirestorePublishWithRecovery(
-        () async {
-          final batch = ChurchRepository.batch();
-          for (final id in slice) {
-            batch.delete(col.doc(id));
-          }
-          await batch.commit();
-        },
-        maxAttempts: kIsWeb ? 3 : 2,
+    await _prepareWrite();
+
+    if (ids.length == 1) {
+      await OptimisticFirestoreWrite.delete(
+        ref: col.doc(ids.first),
+        module: OfflineModules.pedidosOracao,
+        tenantId: churchId,
       );
+    } else {
+      for (var i = 0; i < ids.length; i += chunkSize) {
+        final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
+        final slice = ids.sublist(i, end);
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => runFirestorePublishWithRecovery(
+            () async {
+              final batch = ChurchRepository.batch();
+              for (final id in slice) {
+                batch.delete(col.doc(id));
+              }
+              await batch.commit();
+            },
+            maxAttempts: 4,
+            criticalWrite: true,
+          ),
+          maxAttempts: 4,
+        ).timeout(PanelResilientLoad.queryCap);
+      }
     }
 
     removeFromRam(churchId, ids);

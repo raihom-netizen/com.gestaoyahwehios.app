@@ -346,10 +346,17 @@ abstract final class MemberCardPdfBuilder {
 
     final logoBytes = _resizeForEmbed(branding.logoBytes, maxSide: 200);
 
+    final rasterParallel = slices.length <= 1
+        ? 1
+        : math.min(
+            YahwehPerformanceV4.memberCardPdfRasterParallel,
+            slices.length >= 12 ? YahwehPerformanceV4.memberCardPdfRasterParallel : 3,
+          );
+
     final rasters = await MemberCardPdfRasterService.captureBatch(
       slices: slices,
       logoBytes: logoBytes,
-      parallel: slices.length == 1 ? 1 : 3,
+      parallel: rasterParallel,
       onProgress: onRasterProgress,
     );
 

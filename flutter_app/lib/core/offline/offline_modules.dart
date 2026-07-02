@@ -11,6 +11,7 @@ abstract final class OfflineModules {
   static const visitantes = 'visitantes';
   static const pedidosOracao = 'pedidos_oracao';
   static const departamentos = 'departamentos';
+  static const cargos = 'cargos';
   static const chat = 'chat';
   static const mural = 'mural';
   static const tenant = 'tenant';
@@ -50,6 +51,10 @@ abstract final class OfflineModules {
       case 'departamentos':
       case 'departamento':
         return departamentos;
+      case 'cargos':
+      case 'cargo':
+      case 'roles':
+        return cargos;
       case 'chats':
       case 'chat':
       case 'chat_threads':

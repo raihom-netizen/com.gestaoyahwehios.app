@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -390,7 +392,28 @@ abstract final class ChurchVisitantesLoadService {
     }
   }
 
-  /// Gravação web-resiliente — `igrejas/{churchId}/visitantes` (sem invalidar cache no hot path).
+  static Future<void> _prepareWrite() async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+  }
+
+  /// Atualiza RAM após gravação — lista abre rápido sem reload completo.
+  static Future<void> refreshRamFromCache(String seedTenantId) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    try {
+      final snap = await ChurchUiCollections.visitantes(churchId)
+          .limit(kFullLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      final docs = _sortByCreatedAt(_filterVisitorDocs(snap.docs));
+      if (docs.isEmpty) return;
+      putRam(churchId, docs);
+    } catch (_) {}
+  }
+
+  /// Gravação rápida — `OptimisticFirestoreWrite` (igual Pedidos de Oração).
   static Future<String> saveVisitor({
     required String churchId,
     required Map<String, dynamic> payload,
@@ -402,35 +425,36 @@ abstract final class ChurchVisitantesLoadService {
     final col = ChurchUiCollections.visitantes(cid);
     final data = ChurchTenantFields.stamp(cid, payload);
 
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    await _prepareWrite();
+
+    if (existingDocId != null && existingDocId.trim().isNotEmpty) {
+      final id = existingDocId.trim();
+      await OptimisticFirestoreWrite.update(
+        ref: col.doc(id),
+        data: data,
+        module: OfflineModules.visitantes,
+        tenantId: cid,
+      );
+      unawaited(refreshRamFromCache(cid));
+      return id;
     }
 
-    Future<String> writeOnce() async {
-      if (existingDocId != null && existingDocId.trim().isNotEmpty) {
-        final id = existingDocId.trim();
-        await col.doc(id).update(data);
-        return id;
-      }
-      final docRef = col.doc();
-      final create = Map<String, dynamic>.from(data)
-        ..putIfAbsent('status', () => 'Novo')
-        ..putIfAbsent('followupCount', () => 0)
-        ..['createdAt'] = FieldValue.serverTimestamp();
-      await docRef.set(create);
-      return docRef.id;
-    }
+    final docRef = col.doc();
+    final create = Map<String, dynamic>.from(data)
+      ..putIfAbsent('status', () => 'Novo')
+      ..putIfAbsent('followupCount', () => 0)
+      ..['createdAt'] = FieldValue.serverTimestamp();
 
-    final id = await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(writeOnce, maxAttempts: 4),
-      maxAttempts: 4,
+    await OptimisticFirestoreWrite.set(
+      ref: docRef,
+      data: create,
+      module: OfflineModules.visitantes,
+      tenantId: cid,
     );
 
-    if (existingDocId == null || existingDocId.trim().isEmpty) {
-      unawaited(ensureProvisioned(cid));
-    }
-    return id;
+    unawaited(ensureProvisioned(cid));
+    unawaited(refreshRamFromCache(cid));
+    return docRef.id;
   }
 
   /// Exclui um ou vários visitantes num único batch (chunks de 450).

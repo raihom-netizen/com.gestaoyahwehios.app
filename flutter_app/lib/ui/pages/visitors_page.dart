@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -2432,7 +2434,11 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
     super.initState();
     final v = widget.visitor;
     _nomeCtrl = TextEditingController(text: v?.nome ?? '');
-    _telCtrl = TextEditingController(text: v?.telefone ?? '');
+    _telCtrl = TextEditingController(
+      text: v != null && v.telefone.trim().isNotEmpty
+          ? brPhoneMaskLive(v.telefone)
+          : '',
+    );
     _emailCtrl = TextEditingController(text: v?.email ?? '');
     _obsCtrl = TextEditingController(text: v?.observacoes ?? '');
     if (v != null && _origens.contains(v.comoConheceu)) {
@@ -2498,9 +2504,10 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
       return;
     }
 
+    final telMasked = brPhoneMaskLive(_telCtrl.text);
     final payload = <String, dynamic>{
       'nome': _nomeCtrl.text.trim(),
-      'telefone': _telCtrl.text.trim(),
+      'telefone': telMasked,
       'email': _emailCtrl.text.trim(),
       'comoConheceu': _comoConheceu,
       'observacoes': _obsCtrl.text.trim(),
@@ -2512,14 +2519,32 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
         churchId: churchId,
         payload: payload,
         existingDocId: _isEdit ? widget.visitor!.id : null,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 20),
+        onTimeout: () => throw TimeoutException(
+          'Tempo esgotado ao salvar. Verifique a conexão e tente de novo.',
+        ),
       );
-      if (mounted) Navigator.pop(context, true);
-    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            _isEdit ? 'Visitante atualizado.' : 'Visitante cadastrado.',
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        final friendly = FirestoreWebGuard.isInternalAssertionError(e)
+            ? 'Firestore instável na web. Aguarde 2 segundos e toque em Cadastrar novamente.'
+            : (e is TimeoutException
+                ? e.message
+                : 'Erro ao salvar: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao salvar: $e'),
+            content: Text(friendly ?? 'Erro ao salvar.'),
             backgroundColor: ThemeCleanPremium.error,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -2646,6 +2671,9 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                               icon: Icons.phone_outlined,
                             ),
                             keyboardType: TextInputType.phone,
+                            inputFormatters: const [
+                              BrPhoneInputFormatter(),
+                            ],
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                           TextFormField(

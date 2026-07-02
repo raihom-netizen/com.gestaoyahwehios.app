@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'dart:typed_data';
 
 import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/feed_photo_bottom_actions.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -42,6 +45,22 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
   void initState() {
     super.initState();
     _bytes = widget.imageBytes;
+    unawaited(_preparePreviewBytes());
+  }
+
+  Future<void> _preparePreviewBytes() async {
+    if (_bytes.isEmpty) return;
+    try {
+      final lite = await MediaService.compressImageBytes(
+        _bytes,
+        profile: MediaImageProfile.feed,
+      );
+      if (!mounted || lite.isEmpty || lite.length >= _bytes.length) return;
+      setState(() {
+        _bytes = lite;
+        _cropController.image = lite;
+      });
+    } catch (_) {}
   }
 
   void _selectRatio(int index) {
@@ -123,9 +142,17 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
                   baseColor: const Color(0xFF0A0A0A),
                   maskColor: Colors.black.withValues(alpha: 0.52),
                   radius: 4,
-                  onCropped: (result) {
+                  onCropped: (result) async {
                     if (result is CropSuccess) {
-                      Navigator.of(context).pop(result.croppedImage);
+                      var out = result.croppedImage;
+                      try {
+                        out = await MediaService.compressImageBytes(
+                          out,
+                          profile: MediaImageProfile.feed,
+                        );
+                      } catch (_) {}
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop(out);
                     } else if (result is CropFailure) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         ThemeCleanPremium.feedbackSnackBar(

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -15,7 +15,7 @@ abstract final class ChurchCartasModelosService {
   static const int kHistoryFetchLimit = 320;
 
   static String resolveChurchId(String hint) =>
-      ChurchRepository.churchId(hint.trim());
+      ChurchPanelTenant.forFirestore(hint.trim());
 
   static CollectionReference<Map<String, dynamic>> modelosCol(String churchId) =>
       ChurchUiCollections.cartasModelos(churchId);

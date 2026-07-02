@@ -16,8 +16,8 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
-import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -252,18 +252,55 @@ abstract final class FinanceComprovantePublishService {
   }
 
   static Future<String> resolveComprovanteUrl(Map<String, dynamic> data) async {
-    final url = sanitizeImageUrl(
+    final cached = sanitizeImageUrl(
       (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
     );
-    if (url.isNotEmpty) return url;
     final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
-    if (path.isEmpty) return '';
+    if (path.isEmpty) return cached;
     try {
       await ensureFirebaseCore(requireAuth: false);
-      return await firebaseDefaultStorage.ref(path).getDownloadURL();
+      Future<String> loadUrl() =>
+          firebaseDefaultStorage.ref(path).getDownloadURL();
+      if (kIsWeb) {
+        return await FirestoreWebGuard.runWithWebRecovery(
+          loadUrl,
+          maxAttempts: 4,
+        );
+      }
+      return await loadUrl();
     } catch (_) {
-      return '';
+      return cached;
     }
+  }
+
+  static Future<void> _mergeComprovantePatch({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Map<String, dynamic> patch,
+  }) async {
+    final data = Map<String, dynamic>.from(patch)
+      ..['updatedAt'] = FieldValue.serverTimestamp();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: docRef,
+        data: data,
+        isNewDoc: false,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => docRef.set(data, SetOptions(merge: true)),
+          maxAttempts: 4,
+          criticalWrite: true,
+        ),
+      );
+      return;
+    }
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(data, SetOptions(merge: true)),
+    ).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => throw TimeoutException(
+        'Comprovante enviado mas falhou ao gravar o link no Firestore.',
+      ),
+    );
   }
 
   /// Path canónico único: `igrejas/{churchId}/financeiro/YYYY_MM/{lancamentoId}.{ext}`.
@@ -489,7 +526,7 @@ abstract final class FinanceComprovantePublishService {
   }
 
   /// Upload Storage → validar → gravar URL no Firestore (síncrono, sem falso sucesso).
-  /// Web: CF `gyUploadFinanceComprovante` (Admin SDK — evita assert Firestore).
+  /// Web e mobile: Storage directo + [AdminFeedFirestoreBridge] (sem Cloud Function).
   static Future<String> uploadComprovanteNow({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -513,38 +550,6 @@ abstract final class FinanceComprovantePublishService {
         final uploadBytes = prepared.bytes;
         final uploadMime = prepared.mimeType;
 
-        if (kIsWeb) {
-          onProgress?.call(0.12);
-          final churchId = ChurchRepository.churchId(tenantId.trim());
-          String? yearMonth;
-          if (referenceDate != null) {
-            final y = referenceDate.year;
-            final m = referenceDate.month.toString().padLeft(2, '0');
-            yearMonth = '${y}_$m';
-          }
-          onProgress?.call(0.25);
-          final cf = await ChurchFunctionsService.uploadFinanceComprovante(
-            churchId: churchId,
-            lancamentoId: docRef.id,
-            bytes: uploadBytes,
-            mimeType: uploadMime,
-            fileName: fileName,
-            referenceYearMonth: yearMonth,
-          );
-          if (!cf.ok || cf.comprovanteUrl.isEmpty) {
-            throw StateError('Comprovante enviado mas a Cloud Function não confirmou.');
-          }
-          onProgress?.call(0.92);
-          await verifyComprovantePersisted(
-            docRef: docRef,
-            storagePath: cf.storagePath,
-          );
-          YahwehFlowLog.financeiroUploadOk();
-          YahwehFlowLog.financeiroSuccess();
-          onProgress?.call(1.0);
-          return cf.comprovanteUrl;
-        }
-
         final persisted = await _uploadComprovanteStorageCore(
           tenantId: tenantId,
           lancamentoId: docRef.id,
@@ -557,15 +562,9 @@ abstract final class FinanceComprovantePublishService {
           onProgress: onProgress,
         );
 
-        final firestorePatch = persisted.toFirestorePatch();
-
-        await runFirestorePublishWithRecovery(
-          () => docRef.set(firestorePatch, SetOptions(merge: true)),
-        ).timeout(
-          const Duration(seconds: 30),
-          onTimeout: () => throw TimeoutException(
-            'Comprovante enviado mas falhou ao gravar o link no Firestore.',
-          ),
+        await _mergeComprovantePatch(
+          docRef: docRef,
+          patch: persisted.toFirestorePatch(),
         );
 
         onProgress?.call(0.96);
@@ -591,11 +590,9 @@ abstract final class FinanceComprovantePublishService {
   }) async {
     await _ensureReady();
     final churchId = ChurchRepository.churchId(tenantId.trim());
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(
-        ChurchCanonicalMediaContract.comprovanteClearFirestorePatch(),
-        SetOptions(merge: true),
-      ),
+    await _mergeComprovantePatch(
+      docRef: docRef,
+      patch: ChurchCanonicalMediaContract.comprovanteClearFirestorePatch(),
     );
     unawaited(
       deleteComprovanteArtifacts(

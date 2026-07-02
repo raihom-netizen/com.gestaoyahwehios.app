@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Modos de alerta (alinhados a [ChurchChatNotificationPrefs]).
@@ -131,7 +132,8 @@ class ChurchChatMemberPrefs {
     String tenantId,
     String uid,
   ) {
-    return         ChurchOperationalPaths.churchDoc(tenantId)
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    return ChurchUiCollections.churchDoc(churchId)
         .collection('chat_member_prefs')
         .doc(uid);
   }
@@ -288,9 +290,8 @@ class ChurchChatMemberPrefs {
     required String messageId,
   }) async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
-          .collection('chats')
+      final churchId = ChurchRepository.churchId(tenantId.trim());
+      await ChurchUiCollections.chats(churchId)
           .doc(threadId)
           .collection('messages')
           .doc(messageId)
@@ -669,20 +670,29 @@ class ChurchChatMemberPrefs {
     if (!threadId.startsWith('dm_')) return true;
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final thread = await ChurchOperationalPaths.churchDoc(op)
-            .collection('chats')
-            .doc(threadId)
-            .get();
-    final peers = thread.data()?['participantUids'];
-    if (peers is! List) return true;
-    String peer = '';
-    for (final p in peers) {
-      if (p.toString() != uid) peer = p.toString();
+    try {
+      final churchId = ChurchRepository.churchId(tenantId.trim());
+      if (churchId.isEmpty) return true;
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      }
+      final thread = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.chats(churchId).doc(threadId).get(),
+        maxAttempts: kIsWeb ? 4 : 2,
+      ).timeout(const Duration(seconds: 10));
+      final peers = thread.data()?['participantUids'];
+      if (peers is! List) return true;
+      var peer = '';
+      for (final p in peers) {
+        if (p.toString() != uid) peer = p.toString();
+      }
+      if (peer.isEmpty) return true;
+      final prefs = await load(tenantId);
+      return !prefs.isBlockedPeer(peer);
+    } catch (_) {
+      // Falha de rede/SDK — não bloquear envio de mídia/texto por timeout de prefs.
+      return true;
     }
-    if (peer.isEmpty) return true;
-    final prefs = await load(tenantId);
-    return !prefs.isBlockedPeer(peer);
   }
 }
 

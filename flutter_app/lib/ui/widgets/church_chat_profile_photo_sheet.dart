@@ -12,9 +12,11 @@ import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
 
@@ -174,13 +176,12 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     return path.isNotEmpty;
   }
 
-  Future<void> _pickFromGallery() async {
+  Future<void> _pickUnified() async {
     if (!widget.canChangePhoto || _busy || _picking) return;
     setState(() => _picking = true);
     try {
-      final hit = await MemberProfilePhotoPickService.pickFromGallery(context);
-      if (!mounted) return;
-      if (hit == null) return;
+      final hit = await MemberProfilePhotoPickService.pickForMemberEdit(context);
+      if (!mounted || hit == null) return;
       setState(() {
         _previewBytes = hit.bytes;
         _pickedFileName = hit.displayName;
@@ -229,16 +230,26 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'membro_foto_editor',
       );
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
       await DirectStorageUrlPublish.ensureReady();
-      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
-        tenantId: widget.churchId,
-        memberDocId: widget.memberId,
-        memberData: widget.initialData,
-        rawBytes: bytes,
-        onPhase: (label) {
-          if (mounted) setState(() => _phaseLabel = label);
-        },
-      );
+      Future<MemberProfilePhotoUpdateResult> publish() =>
+          MemberProfilePhotoUpdateService.uploadAndPatchMember(
+            tenantId: widget.tenantId,
+            memberDocId: widget.memberId,
+            memberData: widget.initialData,
+            rawBytes: bytes,
+            onPhase: (label) {
+              if (mounted) setState(() => _phaseLabel = label);
+            },
+          );
+      final result = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              publish,
+              maxAttempts: 4,
+            )
+          : await publish();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar('Foto de perfil actualizada!'),
@@ -247,13 +258,16 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor_save'));
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _phaseLabel = '';
-      });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _phaseLabel = '';
+        });
+      }
     }
   }
 
@@ -303,7 +317,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         logLabel: 'membro_foto_remove',
       );
       final result = await MemberProfilePhotoUpdateService.removeProfilePhoto(
-        tenantId: widget.churchId,
+        tenantId: widget.tenantId,
         memberDocId: widget.memberId,
         memberData: widget.initialData,
         onPhase: (label) {
@@ -328,12 +342,12 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     }
   }
 
-  Widget _previewAvatar() {
+  Widget _previewAvatar({double size = 132}) {
     final preview = _previewBytes;
     if (preview != null && preview.isNotEmpty) {
       return Container(
-        width: 132,
-        height: 132,
+        width: size,
+        height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           boxShadow: ThemeCleanPremium.softUiCardShadow,
@@ -346,8 +360,8 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
           child: Image.memory(
             preview,
             key: ValueKey<int>(preview.length),
-            width: 132,
-            height: 132,
+            width: size,
+            height: size,
             fit: BoxFit.cover,
             gaplessPlayback: true,
           ),
@@ -360,7 +374,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: FotoMembroWidget(
-        size: 132,
+        size: size,
         tenantId: widget.churchId,
         memberId: widget.memberId,
         memberData: widget.initialData,
@@ -427,41 +441,45 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
               child: Column(
                 children: [
                   Text(
-                    'Storage: igrejas/${widget.churchId}/membros/',
+                    'Toque abaixo para escolher e recortar a foto (quadrado 1:1).',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 12,
+                      height: 1.35,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Color(0xFF2563EB), Color(0xFFDB2777)],
-                          ),
-                        ),
-                        child: _previewAvatar(),
-                      ),
-                      if (_picking)
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Center(
-                              child: CircularProgressIndicator(color: Colors.white),
+                  GestureDetector(
+                    onTap: canPick ? _pickUnified : null,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF2563EB), Color(0xFFDB2777)],
                             ),
                           ),
+                          child: _previewAvatar(),
                         ),
-                    ],
+                        if (_picking)
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Center(
+                                child: CircularProgressIndicator(color: Colors.white),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -490,28 +508,11 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
             ),
             if (widget.canChangePhoto) ...[
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _PhotoSourceCard(
-                      icon: Icons.photo_library_rounded,
-                      label: kIsWeb ? 'Arquivo' : 'Galeria',
-                      tint: const Color(0xFF2563EB),
-                      onTap: canPick ? _pickFromGallery : null,
-                    ),
-                  ),
-                  if (!kIsWeb) ...[
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _PhotoSourceCard(
-                        icon: Icons.photo_camera_rounded,
-                        label: 'Câmera',
-                        tint: const Color(0xFF059669),
-                        onTap: canPick ? _pickFromCamera : null,
-                      ),
-                    ),
-                  ],
-                ],
+              MemberSignupPhotoRequiredCard(
+                hasPhoto: hasPreview,
+                onGallery: canPick ? _pickUnified : null,
+                onCamera: canPick ? _pickFromCamera : null,
+                photoPreview: _previewAvatar(size: 80),
               ),
             ],
             if (_busy && _phaseLabel.isNotEmpty) ...[
@@ -603,64 +604,6 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PhotoSourceCard extends StatelessWidget {
-  const _PhotoSourceCard({
-    required this.icon,
-    required this.label,
-    required this.tint,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color tint;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-      elevation: 0,
-      shadowColor: Colors.black.withValues(alpha: 0.06),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            border: Border.all(color: tint.withValues(alpha: 0.22)),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: tint.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Icon(icon, color: tint, size: 28),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: ThemeCleanPremium.onSurface,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );

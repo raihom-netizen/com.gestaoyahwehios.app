@@ -403,7 +403,13 @@ class ChurchRolePermissions {
         }
         return s.manageVisitors && !s.restrictedNav;
       case 6:
-        return s.manageCargosCatalog && !s.restrictedNav;
+        if (_hasGranularModule(permissions, 'cargos')) return true;
+        if (s.manageCargosCatalog && !s.restrictedNav) return true;
+        // Pastoral / tesouraria / secretariado — catálogo ministerial.
+        if (!s.restrictedNav && (s.editAnyMember || s.editDepartments)) {
+          return true;
+        }
+        return false;
       case 7:
         return true;
       case 8:
@@ -463,7 +469,8 @@ class ChurchRolePermissions {
         // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
         return true;
       case 23:
-        return false; // Chat Igreja removido — índice 23 reservado.
+        // Yahweh Chat — membros e departamentos.
+        return true;
       default:
         return true;
     }

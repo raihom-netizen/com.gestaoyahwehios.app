@@ -8629,6 +8629,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                     canChangePhotos: widget.canManagePhotos,
                     canRemovePhotos: widget.canManagePhotos,
                     accentColor: cor,
+                    onChanged: () {
+                      if (mounted) setState(() {});
+                    },
                   ),
                 ],
               ),

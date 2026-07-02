@@ -56,6 +56,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -654,13 +655,28 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       ),
     );
     if (ok == true) {
-      await _noticias.doc(doc.id).delete();
-      ChurchEventosLoadService.removeFromRam(_churchId, [doc.id]);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Evento excluído.'));
-        _feedTabKey.currentState?._refresh();
-        _galleryTabKey.currentState?._refreshAfterDelete([doc.id]);
+      try {
+        await ChurchEventosLoadService.deleteOne(
+          churchIdHint: _churchId,
+          docId: doc.id,
+          data: doc.data(),
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar('Evento excluído.'));
+          _feedTabKey.currentState?._refresh();
+          _galleryTabKey.currentState?._refreshAfterDelete([doc.id]);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erro ao excluir: $e'),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+          _feedTabKey.currentState?._refresh();
+        }
       }
     }
   }
@@ -1954,39 +1970,38 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     if (ok != true || !mounted) return;
 
     setState(() => _bulkDeleting = true);
+    final ids = allowedRefs.map((r) => r.id).toList();
+    final dataById = <String, Map<String, dynamic>>{
+      for (final d in _galleryDocs) d.id: d.data(),
+    };
+    final prevGallery = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      _galleryDocs,
+    );
+    setState(() {
+      _galleryDocs = _galleryDocs.where((d) => !ids.contains(d.id)).toList();
+      _selectedIds.clear();
+      _selectMode = false;
+      _bulkDeleting = false;
+    });
     try {
-      await ensureFirebaseReadyForPublishUpload();
-      const chunkSize = 400;
-      for (var i = 0; i < allowedRefs.length; i += chunkSize) {
-        final batch = ChurchRepository.batch();
-        final chunk = allowedRefs.sublist(
-            i,
-            i + chunkSize > allowedRefs.length
-                ? allowedRefs.length
-                : i + chunkSize);
-        for (final r in chunk) {
-          batch.delete(r);
-        }
-        await batch.commit();
-      }
-      final ids = allowedRefs.map((r) => r.id).toList();
-      ChurchEventosLoadService.removeFromRam(_churchId, ids);
+      await ChurchEventosLoadService.deleteMany(
+        churchIdHint: _churchId,
+        docIds: ids,
+        dataById: dataById,
+      );
       if (!mounted) return;
-      setState(() {
-        _galleryDocs = _galleryDocs.where((d) => !ids.contains(d.id)).toList();
-        _selectedIds.clear();
-        _selectMode = false;
-        _bulkDeleting = false;
-      });
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Evento(s) excluído(s).'));
     } catch (e) {
-      if (mounted) {
-        setState(() => _bulkDeleting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir: $e')),
-        );
-      }
+      if (!mounted) return;
+      setState(() {
+        _galleryDocs
+          ..clear()
+          ..addAll(prevGallery);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao excluir: $e')),
+      );
     }
   }
 
@@ -3327,13 +3342,21 @@ class _FeedTabState extends State<_FeedTab> {
       final result = await ChurchEventosLoadService.loadFeed(
         seedTenantId: tid,
         limit: _feedPageSize,
-      ).timeout(const Duration(milliseconds: 1800));
+      ).timeout(PanelResilientLoad.queryCap);
       if (result.docs.isNotEmpty) {
         _EventosNoticiasRamCache.put(tid, result.docs);
         applyDocs(result.docs);
         return;
       }
+      if (result.softError != null && mounted && _loadedDocs.isEmpty) {
+        setState(() {
+          _isInitialLoading = false;
+          _feedLoadError = result.softError;
+        });
+      }
     } catch (_) {}
+
+    if (kIsWeb) return;
 
     try {
       final cacheSnap = await _eventsBaseQuery()
@@ -3395,25 +3418,31 @@ class _FeedTabState extends State<_FeedTab> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
+      final result = await FirestoreWebGuard.runWithWebRecovery(
         () => ChurchEventosLoadService.loadFeed(
           seedTenantId: widget.tenantId.trim(),
           limit: _feedPageSize,
-        ).then((r) => r.snapshot),
+        ),
         maxAttempts: 4,
-      ).timeout(const Duration(seconds: 14));
-      final docs =
-          snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+      ).timeout(PanelResilientLoad.queryCap);
+      final docs = result.docs;
       if (!mounted) return;
       setState(() {
-        _loadedDocs
-          ..clear()
-          ..addAll(docs);
-        _feedLastCursor = docs.isNotEmpty ? docs.last : null;
-        _hasMoreFeedPages = docs.length >= _feedPageSize;
+        if (docs.isNotEmpty || _loadedDocs.isEmpty) {
+          _loadedDocs
+            ..clear()
+            ..addAll(docs);
+          _feedLastCursor = docs.isNotEmpty ? docs.last : null;
+          _hasMoreFeedPages = docs.length >= _feedPageSize;
+          _lastGoodEventsSnap = result.snapshot;
+        }
         _isInitialLoading = false;
-        _lastGoodEventsSnap = snap;
-        _feedLoadError = null;
+        _showingOfflineEvents = result.fromCache && docs.isNotEmpty;
+        _feedLoadError = docs.isEmpty && _loadedDocs.isEmpty
+            ? (result.softError != null
+                ? formatUploadErrorForUser(result.softError!)
+                : null)
+            : null;
       });
       if (docs.isNotEmpty) {
         _EventosNoticiasRamCache.put(widget.tenantId.trim(), docs);
@@ -3425,6 +3454,33 @@ class _FeedTabState extends State<_FeedTab> {
           _showingOfflineEvents = true;
           _feedLoadError = null;
           _isInitialLoading = false;
+        });
+        return;
+      }
+      final ram = ChurchEventosLoadService.peekRam(
+            ChurchRepository.churchId(widget.tenantId.trim()),
+            limit: _feedPageSize,
+          ) ??
+          _EventosNoticiasRamCache.peek(widget.tenantId.trim());
+      if (ram != null && ram.isNotEmpty) {
+        setState(() {
+          _loadedDocs
+            ..clear()
+            ..addAll(ram.length > _feedPageSize
+                ? ram.sublist(0, _feedPageSize)
+                : ram);
+          _feedLastCursor = _loadedDocs.isNotEmpty ? _loadedDocs.last : null;
+          _hasMoreFeedPages = ram.length > _feedPageSize;
+          _isInitialLoading = false;
+          _showingOfflineEvents = true;
+          _feedLoadError = null;
+        });
+        return;
+      }
+      if (kIsWeb) {
+        setState(() {
+          _isInitialLoading = false;
+          _feedLoadError = formatUploadErrorForUser(e);
         });
         return;
       }
@@ -3565,38 +3621,42 @@ class _FeedTabState extends State<_FeedTab> {
     );
     if (ok != true || !mounted) return;
 
-    await ensureFirebaseReadyForPublishUpload();
+    final ids = refs.map((r) => r.id).toList();
     final dataById = <String, Map<String, dynamic>>{
       for (final d in _loadedDocs) d.id: d.data(),
     };
-    const int chunkSize = 400; // limite seguro de batch
-    for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = ChurchRepository.batch();
-      final chunk = refs.sublist(
-          i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
-      for (final r in chunk) {
-        ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
-          tenantId: widget.tenantId,
-          postId: r.id,
-          isEvento: true,
-          data: dataById[r.id],
-        );
-        batch.delete(r);
-      }
-      await batch.commit();
-    }
+    final prevDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      _loadedDocs,
+    );
+    setState(() {
+      _loadedDocs.removeWhere((d) => ids.contains(d.id));
+      _selectedEventIds.removeAll(ids);
+      _selectMode = false;
+    });
 
-    if (mounted) {
-      final ids = refs.map((r) => r.id).toList();
-      ChurchEventosLoadService.removeFromRam(
-        ChurchRepository.churchId(widget.tenantId),
-        ids,
+    try {
+      await ChurchEventosLoadService.deleteMany(
+        churchIdHint: widget.tenantId,
+        docIds: ids,
+        dataById: dataById,
       );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Eventos excluídos.'));
-      _selectedEventIds.clear();
-      _selectMode = false;
-      await _loadInitialEvents();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadedDocs
+          ..clear()
+          ..addAll(prevDocs);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao excluir: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    } finally {
       if (mounted) setState(() {});
     }
   }
@@ -6595,6 +6655,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       webBytes = await encoded
           .readAsBytes()
           .timeout(const Duration(seconds: 20));
+      webBytes = await ChurchInstantUploadPipeline.prepareImageBytes(
+        webBytes!,
+        postType: kChurchPostTypeEvento,
+      );
       if (!mounted) return;
       setState(() {
         _newImages.add(webBytes!);
@@ -8152,14 +8216,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               })
           .where((m) => (m['videoUrl'] as String).isNotEmpty)
           .toList();
-      await _eventDocRef.set(
-        {
-          'videoUrl': firstVideoUrl,
-          'thumbUrl': firstThumbUrl,
-          'videos': videosClean,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      final patch = <String, dynamic>{
+        'videoUrl': firstVideoUrl,
+        'thumbUrl': firstThumbUrl,
+        'videos': videosClean,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: _eventDocRef,
+        data: patch,
+        isNewDoc: false,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => _eventDocRef.set(patch, SetOptions(merge: true)),
+          maxAttempts: 4,
+          criticalWrite: true,
+        ),
       );
       PublicationEngine.scheduleDistribution(
         tenantId: widget.tenantId,
@@ -10421,18 +10492,13 @@ class _FixosTabState extends State<_FixosTab> {
     );
     if (ok != true || !mounted) return;
 
-    const int chunkSize = 400;
-    for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = ChurchRepository.batch();
-      final chunk = refs.sublist(
-          i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
-      for (final r in chunk) {
-        batch.delete(r);
-      }
-      await batch.commit();
-    }
-
-    if (mounted) {
+    final ids = refs.map((r) => r.id).toList();
+    try {
+      await ChurchEventosLoadService.deleteMany(
+        churchIdHint: widget.tenantId,
+        docIds: ids,
+      );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Evento(s) removido(s) da agenda.'));
       setState(() {
@@ -10440,6 +10506,14 @@ class _FixosTabState extends State<_FixosTab> {
         _upcomingSelectMode = false;
         _proximosNoticiasFuture = _loadProximosNoticias();
       });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao excluir: $e'),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
     }
   }
 

@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -537,15 +538,17 @@ class MemberProfilePhotoUpdateService {
     )..['fotoUrlCacheRevision'] = revision;
 
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
+    await AdminFeedFirestoreBridge.upsertDocRef(
+      docRef: docRef,
+      data: patch,
+      isNewDoc: false,
+      directWrite: () => runFirestorePublishWithRecovery(
         () => docRef.set(patch, SetOptions(merge: true)),
         maxAttempts: 4,
+        criticalWrite: true,
       ),
-      maxAttempts: 4,
     );
 
     onPhase?.call('A limpar ficheiros…');

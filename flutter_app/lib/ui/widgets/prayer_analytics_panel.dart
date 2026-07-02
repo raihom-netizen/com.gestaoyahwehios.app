@@ -36,8 +36,8 @@ class PrayerAnalyticsPanel extends StatefulWidget {
 }
 
 class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
-  static const _rose = Color(0xFFEC4899);
-  static const _violet = Color(0xFF8B5CF6);
+  static final _accent = ThemeCleanPremium.primary;
+  static final _accentLight = ThemeCleanPremium.primaryLight;
   static const _green = Color(0xFF16A34A);
   static const _amber = Color(0xFFF59E0B);
 
@@ -296,7 +296,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                           return ListTile(
                             title: Text(item),
                             trailing: sel
-                                ? const Icon(Icons.check_rounded, color: _rose)
+                                ? Icon(Icons.check_rounded, color: _accent)
                                 : null,
                             onTap: () => Navigator.pop(ctx, item),
                           );
@@ -494,13 +494,13 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                         FilterChip(
                           label: Text(_periodChipLabel(p)),
                           selected: _filter.period == p,
-                          selectedColor: _rose.withValues(alpha: 0.18),
-                          checkmarkColor: _rose,
+                          selectedColor: _accent.withValues(alpha: 0.18),
+                          checkmarkColor: _accent,
                           labelStyle: TextStyle(
                             fontWeight: _filter.period == p
                                 ? FontWeight.w800
                                 : FontWeight.w600,
-                            color: _filter.period == p ? _rose : null,
+                            color: _filter.period == p ? _accent : null,
                           ),
                           onSelected: (_) => _onPeriodSelected(p),
                         ),
@@ -538,7 +538,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                           icon: const Icon(Icons.search_rounded, size: 20),
                           label: const Text('Pesquisar'),
                           style: FilledButton.styleFrom(
-                            backgroundColor: _rose,
+                            backgroundColor: _accent,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 20,
@@ -643,7 +643,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                       hintText: 'Buscar texto, autor ou categoria…',
                       prefixIcon: Icon(
                         Icons.search_rounded,
-                        color: _rose.withValues(alpha: 0.85),
+                        color: _accent.withValues(alpha: 0.85),
                       ),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -765,10 +765,10 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
     final gap = 10.0;
     final itemW = (maxW - gap * (cols - 1)) / cols;
     final items = [
-      _kpiCard('Total', stats.total, _violet),
+      _kpiCard('Total', stats.total, _accentLight),
       _kpiCard('Abertos', stats.abertos, _amber),
       _kpiCard('Respondidos', stats.respondidos, _green),
-      _kpiCard('Intercessões', stats.totalIntercessoes, _rose),
+      _kpiCard('Intercessões', stats.totalIntercessoes, _accent),
     ];
     return Wrap(
       spacing: gap,
@@ -973,7 +973,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                         BarChartRodData(
                           toY: e.value.value.toDouble(),
                           gradient: LinearGradient(
-                            colors: [_rose, _violet],
+                            colors: [_accent, _accentLight],
                             begin: Alignment.bottomCenter,
                             end: Alignment.topCenter,
                           ),
@@ -1092,7 +1092,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.calendar_today_rounded,
-                      size: 16, color: _rose.withValues(alpha: 0.9)),
+                      size: 16, color: _accent.withValues(alpha: 0.9)),
                   const SizedBox(width: 8),
                   Text(
                     value != null ? _dateFmt.format(value) : 'Selecionar',
@@ -1120,7 +1120,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
     return keys.asMap().entries.map((e) {
       final key = e.value;
       final val = data[key] ?? 0;
-      final color = _catColors[key] ?? _violet;
+      final color = _catColors[key] ?? _accentLight;
       return PieChartSectionData(
         value: val.toDouble(),
         title: '${((val / total) * 100).round()}%',
@@ -1140,7 +1140,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
         child: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 20, color: _rose),
+              Icon(icon, size: 20, color: _accent),
               const SizedBox(width: 8),
             ],
             Text(
@@ -1260,7 +1260,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: _rose),
+              Icon(icon, size: 18, color: _accent),
               const SizedBox(width: 8),
               ConstrainedBox(
                 constraints: BoxConstraints(

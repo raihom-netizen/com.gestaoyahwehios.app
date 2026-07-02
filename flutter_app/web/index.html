@@ -26,9 +26,7 @@
     <meta name="twitter:title" content="Gestão Yahweh - Igrejas" />
     <meta name="twitter:description" content="App para igrejas: membros, eventos, financeiro." />
     <meta name="twitter:image" content="https://gestaoyahweh.com.br/icons/Icon-512.png" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
+    <!-- Shell: no-cache (deploy) sem no-store — permite bfcache ao trocar de app no mobile. -->
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png" />
@@ -103,9 +101,14 @@
             if (v) localStorage.setItem(GYH_STORAGE_KEY, v);
           }).catch(function () {});
         }
-        setInterval(checkVersionAndStore, 60000);
+        setInterval(checkVersionAndStore, 600000);
+        var _gyhLastVisCheck = 0;
         document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState === 'visible') checkVersionAndStore();
+          if (document.visibilityState !== 'visible') return;
+          var now = Date.now();
+          if (now - _gyhLastVisCheck < 300000) return;
+          _gyhLastVisCheck = now;
+          checkVersionAndStore();
         });
         setTimeout(checkVersionAndStore, 8000);
       })();

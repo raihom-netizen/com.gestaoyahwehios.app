@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/core/yahweh_chat_engine_service.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -61,6 +62,8 @@ import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
@@ -360,8 +363,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   void _scheduleLazyMemberWarmup(String tenantId) {
+    unawaited(_warmMemberDirectoryForChat(tenantId));
     _lazyMemberWarmupTimer?.cancel();
-    _lazyMemberWarmupTimer = Timer(const Duration(seconds: 5), () {
+    _lazyMemberWarmupTimer = Timer(const Duration(seconds: 15), () {
       if (!mounted) return;
       unawaited(_warmMemberDirectoryForChat(tenantId));
     });
@@ -555,21 +559,30 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String peekTenantRaw,
     String resolvedTid,
   ) async {
+    final peekResolved = ChurchPanelTenant.forFirestore(peekTenantRaw);
+    final tidResolved = ChurchPanelTenant.forFirestore(resolvedTid);
+    if (peekResolved.isNotEmpty &&
+        tidResolved.isNotEmpty &&
+        peekResolved == tidResolved) {
+      return true;
+    }
     final p = peekTenantRaw.trim();
     if (p.isEmpty || p == resolvedTid) return true;
     if (ChurchContextService.panelChurchId(p) == resolvedTid) return true;
-    return ChurchRepository.churchId(p) == resolvedTid;
+    return ChurchPanelTenant.forFirestore(p) == tidResolved ||
+        ChurchRepository.churchId(p) == resolvedTid;
   }
 
   Future<void> _tryConsumePendingChatThread({int attempt = 0}) async {
     if (!mounted || !widget.embeddedInShell) return;
+    const maxAttempts = 48;
     final tid = _resolvedTenantId;
     if (tid == null || tid.isEmpty) {
       final peek =
           ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
-      if (peek != null && attempt < 10) {
+      if (peek != null && attempt < maxAttempts) {
         await Future<void>.delayed(
-          Duration(milliseconds: 120 + attempt * 120),
+          Duration(milliseconds: 100 + attempt * 100),
         );
         if (mounted) {
           return _tryConsumePendingChatThread(attempt: attempt + 1);
@@ -581,7 +594,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
     if (peek == null) return;
     if (peek.tenantId != null && peek.tenantId!.isNotEmpty) {
-      if (!await _pendingPeekTenantMatches(peek.tenantId!, tid)) return;
+      if (!await _pendingPeekTenantMatches(peek.tenantId!, tid)) {
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 80 + attempt * 80),
+          );
+          if (mounted) {
+            return _tryConsumePendingChatThread(attempt: attempt + 1);
+          }
+        }
+        return;
+      }
     }
 
     final threadId = peek.threadId.trim();
@@ -853,8 +876,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final hint = widget.tenantId.trim();
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
 
-    final tid = ChurchPanelTenant.resolve(hint);
+    final tid = ChurchRepository.churchId(hint);
     if (tid.isEmpty) return;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
 
     QuerySnapshot<Map<String, dynamic>>? cachedList;
     if (uid.isNotEmpty) {
@@ -1139,7 +1166,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Future<void> _primeDepartmentsFromHive(String tid) async {
     try {
-      final churchId = ChurchPanelTenant.resolve(tid);
+      final churchId = ChurchRepository.churchId(tid);
       final rows = await TenantModuleHiveCache.readDocs(
         churchId,
         TenantModuleKeys.departamentos,
@@ -2442,7 +2469,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       children: [
         if (shellFullscreen)
           ChurchEmbeddedModuleBar(
-            title: 'Chat',
+            title: YahwehContactButtonLabels.yahwehChat,
             icon: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].icon,
             accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
             onBack: widget.onShellBack!,
@@ -4022,12 +4049,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _openPickPeer(
       BuildContext context, String tid, String uid) async {
     final prefs = await ChurchChatMemberPrefs.load(tid);
+    final churchId = ChurchRepository.churchId(tid.trim());
     QuerySnapshot<Map<String, dynamic>>? q;
     try {
-      final op = ChurchContextService.panelChurchId(tid);
-      q = await           ChurchUiCollections.membros(op)
-          .limit(120)
-          .get();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      q = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.membros(churchId).limit(120).get(),
+        maxAttempts: 4,
+      ).timeout(const Duration(seconds: 14));
     } catch (_) {
       q = null;
     }
@@ -4433,6 +4464,8 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
   StreamSubscription<MembersDirectorySnapshot>? _directorySub;
 
+  String get _churchId => ChurchRepository.churchId(widget.tenantId.trim());
+
   void _applyDirectoryRows(MembersDirectorySnapshot directory) {
     if (!directory.hasEntries) return;
     final rows = _rowsFromDirectory(directory);
@@ -4469,14 +4502,27 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       if (!mounted) return;
       setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
     });
-    final mem = MembersDirectorySnapshotService.peekMemory(widget.tenantId);
-    if (mem != null && mem.hasEntries) {
+    final mem = MembersDirectorySnapshotService.peekMemory(_churchId);
+    if (mem == null) {
+      final alt = MembersDirectorySnapshotService.peekMemory(widget.tenantId);
+      if (alt != null && alt.hasEntries) {
+        _rows = _rowsFromDirectory(alt);
+        _loading = false;
+      }
+    } else if (mem.hasEntries) {
       _rows = _rowsFromDirectory(mem);
+      _loading = false;
+    }
+    final ram = ChurchMembersLoadService.peekRam(_churchId);
+    if (_rows.isEmpty && ram != null && ram.isNotEmpty) {
+      _rows = ram
+          .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+          .toList();
       _loading = false;
     }
     unawaited(_warmContatosFromModuleCache());
     _directorySub =
-        MembersDirectorySnapshotService.watch(widget.tenantId).listen((dir) {
+        MembersDirectorySnapshotService.watch(_churchId).listen((dir) {
       if (dir.hasEntries) _applyDirectoryRows(dir);
     });
     _loadCapTimer = Timer(const Duration(seconds: 10), () {
@@ -4513,8 +4559,12 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   /// Nomes + fotos do `_panel_cache/members_directory` — sem esperar `membrosRecent(600)`.
   Future<void> _loadInstantFromCache() async {
     try {
-      final directory =
-          await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+      var directory =
+          await MembersDirectorySnapshotService.readOnce(_churchId);
+      if (!directory.hasEntries) {
+        directory =
+            await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+      }
       if (!mounted || !directory.hasEntries) return;
       _applyDirectoryRows(directory);
     } catch (_) {}
@@ -4555,7 +4605,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     }
     Future<void> poll() async {
       final online = await ChatMessagingEngine.fetchPresenceOnlineMap(
-        churchId: widget.tenantId,
+        churchId: _churchId,
         authUids: authUids,
       );
       if (!mounted) return;
@@ -4604,10 +4654,18 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     }
     var rows = <_ChatDirectoryMemberRow>[];
     var fetchFailed = false;
+    final churchId = _churchId;
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       try {
-        final directory =
-            await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+        var directory =
+            await MembersDirectorySnapshotService.readOnce(churchId);
+        if (!directory.hasEntries) {
+          directory =
+              await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+        }
         if (directory.hasEntries) {
           rows = _rowsFromDirectory(directory);
         }
@@ -4619,7 +4677,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
         try {
           final warmed =
               await MembersDirectorySnapshotService.warmFromCallableIfStale(
-            widget.tenantId,
+            churchId,
           ).timeout(const Duration(seconds: 18));
           if (warmed.hasEntries) {
             rows = _rowsFromDirectory(warmed);
@@ -4631,10 +4689,32 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
       if (rows.isEmpty) {
         try {
-          final snap = await ChurchTenantResilientReads.membrosRecent(
-            widget.tenantId,
-            limit: 80,
-          ).timeout(const Duration(seconds: 12));
+          final result = await FirestoreWebGuard.runWithWebRecovery(
+            () => ChurchMembersLoadService.load(
+              seedTenantId: churchId,
+              limit: 80,
+            ),
+            maxAttempts: 4,
+          ).timeout(PanelResilientLoad.queryCap);
+          if (result.docs.isNotEmpty) {
+            rows = result.docs
+                .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+                .toList();
+          }
+        } catch (_) {
+          fetchFailed = true;
+        }
+      }
+
+      if (rows.isEmpty) {
+        try {
+          final snap = await FirestoreWebGuard.runWithWebRecovery(
+            () => ChurchTenantResilientReads.membrosRecent(
+              churchId,
+              limit: 80,
+            ),
+            maxAttempts: 4,
+          ).timeout(PanelResilientLoad.queryCap);
           rows = snap.docs
               .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
               .toList();
@@ -4665,7 +4745,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           .whereType<ChurchChatMemberRef>()
           .toList();
       ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-        widget.tenantId,
+        churchId,
         refs,
       );
     }

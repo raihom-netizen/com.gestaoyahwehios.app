@@ -13,7 +13,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
@@ -229,15 +229,13 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   }
 
   Future<void> _pickPhoto({bool fromCamera = false}) async {
-    final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
-      source: fromCamera ? ImageSource.camera : ImageSource.gallery,
-      webCropContext: context,
-    );
-    if (picked == null) return;
-    final bytes = await picked.readAsBytes();
-    if (mounted) setState(() {
-      _photoFile = picked;
-      _photoBytes = bytes;
+    final hit = fromCamera
+        ? await MemberProfilePhotoPickService.pickFromCamera(context)
+        : await MemberProfilePhotoPickService.pickForMemberEdit(context);
+    if (hit == null || !mounted) return;
+    setState(() {
+      _photoFile = XFile.fromData(hit.bytes, name: hit.displayName);
+      _photoBytes = hit.bytes;
     });
   }
 

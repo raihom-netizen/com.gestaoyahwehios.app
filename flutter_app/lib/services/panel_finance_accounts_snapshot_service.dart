@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Conta bancária com saldo pré-calculado (`_panel_cache/finance_accounts`).
 class PanelFinanceAccountBalance {
@@ -107,16 +110,23 @@ abstract final class PanelFinanceAccountsSnapshotService {
   PanelFinanceAccountsSnapshotService._();
 
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return ChurchOperationalPaths.churchDoc(tenantId.trim())
+    final tid = ChurchPanelTenant.forFirestore(tenantId.trim());
+    return ChurchOperationalPaths.churchDoc(tid)
         .collection('_panel_cache')
         .doc('finance_accounts');
   }
 
   static Future<PanelFinanceAccountsSnapshot> readOnce(String tenantId) async {
-    final tid = tenantId.trim();
+    final tid = ChurchPanelTenant.forFirestore(tenantId.trim());
     if (tid.isEmpty) return const PanelFinanceAccountsSnapshot();
     try {
-      final snap = await cacheRef(tid).get();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => cacheRef(tid).get(),
+        maxAttempts: 4,
+      );
       return PanelFinanceAccountsSnapshot.fromMap(snap.data());
     } catch (_) {
       return const PanelFinanceAccountsSnapshot();
@@ -124,7 +134,7 @@ abstract final class PanelFinanceAccountsSnapshotService {
   }
 
   static Stream<PanelFinanceAccountsSnapshot> watch(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = ChurchPanelTenant.forFirestore(tenantId.trim());
     if (tid.isEmpty) {
       return Stream.value(const PanelFinanceAccountsSnapshot());
     }

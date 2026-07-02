@@ -38,7 +38,9 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
         churchIdHint: widget.churchIdHint,
       ),
       builder: (context, snap) {
-        final items = snap.data ?? const <ChurchAvisoItem>[];
+        final items = (snap.data ?? const <ChurchAvisoItem>[])
+            .where((a) => a.hasImages)
+            .toList();
         if (items.isEmpty) return const SizedBox.shrink();
 
         return Container(

@@ -372,7 +372,7 @@ abstract final class MemberCardDirectoryService {
         .toList();
   }
 
-  /// Signatários — `igrejas/{churchId}/config/carteira_signatories` + CF opcional.
+  /// Signatários — cache local + membros já carregados; CF só em background.
   static Future<List<MemberCardSignatory>> loadSignatories(
     String tenantId, {
     bool forceRefresh = false,
@@ -384,7 +384,20 @@ abstract final class MemberCardDirectoryService {
 
     if (!forceRefresh) {
       try {
-        final cache = await _signatoryCacheRef(churchId).get();
+        final cache = await _signatoryCacheRef(churchId)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+        final data = cache.data();
+        if (cache.exists && _cacheFresh(data?['updatedAt'] as Timestamp?)) {
+          final parsed = _parseSignatoryCache(data);
+          if (parsed.isNotEmpty) return parsed;
+        }
+      } catch (_) {}
+
+      try {
+        final cache = await _signatoryCacheRef(churchId)
+            .get()
+            .timeout(const Duration(seconds: 8));
         final data = cache.data();
         if (cache.exists && _cacheFresh(data?['updatedAt'] as Timestamp?)) {
           final parsed = _parseSignatoryCache(data);
@@ -393,27 +406,35 @@ abstract final class MemberCardDirectoryService {
       } catch (_) {}
     }
 
+    final entries = await ChurchSignatoryLoadService.loadEligible(
+      seedTenantId: churchId,
+    ).timeout(const Duration(seconds: 14));
+    final list = _entriesToSignatories(entries);
+    if (list.isNotEmpty) {
+      unawaited(_writeSignatoryCache(churchId, list));
+    }
+
+    if (!forceRefresh) {
+      unawaited(_refreshSignatoriesIndexInBackground(churchId));
+    }
+    return list;
+  }
+
+  static Future<void> _refreshSignatoriesIndexInBackground(String churchId) async {
     try {
       final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
           .httpsCallable('refreshCarteiraSignatoriesIndex');
       final res = await fn
           .call<Map<dynamic, dynamic>>({'tenantId': churchId})
-          .timeout(const Duration(seconds: 25));
+          .timeout(const Duration(seconds: 20));
       final items = res.data['items'];
       if (items is List && items.isNotEmpty) {
         final parsed = _parseSignatoryCache({'items': items});
-        if (parsed.isNotEmpty) return parsed;
+        if (parsed.isNotEmpty) {
+          await _writeSignatoryCache(churchId, parsed);
+        }
       }
     } catch (_) {}
-
-    final entries = await ChurchSignatoryLoadService.loadEligible(
-      seedTenantId: churchId,
-    );
-    final list = _entriesToSignatories(entries);
-    if (list.isNotEmpty) {
-      unawaited(_writeSignatoryCache(churchId, list));
-    }
-    return list;
   }
 
   static Future<void> _writeSignatoryCache(

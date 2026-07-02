@@ -5,8 +5,10 @@ import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
@@ -102,7 +104,7 @@ abstract final class ChurchFinanceLoadService {
   ) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return null;
-    for (final limit in [800, kDefaultLancamentosLimit, 400, 250, 80, 50]) {
+    for (final limit in [800, 200, kDefaultLancamentosLimit, 400, 250, 80, 50]) {
       final hit = peekLancamentosRam(churchId, limit: limit);
       if (hit != null && hit.isNotEmpty) return hit;
     }
@@ -119,7 +121,8 @@ abstract final class ChurchFinanceLoadService {
 
   static String resolveChurchId(String hint) => _resolve(hint);
 
-  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+  static String _resolve(String hint) =>
+      ChurchPanelTenant.forFirestore(hint.trim());
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
     Map<String, ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})> map,
@@ -424,7 +427,8 @@ abstract final class ChurchFinanceLoadService {
         if (hiveHit != null) {
           var docs = hiveHit.docs;
           if (sortDocs != null) docs = sortDocs(docs);
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs) ||
+              hiveModule == TenantModuleKeys.financeiro) {
             _putRam(ramMap, ramKey, docs);
             if (hiveHit.migratedFromLegacy) {
               unawaited(_persistHive(churchId, hiveModule, docs));
@@ -469,7 +473,7 @@ abstract final class ChurchFinanceLoadService {
         orderDescending: orderDescending,
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
-      );
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
       return ChurchFinanceLoadResult(
@@ -732,7 +736,7 @@ abstract final class ChurchFinanceLoadService {
     );
 
     final legacySub = (legacyFallbackSubcollection ?? '').trim();
-    if (legacySub.isEmpty) return primary;
+    if (legacySub.isEmpty || primary.isNotEmpty) return primary;
 
     final legacyRef =
         ChurchUiCollections.churchDoc(churchId).collection(legacySub);

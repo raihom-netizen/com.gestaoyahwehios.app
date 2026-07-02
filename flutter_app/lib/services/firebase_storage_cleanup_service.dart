@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -1031,7 +1032,7 @@ class FirebaseStorageCleanupService {
     required String itemDocId,
     required int slot,
   }) async {
-    if (slot < 0 || slot > 3) return;
+    if (slot < 0 || slot >= kMaxPatrimonioPhotosPerItem) return;
     final tid = tenantId.trim();
     final iid = itemDocId.trim();
     if (tid.isEmpty || iid.isEmpty) return;
@@ -1050,7 +1051,7 @@ class FirebaseStorageCleanupService {
     required String itemDocId,
     required int slot,
   }) async {
-    if (slot < 0 || slot > 3) return;
+    if (slot < 0 || slot >= kMaxPatrimonioPhotosPerItem) return;
     final tid = tenantId.trim();
     final iid = itemDocId.trim();
     if (tid.isEmpty || iid.isEmpty) return;

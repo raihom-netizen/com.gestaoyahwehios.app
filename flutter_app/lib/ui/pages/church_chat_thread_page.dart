@@ -250,10 +250,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
   String? _effectiveTenantId;
 
-  String get _tid => ChurchPanelTenant.resolve(
-        (_effectiveTenantId ?? '').isNotEmpty
-            ? _effectiveTenantId
-            : widget.tenantId,
+  String get _tid => ChurchRepository.churchId(
+        (_effectiveTenantId ?? '').trim().isNotEmpty
+            ? _effectiveTenantId!
+            : widget.tenantId.trim(),
       );
 
   Future<String> _awaitOperationalTenantId() async {
@@ -1775,9 +1775,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<bool> _ensureChatFirebaseReadyForMedia() async {
-    return ChatMediaRepository.ensureReadyForPick(
+    final ok = await ChatMediaRepository.ensureReadyForPick(
       context: mounted ? context : null,
     );
+    if (ok) return true;
+    try {
+      await ensureFirebaseReadyForChatSend().timeout(
+        const Duration(seconds: 10),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -3228,6 +3237,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _startVoiceRecordingImpl() async {
     try {
+      unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
       final startedPath = await _chatAudio.startRecording();
       if (startedPath == null) {
         if (mounted) {

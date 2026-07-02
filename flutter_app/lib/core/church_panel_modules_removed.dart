@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 /// Módulos removidos do painel — índices shell mantidos (não reindexar).
 const bool kChurchAvisosModuleEnabled = true;
 const bool kChurchEventosModuleEnabled = true;
-const bool kChurchChatModuleEnabled = false;
+const bool kChurchChatModuleEnabled = true;
 
 /// Exceção genérica para publicação/navegação em módulo removido.
 final class ChurchPanelModuleRemovedException implements Exception {

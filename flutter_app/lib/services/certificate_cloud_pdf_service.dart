@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:http/http.dart' as http;
 
 /// PDF de certificado no servidor — `gerarCertificadoPdf` / `processarCertificadosLote`.
@@ -22,7 +22,7 @@ abstract final class CertificateCloudPdfService {
     required String templateId,
     String? certificadoId,
   }) async {
-    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final churchId = ChurchPanelTenant.forFirestore(tenantId.trim());
     final mid = memberId.trim();
     if (churchId.isEmpty || mid.isEmpty) return null;
     try {
@@ -50,7 +50,7 @@ abstract final class CertificateCloudPdfService {
     required List<String> memberIds,
     required String templateId,
   }) async {
-    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final churchId = ChurchPanelTenant.forFirestore(tenantId.trim());
     if (churchId.isEmpty || memberIds.isEmpty) return null;
     try {
       final callable = _functions.httpsCallable(

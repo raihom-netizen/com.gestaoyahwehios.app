@@ -18,7 +18,9 @@ import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.d
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Patrimônio Ecofire — Storage (5 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto05`).
 abstract final class PatrimonioPublishService {
@@ -105,6 +107,9 @@ abstract final class PatrimonioPublishService {
     void Function(double progress)? onUploadProgress,
   }) async {
     await DirectStorageUrlPublish.ensureReady();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
 
     unawaited(
       PatrimonioPublishVerificationService.logPublishPhase(

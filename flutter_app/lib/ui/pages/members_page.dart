@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_role_extensions.dart';
@@ -2678,11 +2679,11 @@ class _MembersPageState extends State<MembersPage> {
                   children: [
                     _ActionChip(
                       icon: Icons.forum_rounded,
-                      label: 'Chat igreja',
+                      label: YahwehContactButtonLabels.yahwehChat,
                       color: const Color(0xFF0D9488),
                       onTap: () {
                         closeDetail();
-                        unawaited(ChurchMemberContactChat.openChatIgreja(
+                        ChurchMemberContactChat.tapYahwehChat(
                           context: context,
                           tenantId: _effectiveTenantId,
                           memberRole: widget.role,
@@ -2692,7 +2693,8 @@ class _MembersPageState extends State<MembersPage> {
                           memberData: member.data,
                           memberDocId: member.id,
                           displayName: name,
-                        ));
+                          popSheetBeforeNavigate: false,
+                        );
                       },
                     ),
                     _ActionChip(
@@ -2701,12 +2703,12 @@ class _MembersPageState extends State<MembersPage> {
                       color: const Color(0xFF25D366),
                       onTap: () {
                         closeDetail();
-                        unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(
-                          context,
-                          member.data,
+                        ChurchMemberContactChat.tapWhatsApp(
+                          context: context,
+                          memberData: member.data,
                           tenantId: _effectiveTenantId,
                           memberDocId: member.id,
-                        ));
+                        );
                       },
                     ),
                   ],

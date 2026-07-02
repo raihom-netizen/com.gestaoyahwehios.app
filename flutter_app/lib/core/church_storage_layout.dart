@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
@@ -662,10 +663,17 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto canónica — **uma pasta por bem**, 4 slots fixos (overwrite nativo no Storage):
-  /// `patrimonio/{itemDocId}/foto_1.jpg` … `foto_4.jpg`
+  static int _clampPatrimonioSlot(int slot) {
+    final max = kMaxPatrimonioPhotosPerItem - 1;
+    if (slot < 0) return 0;
+    if (slot > max) return max;
+    return slot;
+  }
+
+  /// Foto canónica — **uma pasta por bem**, 5 slots fixos (overwrite nativo no Storage):
+  /// `patrimonio/{itemDocId}/foto_1.jpg` … `foto_5.jpg`
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
+    final s = _clampPatrimonioSlot(slot);
     final safeId = _safeDocId(itemDocId);
     final n = s + 1;
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/foto_$n.jpg';
@@ -683,7 +691,7 @@ abstract final class ChurchStorageLayout {
   /// Layout antigo (flat) — só limpeza: `patrimonio/imagens/{id}_01.webp`.
   static String patrimonioPhotoPathFlatLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
+    final s = _clampPatrimonioSlot(slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n.webp';
@@ -692,7 +700,7 @@ abstract final class ChurchStorageLayout {
   /// Layout antigo (flat) — só limpeza: `patrimonio/thumbs/{id}_01.webp`.
   static String patrimonioThumbPathFlatLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
+    final s = _clampPatrimonioSlot(slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/thumbs/${safeId}_$n.webp';
@@ -701,7 +709,7 @@ abstract final class ChurchStorageLayout {
   /// Base sem extensão (limpeza) — path canónico na pasta do bem.
   static String patrimonioPhotoBaseWithoutExt(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
+    final s = _clampPatrimonioSlot(slot);
     final safeId = _safeDocId(itemDocId);
     final n = s + 1;
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/foto_$n';
@@ -719,7 +727,7 @@ abstract final class ChurchStorageLayout {
     final flat = patrimonioPhotoPathFlatLegacy(tenantId, itemDocId, slot);
     final flatThumb = patrimonioThumbPathFlatLegacy(tenantId, itemDocId, slot);
     final safeId = _safeDocId(itemDocId);
-    final n = (slot < 0 ? 0 : (slot > 3 ? 3 : slot)) + 1;
+    final n = _clampPatrimonioSlot(slot) + 1;
     final nPad = n.toString().padLeft(2, '0');
     final galeriaLegacy =
         '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$nPad.webp';
@@ -739,7 +747,7 @@ abstract final class ChurchStorageLayout {
 
   static String patrimonioPhotoBaseWithoutExtLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
+    final s = _clampPatrimonioSlot(slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
     final n = (s + 1).toString().padLeft(2, '0');

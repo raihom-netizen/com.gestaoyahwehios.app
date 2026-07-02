@@ -167,8 +167,8 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
 
   final bool hasPhoto;
   final Widget photoPreview;
-  final VoidCallback onGallery;
-  final VoidCallback onCamera;
+  final VoidCallback? onGallery;
+  final VoidCallback? onCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -193,8 +193,11 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
                   children: [
                     OutlinedButton.icon(
                       onPressed: onGallery,
-                      icon: const Icon(Icons.photo_library_rounded, size: 20),
-                      label: const Text('Galeria'),
+                      icon: Icon(
+                        kIsWeb ? Icons.crop_rounded : Icons.photo_library_rounded,
+                        size: 20,
+                      ),
+                      label: Text(kIsWeb ? 'Escolher e recortar' : 'Galeria'),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -202,18 +205,20 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: onCamera,
-                      icon: const Icon(Icons.camera_alt_rounded, size: 20),
-                      label: const Text('Selfie'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                    if (!kIsWeb) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: onCamera,
+                        icon: const Icon(Icons.camera_alt_rounded, size: 20),
+                        label: const Text('Selfie'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -222,8 +227,9 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             hasPhoto
-                ? 'Foto selecionada. Toque em Finalizar para enviar.'
-                : 'Envie uma foto nítida do rosto — usada no cartão de membro e no painel.',
+                ? 'Foto recortada. Confirme abaixo para gravar no cadastro.'
+                : 'Escolha uma foto nítida, ajuste o enquadramento (quadrado 1:1) '
+                    'e confirme — usada no cartão de membro e no painel.',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,

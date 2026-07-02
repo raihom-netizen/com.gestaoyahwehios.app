@@ -136,3 +136,70 @@ DateTime? parseBrDateDdMmYyyy(
   if (y < minYear || y > maxYear) return null;
   return _dateFromDmy(d, m, y);
 }
+
+/// Apenas dígitos do telefone (máx. 11 — celular BR).
+String brPhoneDigitsOnly(String raw) {
+  final d = raw.replaceAll(RegExp(r'\D'), '');
+  if (d.length <= 11) return d;
+  return d.substring(0, 11);
+}
+
+/// Máscara ao digitar — celular: `(62) 9.9170-5247`; fixo 10 díg.: `(62) 3210-5247`.
+String brPhoneMaskLive(String raw) {
+  final d = brPhoneDigitsOnly(raw);
+  if (d.isEmpty) return '';
+  if (d.length <= 2) {
+    return d.length == 1 ? '($d' : '($d)';
+  }
+
+  final ddd = d.substring(0, 2);
+  final rest = d.substring(2);
+  final b = StringBuffer('($ddd)');
+
+  if (rest.isEmpty) return b.toString();
+
+  final mobile = rest.startsWith('9') || d.length > 10;
+  if (mobile) {
+    b.write(' ${rest[0]}');
+    if (rest.length == 1) return b.toString();
+    b.write('.');
+    final mid = rest.substring(1);
+    if (mid.length <= 4) {
+      b.write(mid);
+      return b.toString();
+    }
+    b.write(mid.substring(0, 4));
+    if (mid.length > 4) {
+      b.write('-');
+      b.write(mid.substring(4));
+    }
+    return b.toString();
+  }
+
+  b.write(' ');
+  if (rest.length <= 4) {
+    b.write(rest);
+    return b.toString();
+  }
+  b.write(rest.substring(0, 4));
+  b.write('-');
+  b.write(rest.substring(4));
+  return b.toString();
+}
+
+/// [TextInputFormatter] — telefone BR com máscara `(DD) 9.XXXX-XXXX`.
+class BrPhoneInputFormatter extends TextInputFormatter {
+  const BrPhoneInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final masked = brPhoneMaskLive(newValue.text);
+    return TextEditingValue(
+      text: masked,
+      selection: TextSelection.collapsed(offset: masked.length),
+    );
+  }
+}

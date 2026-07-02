@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -23,6 +24,91 @@ class SistemaInformacoesPage extends StatefulWidget {
   @override
   State<SistemaInformacoesPage> createState() => _SistemaInformacoesPageState();
 }
+
+class _SistemaModuloResumo {
+  const _SistemaModuloResumo({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.accent,
+    this.moduleAssetKey,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color accent;
+  final String? moduleAssetKey;
+}
+
+const _kSistemaModulosResumo = <_SistemaModuloResumo>[
+  _SistemaModuloResumo(
+    title: 'Membros',
+    description: 'Cadastro completo, carteirinha digital com QR Code',
+    icon: Icons.people_rounded,
+    accent: Color(0xFF0D9488),
+    moduleAssetKey: 'membro',
+  ),
+  _SistemaModuloResumo(
+    title: 'Departamentos',
+    description: 'Organização por áreas e lideranças',
+    icon: Icons.groups_rounded,
+    accent: Color(0xFF7C3AED),
+  ),
+  _SistemaModuloResumo(
+    title: 'Escalas',
+    description: 'Minha escala e escala geral de ministérios',
+    icon: Icons.edit_calendar_rounded,
+    accent: Color(0xFFEA580C),
+    moduleAssetKey: 'escalas',
+  ),
+  _SistemaModuloResumo(
+    title: 'Financeiro',
+    description: 'Receitas, despesas, contas e gráficos',
+    icon: Icons.account_balance_wallet_rounded,
+    accent: Color(0xFF16A34A),
+    moduleAssetKey: 'financeiro',
+  ),
+  _SistemaModuloResumo(
+    title: 'Patrimônio',
+    description: 'Controle de bens e equipamentos da igreja',
+    icon: Icons.inventory_2_rounded,
+    accent: Color(0xFFD97706),
+  ),
+  _SistemaModuloResumo(
+    title: 'Avisos',
+    description: 'Mural e comunicados oficiais',
+    icon: Icons.view_quilt_rounded,
+    accent: Color(0xFF0284C7),
+    moduleAssetKey: 'avisos',
+  ),
+  _SistemaModuloResumo(
+    title: 'Eventos',
+    description: 'Cultos, programação e feed público',
+    icon: Icons.celebration_rounded,
+    accent: Color(0xFFDB2777),
+    moduleAssetKey: 'eventos',
+  ),
+  _SistemaModuloResumo(
+    title: 'YahwehChat',
+    description: 'Conversas internas, grupos e mídia em tempo real',
+    icon: Icons.forum_rounded,
+    accent: Color(0xFF4F46E5),
+    moduleAssetKey: 'chat',
+  ),
+  _SistemaModuloResumo(
+    title: 'Notificações',
+    description: 'Comunicados, lembretes e alertas do painel',
+    icon: Icons.notifications_active_rounded,
+    accent: Color(0xFFCA8A04),
+  ),
+  _SistemaModuloResumo(
+    title: 'Assinaturas',
+    description: 'Planos, PIX e cartão via Mercado Pago',
+    icon: Icons.payment_rounded,
+    accent: Color(0xFFB8941F),
+  ),
+];
 
 class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
   final _textoController = TextEditingController();
@@ -95,88 +181,121 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 YahwehWisdomSectionCard(
-                  borderTint: const Color(0xFF38BDF8),
+                  borderTint: YahwehWisdomVisualKit.tealAccent,
                   padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF38BDF8).withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: const Icon(Icons.feedback_rounded,
-                                size: 32, color: Color(0xFF0284C7)),
+                          churchWisdomModuleIconLeading(
+                            icon: Icons.info_outline_rounded,
+                            accent: YahwehWisdomVisualKit.navyMid,
+                            size: 52,
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: 14),
                           Expanded(
-                            child: Text(
-                              'Gestão YAHWEH',
-                              style: GoogleFonts.inter(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: const Color(0xFF1E293B),
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Gestão YAHWEH',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w800,
+                                    color: YahwehWisdomVisualKit.navyDeep,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Informações · ajuda, versão e módulos do app',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 22),
+                      const YahwehWisdomGoldTitle(
+                        text: 'Resumo do sistema',
+                        fontSize: 20,
+                        textAlign: TextAlign.start,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Principais áreas do painel — ícones coloridos no padrão WisdomApp.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildModulosResumoGrid(context),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              YahwehWisdomVisualKit.navyMid.withValues(alpha: 0.08),
+                              YahwehWisdomVisualKit.tealAccent.withValues(alpha: 0.06),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: YahwehWisdomVisualKit.tealAccent.withValues(alpha: 0.22),
+                          ),
+                        ),
+                        child: Text(
+                          'Agradecemos a confiança em nossa plataforma. '
+                          'O Gestão YAHWEH foi desenvolvido para auxiliar igrejas na organização '
+                          'de membros, eventos, finanças e comunicação. Seu feedback é muito importante para melhorarmos continuamente.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            height: 1.5,
+                            fontWeight: FontWeight.w500,
+                            color: YahwehWisdomVisualKit.navyDeep,
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 20),
-                        const Text(
-                          'Resumo do sistema',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF1E40AF)),
-                        ),
-                        const SizedBox(height: 12),
-                        _buildFeatureItem(Icons.people_rounded, 'Membros', 'Cadastro completo, carteirinha digital com QR Code'),
-                        _buildFeatureItem(Icons.groups_rounded, 'Departamentos', 'Organização por áreas e lideranças'),
-                        _buildFeatureItem(Icons.edit_calendar_rounded, 'Escalas', 'Minha escala e escala geral'),
-                        _buildFeatureItem(Icons.account_balance_wallet_rounded, 'Financeiro', 'Receitas, despesas e gráficos'),
-                        _buildFeatureItem(Icons.inventory_2_rounded, 'Patrimônio', 'Controle de bens e equipamentos'),
-                        _buildFeatureItem(Icons.view_quilt_rounded, 'Avisos', 'Mural e comunicados oficiais'),
-                        _buildFeatureItem(Icons.celebration_rounded, 'Eventos', 'Cultos, programação e feed'),
-                        _buildFeatureItem(Icons.notifications_rounded, 'Notificações', 'Comunicados e lembretes'),
-                        _buildFeatureItem(Icons.payment_rounded, 'Assinaturas', 'Planos, PIX e cartão via Mercado Pago'),
-                        const SizedBox(height: 24),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.blue.shade200),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Agradecemos a confiança em nossa plataforma. '
-                                'O Gestão YAHWEH foi desenvolvido para auxiliar igrejas na organização '
-                                'de membros, eventos, finanças e comunicação. Seu feedback é muito importante para melhorarmos continuamente.',
-                                style: TextStyle(fontSize: 14, height: 1.5, color: Colors.blue.shade900),
+                      Center(
+                        child: Column(
+                          children: [
+                            Text(
+                              'Desenvolvido por Raihom Barbosa',
+                              style: GoogleFonts.poppins(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.grey.shade800,
                               ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        Center(
-                          child: Column(
-                            children: [
-                              Text(
-                                'Desenvolvido por Raihom Barbosa',
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.grey.shade800),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Versão $appVersionFull',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade600,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Versão $appVersionFull',
-                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 28),
                 YahwehWisdomSectionCard(
@@ -251,24 +370,45 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
     );
   }
 
-  Widget _buildFeatureItem(IconData icon, String title, String desc) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: const Color(0xFF1E40AF)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                Text(desc, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-              ],
+  Widget _buildModulosResumoGrid(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 720;
+    if (wide) {
+      return LayoutBuilder(
+        builder: (context, c) {
+          final cross = c.maxWidth >= 960 ? 2 : 2;
+          return GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _kSistemaModulosResumo.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: cross,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 3.35,
             ),
-          ),
-        ],
+            itemBuilder: (_, i) => _buildModuloCard(_kSistemaModulosResumo[i]),
+          );
+        },
+      );
+    }
+    return Column(
+      children: [
+        for (final m in _kSistemaModulosResumo) _buildModuloCard(m),
+      ],
+    );
+  }
+
+  Widget _buildModuloCard(_SistemaModuloResumo m) {
+    return ChurchWisdomModuleListCard(
+      title: m.title,
+      subtitle: m.description,
+      accent: m.accent,
+      dense: true,
+      leading: churchWisdomModuleIconLeading(
+        icon: m.icon,
+        accent: m.accent,
+        moduleAssetKey: m.moduleAssetKey,
+        size: 46,
       ),
     );
   }

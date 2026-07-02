@@ -1089,7 +1089,8 @@ class _AppWithThemeState extends State<_AppWithTheme>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
-      if (kIsWeb) _repaintAfterWebResume();
+      // Web: repaint via visibility hook — evita setState duplo no [MaterialApp].
+      if (!kIsWeb) _repaintAfterWebResume();
     }
   }
 

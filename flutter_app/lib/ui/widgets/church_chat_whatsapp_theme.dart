@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 
 /// Paleta canónica WhatsApp — header, bolhas e fundos (Web / mobile).
 abstract final class ChurchChatWhatsAppTheme {
@@ -94,7 +95,7 @@ class ChurchChatWhatsAppSplitEmptyPane extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               Text(
-                'Chat Igreja',
+                YahwehContactButtonLabels.yahwehChat,
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,

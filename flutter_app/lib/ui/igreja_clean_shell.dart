@@ -49,7 +49,6 @@ import 'pages/fornecedores_page.dart';
 import 'pages/member_card_page.dart';
 import 'pages/church_avisos_page.dart';
 import 'pages/events_manager_page.dart';
-import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'pages/members_page.dart';
 import 'pages/my_schedules_page.dart';
 import 'pages/plans/renew_plan_page.dart';
@@ -63,6 +62,7 @@ import 'pages/cargos_page.dart';
 import 'pages/calendar_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
+import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
@@ -319,17 +319,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé mobile: Painel, Membros, Agenda, Orações — drawer no menu superior.
+    // Rodapé mobile: Início, Agenda, Membros, Avisos, Eventos, YahwehChat.
     final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
-        shortLabel: 'Painel',
+        shortLabel: 'Início',
         accent: kChurchShellNavEntries[0].accent,
-      ),
-      _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.membros,
-        shortLabel: 'Membros',
-        accent: kChurchShellNavEntries[ChurchShellIndices.membros].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.agenda,
@@ -337,9 +332,24 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         accent: kChurchShellNavEntries[ChurchShellIndices.agenda].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.pedidosOracao,
-        shortLabel: 'Orações',
-        accent: kChurchShellNavEntries[ChurchShellIndices.pedidosOracao].accent,
+        shellIndex: ChurchShellIndices.membros,
+        shortLabel: 'Membros',
+        accent: kChurchShellNavEntries[ChurchShellIndices.membros].accent,
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: ChurchShellIndices.muralAvisos,
+        shortLabel: 'Avisos',
+        accent: kChurchShellNavEntries[ChurchShellIndices.muralAvisos].accent,
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: ChurchShellIndices.muralEventos,
+        shortLabel: 'Eventos',
+        accent: kChurchShellNavEntries[ChurchShellIndices.muralEventos].accent,
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: ChurchShellIndices.chatIgreja,
+        shortLabel: 'YahwehChat',
+        accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
       ),
     ];
 
@@ -481,8 +491,27 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // Migração automática members → membros (servidor Admin SDK + fallback cliente)
     ChurchPanelNavigationBridge.instance.registerShellNavigator((idx) {
       if (!mounted) return;
-      if (!_canAccessItem(idx)) return;
-      setState(() => _selectedIndex = idx);
+      if (!_canAccessItem(idx)) {
+        _showPanelSnack(
+          idx == ChurchShellIndices.chatIgreja
+              ? 'Sem acesso ao YahwehChat nesta conta.'
+              : 'Sem acesso a este módulo.',
+          isError: true,
+        );
+        return;
+      }
+      _navigateToShellModuleFromDashboard(idx);
+      if (idx == ChurchShellIndices.chatIgreja) {
+        _pageCache[idx] ??= _modulePage(idx);
+        void renotifyChat() {
+          if (!mounted) return;
+          ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+        }
+        WidgetsBinding.instance.addPostFrameCallback((_) => renotifyChat());
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future<void>.delayed(const Duration(milliseconds: 280), renotifyChat);
+        });
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Tenant conhecido → libera módulos no 1.º frame; repair em background.
@@ -1350,6 +1379,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(YahwehModuleCaches.fornecedores.ensureLoaded(tid));
           break;
         case ChurchShellIndices.chatIgreja:
+          unawaited(YahwehModuleCaches.membros.ensureLoaded(tid));
           break;
         default:
           _shellPrefetchDone.remove(index);
@@ -1511,7 +1541,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   static const List<({String title, List<int> indices})> _menuSections = [
     (title: 'Início e conta', indices: [0, 1, 2, 22]),
     (title: 'Pessoas', indices: [3, 4, 5, 6]),
-    (title: 'Comunicação', indices: [7, 8, 9, 10, 18]),
+    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 23]),
     (title: 'Agenda e escalas', indices: [11, 12]),
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Relatórios e suporte', indices: [16, 17]),
@@ -1527,7 +1557,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
       (title: 'Geral', indices: [0, 22]),
       (title: 'Pessoas', indices: [3]),
-      (title: 'Comunicação', indices: [7, 8, 9, 10]),
+      (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
       (title: 'Agenda', indices: [11, 12]),
       (title: 'Documentos', indices: [13]),
     ];
@@ -2736,8 +2766,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
-        return ChurchPanelModuleRemovedPage.chat(
-            key: const ValueKey('chat_removed'));
+        return ChurchChatHubPage(
+          key: _shellPageKey(23),
+          tenantId: _moduleTenantId,
+          cpf: widget.cpf,
+          role: _panelRole,
+          embeddedInShell: true,
+          permissions: widget.permissions,
+        );
       default:
         return IgrejaDashboardModerno(
             key: ValueKey('page_$index'),

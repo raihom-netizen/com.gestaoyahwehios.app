@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
@@ -995,18 +995,20 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   Future<void> _pickPhoto({bool fromCamera = false}) async {
     final authUser = FirebaseAuth.instance.currentUser;
     final isPublicVisitor = authUser == null || authUser.isAnonymous;
-    final picked = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
-      source: fromCamera ? ImageSource.camera : ImageSource.gallery,
-      webCropContext: context,
-      requireAuth: !isPublicVisitor,
-    );
-    if (picked == null) return;
-    final bytes = await picked.readAsBytes();
-    if (mounted)
-      setState(() {
-        _photoFile = picked;
-        _photoBytes = bytes;
-      });
+    final hit = fromCamera
+        ? await MemberProfilePhotoPickService.pickFromCamera(
+            context,
+            requireAuth: !isPublicVisitor,
+          )
+        : await MemberProfilePhotoPickService.pickForMemberEdit(
+            context,
+            requireAuth: !isPublicVisitor,
+          );
+    if (hit == null || !mounted) return;
+    setState(() {
+      _photoFile = XFile.fromData(hit.bytes, name: hit.displayName);
+      _photoBytes = hit.bytes;
+    });
   }
 
   /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — nome fixo (sobrescreve ao trocar).

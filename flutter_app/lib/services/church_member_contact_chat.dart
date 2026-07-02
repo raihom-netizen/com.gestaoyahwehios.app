@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -168,6 +169,50 @@ abstract final class ChurchMemberContactChat {
     return (data: data, memberDocId: docId, peerUid: peerFromData());
   }
 
+  /// Atalho único — YahwehChat: abre módulo + conversa individual (web/iOS/Android).
+  static void tapYahwehChat({
+    required BuildContext context,
+    required String tenantId,
+    required String memberRole,
+    required String viewerCpfDigits,
+    required Map<String, dynamic> memberData,
+    required String displayName,
+    String? memberDocId,
+    String? draftText,
+    bool popSheetBeforeNavigate = true,
+  }) {
+    openChatIgrejaUnawaited(
+      context: context,
+      tenantId: tenantId,
+      memberRole: memberRole,
+      viewerCpfDigits: viewerCpfDigits,
+      memberData: memberData,
+      displayName: displayName,
+      memberDocId: memberDocId,
+      draftText: draftText,
+      popSheetBeforeNavigate: popSheetBeforeNavigate,
+    );
+  }
+
+  /// Atalho único — WhatsApp: abre app com conversa do membro.
+  static void tapWhatsApp({
+    required BuildContext context,
+    required Map<String, dynamic> memberData,
+    String? tenantId,
+    String? memberDocId,
+    String? message,
+  }) {
+    unawaited(
+      openWhatsAppFaleComigo(
+        context,
+        memberData,
+        message: message,
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+      ),
+    );
+  }
+
   /// Atalhos do painel / membros — não bloqueia o botão (Future em background).
   static void openChatIgrejaUnawaited({
     required BuildContext context,
@@ -306,9 +351,15 @@ abstract final class ChurchMemberContactChat {
       return;
     }
 
-    final churchId = ChurchRepository.churchId(tenantId.trim());
-    final operationalTenant =
-        churchId.isNotEmpty ? churchId : tenantId.trim();
+    final operationalTenant = ChurchPanelTenant.forFirestore(tenantId);
+    if (operationalTenant.isEmpty) {
+      messenger?.showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Igreja não identificada para abrir o YahwehChat.',
+        ),
+      );
+      return;
+    }
 
     final resolved = await resolvePeerForChat(
       tenantId: operationalTenant,
@@ -338,24 +389,10 @@ abstract final class ChurchMemberContactChat {
         displayName.trim().isEmpty ? 'Membro' : displayName.trim();
 
     final titleA = firebaseDefaultAuth.currentUser?.displayName ?? 'Eu';
-    final ensured = await ChurchChatService.ensureDmThreadResilient(
-      tenantId: operationalTenant,
-      uidA: myUid,
-      uidB: peerUid,
-      titleA: titleA,
-      titleB: titulo,
-    );
-    if (!ensured) {
-      messenger?.showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'A sincronizar o chat — a conversa abre na mesma.',
-        ),
-      );
-    }
-
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = (draftText ?? faleComigoDraft()).trim();
 
+    // Navega para o YahwehChat imediatamente (hub consome DM pendente).
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
       tenantId: operationalTenant,
@@ -364,6 +401,22 @@ abstract final class ChurchMemberContactChat {
       initialDraftText: draft.isEmpty ? null : draft,
     );
     ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
+      ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+    });
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
+      ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+    });
+
+    unawaited(
+      ChurchChatService.ensureDmThreadResilient(
+        tenantId: operationalTenant,
+        uidA: myUid,
+        uidB: peerUid,
+        titleA: titleA,
+        titleB: titulo,
+      ),
+    );
   }
 
   static Future<void> openWhatsAppFaleComigo(

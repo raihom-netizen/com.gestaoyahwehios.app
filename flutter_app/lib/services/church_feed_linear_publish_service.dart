@@ -275,16 +275,22 @@ abstract final class ChurchFeedLinearPublishService {
     if (isEvento && syncAgenda) {
       final start = eventStartAt ?? _startAtFromPayload(payload);
       if (start != null) {
-        await ChurchFeedAgendaSyncService.upsertForEvento(
-          tenantId: churchId,
-          eventoId: docId,
-          title: (payload['title'] ?? '').toString(),
-          description: (payload['text'] ?? '').toString(),
-          startAt: start,
-          location: location,
-          category: agendaCategory ?? 'evento_social',
-          colorHex: agendaColorHex ?? '#E11D48',
-        );
+        try {
+          await ChurchFeedAgendaSyncService.upsertForEvento(
+            tenantId: churchId,
+            eventoId: docId,
+            title: (payload['title'] ?? '').toString(),
+            description: (payload['text'] ?? '').toString(),
+            startAt: start,
+            location: location,
+            category: agendaCategory ?? 'evento_social',
+            colorHex: agendaColorHex ?? '#E11D48',
+          ).timeout(
+            kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 30),
+          );
+        } catch (e) {
+          debugPrint('EVENTOS agenda sync (não bloqueia publish): $e');
+        }
       }
     } else if (!isEvento && syncCalendar) {
       final refDate = calendarDate ?? _validUntilFromPayload(payload);

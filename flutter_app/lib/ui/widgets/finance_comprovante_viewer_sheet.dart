@@ -32,11 +32,16 @@ abstract final class FinanceComprovanteViewerSheet {
     }
     final mime = FinanceComprovanteAttachService.mimeFromDoc(data);
     final fileName = FinanceComprovanteAttachService.displayNameFromDoc(data);
-    final url =
+    final storagePath = FinanceComprovanteUtils.storagePath(data);
+    var url =
         await FinanceComprovantePublishService.resolveComprovanteUrl(data);
     if (!context.mounted) return;
-    if (url.isEmpty && mime.contains('pdf')) {
-      await _showPdfFromStorage(context, data, fileName);
+    if (url.isEmpty && storagePath.isNotEmpty) {
+      if (mime.contains('pdf')) {
+        await _showPdfFromStorage(context, data, fileName);
+        return;
+      }
+      await _showImageFromStorage(context, data, fileName, mime);
       return;
     }
     if (url.isEmpty) {
@@ -50,8 +55,107 @@ abstract final class FinanceComprovanteViewerSheet {
       url: url,
       fileName: fileName,
       mimeType: mime,
-      storagePath: FinanceComprovanteUtils.storagePath(data),
+      storagePath: storagePath,
     );
+  }
+
+  static Future<void> _showImageFromStorage(
+    BuildContext context,
+    Map<String, dynamic> data,
+    String fileName,
+    String mime,
+  ) async {
+    try {
+      await ensureFirebaseCore(requireAuth: false);
+      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+      if (path.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Não foi possível abrir o comprovante.')),
+          );
+        }
+        return;
+      }
+      final bytes = await firebaseDefaultStorage
+          .ref(path)
+          .getData(FinanceComprovanteAttachService.maxBytes);
+      if (!context.mounted) return;
+      if (bytes == null || bytes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível carregar a imagem.')),
+        );
+        return;
+      }
+      if (kIsWeb) {
+        await showFinanceComprovanteWebBytes(
+          context: context,
+          bytes: bytes,
+          fileName: fileName,
+          mimeType: mime,
+        );
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => DraggableScrollableSheet(
+          initialChildSize: 0.92,
+          minChildSize: 0.45,
+          maxChildSize: 0.98,
+          builder: (_, scrollCtrl) => Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF1C1C1E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 10, 8, 8),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      ),
+                      Expanded(
+                        child: Text(
+                          fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: InteractiveViewer(
+                    child: Image.memory(bytes, fit: BoxFit.contain),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Erro ao abrir comprovante: ${e.toString().split('\n').first}',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   static Future<void> show(

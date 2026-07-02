@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/chat_engine/chat_message_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
 export 'package:gestao_yahweh/services/church_chat_service.dart'
@@ -138,12 +139,18 @@ abstract final class ChatThreadOperations {
     required String tenantId,
     required String threadId,
     required String messageId,
-  }) =>
-      ChurchChatService.deleteMessage(
-        tenantId: tenantId,
-        threadId: threadId,
+  }) async {
+    try {
+      await ChatMessageRepository.deleteForEveryone(
+        churchId: tenantId,
+        chatId: threadId,
         messageId: messageId,
       );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<bool> setMyReactionOnMessage({
     required String tenantId,

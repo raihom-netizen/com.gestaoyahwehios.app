@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
 
@@ -60,8 +61,17 @@ abstract final class ChurchInstantUploadPipeline {
     }
     final isEvento = postType?.trim().toLowerCase() == 'evento';
     if (isEvento) {
+      var work = base;
+      if (work.length > kEventoFotoMaxUploadBytes) {
+        try {
+          work = await MediaService.compressImageBytes(
+            work,
+            profile: MediaImageProfile.feed,
+          );
+        } catch (_) {}
+      }
       return ImageHelper.compressImageUnderMaxBytes(
-        base,
+        work,
         maxBytes: kEventoFotoMaxUploadBytes,
       );
     }

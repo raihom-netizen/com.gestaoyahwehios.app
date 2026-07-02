@@ -162,8 +162,8 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
     subtitle: 'Contribua com a igreja',
   ),
   ChurchShellNavEntry(
-    Icons.chat_rounded,
-    'Chat Igreja',
+    Icons.forum_rounded,
+    'YahwehChat',
     Color(0xFF0D9488),
     subtitle: 'Mensagens e grupos por departamento',
   ),
@@ -206,6 +206,7 @@ const List<IconData> kChurchShellNavMaterialIconExtras = [
   Icons.view_timeline_rounded,
   Icons.analytics_rounded,
   Icons.chat_rounded,
+  Icons.forum_rounded,
   Icons.account_balance_wallet_rounded,
   Icons.article_rounded,
   Icons.mail_rounded,

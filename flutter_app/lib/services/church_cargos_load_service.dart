@@ -12,8 +12,9 @@ import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
-import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de `igrejas/{churchId}/cargos`.
@@ -414,7 +415,34 @@ abstract final class ChurchCargosLoadService {
     _ram.removeWhere((k, _) => k.startsWith('${id.trim()}_cargos_'));
   }
 
-  /// Gravação web-resiliente — `igrejas/{churchId}/cargos/{docId}`.
+  static Future<void> _prepareWrite() async {
+    if (!kIsWeb) return;
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+  }
+
+  static String _tenantFromRef(DocumentReference<Map<String, dynamic>> ref) {
+    final parts = ref.path.split('/');
+    if (parts.length >= 2 && parts[0] == 'igrejas') return parts[1];
+    return '';
+  }
+
+  static Future<void> refreshRamFromCache(String churchId) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    if (cid.isEmpty) return;
+    try {
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.cargos(cid)
+            .limit(kLimit)
+            .get(const GetOptions(source: Source.cache)),
+        maxAttempts: 2,
+      ).timeout(const Duration(seconds: 4));
+      if (snap.docs.isEmpty) return;
+      putRam(cid, _sortDocs(snap.docs));
+    } catch (_) {}
+  }
+
+  /// Gravação optimista — `igrejas/{churchId}/cargos/{docId}` (igual Visitantes).
   static Future<void> createCargo({
     required String churchId,
     required String docId,
@@ -422,57 +450,61 @@ abstract final class ChurchCargosLoadService {
   }) async {
     final cid = ChurchRepository.churchId(churchId.trim());
     if (cid.isEmpty) throw StateError('Igreja não identificada.');
-    final ref = ChurchUiCollections.cargos(cid).doc(docId.trim());
-    await _writeCargoRef(ref, payload, create: true);
+    final id = docId.trim();
+    if (id.isEmpty) throw StateError('Chave do cargo inválida.');
+    final ref = ChurchUiCollections.cargos(cid).doc(id);
+    await _prepareWrite();
+    try {
+      final existing = await FirestoreWebGuard.runWithWebRecovery(
+        () => ref.get(const GetOptions(source: Source.cache)),
+        maxAttempts: 2,
+      ).timeout(const Duration(seconds: 3));
+      if (existing.exists) {
+        throw StateError('Já existe um cargo com a chave «$id».');
+      }
+    } on StateError {
+      rethrow;
+    } on TimeoutException {
+      // Rede lenta — gravação optimista segue; servidor rejeita duplicata se existir.
+    } catch (_) {}
+    await OptimisticFirestoreWrite.set(
+      ref: ref,
+      data: payload,
+      module: OfflineModules.cargos,
+      tenantId: cid,
+    );
     invalidateRam(cid);
+    unawaited(refreshRamFromCache(cid));
   }
 
   static Future<void> updateCargo({
     required DocumentReference<Map<String, dynamic>> ref,
     required Map<String, dynamic> payload,
   }) async {
-    await _writeCargoRef(ref, payload, create: false);
-    final parts = ref.path.split('/');
-    if (parts.length >= 2 && parts[0] == 'igrejas') {
-      invalidateRam(parts[1]);
+    final cid = _tenantFromRef(ref);
+    await _prepareWrite();
+    await OptimisticFirestoreWrite.update(
+      ref: ref,
+      data: payload,
+      module: OfflineModules.cargos,
+      tenantId: cid.isNotEmpty ? cid : null,
+    );
+    if (cid.isNotEmpty) {
+      invalidateRam(cid);
+      unawaited(refreshRamFromCache(cid));
     }
   }
 
   static Future<void> deleteCargo(
     DocumentReference<Map<String, dynamic>> ref,
   ) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-    }
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
-        () => ref.delete(),
-        maxAttempts: 4,
-      ),
-      maxAttempts: 4,
+    final cid = _tenantFromRef(ref);
+    await _prepareWrite();
+    await OptimisticFirestoreWrite.delete(
+      ref: ref,
+      module: OfflineModules.cargos,
+      tenantId: cid.isNotEmpty ? cid : null,
     );
-    final parts = ref.path.split('/');
-    if (parts.length >= 2 && parts[0] == 'igrejas') {
-      invalidateRam(parts[1]);
-    }
-  }
-
-  static Future<void> _writeCargoRef(
-    DocumentReference<Map<String, dynamic>> ref,
-    Map<String, dynamic> payload, {
-    required bool create,
-  }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-    }
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
-        () => create ? ref.set(payload) : ref.update(payload),
-        maxAttempts: 4,
-      ),
-      maxAttempts: 4,
-    );
+    if (cid.isNotEmpty) invalidateRam(cid);
   }
 }

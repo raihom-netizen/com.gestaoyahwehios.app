@@ -8,10 +8,13 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/prayer_analytics_panel.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -28,17 +31,22 @@ String _emailFromMemberData(Map<String, dynamic> data) {
   return '';
 }
 
-/// Cores premium — Pedidos de Oração (rosa / violeta / coral).
+/// Cores — logo azul YAHWEH + acentos Wisdom (categorias mantêm cores próprias).
 abstract final class _PrayerPremiumTheme {
   _PrayerPremiumTheme._();
 
-  static const rose = Color(0xFFEC4899);
-  static const violet = Color(0xFF8B5CF6);
+  static const accent = ThemeCleanPremium.primary;
+  static const accentLight = ThemeCleanPremium.primaryLight;
+  static const accentSky = ThemeCleanPremium.primaryLighter;
 
   static const heroGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFFF472B6)],
+    colors: [
+      Color(0xFF0052CC),
+      Color(0xFF2B6FE0),
+      Color(0xFF5E93EC),
+    ],
   );
 
   static LinearGradient cardGradient(String categoria) {
@@ -88,7 +96,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
   final Map<String, Map<String, dynamic>> _pedidoDataOverrides = {};
   late final TabController _tabController;
 
-  String get _churchId => ChurchRepository.churchId(
+  String get _churchId => ChurchPanelTenant.forFirestore(
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
@@ -149,21 +157,33 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       });
       return;
     }
+    if (!forceFresh) {
+      setState(() {
+        _fetching = PanelResilientLoad.shouldShowFetching(
+          listEmpty: _pedidosDocs.isEmpty,
+          forceRefresh: false,
+        );
+      });
+    }
+    _startWebLoadingCap();
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
+      final hadLocal = _pedidosDocs.isNotEmpty;
       final result = await FirestoreWebGuard.runWithWebRecovery(
         () => ChurchPedidosOracaoLoadService.load(
           seedTenantId: churchId,
           respondidaFilter: _respondidaFilterFromStatus(),
+          limit: forceFresh
+              ? ChurchPedidosOracaoLoadService.kDefaultLimit
+              : ChurchPedidosOracaoLoadService.kPanelFirstPaintLimit,
           forceRefresh: forceFresh,
-          forceServer: forceFresh,
+          forceServer: false,
         ),
-        maxAttempts: 3,
-      ).timeout(const Duration(seconds: 12));
+        maxAttempts: 4,
+      ).timeout(PanelResilientLoad.queryCap);
       if (!mounted) return;
-      final hadLocal = _pedidosDocs.isNotEmpty;
       final ui = PanelResilientLoad.afterFetch(
         hadLocalData: hadLocal,
         newItems: result.docs,
@@ -172,12 +192,20 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
         forceFresh: forceFresh,
       );
       setState(() {
-        if (result.docs.isNotEmpty) {
+        if (result.docs.isNotEmpty || !hadLocal || result.softError == null) {
           _pedidosDocs = result.docs;
         }
         _showingStaleCache = ui.showingStaleCache;
-        _loadError = ui.loadError;
+        _loadError = result.docs.isEmpty && result.softError == null
+            ? null
+            : ui.loadError;
+        if (result.churchId.isNotEmpty) {
+          _effectiveTenantId = result.churchId;
+        }
       });
+      if (!forceFresh) {
+        unawaited(_fetchPedidosFullInBackground());
+      }
     } catch (e) {
       if (!mounted) return;
       final ui = PanelResilientLoad.afterError(
@@ -186,7 +214,9 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       );
       setState(() {
         _showingStaleCache = ui.showingStaleCache;
-        _loadError = ui.loadError;
+        _loadError = _pedidosDocs.isEmpty
+            ? formatFirebaseErrorForUser(e, logToCrashlytics: false)
+            : ui.loadError;
       });
     } finally {
       _webLoadCap?.cancel();
@@ -194,6 +224,23 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
         setState(() => _fetching = false);
       }
     }
+  }
+
+  Future<void> _fetchPedidosFullInBackground() async {
+    try {
+      final result = await ChurchPedidosOracaoLoadService.load(
+        seedTenantId: _churchId,
+        respondidaFilter: _respondidaFilterFromStatus(),
+        limit: ChurchPedidosOracaoLoadService.kDefaultLimit,
+        forceRefresh: false,
+        forceServer: false,
+      );
+      if (!mounted || result.docs.isEmpty) return;
+      setState(() {
+        _pedidosDocs = result.docs;
+        _loadError = null;
+      });
+    } catch (_) {}
   }
 
   void _refreshPedidos({bool forceRefresh = false}) {
@@ -211,7 +258,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
     _seedPedidosLocal();
     _startWebLoadingCap();
     unawaited(_fetchPedidos());
@@ -228,7 +275,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
   void didUpdateWidget(covariant PrayerRequestsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+      _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
       _seedPedidosLocal();
       unawaited(_fetchPedidos());
     }
@@ -241,7 +288,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
   ];
 
   static Color categoriaAccent(String categoria) {
-    return _categoriaTexto[categoria] ?? _PrayerPremiumTheme.rose;
+    return _categoriaTexto[categoria] ?? _PrayerPremiumTheme.accent;
   }
 
   static const _categoriaCores = <String, Color>{
@@ -602,6 +649,21 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     }
   }
 
+  void _removePedidosLocal(Iterable<String> docIds) {
+    final idSet = docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (idSet.isEmpty) return;
+    ChurchPedidosOracaoLoadService.removeFromRam(_churchId, idSet);
+    if (!mounted) return;
+    setState(() {
+      _pedidosDocs =
+          _pedidosDocs.where((d) => !idSet.contains(d.id)).toList(growable: false);
+      for (final id in idSet) {
+        _pedidoDataOverrides.remove(id);
+        _selectedIds.remove(id);
+      }
+    });
+  }
+
   Future<void> _deletar(String docId, {Map<String, dynamic>? data}) async {
     if (data != null && !_canManage(data)) {
       if (mounted) {
@@ -647,6 +709,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           docIds: [docId],
         );
         if (mounted) {
+          _removePedidosLocal([docId]);
           unawaited(_fetchPedidos(forceFresh: true));
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Pedido excluído.',
@@ -656,7 +719,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Erro ao excluir: $e')));
+              SnackBar(
+                content: Text(
+                  'Erro ao excluir: ${formatFirebaseErrorForUser(e)}',
+                ),
+              ));
         }
       }
     }
@@ -809,6 +876,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
         docIds: ids,
       );
       if (!mounted) return;
+      _removePedidosLocal(ids);
       _exitSelectionMode();
       unawaited(_fetchPedidos(forceFresh: true));
       ScaffoldMessenger.of(context).showSnackBar(
@@ -824,7 +892,9 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao excluir: $e'),
+            content: Text(
+              'Erro ao excluir: ${formatFirebaseErrorForUser(e)}',
+            ),
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
@@ -1169,7 +1239,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       appBar: !showAppBar
           ? null
           : AppBar(
-              backgroundColor: _PrayerPremiumTheme.rose,
+              backgroundColor: _PrayerPremiumTheme.accent,
               foregroundColor: Colors.white,
               elevation: 0,
               leading: Navigator.canPop(context)
@@ -1248,7 +1318,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           gradient: _PrayerPremiumTheme.heroGradient,
           boxShadow: [
             BoxShadow(
-              color: _PrayerPremiumTheme.rose.withValues(alpha: 0.45),
+              color: _PrayerPremiumTheme.accent.withValues(alpha: 0.45),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -1266,12 +1336,13 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           ),
         ),
       ),
-      body: DecoratedBox(
+      body: YahwehWisdomPanelBackdrop(
+        child: DecoratedBox(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFFDF2F8), Color(0xFFF8FAFC)],
+            colors: [Color(0xFFEFF4FF), Color(0xFFF8FAFC)],
           ),
         ),
         child: SafeArea(
@@ -1283,7 +1354,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                 Padding(
                   padding: EdgeInsets.fromLTRB(
                     padding.left,
-                    padding.top,
+                    widget.embeddedInShell ? 6 : padding.top,
                     padding.right,
                     0,
                   ),
@@ -1295,9 +1366,9 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                     ),
                     child: TabBar(
                       controller: _tabController,
-                      labelColor: _PrayerPremiumTheme.rose,
+                      labelColor: _PrayerPremiumTheme.accent,
                       unselectedLabelColor: Colors.grey.shade600,
-                      indicatorColor: _PrayerPremiumTheme.rose,
+                      indicatorColor: _PrayerPremiumTheme.accent,
                       indicatorWeight: 3,
                       tabs: const [
                         Tab(
@@ -1334,6 +1405,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           ),
         ),
       ),
+      ),
       bottomNavigationBar:
           _isLeader && _selectionMode ? _buildSelectionBar() : null,
     );
@@ -1364,9 +1436,9 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
             child: Padding(
               padding: EdgeInsets.fromLTRB(
                 padding.left,
-                padding.top,
+                widget.embeddedInShell ? 6 : padding.top,
                 padding.right,
-                8,
+                4,
               ),
               child: _PrayerHeroHeader(
                 total: visibleDocs.length,
@@ -1408,8 +1480,13 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                             _filtroStatus = _filtrosStatus[i];
                             _seedPedidosLocal();
                           });
-                          _startWebLoadingCap();
-                          unawaited(_fetchPedidos());
+                          if (ChurchPedidosOracaoLoadService.peekRam(
+                                _churchId,
+                              ) ==
+                              null) {
+                            _startWebLoadingCap();
+                            unawaited(_fetchPedidos());
+                          }
                         },
                       ),
                     ),
@@ -1496,14 +1573,14 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    _PrayerPremiumTheme.rose.withValues(alpha: 0.18),
-                    _PrayerPremiumTheme.violet.withValues(alpha: 0.1),
+                    _PrayerPremiumTheme.accent.withValues(alpha: 0.18),
+                    _PrayerPremiumTheme.accentLight.withValues(alpha: 0.1),
                   ],
                 ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: _PrayerPremiumTheme.rose.withValues(alpha: 0.22),
+                    color: _PrayerPremiumTheme.accent.withValues(alpha: 0.22),
                     blurRadius: 24,
                     offset: const Offset(0, 8),
                   ),
@@ -1512,7 +1589,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
               child: const Icon(
                 Icons.volunteer_activism_rounded,
                 size: 56,
-                color: _PrayerPremiumTheme.rose,
+                color: _PrayerPremiumTheme.accent,
               ),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -1535,7 +1612,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
             FilledButton.icon(
               onPressed: _abrirFormulario,
               style: FilledButton.styleFrom(
-                backgroundColor: _PrayerPremiumTheme.rose,
+                backgroundColor: _PrayerPremiumTheme.accent,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 20,
                   vertical: 14,
@@ -1589,7 +1666,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: selectionMode && selected
-              ? _PrayerPremiumTheme.rose
+              ? _PrayerPremiumTheme.accent
               : respondida
                   ? const Color(0xFF86EFAC).withValues(alpha: 0.6)
                   : catFg.withValues(alpha: 0.18),
@@ -1616,7 +1693,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                         padding: const EdgeInsets.only(right: 8, top: 4),
                         child: Checkbox(
                           value: selected,
-                          activeColor: _PrayerPremiumTheme.rose,
+                          activeColor: _PrayerPremiumTheme.accent,
                           onChanged: onSelectionChanged == null
                               ? null
                               : (v) => onSelectionChanged(v ?? false),
@@ -1688,7 +1765,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                             child: Row(
                               children: [
                                 Icon(Icons.edit_outlined,
-                                    size: 18, color: _PrayerPremiumTheme.violet),
+                                    size: 18, color: _PrayerPremiumTheme.accentLight),
                                 SizedBox(width: 8),
                                 Text('Editar'),
                               ],
@@ -1852,17 +1929,14 @@ class _PrayerHeroHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
     return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      padding: const EdgeInsets.symmetric(
+        horizontal: ThemeCleanPremium.spaceMd,
+        vertical: ThemeCleanPremium.spaceSm + 4,
+      ),
       decoration: BoxDecoration(
         gradient: _PrayerPremiumTheme.heroGradient,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: _PrayerPremiumTheme.rose.withValues(alpha: 0.38),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
+        boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1870,18 +1944,18 @@ class _PrayerHeroHeader extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
                   Icons.volunteer_activism_rounded,
                   color: Colors.white,
-                  size: 28,
+                  size: 24,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1906,14 +1980,14 @@ class _PrayerHeroHeader extends StatelessWidget {
               ),
               Text(
                 '$total',
-                style: tt.headlineMedium?.copyWith(
+                style: tt.titleLarge?.copyWith(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           Row(
             children: [
               _PrayerStatPill(label: 'Pendentes', value: pendentes),
@@ -1997,13 +2071,13 @@ class _PrayerFilterChip extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: selected
-                  ? _PrayerPremiumTheme.rose.withValues(alpha: 0.5)
+                  ? _PrayerPremiumTheme.accent.withValues(alpha: 0.5)
                   : const Color(0xFFE2E8F0),
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: _PrayerPremiumTheme.rose.withValues(alpha: 0.28),
+                      color: _PrayerPremiumTheme.accent.withValues(alpha: 0.28),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -2063,7 +2137,7 @@ class _OrandoMembrosAvatarStack extends StatelessWidget {
                       border: Border.all(color: Colors.white, width: 2),
                       boxShadow: [
                         BoxShadow(
-                          color: _PrayerPremiumTheme.rose.withValues(alpha: 0.25),
+                          color: _PrayerPremiumTheme.accent.withValues(alpha: 0.25),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
@@ -2089,8 +2163,8 @@ class _OrandoMembrosAvatarStack extends StatelessWidget {
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
                         colors: [
-                          _PrayerPremiumTheme.rose.withValues(alpha: 0.85),
-                          _PrayerPremiumTheme.violet.withValues(alpha: 0.75),
+                          _PrayerPremiumTheme.accent.withValues(alpha: 0.85),
+                          _PrayerPremiumTheme.accentLight.withValues(alpha: 0.75),
                         ],
                       ),
                       border: Border.all(color: Colors.white, width: 2),
@@ -2185,7 +2259,7 @@ class _OrandoButtonState extends State<_OrandoButton>
                   Icons.volunteer_activism_rounded,
                   size: 20,
                   color: widget.isOrando
-                      ? _PrayerPremiumTheme.rose
+                      ? _PrayerPremiumTheme.accent
                       : Colors.grey.shade400,
                 ),
               ),
@@ -2197,7 +2271,7 @@ class _OrandoButtonState extends State<_OrandoButton>
                   fontWeight:
                       widget.isOrando ? FontWeight.w800 : FontWeight.w600,
                   color: widget.isOrando
-                      ? _PrayerPremiumTheme.rose
+                      ? _PrayerPremiumTheme.accent
                       : Colors.grey.shade600,
                 ),
               ),
@@ -2209,8 +2283,8 @@ class _OrandoButtonState extends State<_OrandoButton>
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        _PrayerPremiumTheme.rose.withValues(alpha: 0.2),
-                        _PrayerPremiumTheme.violet.withValues(alpha: 0.14),
+                        _PrayerPremiumTheme.accent.withValues(alpha: 0.2),
+                        _PrayerPremiumTheme.accentLight.withValues(alpha: 0.14),
                       ],
                     ),
                     borderRadius: BorderRadius.circular(10),
@@ -2220,7 +2294,7 @@ class _OrandoButtonState extends State<_OrandoButton>
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
-                      color: _PrayerPremiumTheme.rose,
+                      color: _PrayerPremiumTheme.accent,
                     ),
                   ),
                 ),
@@ -2308,7 +2382,7 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
       hintText: hint,
       alignLabelWithHint: true,
       filled: true,
-      fillColor: const Color(0xFFFDF2F8),
+      fillColor: const Color(0xFFEFF4FF),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         borderSide: BorderSide.none,
@@ -2316,13 +2390,13 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         borderSide: BorderSide(
-          color: _PrayerPremiumTheme.rose.withValues(alpha: 0.18),
+          color: _PrayerPremiumTheme.accent.withValues(alpha: 0.18),
         ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         borderSide: const BorderSide(
-          color: _PrayerPremiumTheme.rose,
+          color: _PrayerPremiumTheme.accent,
           width: 1.6,
         ),
       ),
@@ -2429,15 +2503,17 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
         Navigator.pop(context, true);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao salvar: $e'),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-    } finally {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Erro ao salvar: ${formatFirebaseErrorForUser(e)}',
+              ),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
+      } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
@@ -2470,7 +2546,7 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
             gradient: _PrayerPremiumTheme.heroGradient,
             boxShadow: [
               BoxShadow(
-                color: Color(0x33EC4899),
+                color: Color(0x330052CC),
                 blurRadius: 18,
                 offset: Offset(0, 8),
               ),
@@ -2546,7 +2622,7 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
                                       ),
                               dense: true,
                               contentPadding: EdgeInsets.zero,
-                              activeColor: _PrayerPremiumTheme.rose,
+                              activeColor: _PrayerPremiumTheme.accent,
                             ),
                           ),
                           if (_visibilidade == 'membros') ...[
@@ -2587,9 +2663,9 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
                               onPressed:
                                   _saving ? null : () => Navigator.maybePop(context),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: _PrayerPremiumTheme.rose,
+                                foregroundColor: _PrayerPremiumTheme.accent,
                                 side: BorderSide(
-                                  color: _PrayerPremiumTheme.rose
+                                  color: _PrayerPremiumTheme.accent
                                       .withValues(alpha: 0.55),
                                 ),
                                 shape: RoundedRectangleBorder(
@@ -2611,7 +2687,7 @@ class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
                             child: FilledButton.icon(
                               onPressed: _saving ? null : _save,
                               style: FilledButton.styleFrom(
-                                backgroundColor: _PrayerPremiumTheme.rose,
+                                backgroundColor: _PrayerPremiumTheme.accent,
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
@@ -31,7 +32,7 @@ class YahwehSuperPremiumActionButton extends StatelessWidget {
   factory YahwehSuperPremiumActionButton.chat({
     Key? key,
     required VoidCallback? onPressed,
-    required String label,
+    String label = YahwehContactButtonLabels.yahwehChat,
     bool compact = false,
   }) {
     return YahwehSuperPremiumActionButton(
@@ -47,7 +48,7 @@ class YahwehSuperPremiumActionButton extends StatelessWidget {
   factory YahwehSuperPremiumActionButton.whatsapp({
     Key? key,
     required VoidCallback? onPressed,
-    required String label,
+    String label = YahwehContactButtonLabels.whatsApp,
     bool compact = false,
   }) {
     return YahwehSuperPremiumActionButton(

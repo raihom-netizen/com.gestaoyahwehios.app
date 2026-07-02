@@ -127,6 +127,7 @@ class AppPermissions {
     String role, {
     List<String>? permissions,
   }) {
+    if (hasModulePermission(permissions, 'agenda_edicao')) return true;
     if (hasModulePermission(permissions, 'mural_avisos_edicao') ||
         hasModulePermission(permissions, 'eventos_avisos_edicao') ||
         hasModulePermission(permissions, 'eventos')) {

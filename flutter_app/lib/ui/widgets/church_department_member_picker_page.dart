@@ -99,11 +99,12 @@ class _ChurchDepartmentMemberPickerPageState
   }
 
   Future<void> _loadMembers() async {
-    if (!mounted) setState(() => _loading = true);
+    if (!mounted) return;
+    if (_members.isEmpty) setState(() => _loading = true);
     try {
       final loaded = await ChurchDepartmentMembersLoadService.loadAllForPicker(
         seedTenantId: widget.tenantId,
-      ).timeout(const Duration(seconds: 16));
+      );
       if (!mounted) return;
       final selected = <String>{..._selected};
       final deptId = widget.deptId?.trim() ?? '';

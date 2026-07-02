@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, isValidImageUrl;
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
 String? leaderContactAuthUid(Map<String, dynamic>? data) {
@@ -203,8 +204,8 @@ class ChurchLeaderContactPage extends StatelessWidget {
               ],
               const SizedBox(height: 28),
               YahwehSuperPremiumActionButton.chat(
-                label: 'Chat Igreja — Fale comigo',
-                onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
+                label: '${YahwehContactButtonLabels.yahwehChat} — Fale comigo',
+                onPressed: () => ChurchMemberContactChat.tapYahwehChat(
                   context: context,
                   tenantId: tenantId,
                   memberRole: memberRole,
@@ -212,15 +213,14 @@ class ChurchLeaderContactPage extends StatelessWidget {
                   memberData: memberData,
                   displayName: titulo,
                   memberDocId: memberDocId,
-                  popSheetBeforeNavigate: true,
                 ),
               ),
               const SizedBox(height: 10),
               YahwehSuperPremiumActionButton.whatsapp(
                 label: 'WhatsApp — Fale comigo',
-                onPressed: () => ChurchMemberContactChat.openWhatsAppFaleComigo(
-                  context,
-                  memberData,
+                onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+                  context: context,
+                  memberData: memberData,
                   tenantId: tenantId,
                   memberDocId: memberDocId,
                 ),

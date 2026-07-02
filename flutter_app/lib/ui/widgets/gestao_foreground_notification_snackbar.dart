@@ -1,5 +1,6 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_bank_notification_tile.dart';
 
@@ -50,7 +51,7 @@ String gyModuleLabel(String? raw) {
     case 'membro':
       return 'Cadastro';
     case 'chat':
-      return 'Chat';
+      return YahwehContactButtonLabels.yahwehChat;
     case 'devocional':
       return 'Devocional';
     case 'pastoral':

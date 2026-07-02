@@ -1,6 +1,7 @@
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show BuildContext;
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:image_picker/image_picker.dart';
@@ -215,9 +216,9 @@ class MediaHandlerService {
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
       limit: maxPickCount,
-      imageQuality: kIsWeb ? 100 : kEffectiveMuralFeedWebpQuality,
-      maxWidth: kIsWeb ? kHighResCropMaxWidth.toDouble() : edge,
-      maxHeight: kIsWeb ? kHighResCropMaxHeight.toDouble() : edge,
+      imageQuality: kIsWeb ? kEventoAvisoFeedWebpQuality : kEffectiveMuralFeedWebpQuality,
+      maxWidth: edge,
+      maxHeight: edge,
     );
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);

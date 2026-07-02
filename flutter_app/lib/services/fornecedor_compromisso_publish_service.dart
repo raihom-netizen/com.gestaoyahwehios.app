@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -10,6 +11,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Gravação Web-safe de compromissos de fornecedor (Storage → CF → Firestore).
 abstract final class FornecedorCompromissoPublishService {
@@ -60,6 +62,12 @@ abstract final class FornecedorCompromissoPublishService {
     required String fileName,
   }) async {
     final cid = ChurchRepository.churchId(churchId.trim());
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+      );
+    }
     final ext = FinanceComprovanteAttachService.extensionForMime(mimeType);
     final url = await FornecedorCompromissoComprovanteService.upload(
       churchId: cid,
@@ -102,10 +110,20 @@ abstract final class FornecedorCompromissoPublishService {
     required Map<String, dynamic> data,
   }) async {
     final cid = ChurchRepository.churchId(churchId.trim());
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(
-        ChurchCanonicalMediaContract.comprovanteClearFirestorePatch(),
-        SetOptions(merge: true),
+    final clearPatch =
+        ChurchCanonicalMediaContract.comprovanteClearFirestorePatch();
+    clearPatch['updatedAt'] = FieldValue.serverTimestamp();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await AdminFeedFirestoreBridge.upsertDocRef(
+      docRef: docRef,
+      data: clearPatch,
+      isNewDoc: false,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(clearPatch, SetOptions(merge: true)),
+        maxAttempts: 4,
+        criticalWrite: true,
       ),
     );
     final storedPath = (data['comprovanteStoragePath'] ?? '').toString().trim();

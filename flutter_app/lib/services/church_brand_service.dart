@@ -15,8 +15,8 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Logo institucional — Firestore `logoPath` = URL https; `logoStoragePath` = objeto no bucket.
 abstract final class ChurchBrandService {
@@ -296,21 +296,24 @@ abstract final class ChurchBrandService {
       throw StateError('Não foi possível obter URL https da logo após upload.');
     }
 
-    await runFirestorePublishWithRecovery(
-      () => FirestoreWebGuard.runWithWebRecovery(
+    final patch = {
+      ...logoPathFirestorePatch(
+        storagePath: path,
+        downloadUrl: url,
+      ),
+      'logoCacheRevision': rev,
+    };
+    await AdminFeedFirestoreBridge.upsertChurchRoot(
+      churchId: cid,
+      data: patch,
+      directWrite: () => runFirestorePublishWithRecovery(
         () => ChurchOperationalPaths.churchDoc(cid).set(
-              {
-                ...logoPathFirestorePatch(
-                  storagePath: path,
-                  downloadUrl: url,
-                ),
-                'logoCacheRevision': rev,
-              },
+              patch,
               SetOptions(merge: true),
             ),
         maxAttempts: 5,
+        criticalWrite: true,
       ),
-      maxAttempts: 5,
     );
     invalidate(churchId: cid);
     unawaited(ChurchPanelLocalCache.saveLogoPath(churchId: cid, logoPath: url));

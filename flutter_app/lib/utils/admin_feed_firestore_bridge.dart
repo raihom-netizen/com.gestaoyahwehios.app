@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Serializa payloads Firestore para Cloud Functions (Admin SDK).
 /// Web: evita assert Firestore quando há listeners concorrentes na mesma coleção.
@@ -11,7 +12,8 @@ abstract final class AdminFeedFirestoreBridge {
   AdminFeedFirestoreBridge._();
 
   static const cfDelete = '__DELETE__';
-  static const Duration kWebCfTimeout = Duration(seconds: 45);
+  static const Duration kWebCfTimeout = Duration(seconds: 18);
+  static const Duration kWebDirectWriteTimeout = Duration(seconds: 22);
 
   static Map<String, dynamic> encodeMap(Map<String, dynamic> raw) {
     final out = <String, dynamic>{};
@@ -70,7 +72,7 @@ abstract final class AdminFeedFirestoreBridge {
     );
   }
 
-  /// Doc raiz `igrejas/{churchId}` — Cadastro da Igreja (Web → CF Admin SDK).
+  /// Doc raiz `igrejas/{churchId}` — Cadastro da Igreja (Web: direct-first + CF fallback).
   static Future<void> upsertChurchRoot({
     required String churchId,
     required Map<String, dynamic> data,
@@ -79,6 +81,34 @@ abstract final class AdminFeedFirestoreBridge {
   }) async {
     if (kIsWeb) {
       try {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+        await runFirestorePublishWithRecovery(
+          directWrite,
+          maxAttempts: 3,
+          criticalWrite: true,
+        ).timeout(
+          kWebDirectWriteTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Gravação do cadastro demorou demais. Verifique a rede.',
+            kWebDirectWriteTimeout,
+          ),
+        );
+        return;
+      } catch (directError) {
+        final msg = directError.toString();
+        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
+            msg.contains('INTERNAL ASSERTION') ||
+            msg.contains('WatchChangeAggregator') ||
+            msg.contains('PersistentListenStream');
+        if (!useCf) {
+          debugPrint(
+            'AdminFeedFirestoreBridge: direct church root falhou: $directError',
+          );
+          rethrow;
+        }
+        debugPrint(
+          'AdminFeedFirestoreBridge: assert Firestore — CF church root fallback',
+        );
         await ChurchFunctionsService.adminUpsertChurchRoot(
           churchId: churchId,
           data: encodeMap(data),
@@ -89,17 +119,6 @@ abstract final class AdminFeedFirestoreBridge {
             'Gravação do cadastro demorou demais (servidor). Tente novamente.',
             kWebCfTimeout,
           ),
-        );
-        return;
-      } catch (cfError) {
-        debugPrint(
-          'AdminFeedFirestoreBridge: CF church root falhou — '
-          'fallback Firestore directo: $cfError',
-        );
-        await runFirestorePublishWithRecovery(
-          directWrite,
-          maxAttempts: 4,
-          criticalWrite: true,
         );
         return;
       }
@@ -123,37 +142,61 @@ abstract final class AdminFeedFirestoreBridge {
     if (kIsWeb) {
       onProgress?.call(0.80);
       try {
-        await ChurchFunctionsService.adminUpsertFeedPost(
-          churchId: churchId,
-          collection: collection,
-          docId: docId,
-          subCollection: subCollection,
-          subDocId: subDocId,
-          data: encodeMap(data),
-          create: isNewDoc,
-          merge: !isNewDoc,
-          useUpdate: useUpdate,
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+        await runFirestorePublishWithRecovery(
+          directWrite,
+          maxAttempts: 3,
+          criticalWrite: true,
         ).timeout(
-          kWebCfTimeout,
+          kWebDirectWriteTimeout,
           onTimeout: () => throw TimeoutException(
-            'Gravação demorou demais (servidor). Tente novamente.',
-            kWebCfTimeout,
+            'Gravação demorou demais. Verifique a rede e tente novamente.',
+            kWebDirectWriteTimeout,
           ),
         );
         onProgress?.call(0.86);
         return;
-      } catch (cfError) {
+      } catch (directError) {
+        final msg = directError.toString();
+        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
+            msg.contains('INTERNAL ASSERTION') ||
+            msg.contains('WatchChangeAggregator') ||
+            msg.contains('PersistentListenStream');
+        if (!useCf) {
+          debugPrint(
+            'AdminFeedFirestoreBridge: direct falhou ($collection/$docId): $directError',
+          );
+          rethrow;
+        }
         debugPrint(
-          'AdminFeedFirestoreBridge: CF falhou ($collection/$docId) — '
-          'fallback Firestore directo: $cfError',
+          'AdminFeedFirestoreBridge: assert Firestore — CF fallback ($collection/$docId)',
         );
-        await runFirestorePublishWithRecovery(
-          directWrite,
-          maxAttempts: 4,
-          criticalWrite: true,
-        );
-        onProgress?.call(0.86);
-        return;
+        try {
+          await ChurchFunctionsService.adminUpsertFeedPost(
+            churchId: churchId,
+            collection: collection,
+            docId: docId,
+            subCollection: subCollection,
+            subDocId: subDocId,
+            data: encodeMap(data),
+            create: isNewDoc,
+            merge: !isNewDoc,
+            useUpdate: useUpdate,
+          ).timeout(
+            kWebCfTimeout,
+            onTimeout: () => throw TimeoutException(
+              'Gravação demorou demais (servidor). Tente novamente.',
+              kWebCfTimeout,
+            ),
+          );
+          onProgress?.call(0.86);
+          return;
+        } catch (cfError) {
+          debugPrint(
+            'AdminFeedFirestoreBridge: CF falhou ($collection/$docId): $cfError',
+          );
+          rethrow;
+        }
       }
     }
     await directWrite();
@@ -187,6 +230,7 @@ abstract final class AdminFeedFirestoreBridge {
     );
   }
 
+  /// Web: Firestore directo primeiro; CF só em INTERNAL ASSERTION.
   static Future<void> deleteFeedPosts({
     required String churchId,
     required String collection,
@@ -194,12 +238,48 @@ abstract final class AdminFeedFirestoreBridge {
     required Future<void> Function() directDelete,
   }) async {
     if (kIsWeb && docIds.isNotEmpty) {
-      await ChurchFunctionsService.adminDeleteFeedPosts(
-        churchId: churchId,
-        collection: collection,
-        docIds: docIds,
-      );
-      return;
+      try {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+        await runFirestorePublishWithRecovery(
+          directDelete,
+          maxAttempts: 3,
+          criticalWrite: true,
+        ).timeout(
+          kWebDirectWriteTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Exclusão demorou demais. Verifique a rede.',
+            kWebDirectWriteTimeout,
+          ),
+        );
+        return;
+      } catch (directError) {
+        final msg = directError.toString();
+        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
+            msg.contains('INTERNAL ASSERTION') ||
+            msg.contains('WatchChangeAggregator') ||
+            msg.contains('PersistentListenStream');
+        if (!useCf) {
+          debugPrint(
+            'AdminFeedFirestoreBridge: direct delete falhou ($collection): $directError',
+          );
+          rethrow;
+        }
+        debugPrint(
+          'AdminFeedFirestoreBridge: assert Firestore — CF delete fallback ($collection)',
+        );
+        await ChurchFunctionsService.adminDeleteFeedPosts(
+          churchId: churchId,
+          collection: collection,
+          docIds: docIds,
+        ).timeout(
+          kWebCfTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Exclusão demorou demais (servidor).',
+            kWebCfTimeout,
+          ),
+        );
+        return;
+      }
     }
     await directDelete();
   }

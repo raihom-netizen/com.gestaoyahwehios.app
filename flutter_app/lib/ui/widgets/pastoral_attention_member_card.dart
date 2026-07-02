@@ -145,8 +145,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                 Expanded(
                   child: YahwehSuperPremiumActionButton.chat(
                     compact: true,
-                    label: 'Chat Igreja',
-                    onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
+                    onPressed: () => ChurchMemberContactChat.tapYahwehChat(
                       context: context,
                       tenantId: tenantId,
                       memberRole: memberRole,
@@ -155,7 +154,6 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                       displayName: alert.name,
                       memberDocId: alert.memberId,
                       draftText: prefill,
-                      popSheetBeforeNavigate: true,
                     ),
                   ),
                 ),
@@ -163,11 +161,10 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                 Expanded(
                   child: YahwehSuperPremiumActionButton.whatsapp(
                     compact: true,
-                    label: 'WhatsApp',
                     onPressed: hasPhone
-                        ? () => ChurchMemberContactChat.openWhatsAppFaleComigo(
-                              context,
-                              memberData,
+                        ? () => ChurchMemberContactChat.tapWhatsApp(
+                              context: context,
+                              memberData: memberData,
                               message: prefill,
                               tenantId: tenantId,
                               memberDocId: alert.memberId,

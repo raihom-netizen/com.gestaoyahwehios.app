@@ -25,8 +25,11 @@ import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
 import 'package:gestao_yahweh/services/church_cargo_members_load_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
 const Color _kCargoListGoldAccent = Color(0xFFF5C518);
@@ -91,6 +94,50 @@ Future<Map<String, dynamic>> _memberRolePatchForFuncao({
   };
 }
 
+Future<void> _writeMembroDocMergeResilient({
+  required String churchId,
+  required String memberDocId,
+  required Map<String, dynamic> updates,
+}) async {
+  final cid = ChurchPanelTenant.forFirestore(churchId);
+  if (cid.isEmpty || memberDocId.trim().isEmpty) {
+    throw StateError('Igreja ou membro não identificado.');
+  }
+  if (kIsWeb) {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+  }
+  final ref = ChurchUiCollections.membros(cid).doc(memberDocId.trim());
+  await FirestoreWebGuard.runWithWebRecovery(
+    () => runFirestorePublishWithRecovery(
+      () => ref.set(updates, SetOptions(merge: true)),
+      maxAttempts: 4,
+    ),
+    maxAttempts: 4,
+  );
+}
+
+Future<void> _writeUsersDocMergeResilient({
+  required String authUid,
+  required Map<String, dynamic> patch,
+}) async {
+  final uid = authUid.trim();
+  if (uid.isEmpty) return;
+  if (kIsWeb) {
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+  }
+  await FirestoreWebGuard.runWithWebRecovery(
+    () => runFirestorePublishWithRecovery(
+      () => firebaseDefaultFirestore
+          .collection('users')
+          .doc(uid)
+          .set(patch, SetOptions(merge: true)),
+      maxAttempts: 4,
+    ),
+    maxAttempts: 4,
+  );
+}
+
 class _WelcomeCargoRow {
   final String docId;
   final String name;
@@ -139,6 +186,7 @@ class _CargosPageState extends State<CargosPage> {
   bool _triedAutoSeed = false;
   int _cargosLoadRetryGen = 0;
   bool _cargosLoadPending = true;
+  String? _cargosLoadSoftError;
 
   /// Módulos “binários” (um chip) — [Membros], [Mural], [Eventos/Feed], [Agenda] e [Relatórios] têm secções dedicadas.
   static const List<(String key, String label)> _kCargoSimpleChips = [
@@ -255,10 +303,9 @@ class _CargosPageState extends State<CargosPage> {
     return out;
   }
 
-  /// Secção “Super Premium”: níveis Padrão / Ver / Editar para cargos.
-  static Widget _cargoAccessTriTile({
+  /// Linha compacta: título + dropdown Padrão / Ver / Editar (mobile-friendly).
+  static Widget _cargoAccessTriDropdown({
     required String title,
-    required String hint,
     required IconData icon,
     required int tri,
     required ValueChanged<int> onChanged,
@@ -267,67 +314,229 @@ class _CargosPageState extends State<CargosPage> {
     String label2 = 'Editar',
   }) {
     final primary = ThemeCleanPremium.primary;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            Color.lerp(primary, Colors.white, 0.92)!,
-          ],
-        ),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 20, color: primary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                    letterSpacing: -0.2,
-                  ),
+          Icon(icon, size: 18, color: primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 118,
+            child: DropdownButtonFormField<int>(
+              value: tri,
+              isExpanded: true,
+              isDense: true,
+              decoration: InputDecoration(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                 ),
               ),
-            ],
-          ),
-          if (hint.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              hint,
-              style: TextStyle(fontSize: 11.5, height: 1.35, color: Colors.grey.shade600),
+              items: [
+                DropdownMenuItem(value: 0, child: Text(label0)),
+                DropdownMenuItem(value: 1, child: Text(label1)),
+                DropdownMenuItem(value: 2, child: Text(label2)),
+              ],
+              onChanged: (v) {
+                if (v != null) onChanged(v);
+              },
             ),
-          ],
-          const SizedBox(height: 10),
-          SegmentedButton<int>(
-            style: SegmentedButton.styleFrom(
-              selectedForegroundColor: Colors.white,
-              selectedBackgroundColor: primary,
-              side: BorderSide(color: primary.withValues(alpha: 0.35)),
-            ),
-            segments: [
-              ButtonSegment<int>(value: 0, label: Text(label0)),
-              ButtonSegment<int>(value: 1, label: Text(label1)),
-              ButtonSegment<int>(value: 2, label: Text(label2)),
-            ],
-            selected: {tri},
-            onSelectionChanged: (s) {
-              if (s.isEmpty) return;
-              onChanged(s.first);
-            },
           ),
         ],
+      ),
+    );
+  }
+
+  static String _multiSelectSummary(
+    Set<String> selected,
+    List<(String id, String label)> options,
+    String emptyLabel,
+  ) {
+    if (selected.isEmpty) return emptyLabel;
+    if (selected.length == 1) {
+      final id = selected.first;
+      for (final o in options) {
+        if (o.$1 == id) return o.$2;
+      }
+      return id;
+    }
+    return '${selected.length} selecionados';
+  }
+
+  static Future<Set<String>?> _showMultiSelectSheet(
+    BuildContext context, {
+    required String title,
+    required List<(String id, String label)> options,
+    required Set<String> initial,
+  }) {
+    return showModalBottomSheet<Set<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFFF8FAFC),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        var temp = {...initial};
+        return StatefulBuilder(
+          builder: (ctx, setS) {
+            final maxH = MediaQuery.sizeOf(ctx).height * 0.72;
+            return Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                16 + MediaQuery.paddingOf(ctx).bottom,
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: maxH),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.manrope(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        children: [
+                          for (final o in options)
+                            CheckboxListTile(
+                              value: temp.contains(o.$1),
+                              onChanged: (v) => setS(() {
+                                if (v == true) {
+                                  temp.add(o.$1);
+                                } else {
+                                  temp.remove(o.$1);
+                                }
+                              }),
+                              title: Text(
+                                o.$2,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              dense: true,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Cancelar'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => Navigator.pop(ctx, temp),
+                            child: const Text('Aplicar'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  static Widget _cargoMultiSelectDropdown({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required List<(String id, String label)> options,
+    required Set<String> selected,
+    required ValueChanged<Set<String>> onChanged,
+    String emptyLabel = 'Nenhum',
+    bool enabled = true,
+  }) {
+    final summary = _multiSelectSummary(selected, options, emptyLabel);
+    return InkWell(
+      onTap: !enabled
+          ? null
+          : () async {
+              final picked = await _showMultiSelectSheet(
+                context,
+                title: label,
+                options: options,
+                initial: selected,
+              );
+              if (picked != null) onChanged(picked);
+            },
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, size: 20),
+          suffixIcon: const Icon(Icons.keyboard_arrow_down_rounded),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          isDense: true,
+          filled: true,
+          fillColor: enabled ? Colors.white : Colors.grey.shade100,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+        ),
+        child: Text(
+          summary,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+            color: enabled
+                ? ThemeCleanPremium.onSurface
+                : ThemeCleanPremium.onSurfaceVariant,
+          ),
+        ),
       ),
     );
   }
@@ -599,9 +808,9 @@ class _CargosPageState extends State<CargosPage> {
   CollectionReference<Map<String, dynamic>> get _col =>
       ChurchUiCollections.cargos(_loadChurchId);
 
-  String get _loadChurchId => ChurchRepository.churchId(
+  String get _loadChurchId => ChurchPanelTenant.forFirestore(
         _resolvedTenantId?.trim().isNotEmpty == true
-            ? _resolvedTenantId!
+            ? _resolvedTenantId
             : widget.tenantId,
       );
 
@@ -653,14 +862,21 @@ class _CargosPageState extends State<CargosPage> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosWithCap({
     bool forceServer = false,
   }) async {
+    _cargosLoadSoftError = null;
     try {
       return await _loadCargos(forceServer: forceServer).timeout(
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
     } catch (e) {
       final fallback = _peekInstantCargosSnap();
-      if (fallback != null && fallback.docs.isNotEmpty) return fallback;
-      rethrow;
+      if (fallback != null && fallback.docs.isNotEmpty) {
+        _cargosLoadSoftError = e.toString();
+        return fallback;
+      }
+      _cargosLoadSoftError = e is TimeoutException
+          ? 'Demorou demais a carregar. Verifique a rede e toque em Tentar novamente.'
+          : e.toString();
+      return const MergedFirestoreQuerySnapshot([]);
     } finally {
       if (mounted) {
         _webLoadCap?.cancel();
@@ -712,9 +928,12 @@ class _CargosPageState extends State<CargosPage> {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
 
-  bool get _canWrite =>
-      AppPermissions.canEditAnyChurchMember(widget.role) ||
-      AppPermissions.canEditDepartments(widget.role);
+  bool get _canWrite {
+    final s = ChurchRolePermissions.snapshotFor(widget.role);
+    return s.manageCargosCatalog ||
+        s.editAnyMember ||
+        AppPermissions.canEditDepartments(widget.role);
+  }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadCargos({
     bool forceServer = false,
@@ -728,54 +947,60 @@ class _CargosPageState extends State<CargosPage> {
     }
     final path = FirebasePaths.cargos(churchId);
 
-    Future<ChurchCargosLoadResult> runLoad({
-      required String seed,
-      required bool server,
-    }) =>
-        FirestoreWebGuard.runWithWebRecovery(
-          () => ChurchCargosLoadService.load(
-            seedTenantId: seed,
-            forceServer: server,
-            forceRefresh: server,
-          ),
-          maxAttempts: 4,
+    try {
+      Future<ChurchCargosLoadResult> runLoad({
+        required String seed,
+        required bool server,
+      }) =>
+          FirestoreWebGuard.runWithWebRecovery(
+            () => ChurchCargosLoadService.load(
+              seedTenantId: seed,
+              forceServer: server,
+              forceRefresh: server,
+            ),
+            maxAttempts: 4,
+          );
+
+      var result = await runLoad(
+        seed: widget.tenantId.trim().isNotEmpty
+            ? widget.tenantId.trim()
+            : churchId,
+        server: forceServer,
+      );
+
+      if (result.docs.isNotEmpty) {
+        ChurchCargosLoadService.putRam(result.churchId, result.docs);
+        unawaited(ChurchCargosLoadService.persistAfterLoad(result));
+        ChurchModuleQueryProbe.logSuccess(
+          module: 'Cargos',
+          churchId: result.churchId,
+          path: path,
+          totalDocs: result.docs.length,
         );
+        return result.snapshot;
+      }
 
-    var result = await runLoad(
-      seed: widget.tenantId.trim().isNotEmpty
-          ? widget.tenantId.trim()
-          : churchId,
-      server: forceServer,
-    );
-
-    if (result.docs.isNotEmpty) {
-      ChurchCargosLoadService.putRam(result.churchId, result.docs);
-      unawaited(ChurchCargosLoadService.persistAfterLoad(result));
-      ChurchModuleQueryProbe.logSuccess(
-        module: 'Cargos',
-        churchId: result.churchId,
-        path: path,
-        totalDocs: result.docs.length,
-      );
+      if (result.softError != null) {
+        ChurchModuleQueryProbe.logError(
+          module: 'Cargos',
+          churchId: churchId,
+          path: path,
+          error: result.softError!,
+        );
+      } else {
+        ChurchModuleQueryProbe.logSuccess(
+          module: 'Cargos',
+          churchId: churchId,
+          path: path,
+          totalDocs: 0,
+        );
+      }
       return result.snapshot;
+    } catch (e) {
+      final fallback = _peekInstantCargosSnap();
+      if (fallback != null && fallback.docs.isNotEmpty) return fallback;
+      return const MergedFirestoreQuerySnapshot([]);
     }
-
-    if (result.softError != null) {
-      ChurchModuleQueryProbe.logError(
-        module: 'Cargos',
-        churchId: churchId,
-        path: path,
-        error: result.softError!,
-      );
-    } else {
-      ChurchModuleQueryProbe.logSuccess(
-        module: 'Cargos',
-        churchId: churchId,
-        path: path,
-        totalDocs: 0,
-      );
-    }
-    return result.snapshot;
   }
 
   Future<void> _refreshCargosBackground({bool forceServer = false}) async {
@@ -795,7 +1020,7 @@ class _CargosPageState extends State<CargosPage> {
   @override
   void initState() {
     super.initState();
-    _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
+    _resolvedTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     unawaited(YahwehModuleCaches.cargos.warmUp(_loadChurchId));
     final instant = _peekInstantCargosSnap();
     if (instant != null) {
@@ -821,7 +1046,7 @@ class _CargosPageState extends State<CargosPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _cargosLoadRetryGen++;
-      _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
+      _resolvedTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
       _triedAutoSeed = false;
       _cargosLoadPending = true;
       unawaited(YahwehModuleCaches.cargos.warmUp(_loadChurchId));
@@ -942,6 +1167,7 @@ class _CargosPageState extends State<CargosPage> {
     _cargosLoadPending = true;
     _startWebLoadingCap();
     setState(() {
+      _cargosLoadSoftError = null;
       _cargosFuture = _loadCargosWithCap(forceServer: server);
     });
     try {
@@ -955,78 +1181,40 @@ class _CargosPageState extends State<CargosPage> {
   Widget _buildCargosHubCard(EdgeInsets padding) {
     return Padding(
       padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 12),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              ThemeCleanPremium.primary.withValues(alpha: 0.08),
-              ThemeCleanPremium.cardBackground,
-              ThemeCleanPremium.primaryLighter.withValues(alpha: 0.12),
-            ],
-            stops: const [0.0, 0.5, 1.0],
-          ),
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          border: Border.all(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-          ),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-        ),
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      child: YahwehWisdomSectionCard(
+        borderTint: YahwehWisdomVisualKit.tealAccent,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    ThemeCleanPremium.primary,
-                    ThemeCleanPremium.primaryLight,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: const Padding(
-                padding: EdgeInsets.all(9),
-                child: Icon(
-                  Icons.badge_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
+            churchWisdomModuleIconLeading(
+              icon: Icons.badge_rounded,
+              accent: YahwehWisdomVisualKit.tealAccent,
+              moduleAssetKey: 'cargos',
+              size: 52,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Cargos',
-                    style: TextStyle(
-                      fontSize: 18,
+                    'Funções ministeriais',
+                    style: GoogleFonts.inter(
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
                       color: ThemeCleanPremium.onSurface,
-                      letterSpacing: -0.4,
-                      height: 1.15,
+                      letterSpacing: -0.3,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Text(
-                    'Toque num cargo para ver membros vinculados e alterar funções no cadastro.',
-                    style: TextStyle(
+                    'Toque num cargo para ver e vincular membros. Use + Novo para criar funções personalizadas.',
+                    style: GoogleFonts.inter(
                       fontSize: 12.5,
                       height: 1.35,
-                      color: ThemeCleanPremium.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
                     ),
                   ),
                 ],
@@ -1142,394 +1330,341 @@ class _CargosPageState extends State<CargosPage> {
       relatorioPicks.removeWhere((e) => e != 'eventos' && e != 'aniversariantes');
     }
 
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) {
-          final templates = ChurchFuncoesControleService.permissionTemplates;
-          final templateValue =
-              templates.any((t) => t.key == template) ? template : 'membro';
-          final cargoKeyLive = keyCtrl.text.trim().toLowerCase();
-          final isLiderDep = cargoKeyLive == 'lider_departamento';
-          final primary = ThemeCleanPremium.primary;
-          final chips = isLiderDep
-              ? _kCargoSimpleChips
-                  .where((c) =>
-                      c.$1 != 'financeiro' &&
-                      c.$1 != 'patrimonio' &&
-                      c.$1 != 'fornecedores')
-                  .toList()
-              : _kCargoSimpleChips.toList();
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-            backgroundColor: const Color(0xFFF8FAFC),
-            title: Row(
+    final isMobileForm = ThemeCleanPremium.isMobile(context);
+
+    Future<bool?> openForm() {
+      Widget buildFormBody(
+        BuildContext ctx,
+        StateSetter setDlg, {
+        ScrollController? scrollController,
+        required bool compact,
+      }) {
+        final templates = ChurchFuncoesControleService.permissionTemplates;
+        final templateValue =
+            templates.any((t) => t.key == template) ? template : 'membro';
+        final cargoKeyLive = keyCtrl.text.trim().toLowerCase();
+        final isLiderDep = cargoKeyLive == 'lider_departamento';
+        final primary = ThemeCleanPremium.primary;
+        final chips = isLiderDep
+            ? _kCargoSimpleChips
+                .where((c) =>
+                    c.$1 != 'financeiro' &&
+                    c.$1 != 'patrimonio' &&
+                    c.$1 != 'fornecedores')
+                .toList()
+            : _kCargoSimpleChips.toList();
+        final relatorioOptions = [
+          for (final r in _kRelatorioPickIds)
+            if (!isLiderDep || r.$1 == 'eventos' || r.$1 == 'aniversariantes')
+              r,
+        ];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Nome do cargo',
+                prefixIcon: Icon(Icons.badge_rounded),
+                isDense: true,
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: keyCtrl,
+              onChanged: (_) => setDlg(() {}),
+              decoration: InputDecoration(
+                labelText: 'Chave técnica (única)',
+                prefixIcon: const Icon(Icons.key_rounded),
+                isDense: true,
+                helperText: doc == null
+                    ? 'Deixe vazio para gerar a partir do nome.'
+                    : 'Usada em FUNÇÕES do membro.',
+                helperMaxLines: 2,
+              ),
+            ),
+            if (isLiderDep) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Líder de departamento: relatórios limitados a Eventos e Aniversariantes.',
+                style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.workspace_premium_rounded, color: primary),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    doc == null ? 'Novo cargo' : 'Editar cargo',
-                    style: GoogleFonts.manrope(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 18,
-                      letterSpacing: -0.3,
+                  child: TextField(
+                    controller: hierCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Nível (0–100)',
+                      prefixIcon: Icon(Icons.layers_rounded),
+                      isDense: true,
                     ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: DropdownButtonFormField<String>(
+                    value: templateValue,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Modelo base',
+                      prefixIcon: Icon(Icons.security_rounded),
+                      isDense: true,
+                    ),
+                    items: templates
+                        .map((t) => DropdownMenuItem(
+                              value: t.key,
+                              child: Text(t.label, overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDlg(() => template = v ?? 'membro'),
                   ),
                 ),
               ],
             ),
-            content: SingleChildScrollView(
-              child: SizedBox(
-                width: 440,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome do cargo',
-                        prefixIcon: Icon(Icons.badge_rounded),
-                      ),
-                      textCapitalization: TextCapitalization.words,
+            const SizedBox(height: 10),
+            Text(
+              'Acesso ao painel',
+              style: GoogleFonts.manrope(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: ThemeCleanPremium.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  _cargoAccessTriDropdown(
+                    title: 'Membros',
+                    icon: Icons.people_alt_rounded,
+                    tri: membrosTri,
+                    onChanged: (v) => setDlg(() => membrosTri = v),
+                  ),
+                  _cargoAccessTriDropdown(
+                    title: 'Mural de avisos',
+                    icon: Icons.campaign_rounded,
+                    tri: muralTri,
+                    onChanged: (v) => setDlg(() => muralTri = v),
+                    label1: 'Leitura',
+                    label2: 'Publicar',
+                  ),
+                  _cargoAccessTriDropdown(
+                    title: 'Eventos (feed)',
+                    icon: Icons.event_rounded,
+                    tri: eventosTri,
+                    onChanged: (v) => setDlg(() => eventosTri = v),
+                  ),
+                  _cargoAccessTriDropdown(
+                    title: 'Agenda',
+                    icon: Icons.calendar_month_rounded,
+                    tri: agendaTri,
+                    onChanged: (v) => setDlg(() => agendaTri = v),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            _cargoMultiSelectDropdown(
+              context: ctx,
+              label: 'Módulos adicionais',
+              icon: Icons.widgets_rounded,
+              options: chips,
+              selected: simpleSel,
+              emptyLabel: 'Nenhum módulo',
+              onChanged: (v) => setDlg(() {
+                simpleSel
+                  ..clear()
+                  ..addAll(v);
+              }),
+            ),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text(
+                'Pacote completo de PDFs',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+              ),
+              value: relatoriosFull && !isLiderDep,
+              activeThumbColor: Colors.white,
+              activeTrackColor: primary,
+              onChanged: isLiderDep
+                  ? null
+                  : (v) => setDlg(() {
+                        relatoriosFull = v;
+                        if (v) relatorioPicks.clear();
+                      }),
+            ),
+            if (!relatoriosFull || isLiderDep)
+              _cargoMultiSelectDropdown(
+                context: ctx,
+                label: 'Relatórios PDF',
+                icon: Icons.picture_as_pdf_rounded,
+                options: relatorioOptions,
+                selected: relatorioPicks,
+                emptyLabel: 'Escolher relatórios',
+                enabled: !(relatoriosFull && !isLiderDep),
+                onChanged: (v) => setDlg(() {
+                  relatorioPicks
+                    ..clear()
+                    ..addAll(v);
+                }),
+              ),
+            if (compact) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancelar'),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: keyCtrl,
-                      onChanged: (_) => setDlg(() {}),
-                      decoration: InputDecoration(
-                        labelText: 'Chave técnica (única)',
-                        prefixIcon: const Icon(Icons.key_rounded),
-                        helperText: doc == null
-                            ? 'Deixe vazio para gerar a partir do nome.'
-                            : 'Usada em FUNÇÕES do membro.',
-                      ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Salvar'),
                     ),
-                    if (isLiderDep) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF7ED),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                              color: const Color(0xFFFDBA74).withValues(alpha: 0.8)),
-                        ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        );
+      }
+
+      if (isMobileForm) {
+        return showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          useSafeArea: true,
+          backgroundColor: const Color(0xFFF8FAFC),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (ctx) => StatefulBuilder(
+            builder: (ctx, setDlg) {
+              final maxH = MediaQuery.sizeOf(ctx).height * 0.94;
+              return Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: maxH),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                         child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(Icons.shield_rounded,
-                                size: 18, color: Colors.orange.shade800),
-                            const SizedBox(width: 8),
+                            Icon(Icons.workspace_premium_rounded,
+                                color: ThemeCleanPremium.primary),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Líder de departamento: sem Financeiro, Patrimônio e Fornecedores; relatórios apenas Eventos e Aniversariantes.',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  height: 1.35,
-                                  color: Colors.grey.shade900,
+                                doc == null ? 'Novo cargo' : 'Editar cargo',
+                                style: GoogleFonts.manrope(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 17,
                                 ),
                               ),
                             ),
+                            IconButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
                           ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: ThemeCleanPremium.pagePadding(ctx),
+                          child: buildFormBody(ctx, setDlg, compact: true),
                         ),
                       ),
                     ],
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: hierCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Nível hierárquico (0–100)',
-                        prefixIcon: Icon(Icons.layers_rounded),
-                      ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }
+
+      return showDialog<bool>(
+        context: context,
+        useRootNavigator: widget.embeddedInShell,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDlg) {
+            final primary = ThemeCleanPremium.primary;
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+              backgroundColor: const Color(0xFFF8FAFC),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: templateValue,
-                      decoration: const InputDecoration(
-                        labelText: 'Modelo de permissões base',
-                        prefixIcon: Icon(Icons.security_rounded),
-                      ),
-                      items: templates
-                          .map((t) =>
-                              DropdownMenuItem(value: t.key, child: Text(t.label)))
-                          .toList(),
-                      onChanged: (v) => setDlg(() => template = v ?? 'membro'),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'Acesso fino ao painel',
+                    child: Icon(Icons.workspace_premium_rounded, color: primary),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      doc == null ? 'Novo cargo' : 'Editar cargo',
                       style: GoogleFonts.manrope(
-                        fontSize: 13,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                        color: ThemeCleanPremium.onSurface,
+                        fontSize: 18,
+                        letterSpacing: -0.3,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Somam-se ao modelo base e podem ser fundidos em users.permissions ao vincular o membro.',
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: 1.35,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _cargoAccessTriTile(
-                      title: 'Membros',
-                      hint:
-                          'Padrão = herda do modelo. «Só ver» limita edição da lista.',
-                      icon: Icons.people_alt_rounded,
-                      tri: membrosTri,
-                      onChanged: (v) => setDlg(() => membrosTri = v),
-                    ),
-                    _cargoAccessTriTile(
-                      title: 'Mural de avisos',
-                      hint:
-                          'Leitura = não publica. Publicar = criar/editar avisos.',
-                      icon: Icons.campaign_rounded,
-                      tri: muralTri,
-                      onChanged: (v) => setDlg(() => muralTri = v),
-                      label1: 'Leitura',
-                      label2: 'Publicar',
-                    ),
-                    _cargoAccessTriTile(
-                      title: 'Eventos (feed)',
-                      hint:
-                          'Alinhado ao Mural de Eventos — RSVP, feed e abas de gestão.',
-                      icon: Icons.event_rounded,
-                      tri: eventosTri,
-                      onChanged: (v) => setDlg(() => eventosTri = v),
-                    ),
-                    _cargoAccessTriTile(
-                      title: 'Agenda',
-                      hint: 'Calendário unificado — cultos, agenda interna e feed.',
-                      icon: Icons.calendar_month_rounded,
-                      tri: agendaTri,
-                      onChanged: (v) => setDlg(() => agendaTri = v),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Módulos adicionais',
-                      style: GoogleFonts.manrope(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white,
-                            Color.lerp(primary, Colors.white, 0.94)!,
-                          ],
-                        ),
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                      ),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: chips.map((m) {
-                          final sel = simpleSel.contains(m.$1);
-                          return _cargoModulePermissionChip(
-                            moduleKey: m.$1,
-                            label: m.$2,
-                            selected: sel,
-                            onTap: () => setDlg(() {
-                              if (sel) {
-                                simpleSel.remove(m.$1);
-                              } else {
-                                simpleSel.add(m.$1);
-                              }
-                            }),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white,
-                            Color.lerp(primary, Colors.white, 0.92)!,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.picture_as_pdf_rounded,
-                                  size: 20, color: primary),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Relatórios PDF',
-                                  style: GoogleFonts.manrope(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.2,
-                                    color: ThemeCleanPremium.onSurface,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              'Pacote completo',
-                              style: GoogleFonts.manrope(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14,
-                                color: ThemeCleanPremium.onSurface,
-                              ),
-                            ),
-                            subtitle: Text(
-                              'Todos os relatórios compatíveis com o modelo e com financeiro/patrimônio.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.35,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
-                            ),
-                            value: relatoriosFull && !isLiderDep,
-                            activeThumbColor: Colors.white,
-                            activeTrackColor: primary,
-                            onChanged: isLiderDep
-                                ? null
-                                : (v) => setDlg(() {
-                                      relatoriosFull = v;
-                                      if (v) relatorioPicks.clear();
-                                    }),
-                          ),
-                          if (!relatoriosFull || isLiderDep) ...[
-                            const SizedBox(height: 4),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                isLiderDep
-                                    ? 'Marque só os PDFs deste cargo (máx.: Eventos e Aniversariantes).'
-                                    : 'Ou escolha relatórios específicos:',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  height: 1.35,
-                                  color: ThemeCleanPremium.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                for (final r in _kRelatorioPickIds)
-                                  if (!isLiderDep ||
-                                      r.$1 == 'eventos' ||
-                                      r.$1 == 'aniversariantes')
-                                    _cargoRelatorioPickChip(
-                                      pickId: r.$1,
-                                      label: r.$2,
-                                      selected:
-                                          relatorioPicks.contains(r.$1),
-                                      enabled:
-                                          !(relatoriosFull && !isLiderDep),
-                                      onTap: () {
-                                        setDlg(() {
-                                          if (relatorioPicks
-                                              .contains(r.$1)) {
-                                            relatorioPicks.remove(r.$1);
-                                          } else {
-                                            relatorioPicks.add(r.$1);
-                                          }
-                                        });
-                                      },
-                                    ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: SizedBox(
+                  width: 440,
+                  child: buildFormBody(ctx, setDlg, compact: false),
                 ),
               ),
-            ),
-            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            actions: [
-              OutlinedButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: ThemeCleanPremium.primary,
-                  side: BorderSide(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  ),
+              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              actions: [
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar'),
                 ),
-                child: const Text(
-                  'Cancelar',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                FilledButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('Salvar'),
                 ),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.primary,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  ),
-                ),
-                child: const Text(
-                  'Salvar',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+              ],
+            );
+          },
+        ),
+      );
+    }
+
+    final saved = await openForm();
     if (saved != true) return;
     final name = nameCtrl.text.trim();
     if (name.isEmpty) {
@@ -1628,11 +1763,13 @@ class _CargosPageState extends State<CargosPage> {
     final data = doc.data() ?? {};
     final name = (data['name'] ?? doc.id).toString();
     final key = (data['key'] ?? doc.id).toString();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
+    final tenant = ChurchPanelTenant.forFirestore(
+      _resolvedTenantId ?? widget.tenantId,
+    );
+    Navigator.of(context, rootNavigator: widget.embeddedInShell).push(
+      MaterialPageRoute<void>(
         builder: (_) => _CargoMembrosPage(
-          tenantId: _resolvedTenantId ?? widget.tenantId,
+          tenantId: tenant,
           role: widget.role,
           cargoName: name,
           cargoKey: key,
@@ -1753,7 +1890,10 @@ class _CargosPageState extends State<CargosPage> {
                       !snap.hasError) {
                     return const ChurchPanelLoadingBody(itemCount: 4);
                   }
-                  final cargosLoadFailed = snap.hasError;
+                  final cargosLoadFailed =
+                      snap.hasError ||
+                      (_cargosLoadSoftError != null &&
+                          (snap.data?.docs.isEmpty ?? true));
                   if (cargosLoadFailed) {
                     final fallback = _peekInstantCargosSnap();
                     if (fallback == null || fallback.docs.isEmpty) {
@@ -1761,9 +1901,9 @@ class _CargosPageState extends State<CargosPage> {
                         padding: const EdgeInsets.all(24),
                         child: ChurchPanelResilientLoadBanner(
                           hasLocalData: false,
-                          isSyncing: false,
+                          isSyncing: _cargosLoadPending,
                           errorTitle: 'Não foi possível carregar os cargos',
-                          error: snap.error,
+                          error: snap.error ?? _cargosLoadSoftError,
                           onRetry: () => _refresh(forceServer: true),
                         ),
                       );
@@ -1971,21 +2111,82 @@ class _CargosPageState extends State<CargosPage> {
                               final key = (d.data()['key'] ?? d.id).toString();
                               final accent =
                                   _cargoAccentColorFromData(d.data());
-                              return Padding(
-                                padding: EdgeInsets.only(
-                                  bottom:
-                                      i < docs.length - 1 ? 10 : 0,
+                              return ChurchWisdomModuleListCard(
+                                title: name,
+                                subtitle: key.isNotEmpty
+                                    ? 'Chave: $key · toque para membros'
+                                    : 'Toque para ver membros vinculados',
+                                accent: accent,
+                                leading: churchWisdomModuleIconLeading(
+                                  icon: Icons.badge_rounded,
+                                  accent: accent,
+                                  moduleAssetKey: 'cargos',
                                 ),
-                                child: _CargoCardSuperPremium(
-                                  cargoName: name,
-                                  cargoKey: key,
-                                  accentColor: accent,
-                                  canWrite: _canWrite,
-                                  onTap: () => _openCargoMembros(d),
-                                  onEdit: () => _addOrEdit(doc: d),
-                                  onDelete: () => _delete(d),
-                                  onViewMembros: () => _openCargoMembros(d),
-                                ),
+                                onTap: () => _openCargoMembros(d),
+                                trailing: _canWrite
+                                    ? PopupMenuButton<String>(
+                                        icon: Icon(Icons.more_vert_rounded,
+                                            color: Colors.grey.shade600,
+                                            size: 22),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                        ),
+                                        onSelected: (v) {
+                                          if (v == 'edit') {
+                                            _addOrEdit(doc: d);
+                                          } else if (v == 'delete') {
+                                            _delete(d);
+                                          } else if (v == 'view') {
+                                            _openCargoMembros(d);
+                                          }
+                                        },
+                                        itemBuilder: (_) => const [
+                                          PopupMenuItem(
+                                            value: 'view',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.people_rounded,
+                                                    size: 20),
+                                                SizedBox(width: 10),
+                                                Text('Ver membros'),
+                                              ],
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'edit',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.edit_rounded,
+                                                    size: 20),
+                                                SizedBox(width: 10),
+                                                Text('Editar'),
+                                              ],
+                                            ),
+                                          ),
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  size: 20,
+                                                  color: Color(0xFFDC2626),
+                                                ),
+                                                SizedBox(width: 10),
+                                                Text(
+                                                  'Excluir',
+                                                  style: TextStyle(
+                                                    color: Color(0xFFDC2626),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
                               );
                             },
                             childCount: docs.length,
@@ -2008,171 +2209,6 @@ class _CargosPageState extends State<CargosPage> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Card de cargo — mesmo padrão visual de [_buildPremiumDeptListTile] em [DepartmentsPage].
-class _CargoCardSuperPremium extends StatelessWidget {
-  final String cargoName;
-  final String cargoKey;
-  final Color accentColor;
-  final bool canWrite;
-  final VoidCallback onTap;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback onViewMembros;
-
-  const _CargoCardSuperPremium({
-    required this.cargoName,
-    required this.cargoKey,
-    required this.accentColor,
-    required this.canWrite,
-    required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onViewMembros,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  width: 4,
-                  decoration: BoxDecoration(
-                    color: _kCargoListGoldAccent,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(13),
-                      bottomLeft: Radius.circular(13),
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 12, 12, 12),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 22,
-                          backgroundColor:
-                              accentColor.withValues(alpha: 0.18),
-                          child: Icon(
-                            Icons.badge_rounded,
-                            color: accentColor,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                cargoName,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
-                                  color: ThemeCleanPremium.onSurface,
-                                  height: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                cargoKey.isNotEmpty
-                                    ? 'Chave: $cargoKey · toque para membros'
-                                    : 'Toque para ver membros vinculados',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: ThemeCleanPremium.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          color: ThemeCleanPremium.onSurfaceVariant
-                              .withValues(alpha: 0.85),
-                          size: 26,
-                        ),
-                        if (canWrite) ...[
-                          const SizedBox(width: 2),
-                          PopupMenuButton<String>(
-                            icon: Icon(Icons.more_vert_rounded,
-                                color: Colors.grey.shade600, size: 22),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm)),
-                            onSelected: (v) {
-                              if (v == 'edit') {
-                                onEdit();
-                              }
-                              if (v == 'delete') {
-                                onDelete();
-                              }
-                              if (v == 'view') {
-                                onViewMembros();
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              const PopupMenuItem(
-                                value: 'view',
-                                child: Row(children: [
-                                  Icon(Icons.people_rounded, size: 20),
-                                  SizedBox(width: 10),
-                                  Text('Ver membros')
-                                ]),
-                              ),
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(children: [
-                                  Icon(Icons.edit_rounded, size: 20),
-                                  SizedBox(width: 10),
-                                  Text('Editar')
-                                ]),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(children: [
-                                  Icon(Icons.delete_outline_rounded,
-                                      size: 20, color: Color(0xFFDC2626)),
-                                  SizedBox(width: 10),
-                                  Text('Excluir',
-                                      style:
-                                          TextStyle(color: Color(0xFFDC2626)))
-                                ]),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -2209,7 +2245,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   String? _loadError;
 
   String get _loadChurchId =>
-      ChurchPanelTenant.resolve(widget.tenantId.trim());
+      ChurchPanelTenant.forFirestore(widget.tenantId.trim());
 
   @override
   void initState() {
@@ -2267,8 +2303,15 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
   Future<void> _linkMemberToCargo(_MemberWithRef m) async {
     if (!_canWrite) return;
-    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
-    if (churchId.isEmpty) return;
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
+    if (churchId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Igreja não identificada.')),
+        );
+      }
+      return;
+    }
     final cargoKey = widget.cargoKey.trim();
     if (cargoKey.isEmpty) return;
 
@@ -2304,9 +2347,11 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     }
 
     try {
-      await ChurchUiCollections.membros(churchId)
-          .doc(m.id)
-          .set(updates, SetOptions(merge: true));
+      await _writeMembroDocMergeResilient(
+        churchId: churchId,
+        memberDocId: m.id,
+        updates: updates,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2344,7 +2389,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
           final cur = AppPermissions.normalizePermissions(us.data()?['permissions']);
           userPatch['permissions'] = {...cur, ...extraMods}.toList();
         }
-        await uref.set(userPatch, SetOptions(merge: true));
+        await _writeUsersDocMergeResilient(authUid: authUid, patch: userPatch);
       } catch (_) {}
     }
 
@@ -2407,8 +2452,15 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       ),
     );
     if (ok != true || !mounted) return;
-    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
-    if (churchId.isEmpty) return;
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
+    if (churchId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Igreja não identificada.')),
+        );
+      }
+      return;
+    }
     try {
       final funcoesRaw = m.data['FUNCOES'] ?? m.data['funcoes'];
       List<String> funcoes = funcoesRaw is List
@@ -2439,21 +2491,26 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         funcaoFinal: funcaoFinal,
         funcoes: funcoes,
       );
-      await ChurchUiCollections.membros(churchId)
-          .doc(m.id)
-          .set(updates, SetOptions(merge: true));
+      await _writeMembroDocMergeResilient(
+        churchId: churchId,
+        memberDocId: m.id,
+        updates: updates,
+      );
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
-          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
-            'role': updates['role'],
-            'funcao': updates['FUNCAO'],
-            'cargo': updates['CARGO'],
-            'FUNCAO': updates['FUNCAO'],
-            'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
-            'FUNCOES': funcoes,
-            'CARGO': updates['CARGO'],
-          }, SetOptions(merge: true));
+          await _writeUsersDocMergeResilient(
+            authUid: authUid,
+            patch: {
+              'role': updates['role'],
+              'funcao': updates['FUNCAO'],
+              'cargo': updates['CARGO'],
+              'FUNCAO': updates['FUNCAO'],
+              'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
+              'FUNCOES': funcoes,
+              'CARGO': updates['CARGO'],
+            },
+          );
         } catch (_) {}
       }
       if (mounted) {
@@ -2468,7 +2525,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   Future<void> _changeCargo(_MemberWithRef m) async {
     if (!_canWrite) return;
     final cargosSnap = await IgrejaDirectFirestoreReads.listSubcollection(
-      widget.tenantId.trim(),
+      _loadChurchId,
       'cargos',
       moduleLabel: 'Cargos',
       limit: 120,
@@ -2520,8 +2577,15 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       ),
     );
     if (ok != true || selectedKey == null || !mounted) return;
-    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
-    if (churchId.isEmpty) return;
+    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
+    if (churchId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Igreja não identificada.')),
+        );
+      }
+      return;
+    }
     try {
       final funcoesRaw = m.data['FUNCOES'] ?? m.data['funcoes'];
       List<String> funcoes = funcoesRaw is List
@@ -2543,21 +2607,26 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         funcaoFinal: funcaoFinal,
         funcoes: funcoes,
       );
-      await ChurchUiCollections.membros(churchId)
-          .doc(m.id)
-          .set(updates, SetOptions(merge: true));
+      await _writeMembroDocMergeResilient(
+        churchId: churchId,
+        memberDocId: m.id,
+        updates: updates,
+      );
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
-          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
-            'role': updates['role'],
-            'funcao': updates['FUNCAO'],
-            'cargo': updates['CARGO'],
-            'FUNCAO': updates['FUNCAO'],
-            'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
-            'FUNCOES': funcoes,
-            'CARGO': updates['CARGO'],
-          }, SetOptions(merge: true));
+          await _writeUsersDocMergeResilient(
+            authUid: authUid,
+            patch: {
+              'role': updates['role'],
+              'funcao': updates['FUNCAO'],
+              'cargo': updates['CARGO'],
+              'FUNCAO': updates['FUNCAO'],
+              'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
+              'FUNCOES': funcoes,
+              'CARGO': updates['CARGO'],
+            },
+          );
         } catch (_) {}
       }
       if (mounted) {
@@ -2575,11 +2644,23 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   Widget build(BuildContext context) {
     final padding = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: const Color(0xFFF4F7FB),
       appBar: AppBar(
-        backgroundColor: ThemeCleanPremium.primary,
+        backgroundColor: YahwehWisdomVisualKit.tealAccent,
         foregroundColor: Colors.white,
         elevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                YahwehWisdomVisualKit.tealAccent,
+                ThemeCleanPremium.primary,
+              ],
+            ),
+          ),
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -2639,46 +2720,14 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                   ),
                 Expanded(
                   child: _members.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.people_outline_rounded, size: 64, color: Colors.grey.shade400),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Nenhum membro com este cargo',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade700),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Use o botão Vincular membro ou o cadastro em Membros.',
-                          style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        FilledButton.icon(
-                          onPressed: _pickAndLinkMember,
-                          icon: const Icon(Icons.person_add_alt_1_rounded),
-                          label: const Text('Vincular membro'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: ThemeCleanPremium.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => MembersPage(tenantId: widget.tenantId, role: widget.role))),
-                          icon: const Icon(Icons.people_rounded),
-                          label: const Text('Ir para Membros'),
-                        ),
-                      ],
-                    ),
-                  ),
+              ? ChurchWisdomModuleEmptyState(
+                  icon: Icons.people_outline_rounded,
+                  title: 'Nenhum membro com este cargo',
+                  message:
+                      'Use o botão Vincular membro ou o cadastro em Membros.',
+                  actionLabel: _canWrite ? 'Vincular membro' : null,
+                  onAction: _canWrite ? _pickAndLinkMember : null,
+                  accent: YahwehWisdomVisualKit.tealAccent,
                 )
               : RefreshIndicator(
                   onRefresh: () => _loadMembers(forceRefresh: true),

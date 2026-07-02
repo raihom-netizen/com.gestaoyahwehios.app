@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Sincroniza evento publicado com a coleção `agenda` (calendário colorido).
 abstract final class ChurchFeedAgendaSyncService {
@@ -22,11 +24,16 @@ abstract final class ChurchFeedAgendaSyncService {
     if (tid.isEmpty || eid.isEmpty) return;
 
     await ensureFirebaseReadyForPublishUpload();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
 
     final agendaCol =
         ChurchOperationalPaths.churchDoc(tid).collection('agenda');
-    final existing =
-        await agendaCol.where('noticiaId', isEqualTo: eid).limit(10).get();
+    final existing = await FirestoreWebGuard.runWithWebRecovery(
+      () => agendaCol.where('noticiaId', isEqualTo: eid).limit(10).get(),
+      maxAttempts: kIsWeb ? 3 : 2,
+    );
 
     final end = endAt ?? startAt.add(const Duration(hours: 2));
     final payload = <String, dynamic>{
@@ -52,7 +59,10 @@ abstract final class ChurchFeedAgendaSyncService {
         batch.set(d.reference, payload, SetOptions(merge: true));
       }
     }
-    await batch.commit();
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => batch.commit(),
+      maxAttempts: kIsWeb ? 4 : 2,
+    );
   }
 
   static Future<void> upsertForAviso({

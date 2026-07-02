@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_pdf_capture_leaf.dart';
 import 'package:screenshot/screenshot.dart';
@@ -14,8 +15,9 @@ abstract final class MemberCardPdfRasterService {
   static final ScreenshotController _controller = ScreenshotController();
 
   /// Equilíbrio nitidez × velocidade (impressão jato/laser).
-  static const double capturePixelRatio = 1.85;
-  static const Duration captureDelay = Duration(milliseconds: 28);
+  static const double capturePixelRatio = 1.75;
+  static Duration get captureDelay =>
+      Duration(milliseconds: YahwehPerformanceV4.memberCardPdfCaptureDelayMs);
 
   static Future<Uint8List?> captureSlice({
     required MemberCardPdfSlice slice,
@@ -53,7 +55,10 @@ abstract final class MemberCardPdfRasterService {
     final out = List<Uint8List?>.filled(slices.length, null);
     final total = slices.length;
     var done = 0;
-    final p = math.max(1, parallel.clamp(1, 4));
+    final p = math.max(
+      1,
+      parallel.clamp(1, YahwehPerformanceV4.memberCardPdfRasterParallel),
+    );
 
     for (var i = 0; i < slices.length; i += p) {
       final end = math.min(i + p, slices.length);

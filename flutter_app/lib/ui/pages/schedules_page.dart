@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -34,6 +36,8 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, churchTenantLogoUrl, imageUrlFromMap, isValidImageUrl, memCacheExtentForLogicalSize, sanitizeImageUrl;
@@ -409,10 +413,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     Color(0xFF8B5CF6), Color(0xFF0891B2), Color(0xFFDB2777), Color(0xFF059669),
   ];
 
+  static const Color _wisdomAccent = Color(0xFF0891B2);
+
+  String get _escalasFirestorePath =>
+      ChurchPanelTenant.firestoreRootPath(_churchId);
+
+  String get _escalasStoragePath =>
+      ChurchPanelTenant.storageRootPath(_churchId);
+
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
-    final tid = ChurchRepository.churchId(widget.tenantId);
+    final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (mounted && tid.isNotEmpty && tid != _effectiveTenantId) {
       setState(() => _effectiveTenantId = tid);
     }
@@ -432,6 +444,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchTemplates(
     String tid, {
     bool forceServer = false,
+    bool forceRefresh = false,
   }) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -440,6 +453,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       () => ChurchSchedulesLoadService.loadTemplates(
         seedTenantId: tid,
         forceServer: forceServer,
+        forceRefresh: forceRefresh,
       ).timeout(PanelResilientLoad.queryCap),
       maxAttempts: 4,
     );
@@ -453,6 +467,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchEscalas(
     String tid, {
     bool forceServer = false,
+    bool forceRefresh = false,
+    int limit = ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
   }) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -460,8 +476,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final r = await FirestoreWebGuard.runWithWebRecovery(
       () => ChurchSchedulesLoadService.loadEscalas(
         seedTenantId: tid,
-        limit: 200,
+        limit: limit,
         forceServer: forceServer,
+        forceRefresh: forceRefresh,
       ).timeout(PanelResilientLoad.queryCap),
       maxAttempts: 4,
     );
@@ -472,7 +489,33 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     return r.snapshot;
   }
 
-  String get _churchId => ChurchRepository.churchId(
+  void _refreshEscalasFullInBackground(String churchId) {
+    unawaited(
+      ChurchSchedulesLoadService.loadEscalas(
+        seedTenantId: churchId,
+        limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
+        forceRefresh: false,
+        forceServer: false,
+      ).then((r) async {
+        if (r.docs.isEmpty) return;
+        await ChurchSchedulesLoadService.persistEscalas(r);
+        if (!mounted) return;
+        setState(() {
+          _instancesDocs = r.docs;
+          _instancesFuture = Future.value(r.snapshot);
+          _instancesLoadHint = null;
+        });
+        _SchedulesPageRamCache.put(
+          churchId,
+          templates: _templatesDocs,
+          instances: r.docs,
+          depts: _deptsItems,
+        );
+      }).catchError((_) {}),
+    );
+  }
+
+  String get _churchId => ChurchPanelTenant.forFirestore(
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
@@ -563,49 +606,74 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
+      // Escalas + modelos primeiro (departamentos não bloqueiam — evita timeout triplo).
       final results = await Future.wait<Object>([
-        _fetchTemplates(churchId, forceServer: forceFresh),
-        _fetchEscalas(churchId, forceServer: forceFresh),
-        _loadDepartmentsForTenant(churchId),
+        _fetchTemplates(
+          churchId,
+          forceServer: forceFresh,
+          forceRefresh: forceFresh,
+        ),
+        _fetchEscalas(
+          churchId,
+          forceServer: forceFresh,
+          forceRefresh: forceFresh,
+        ),
       ]).timeout(PanelResilientLoad.queryCap);
       if (!mounted) return;
       final templates =
           (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
       final instances =
           (results[1] as QuerySnapshot<Map<String, dynamic>>).docs;
-      final depts = results[2] as List<_DeptItem>;
       _SchedulesPageRamCache.put(
         churchId,
         templates: templates,
         instances: instances,
-        depts: depts,
+        depts: _deptsItems,
       );
       final tplUi = PanelResilientLoad.afterFetch(
         hadLocalData: hadTemplates,
         newItems: templates,
-        fromCache: false,
+        fromCache: !forceFresh,
         forceFresh: forceFresh,
       );
       final instUi = PanelResilientLoad.afterFetch(
         hadLocalData: hadInstances,
         newItems: instances,
-        fromCache: false,
+        fromCache: !forceFresh,
         forceFresh: forceFresh,
       );
       setState(() {
         _templatesDocs = templates;
         _instancesDocs = instances;
-        _deptsItems = depts;
         _templatesFetching = tplUi.fetching;
         _instancesFetching = instUi.fetching;
-        _deptsFetching = false;
         _syncLegacyFutures();
         if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
           _tab.animateTo(1);
         }
       });
+      _refreshEscalasFullInBackground(churchId);
+      unawaited(
+        _loadDepartmentsForTenant(churchId).then((depts) {
+          if (!mounted) return;
+          setState(() {
+            _deptsItems = depts;
+            _deptsFetching = false;
+            _deptsFuture = Future.value(depts);
+          });
+          _SchedulesPageRamCache.put(
+            churchId,
+            templates: _templatesDocs,
+            instances: _instancesDocs,
+            depts: depts,
+          );
+        }).catchError((_) {
+          if (mounted) setState(() => _deptsFetching = false);
+        }),
+      );
     } catch (e) {
       if (!mounted) return;
+      final msg = formatFirebaseErrorForUser(e, logToCrashlytics: false);
       final tplUi = PanelResilientLoad.afterError(
         hadLocalData: hadTemplates,
         error: e,
@@ -619,10 +687,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _instancesFetching = instUi.fetching;
         _deptsFetching = false;
         if (_templatesDocs.isEmpty) {
-          _templatesLoadHint ??= '$e';
+          _templatesLoadHint ??= msg;
         }
         if (_instancesDocs.isEmpty) {
-          _instancesLoadHint ??= '$e';
+          _instancesLoadHint ??= msg;
         }
         _syncLegacyFutures();
       });
@@ -632,7 +700,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         setState(() {
           _templatesFetching = false;
           _instancesFetching = false;
-          _deptsFetching = false;
         });
       }
     }
@@ -821,7 +888,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       _templatesLoadHint = null;
     });
     unawaited(
-      _fetchTemplates(tid, forceServer: true).then((snap) {
+      _fetchTemplates(tid, forceServer: false, forceRefresh: true).then((snap) {
         if (!mounted) return;
         setState(() {
           _templatesDocs = snap.docs;
@@ -832,7 +899,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         if (!mounted) return;
         setState(() {
           _templatesFetching = false;
-          if (_templatesDocs.isEmpty) _templatesLoadHint = '$e';
+          if (_templatesDocs.isEmpty) {
+            _templatesLoadHint = formatFirebaseErrorForUser(
+              e,
+              logToCrashlytics: false,
+            );
+          }
         });
       }),
     );
@@ -845,18 +917,24 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       _instancesLoadHint = null;
     });
     unawaited(
-      _fetchEscalas(tid, forceServer: true).then((snap) {
+      _fetchEscalas(tid, forceServer: false, forceRefresh: true).then((snap) {
         if (!mounted) return;
         setState(() {
           _instancesDocs = snap.docs;
           _instancesFetching = false;
           _instancesFuture = Future.value(snap);
         });
+        _refreshEscalasFullInBackground(tid);
       }).catchError((e) {
         if (!mounted) return;
         setState(() {
           _instancesFetching = false;
-          if (_instancesDocs.isEmpty) _instancesLoadHint = '$e';
+          if (_instancesDocs.isEmpty) {
+            _instancesLoadHint = formatFirebaseErrorForUser(
+              e,
+              logToCrashlytics: false,
+            );
+          }
         });
       }),
     );
@@ -1484,7 +1562,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void initState() {
     super.initState();
     logYahwehModuleScreen('escalas');
-    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _tab = TabController(length: 3, vsync: this);
     _seedSchedulesPanel();
     unawaited(_fetchSchedulesPanel());
@@ -2401,15 +2479,84 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               foregroundColor: Colors.white,
             )
           : null,
-      body: SafeArea(
+      body: YahwehWisdomPanelBackdrop(
+        child: SafeArea(
         top: !widget.embeddedInShell,
         child: Column(
           children: [
+            if (widget.embeddedInShell)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.pagePadding(context).left,
+                  8,
+                  ThemeCleanPremium.pagePadding(context).right,
+                  0,
+                ),
+                child: YahwehWisdomSectionCard(
+                  borderTint: _wisdomAccent,
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      churchWisdomModuleIconLeading(
+                        icon: Icons.event_note_rounded,
+                        accent: _wisdomAccent,
+                        size: 44,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Escala Geral',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: _wisdomAccent,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Firestore: $_escalasFirestorePath/escalas · '
+                              'escala_templates · escala_trocas',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                                height: 1.3,
+                              ),
+                            ),
+                            Text(
+                              'Storage: $_escalasStoragePath (metadados no Firestore)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             if (isMobile)
               Container(
-                color: ThemeCleanPremium.primary,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      _wisdomAccent,
+                      Color.lerp(_wisdomAccent, const Color(0xFF8B5CF6), 0.45)!,
+                    ],
+                  ),
+                ),
                 child: ChurchPanelPillTabBar(
                   controller: _tab,
+                  dense: true,
+                  accentColor: Colors.white,
                   tabs: [
                     const Tab(text: 'Modelos'),
                     Tab(text: narrowTabs ? 'Geradas' : 'Escalas geradas'),
@@ -2429,6 +2576,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             ),
           ],
         ),
+      ),
       ),
     );
   }

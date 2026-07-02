@@ -5,10 +5,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Modelo leve para UI — aviso publicado na igreja.
@@ -104,15 +108,18 @@ abstract final class ChurchAvisosService {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchUiCollections.avisos(cid)
-            .where('publicado', isEqualTo: true)
-            .orderBy('createdAt', descending: true)
-            .limit(60)
-            .get(),
+      final docs = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchModuleFirestoreListRead.queryPlainFirst(
+          reference: ChurchUiCollections.avisos(cid),
+          cacheKey: '${cid.trim()}_avisos_purge',
+          limit: 60,
+          orderByField: 'createdAt',
+          orderDescending: true,
+          sortDocs: ChurchModuleFirestoreListRead.filterPublishedFeedRecords,
+        ),
         maxAttempts: 3,
       );
-      for (final d in snap.docs) {
+      for (final d in docs) {
         if (d.data()['permanent'] == true) continue;
         final exp = d.data()['avisoExpiresAt'] ?? d.data()['validUntil'];
         if (exp is! Timestamp) continue;
@@ -220,12 +227,15 @@ abstract final class ChurchAvisosService {
       },
     };
 
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set(payload),
-      maxAttempts: 4,
+    await AdminFeedFirestoreBridge.upsertDocRef(
+      docRef: docRef,
+      data: payload,
+      isNewDoc: true,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload),
+        maxAttempts: 4,
+        criticalWrite: true,
+      ),
     );
 
     return postId;
@@ -243,14 +253,26 @@ abstract final class ChurchAvisosService {
 
     Map<String, dynamic>? docData = data;
     if (docData == null) {
-      final snap = await ChurchUiCollections.avisos(cid).doc(id).get();
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.avisos(cid).doc(id).get(),
+        maxAttempts: 4,
+      );
       if (!snap.exists) return;
       docData = snap.data();
     }
 
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchUiCollections.avisos(cid).doc(id).delete(),
-      maxAttempts: 4,
+    await AdminFeedFirestoreBridge.deleteFeedPosts(
+      churchId: cid,
+      collection: 'avisos',
+      docIds: [id],
+      directDelete: () => runFirestorePublishWithRecovery(
+        () => ChurchUiCollections.avisos(cid).doc(id).delete(),
+        maxAttempts: 4,
+        criticalWrite: true,
+      ),
     );
 
     ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
@@ -259,20 +281,58 @@ abstract final class ChurchAvisosService {
       isEvento: false,
       data: docData,
     );
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
   }
 
-  /// Exclusão em lote.
-  static Future<void> deleteMany({
+  /// Exclusão em lote — batch Firestore + limpeza Storage + invalidar cache.
+  static Future<int> deleteMany({
     required String churchIdHint,
     required Iterable<String> docIds,
-    required Map<String, Map<String, dynamic>> dataById,
+    Map<String, Map<String, dynamic>> dataById = const {},
   }) async {
-    for (final id in docIds) {
-      await deleteOne(
-        churchIdHint: churchIdHint,
-        docId: id,
-        data: dataById[id],
+    final cid = churchId(churchIdHint);
+    final ids = docIds
+        .map((e) => e.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (cid.isEmpty || ids.isEmpty) return 0;
+
+    final col = ChurchUiCollections.avisos(cid);
+    const chunkSize = 450;
+
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final slice = ids.sublist(
+        i,
+        i + chunkSize > ids.length ? ids.length : i + chunkSize,
       );
+      await AdminFeedFirestoreBridge.deleteFeedPosts(
+        churchId: cid,
+        collection: 'avisos',
+        docIds: slice,
+        directDelete: () => runFirestorePublishWithRecovery(
+          () async {
+            final batch = ChurchRepository.batch();
+            for (final id in slice) {
+              batch.delete(col.doc(id));
+            }
+            await batch.commit();
+          },
+          maxAttempts: 4,
+          criticalWrite: true,
+        ),
+      );
+      for (final id in slice) {
+        ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
+          tenantId: cid,
+          postId: id,
+          isEvento: false,
+          data: dataById[id],
+        );
+      }
     }
+
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
+    return ids.length;
   }
 }

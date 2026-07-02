@@ -8,7 +8,7 @@ final List<StreamSubscription<dynamic>> _subs = [];
 
 void _scheduleFire() {
   _debounce?.cancel();
-  _debounce = Timer(const Duration(milliseconds: 100), () {
+  _debounce = Timer(const Duration(milliseconds: 280), () {
     for (final cb in List<void Function()>.from(_callbacks)) {
       cb();
     }

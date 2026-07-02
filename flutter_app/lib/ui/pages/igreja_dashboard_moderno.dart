@@ -228,6 +228,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   StreamSubscription<MembersDirectorySnapshot>? _membersDirectorySub;
 
   bool _initialAuthTokenForced = false;
+  DateTime? _lastWebPanelResumeAt;
+  static const Duration _webPanelResumeMinGap = Duration(minutes: 5);
 
   int _financeDashTick = 0;
   VoidCallback? _financeMutationListener;
@@ -420,6 +422,16 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (state != AppLifecycleState.resumed) return;
     final tid = _effectiveTenantId.trim();
     if (tid.isEmpty || !mounted) return;
+    if (kIsWeb) {
+      final last = _lastWebPanelResumeAt;
+      if (last != null &&
+          DateTime.now().difference(last) < _webPanelResumeMinGap) {
+        return;
+      }
+      _lastWebPanelResumeAt = DateTime.now();
+      unawaited(_hydrateMembersDirectory(tid));
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_hydrateMembersDirectory(tid));
@@ -2560,7 +2572,6 @@ class _AniversariantesCard extends StatelessWidget {
                           width: double.infinity,
                           child: YahwehSuperPremiumActionButton.chat(
                             compact: true,
-                            label: 'Chat',
                             onPressed: () =>
                                 ChurchBirthdayParabenizar.openChatUnawaited(
                               context: context,
@@ -2839,10 +2850,9 @@ class _AniversariantesCard extends StatelessWidget {
                       const SizedBox(height: 6),
                       SizedBox(
                         width: double.infinity,
-                        child: YahwehSuperPremiumActionButton.chat(
-                          compact: true,
-                          label: 'Chat',
-                          onPressed: () =>
+                          child: YahwehSuperPremiumActionButton.chat(
+                            compact: true,
+                            onPressed: () =>
                               ChurchBirthdayParabenizar.openChatUnawaited(
                             context: context,
                             tenantId: tenantId,
