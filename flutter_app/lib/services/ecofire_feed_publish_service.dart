@@ -3,21 +3,20 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
-import 'package:gestao_yahweh/services/aviso_media_upload.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-        show
+    show
         dedupeImageRefsByStorageIdentity,
         isValidImageUrl,
         sanitizeImageUrl;
 
-/// Publicação de fotos aviso/evento — upload **directo** no Storage (pasta do post).
+/// Publicação de fotos evento — upload directo no Storage (pasta do post).
 ///
-/// Ex.: `igrejas/{churchId}/eventos/{postId}/banner_evento.jpg`
+/// Avisos usam [ChurchAvisosService]; ramo aviso aqui bloqueado.
 abstract final class EcoFireFeedPublishService {
   EcoFireFeedPublishService._();
 
@@ -28,19 +27,7 @@ abstract final class EcoFireFeedPublishService {
     return t == 'evento' || t == 'noticia' || t == 'noticias';
   }
 
-  static String _mainStoragePath({
-    required String churchId,
-    required String postType,
-    required String postId,
-    required int slotIndex,
-  }) {
-    if (_isEventoPostType(postType)) {
-      return ChurchStorageLayout.eventPostPhotoPath(churchId, postId, slotIndex);
-    }
-    return ChurchStorageLayout.avisoPostPhotoPath(churchId, postId, slotIndex);
-  }
-
-  /// Um slot — comprime, envia **um** ficheiro, devolve URL HTTPS.
+  /// Um slot — comprime, envia um ficheiro, devolve URL HTTPS.
   static Future<EcoFireFeedPhotoSlot> uploadPhotoSlot({
     required String tenantId,
     required String postType,
@@ -51,29 +38,11 @@ abstract final class EcoFireFeedPublishService {
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
-    final churchId = tenantId.trim();
-
     if (!_isEventoPostType(postType)) {
-      Uint8List raw;
-      if (bytes != null && bytes.isNotEmpty) {
-        raw = bytes;
-      } else if (!kIsWeb && localPath != null && localPath.trim().isNotEmpty) {
-        raw = await IosPublishImagePipeline.compressForPublishFromPath(
-          localPath.trim(),
-        );
-      } else {
-        throw StateError('Sem imagem para enviar.');
-      }
-      return AvisoMediaUpload.uploadPhotoSlot(
-        churchId: churchId,
-        postId: postId,
-        slotIndex: slotIndex,
-        rawBytes: raw,
-        alreadyCompressed: alreadyCompressed || (bytes != null && bytes.isNotEmpty),
-        onProgress: onProgress,
-      );
+      throw const ChurchPanelModuleRemovedException('Avisos');
     }
 
+    final churchId = tenantId.trim();
     Uint8List raw;
     if (bytes != null && bytes.isNotEmpty) {
       raw = bytes;
@@ -94,7 +63,7 @@ abstract final class EcoFireFeedPublishService {
     );
   }
 
-  /// Lote — web (bytes) ou mobile (paths). Avisos: até 5 em paralelo.
+  /// Lote — web (bytes) ou mobile (paths). Eventos: até 10 em paralelo.
   static Future<List<EcoFireFeedPhotoSlot>> uploadPendingPhotoSlots({
     required String tenantId,
     required String postType,
@@ -105,25 +74,15 @@ abstract final class EcoFireFeedPublishService {
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
-    final isAviso = !_isEventoPostType(postType);
-    final maxParallel = isAviso
-        ? AvisoMediaUpload.maxParallelSlots
-        : EventoMediaUpload.maxParallelSlots;
+    if (!_isEventoPostType(postType)) {
+      throw const ChurchPanelModuleRemovedException('Avisos');
+    }
+
+    final maxParallel = EventoMediaUpload.maxParallelSlots;
 
     if (kIsWeb) {
       final images = bytesList ?? const <Uint8List>[];
       if (images.isEmpty) return const [];
-
-      if (isAviso) {
-        return AvisoMediaUpload.uploadPhotoBatch(
-          churchId: tenantId,
-          postId: postId,
-          startSlotIndex: startSlotIndex,
-          bytesList: images,
-          alreadyCompressed: true,
-          onProgress: onProgress,
-        );
-      }
 
       return EventoMediaUpload.uploadPhotoBatch(
         churchId: tenantId,
@@ -135,19 +94,8 @@ abstract final class EcoFireFeedPublishService {
       );
     }
 
-    // Mobile: bytes comprimidos (Publicar) têm prioridade sobre paths locais.
     final mobileBytes = bytesList ?? const <Uint8List>[];
     if (mobileBytes.isNotEmpty) {
-      if (isAviso) {
-        return AvisoMediaUpload.uploadPhotoBatch(
-          churchId: tenantId,
-          postId: postId,
-          startSlotIndex: startSlotIndex,
-          bytesList: mobileBytes,
-          alreadyCompressed: alreadyCompressed,
-          onProgress: onProgress,
-        );
-      }
       return EventoMediaUpload.uploadPhotoBatch(
         churchId: tenantId,
         postId: postId,

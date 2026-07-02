@@ -2,10 +2,12 @@ import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_paths.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
+import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
@@ -182,6 +184,10 @@ class DebugChurchAuditSnapshot {
         b.writeln(l);
       }
     }
+    b.writeln('--- CATÁLOGO PRODUÇÃO (Firestore + Storage) ---');
+    for (final row in ChurchPanelPaths.productionModulePaths(churchId)) {
+      b.writeln('${row.module} | FS=${row.firestorePath} | ST=${row.storagePath}');
+    }
     return b.toString();
   }
 }
@@ -331,12 +337,17 @@ abstract final class DebugChurchAuditService {
     'Departamentos': 'DEPARTAMENTOS',
     'Cargos': 'CARGOS',
     'Membros': 'MEMBROS',
+    'Visitantes': 'VISITANTES',
     'Fornecedores': 'FORNECEDORES',
     'Financeiro': 'FINANCEIRO',
     'Eventos': 'EVENTOS',
     'Avisos': 'AVISOS',
     'Chat': 'CHAT',
     'Patrimônio': 'PATRIMONIO',
+    'Escalas': 'ESCALAS',
+    'Agenda': 'AGENDA',
+    'Pedidos Oração': 'PEDIDOS_ORACAO',
+    'Certificados': 'CERTIFICADOS',
   };
 
   static const _legacyTokens = <String>[
@@ -531,6 +542,20 @@ abstract final class DebugChurchAuditService {
     );
     await _webPause();
     await probeQuery(
+      'Visitantes',
+      'visitantes',
+      () async {
+        final r = await ChurchVisitantesLoadService.load(
+          seedTenantId: churchId,
+          limit: 200,
+          fullList: true,
+        );
+        return r.snapshot;
+      },
+      captureNames: true,
+    );
+    await _webPause();
+    await probeQuery(
       'Fornecedores',
       'fornecedores',
       () => _moduleListSnapshot(ChurchRepository.fornecedores, churchIdHint: churchId, limit: 200),
@@ -548,7 +573,7 @@ abstract final class DebugChurchAuditService {
     await _webPause();
     await probeQuery(
       'Eventos',
-      'noticias',
+      'eventos',
       () => _moduleListSnapshot(ChurchRepository.eventos, churchIdHint: churchId, limit: 200),
     );
     await _webPause();
@@ -568,6 +593,30 @@ abstract final class DebugChurchAuditService {
       'Patrimônio',
       'patrimonio',
       () => _moduleListSnapshot(ChurchRepository.patrimonio, churchIdHint: churchId, limit: 200),
+    );
+    await _webPause();
+    await probeQuery(
+      'Escalas',
+      'escalas',
+      () => _moduleListSnapshot(ChurchRepository.escalas, churchIdHint: churchId, limit: 200),
+    );
+    await _webPause();
+    await probeQuery(
+      'Agenda',
+      'agenda',
+      () => _moduleListSnapshot(ChurchRepository.agenda, churchIdHint: churchId, limit: 200),
+    );
+    await _webPause();
+    await probeQuery(
+      'Pedidos Oração',
+      'pedidosOracao',
+      () => _moduleListSnapshot(ChurchRepository.pedidosOracao, churchIdHint: churchId, limit: 200),
+    );
+    await _webPause();
+    await probeQuery(
+      'Certificados',
+      'certificados_emitidos',
+      () => _moduleListSnapshot(ChurchRepository.certificados, churchIdHint: churchId, limit: 200),
     );
 
     final traces = ChurchOperationalFirestoreTrace.recent;
@@ -609,18 +658,8 @@ abstract final class DebugChurchAuditService {
     return snap;
   }
 
-  static String storagePathForModule(String churchId, String module) {
-    final root = ChurchStorageLayout.churchRoot(churchId);
-    return switch (module) {
-      'Cadastro Igreja' => ChurchStorageLayout.churchIdentityLogoPath(churchId),
-      'Membros' => '${root}membros/',
-      'Eventos' => '${root}eventos/',
-      'Avisos' => '${root}avisos/',
-      'Chat' => '${root}chat/',
-      'Financeiro' => ChurchStorageLayout.financeiroFolderPlaceholderPath(churchId),
-      _ => root,
-    };
-  }
+  static String storagePathForModule(String churchId, String module) =>
+      ChurchPanelPaths.storagePathForModuleLabel(module, churchId);
 
   static Future<void> publishPlatformProof(DebugChurchAuditSnapshot snap) async {
     final platform = snap.platform.toUpperCase();

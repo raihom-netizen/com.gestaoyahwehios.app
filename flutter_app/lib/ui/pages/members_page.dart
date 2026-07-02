@@ -23,7 +23,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -112,10 +111,8 @@ import 'member_card_cnh_nav.dart';
 import 'change_password_page.dart';
 import 'internal_new_member_page.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
-import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
@@ -302,16 +299,61 @@ class _MembersPageState extends State<MembersPage> {
       memberDocId: memberDocId,
       authUid: (memberData['authUid'] ?? '').toString().trim(),
     );
-    if (displayUrl.isNotEmpty) {
-      unawaited(FirebaseStorageCleanupService.evictImageCaches(displayUrl));
-    }
     Future.delayed(const Duration(seconds: 20), () {
       if (!mounted) return;
       setState(() => _uploadedPhotoUrls.remove(memberDocId));
     });
   }
 
-  /// Mesmo pipeline do Chat Igreja — Storage `membros/{authUid}/foto_perfil.jpg` + sync chat.
+  void _applyMemberPhotoRemovedLocally(
+    String memberDocId,
+    Map<String, dynamic> memberData,
+    MemberProfilePhotoUpdateResult result,
+  ) {
+    const photoKeys = [
+      'fotoUrl',
+      'foto_url',
+      'FOTO_URL_OU_ID',
+      'FOTO',
+      'foto',
+      'photoURL',
+      'photoUrl',
+      'avatarUrl',
+      'photoStoragePath',
+      'fotoStoragePath',
+      'fotoPath',
+      'photoThumbStoragePath',
+      'photoThumbUrl',
+      'fotoThumbUrl',
+      'profileThumbUrl',
+      'profile_thumb_url',
+      'photoVariants',
+    ];
+    final patch = <String, dynamic>{
+      'fotoUrlCacheRevision': result.cacheRevision,
+      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+    };
+    final merged = Map<String, dynamic>.from(memberData);
+    for (final k in photoKeys) {
+      merged.remove(k);
+    }
+    merged['fotoUrlCacheRevision'] = result.cacheRevision;
+    setState(() {
+      _uploadedPhotoUrls.remove(memberDocId);
+      _optimisticProfilePhotoBytes.remove(memberDocId);
+    });
+    _applyMemberSavedLocally(memberDocId, patch);
+    _invalidateMemberPhotoCaches(_effectiveTenantId, memberDocId, merged);
+    MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+      previousDownloadUrl: sanitizeImageUrl(imageUrlFromMap(memberData)),
+      newDownloadUrl: '',
+      tenantId: _effectiveTenantId,
+      memberDocId: memberDocId,
+      authUid: (memberData['authUid'] ?? '').toString().trim(),
+    );
+  }
+
+  /// Storage canónico + Firestore + sync chat (mesmo pipeline do editor).
   Future<void> _publishMemberProfilePhotoStrict({
     required String tenantId,
     required String memberDocId,
@@ -320,13 +362,11 @@ class _MembersPageState extends State<MembersPage> {
   }) async {
     GlobalUploadProgress.instance.start('A enviar foto de perfil…');
     try {
-      final result = await YahwehCentralEngineService.executeSingleProfileSave(
-        collectionId: 'membros',
-        docId: memberDocId,
-        igrejaId: tenantId,
-        payloadFields: const {},
-        photoBytes: bytes,
-        memberDataHint: memberData,
+      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        rawBytes: bytes,
         onPhase: (phase) => GlobalUploadProgress.instance.updateLabel(phase),
       );
       if (!mounted) return;
@@ -2074,15 +2114,32 @@ class _MembersPageState extends State<MembersPage> {
     BuildContext context,
     _MemberDoc member,
   ) async {
+    final canPhoto = _canChangeMemberPhoto(member);
+    if (!canPhoto) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Sem permissão para alterar a foto deste membro.',
+        ),
+      );
+      return;
+    }
     final result = await showMemberProfilePhotoEditorSheet(
       context,
       tenantId: _effectiveTenantId,
       memberDocId: member.id,
       initialData: member.data,
+      canChangePhoto: canPhoto,
+      canRemovePhoto: canPhoto,
     );
     if (!mounted || result == null) return;
-    _applyMemberPhotoUpdateLocally(member.id, member.data, result);
-    _refreshMembers(forceServer: true);
+    if (result.removed) {
+      _applyMemberPhotoRemovedLocally(member.id, member.data, result);
+    } else {
+      _applyMemberPhotoUpdateLocally(member.id, member.data, result);
+    }
+    unawaited(Future<void>.microtask(
+      () => _refreshMembers(forceServer: !kIsWeb),
+    ));
   }
 
   /// Carteirinha digital: gestão vê todos; membro/visitante só a própria ficha.
@@ -2332,55 +2389,15 @@ class _MembersPageState extends State<MembersPage> {
     return '';
   }
 
-  bool _canOpenChatWithMember(_MemberDoc member) {
-    final peer = _memberFirebaseAuthUid(member.data, member.id);
-    if (peer.isEmpty) return false;
-    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    if (myUid.isEmpty || peer == myUid) return false;
-    return !_memberDocIsPending(member.data);
-  }
+  bool _canOpenChatWithMember(_MemberDoc member) => false;
 
   Future<void> _openChatWithMember(
       BuildContext context, _MemberDoc member) async {
-    final peerUid = _memberFirebaseAuthUid(member.data, member.id);
-    if (peerUid.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Este membro ainda não tem login no app para conversar.',
-          ),
-        ),
-      );
-      return;
-    }
-    final myUid = FirebaseAuth.instance.currentUser?.uid;
-    if (myUid == null) return;
-    final name = _str(member.data, 'NOME_COMPLETO', 'nome', 'name');
-    final display = name.isEmpty ? 'Membro' : name;
-    final tid = _effectiveTenantId;
-    await ChurchChatService.ensureDmThread(
-      tenantId: tid,
-      uidA: myUid,
-      uidB: peerUid,
-      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
-      titleB: display,
-    );
-    final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     if (!context.mounted) return;
-    final cpfDigits = widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ?? '';
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tid,
-          threadId: threadId,
-          title: display,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: widget.role,
-          memberCpfDigits: cpfDigits,
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Chat da igreja não está disponível nesta versão.'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
@@ -2814,7 +2831,7 @@ class _MembersPageState extends State<MembersPage> {
                           unawaited(
                               _abrirAtualizarSenhaProprio(context, member));
                         }),
-                  if (_canManage) ...[
+                  if (_canDeleteMembers)
                     _ActionChip(
                         icon: Icons.delete_outline_rounded,
                         label: 'Excluir',
@@ -2823,6 +2840,7 @@ class _MembersPageState extends State<MembersPage> {
                           closeDetail();
                           _deleteMember(context, member);
                         }),
+                  if (_canManage) ...[
                     if (member.data['authUid'] == null &&
                         ((member.data['EMAIL'] ?? '')
                                 .toString()

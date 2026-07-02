@@ -69,6 +69,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_donation_sheet.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_proximo_culto.dart';
@@ -2519,6 +2520,10 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                 ),
                                               ),
                                             ],
+                                            ChurchAvisosCarousel(
+                                              churchIdHint: igrejaId,
+                                              compact: true,
+                                            ),
                                             const SizedBox(height: 24),
                                             FutureBuilder<
                                                 _PublicSocialProofStats>(

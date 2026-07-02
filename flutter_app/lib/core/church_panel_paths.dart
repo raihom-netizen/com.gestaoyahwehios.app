@@ -104,4 +104,124 @@ abstract final class ChurchPanelPaths {
 
   static String cartaoMembroRoot([String? h]) =>
       '${storageRoot(h)}/${ChurchStorageLayout.kSegCartaoMembro}';
+
+  /// Catálogo canónico — Firestore + Storage por módulo (DEBUG CHURCH / aceite).
+  ///
+  /// Ex.: `igrejas/igreja_o_brasil_para_cristo_jardim_goiano/membros`
+  /// Storage: `igrejas/{churchId}/membros/`
+  static List<({String module, String firestorePath, String storagePath})>
+      productionModulePaths([String? shellHint]) {
+    final id = churchId(shellHint);
+    if (id.isEmpty) return const [];
+    final fs = firestoreRoot(shellHint);
+    final st = storageRoot(shellHint);
+    return [
+      (
+        module: 'CADASTRO',
+        firestorePath: fs,
+        storagePath: logoIgreja(shellHint),
+      ),
+      (
+        module: 'DEPARTAMENTOS',
+        firestorePath: '$fs/${ChurchDataPaths.departamentos}',
+        storagePath: st,
+      ),
+      (
+        module: 'CARGOS',
+        firestorePath: '$fs/${ChurchDataPaths.cargos}',
+        storagePath: st,
+      ),
+      (
+        module: 'MEMBROS',
+        firestorePath: '$fs/${ChurchDataPaths.membros}',
+        storagePath: '${st}${ChurchStorageLayout.kSegMembros}/',
+      ),
+      (
+        module: 'VISITANTES',
+        firestorePath: '$fs/visitantes',
+        storagePath: st,
+      ),
+      (
+        module: 'FORNECEDORES',
+        firestorePath: '$fs/${ChurchDataPaths.fornecedores}',
+        storagePath: '${st}${ChurchStorageLayout.kSegFornecedores}/',
+      ),
+      (
+        module: 'FINANCEIRO',
+        firestorePath: '$fs/${ChurchDataPaths.financeiro}',
+        storagePath:
+            ChurchStorageLayout.financeiroFolderPlaceholderPath(id),
+      ),
+      (
+        module: 'EVENTOS',
+        firestorePath: '$fs/${ChurchDataPaths.eventos}',
+        storagePath: '${st}${ChurchStorageLayout.kSegEventos}/',
+      ),
+      (
+        module: 'AVISOS',
+        firestorePath: '$fs/${ChurchDataPaths.avisos}',
+        storagePath: '${st}${ChurchStorageLayout.kSegAvisos}/',
+      ),
+      (
+        module: 'CHAT',
+        firestorePath: '$fs/${ChurchDataPaths.chats}',
+        storagePath: '${st}${ChurchStorageLayout.kSegChatMedia}/',
+      ),
+      (
+        module: 'PATRIMONIO',
+        firestorePath: '$fs/${ChurchDataPaths.patrimonio}',
+        storagePath: '${st}${ChurchStorageLayout.kSegPatrimonio}/',
+      ),
+      (
+        module: 'ESCALAS',
+        firestorePath: '$fs/${ChurchDataPaths.escalas}',
+        storagePath: st,
+      ),
+      (
+        module: 'AGENDA',
+        firestorePath: '$fs/${ChurchDataPaths.agenda}',
+        storagePath: st,
+      ),
+      (
+        module: 'PEDIDOS_ORACAO',
+        firestorePath: '$fs/${ChurchDataPaths.pedidosOracao}',
+        storagePath: st,
+      ),
+      (
+        module: 'CERTIFICADOS',
+        firestorePath: '$fs/${ChurchDataPaths.certificados}',
+        storagePath: '${st}${ChurchStorageLayout.kSegCertificadosMidia}/',
+      ),
+    ];
+  }
+
+  static String storagePathForModuleLabel(String moduleLabel, [String? h]) {
+    final normalized = moduleLabel.trim().toUpperCase();
+    for (final row in productionModulePaths(h)) {
+      if (row.module == normalized ||
+          moduleLabel.trim() == _moduleLabelFromKey(row.module)) {
+        return row.storagePath;
+      }
+    }
+    return storageRoot(h);
+  }
+
+  static String? _moduleLabelFromKey(String key) => switch (key) {
+        'CADASTRO' => 'Cadastro Igreja',
+        'DEPARTAMENTOS' => 'Departamentos',
+        'CARGOS' => 'Cargos',
+        'MEMBROS' => 'Membros',
+        'VISITANTES' => 'Visitantes',
+        'FORNECEDORES' => 'Fornecedores',
+        'FINANCEIRO' => 'Financeiro',
+        'EVENTOS' => 'Eventos',
+        'AVISOS' => 'Avisos',
+        'CHAT' => 'Chat',
+        'PATRIMONIO' => 'Patrimônio',
+        'ESCALAS' => 'Escalas',
+        'AGENDA' => 'Agenda',
+        'PEDIDOS_ORACAO' => 'Pedidos Oração',
+        'CERTIFICADOS' => 'Certificados',
+        _ => null,
+      };
 }

@@ -1,7 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
@@ -55,9 +59,10 @@ abstract final class FornecedorCompromissoPublishService {
     required String mimeType,
     required String fileName,
   }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
     final ext = FinanceComprovanteAttachService.extensionForMime(mimeType);
     final url = await FornecedorCompromissoComprovanteService.upload(
-      churchId: churchId,
+      churchId: cid,
       fornecedorId: fornecedorId,
       compromissoId: compromissoId,
       bytes: bytes,
@@ -65,19 +70,18 @@ abstract final class FornecedorCompromissoPublishService {
       ext: ext,
     );
     final storagePath = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
-      tenantId: churchId,
+      tenantId: cid,
       fornecedorId: fornecedorId,
       compromissoId: compromissoId,
       ext: ext,
     );
-    final patch = <String, dynamic>{
-      'comprovanteStoragePath': storagePath,
-      'comprovanteUrl': url,
-      'hasComprovante': true,
-      'comprovanteFileName': fileName,
-      'comprovanteMimeType': mimeType,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
+    final patch = ChurchCanonicalMediaContract.financeComprovanteWritePatch(
+      url: url,
+      storagePath: storagePath,
+      mimeType: mimeType,
+      fileName: fileName,
+    );
+    patch['updatedAt'] = FieldValue.serverTimestamp();
     await AdminFeedFirestoreBridge.upsertDocRef(
       docRef: docRef,
       data: patch,
@@ -87,5 +91,53 @@ abstract final class FornecedorCompromissoPublishService {
         () => docRef.update(patch),
       ),
     );
+  }
+
+  /// Remove comprovante — Firestore + Storage (`igrejas/{churchId}/fornecedores/…`).
+  static Future<void> removeComprovante({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String churchId,
+    required String fornecedorId,
+    required String compromissoId,
+    required Map<String, dynamic> data,
+  }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(
+        ChurchCanonicalMediaContract.comprovanteClearFirestorePatch(),
+        SetOptions(merge: true),
+      ),
+    );
+    final storedPath = (data['comprovanteStoragePath'] ?? '').toString().trim();
+    final paths = <String>{
+      if (storedPath.isNotEmpty) storedPath,
+      ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+        tenantId: cid,
+        fornecedorId: fornecedorId,
+        compromissoId: compromissoId,
+        ext: 'jpg',
+      ),
+      ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+        tenantId: cid,
+        fornecedorId: fornecedorId,
+        compromissoId: compromissoId,
+        ext: 'pdf',
+      ),
+      ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+        tenantId: cid,
+        fornecedorId: fornecedorId,
+        compromissoId: compromissoId,
+        ext: 'png',
+      ),
+    };
+    for (final p in paths) {
+      try {
+        await firebaseDefaultStorage.ref(p).delete();
+      } catch (_) {}
+    }
+    final url = (data['comprovanteUrl'] ?? '').toString().trim();
+    if (url.isNotEmpty) {
+      await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(url);
+    }
   }
 }

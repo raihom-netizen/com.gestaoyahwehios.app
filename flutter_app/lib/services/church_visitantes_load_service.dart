@@ -10,8 +10,6 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
-import 'package:gestao_yahweh/core/offline/offline_modules.dart';
-import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -392,7 +390,7 @@ abstract final class ChurchVisitantesLoadService {
     }
   }
 
-  /// Gravação rápida — OptimisticFirestoreWrite (sem `ensurePanelReadReady` duplo).
+  /// Gravação web-resiliente — `igrejas/{churchId}/visitantes` (sem invalidar cache no hot path).
   static Future<String> saveVisitor({
     required String churchId,
     required Map<String, dynamic> payload,
@@ -404,30 +402,35 @@ abstract final class ChurchVisitantesLoadService {
     final col = ChurchUiCollections.visitantes(cid);
     final data = ChurchTenantFields.stamp(cid, payload);
 
-    if (existingDocId != null && existingDocId.trim().isNotEmpty) {
-      final id = existingDocId.trim();
-      await OptimisticFirestoreWrite.update(
-        ref: col.doc(id),
-        data: data,
-        module: OfflineModules.visitantes,
-        tenantId: cid,
-      );
-      return id;
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
 
-    final docRef = col.doc();
-    final create = Map<String, dynamic>.from(data)
-      ..putIfAbsent('status', () => 'Novo')
-      ..putIfAbsent('followupCount', () => 0)
-      ..['createdAt'] = FieldValue.serverTimestamp();
+    Future<String> writeOnce() async {
+      if (existingDocId != null && existingDocId.trim().isNotEmpty) {
+        final id = existingDocId.trim();
+        await col.doc(id).update(data);
+        return id;
+      }
+      final docRef = col.doc();
+      final create = Map<String, dynamic>.from(data)
+        ..putIfAbsent('status', () => 'Novo')
+        ..putIfAbsent('followupCount', () => 0)
+        ..['createdAt'] = FieldValue.serverTimestamp();
+      await docRef.set(create);
+      return docRef.id;
+    }
 
-    await OptimisticFirestoreWrite.set(
-      ref: docRef,
-      data: create,
-      module: OfflineModules.visitantes,
-      tenantId: cid,
+    final id = await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(writeOnce, maxAttempts: 4),
+      maxAttempts: 4,
     );
-    return docRef.id;
+
+    if (existingDocId == null || existingDocId.trim().isEmpty) {
+      unawaited(ensureProvisioned(cid));
+    }
+    return id;
   }
 
   /// Exclui um ou vários visitantes num único batch (chunks de 450).

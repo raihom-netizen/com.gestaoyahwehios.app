@@ -43,13 +43,14 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'pages/igreja_dashboard_moderno.dart';
 import 'pages/igreja_cadastro_page.dart';
 import 'pages/departments_page.dart';
-import 'pages/events_manager_page.dart';
 import 'pages/finance_page.dart';
 import 'pages/patrimonio_page.dart';
 import 'pages/fornecedores_page.dart';
 import 'pages/member_card_page.dart';
+import 'pages/church_avisos_page.dart';
+import 'pages/events_manager_page.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'pages/members_page.dart';
-import 'pages/mural_page.dart';
 import 'pages/my_schedules_page.dart';
 import 'pages/plans/renew_plan_page.dart';
 import 'pages/subscription_expired_page.dart';
@@ -62,7 +63,6 @@ import 'pages/cargos_page.dart';
 import 'pages/calendar_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
-import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
@@ -89,8 +89,6 @@ import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/widgets/church_notification_bell.dart';
-import 'package:gestao_yahweh/ui/widgets/instagram_mural.dart'
-    show MuralAvisoEditorPage;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -321,8 +319,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
-    // Painel, Membros, Eventos, Agenda, Avisos, Chat — drawer no menu superior.
+    // Rodapé mobile: Painel, Membros, Agenda, Orações — drawer no menu superior.
     final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
@@ -335,24 +332,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         accent: kChurchShellNavEntries[ChurchShellIndices.membros].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.muralEventos,
-        shortLabel: 'Eventos',
-        accent: kChurchShellNavEntries[ChurchShellIndices.muralEventos].accent,
-      ),
-      _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.agenda,
         shortLabel: 'Agenda',
         accent: kChurchShellNavEntries[ChurchShellIndices.agenda].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.muralAvisos,
-        shortLabel: 'Avisos',
-        accent: kChurchShellNavEntries[ChurchShellIndices.muralAvisos].accent,
-      ),
-      _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.chatIgreja,
-        shortLabel: 'Chat',
-        accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
+        shellIndex: ChurchShellIndices.pedidosOracao,
+        shortLabel: 'Orações',
+        accent: kChurchShellNavEntries[ChurchShellIndices.pedidosOracao].accent,
       ),
     ];
 
@@ -496,13 +483,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!mounted) return;
       if (!_canAccessItem(idx)) return;
       setState(() => _selectedIndex = idx);
-      if (idx == ChurchShellIndices.chatIgreja) {
-        _pageCache[idx] ??= _modulePage(idx);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
-        });
-      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Tenant conhecido → libera módulos no 1.º frame; repair em background.
@@ -1149,36 +1129,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   void _handleGlobalSearchSelection(ChurchGlobalSearchSelection s) {
     if (s.avisoDocForDirectEdit != null) {
-      unawaited(_openMuralAvisoEditorFromSearch(s.avisoDocForDirectEdit!));
+      _applyGlobalSearchNavigation(
+        shellIndex: kChurchShellIndexMural,
+        query: s.query,
+      );
+      return;
+    }
+    if (s.shellIndex == kChurchShellIndexEvents) {
+      _applyGlobalSearchNavigation(
+        shellIndex: s.shellIndex,
+        query: s.query,
+      );
       return;
     }
     _applyGlobalSearchNavigation(shellIndex: s.shellIndex, query: s.query);
-  }
-
-  Future<void> _openMuralAvisoEditorFromSearch(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
-    final tid = widget.tenantId.trim();
-    if (tid.isEmpty || !mounted) return;
-    final op = ChurchPanelTenantGateway.churchId(tid.trim());
-    final church = await ChurchUiCollections.churchDoc(op).get();
-    if (!mounted) return;
-    final d = church.data() ?? {};
-    var slug = (d['slug'] ?? '').toString().trim();
-    if (slug.isEmpty) slug = tid;
-    final avisos =         ChurchUiCollections.avisos(op);
-    await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => MuralAvisoEditorPage(
-          tenantId: tid,
-          resolvedTenantId: op,
-          postsCollection: avisos,
-          doc: doc,
-          type: 'aviso',
-          churchSlug: slug,
-        ),
-      ),
-    );
   }
 
   void _applyGlobalSearchNavigation({
@@ -1361,6 +1325,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         case ChurchShellIndices.cargos:
           unawaited(YahwehModuleCaches.cargos.ensureLoaded(tid));
           break;
+        case ChurchShellIndices.visitantes:
+          unawaited(YahwehModuleCaches.visitantes.ensureLoaded(tid));
+          break;
         case ChurchShellIndices.muralAvisos:
           unawaited(YahwehModuleCaches.avisos.ensureLoaded(tid));
           break;
@@ -1383,7 +1350,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(YahwehModuleCaches.fornecedores.ensureLoaded(tid));
           break;
         case ChurchShellIndices.chatIgreja:
-          unawaited(YahwehModuleCaches.membros.ensureLoaded(tid));
           break;
         default:
           _shellPrefetchDone.remove(index);
@@ -1545,7 +1511,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   static const List<({String title, List<int> indices})> _menuSections = [
     (title: 'Início e conta', indices: [0, 1, 2, 22]),
     (title: 'Pessoas', indices: [3, 4, 5, 6]),
-    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 23]),
+    (title: 'Comunicação', indices: [7, 8, 9, 10, 18]),
     (title: 'Agenda e escalas', indices: [11, 12]),
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Relatórios e suporte', indices: [16, 17]),
@@ -1561,7 +1527,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
       (title: 'Geral', indices: [0, 22]),
       (title: 'Pessoas', indices: [3]),
-      (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
+      (title: 'Comunicação', indices: [7, 8, 9, 10]),
       (title: 'Agenda', indices: [11, 12]),
       (title: 'Documentos', indices: [13]),
     ];
@@ -2601,25 +2567,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               });
             });
       case 7:
-        final bootAviso = _shellBootstrapOpenAvisoDocId;
-        if (bootAviso != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() => _shellBootstrapOpenAvisoDocId = null);
-            }
-          });
-        }
-        return MuralPage(
-            key: _shellPageKey(7),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            permissions: widget.permissions,
-            embeddedInShell: true,
-            initialOpenAvisoDocId: bootAviso);
+        return ChurchAvisosPage(
+          key: _shellPageKey(7),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          permissions: widget.permissions ?? const [],
+          embeddedInShell: true,
+        );
       case 8:
         final bootEvent = _shellBootstrapEventSearch;
-        final bootEventDoc = _shellBootstrapOpenEventDocId;
-        if (bootEvent != null || bootEventDoc != null) {
+        final bootOpenEventId = _shellBootstrapOpenEventDocId;
+        if (bootEvent != null || bootOpenEventId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
@@ -2630,13 +2588,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return EventsManagerPage(
-            key: _shellPageKey(8),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            permissions: widget.permissions,
-            embeddedInShell: true,
-            initialFeedSearchQuery: bootEvent,
-            initialOpenEventDocId: bootEventDoc);
+          key: _shellPageKey(8),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          permissions: widget.permissions,
+          embeddedInShell: true,
+          initialFeedSearchQuery: bootEvent,
+          initialOpenEventDocId: bootOpenEventId,
+        );
       case 9:
         return PrayerRequestsPage(
             key: _shellPageKey(9),
@@ -2777,14 +2736,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
-        return ChurchChatHubPage(
-          key: _shellPageKey(23),
-          tenantId: _moduleTenantId,
-          cpf: widget.cpf,
-          role: _panelRole,
-          embeddedInShell: true,
-          permissions: widget.permissions,
-        );
+        return ChurchPanelModuleRemovedPage.chat(
+            key: const ValueKey('chat_removed'));
       default:
         return IgrejaDashboardModerno(
             key: ValueKey('page_$index'),

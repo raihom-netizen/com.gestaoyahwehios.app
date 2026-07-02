@@ -9,7 +9,7 @@ class ChurchLogoPngEncodeArgs {
 }
 
 /// Codifica a logo da igreja como PNG (transparência preservada quando o decode suportar).
-/// Limita o maior lado a [maxSide] px (padrão Full HD 1920) para o Storage não crescer sem controlo.
+/// Limita o maior lado a [maxSide] px (até 4K / 3840 no cadastro da igreja).
 /// **Síncrono** — usar [encodeChurchLogoAsPngInIsolate] no cadastro da igreja para não bloquear a UI.
 Uint8List encodeChurchLogoAsPngSync(
   Uint8List raw, {

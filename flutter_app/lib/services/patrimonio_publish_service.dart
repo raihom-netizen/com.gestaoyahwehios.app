@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
-/// Patrimônio Ecofire — Storage (4 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto04`).
+/// Patrimônio Ecofire — Storage (5 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto05`).
 abstract final class PatrimonioPublishService {
   PatrimonioPublishService._();
 

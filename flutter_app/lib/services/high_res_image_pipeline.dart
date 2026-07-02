@@ -56,7 +56,7 @@ int get kEffectiveFeedEncodeMaxEdgePx => eventoAvisoFeedEncodeMaxEdgePx();
 const int kMaxAvisoFeedPhotosPerPost = 5;
 
 /// Eventos no mural — até 10 fotos compactadas.
-const int kMaxEventFeedPhotosPerPost = 5;
+const int kMaxEventFeedPhotosPerPost = 10;
 
 /// WebP final — retrocompat (igual ao premium mural).
 const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/patrimonio_item_photos_editor.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         imageUrlFromMap,
@@ -1295,6 +1296,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
           doc: doc,
           categorias: List<String>.from(_categoriasEfetivas),
           onCategoriasChanged: _loadCategoriasExtras,
+          canManagePhotos: _canWrite,
         ),
       ),
     );
@@ -1880,6 +1882,37 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                                     size: 56, color: cor.withOpacity(0.5))),
                           ),
                   ),
+                  if (_canWrite) ...[
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final ok = await showPatrimonioItemPhotosEditorSheet(
+                            layoutContext,
+                            churchId: _effectiveTenantId,
+                            itemId: doc.id,
+                            itemData: m,
+                            corePayload: Map<String, dynamic>.from(m),
+                            canChangePhotos: _canWrite,
+                            canRemovePhotos: _canWrite,
+                            docRef: doc.reference,
+                          );
+                          if (ok == true && sheetContext != null && sheetContext.mounted) {
+                            Navigator.pop(sheetContext);
+                            unawaited(
+                              ChurchPatrimonioLoadService.invalidate(
+                                _effectiveTenantId,
+                              ),
+                            );
+                            if (mounted) setState(() {});
+                          }
+                        },
+                        icon: const Icon(Icons.photo_library_outlined, size: 18),
+                        label: const Text('Gerir fotos'),
+                      ),
+                    ),
+                  ],
                   // Header — Super Premium
                   Container(
                     padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
@@ -7988,12 +8021,14 @@ class _PatrimonioFormPage extends StatefulWidget {
   final DocumentSnapshot<Map<String, dynamic>>? doc;
   final List<String> categorias;
   final Future<void> Function()? onCategoriasChanged;
+  final bool canManagePhotos;
 
   const _PatrimonioFormPage({
     required this.col,
     this.doc,
     required this.categorias,
     this.onCategoriasChanged,
+    this.canManagePhotos = true,
   });
 
   @override
@@ -8001,7 +8036,7 @@ class _PatrimonioFormPage extends StatefulWidget {
 }
 
 class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
-  static const int _maxFotosPorItem = kMaxPatrimonioPhotosPerItem;
+  final _photosEditorKey = GlobalKey<PatrimonioItemPhotosEditorState>();
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nome,
       _desc,
@@ -8014,15 +8049,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _codigo;
   late String _categoria, _status;
   DateTime? _dataAquisicao, _proximaManutencao;
-  late final List<String> _slotUrls;
-  late final List<String> _slotPaths;
-  late final List<Uint8List?> _slotPending;
-  late final List<String> _slotPendingNames;
   late List<String> _categoriasOpcoes;
   late final DocumentReference<Map<String, dynamic>> _itemRef;
   bool _saving = false;
-  bool _mediaPicking = false;
-  int _preparingPhotoCount = 0;
   double _uploadProgress = 0;
   String _uploadProgressLabel = '';
 
@@ -8094,63 +8123,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     if (data['proximaManutencao'] is Timestamp) {
       _proximaManutencao = (data['proximaManutencao'] as Timestamp).toDate();
     }
-    _slotUrls = List<String>.filled(_maxFotosPorItem, '');
-    _slotPaths = List<String>.filled(_maxFotosPorItem, '');
-    _slotPending = List<Uint8List?>.filled(_maxFotosPorItem, null);
-    _slotPendingNames = List<String>.filled(_maxFotosPorItem, '');
-    final urls = PatrimonioPhotoFields.urlsFromData(data);
-    final paths = PatrimonioPhotoFields.pathsFromData(data);
-    for (var i = 0; i < _maxFotosPorItem; i++) {
-      if (i < urls.length) {
-        _slotUrls[i] = sanitizeImageUrl(urls[i]);
-      }
-      if (i < paths.length) {
-        _slotPaths[i] = paths[i].trim();
-      }
-    }
-    unawaited(_maybeRepairStuckPhotos(data));
-    unawaited(ImmediateMediaWarm.warmPatrimonio());
-    unawaited(
-      DirectStorageUrlPublish.ensureReady(requireAuth: false).catchError((_) {}),
-    );
-    unawaited(
-      FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
-    );
   }
 
   String get _churchIdForPublish =>
       ChurchRepository.churchId(widget.col.parent?.id ?? '');
-
-  /// Repara docs presos (`uploading`) quando Storage já tem galeria_01…04.
-  Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
-    if (_slotUrls.any((u) => u.isNotEmpty)) return;
-    final state = (data['photoUploadState'] ?? '').toString().trim();
-    if (state != 'uploading' && state != 'pending_sync') return;
-    try {
-      await PatrimonioPublishService.repairFromStorage(
-        churchId: _churchIdForPublish,
-        itemId: _itemRef.id,
-        corePayload: data,
-      );
-      if (!mounted) return;
-      final snap = await _itemRef.get();
-      final repairedUrls = PatrimonioPhotoFields.urlsFromData(snap.data() ?? {});
-      final repairedPaths = PatrimonioPhotoFields.pathsFromData(snap.data() ?? {});
-      if (repairedUrls.isNotEmpty && mounted) {
-        setState(() {
-          for (var i = 0; i < _maxFotosPorItem; i++) {
-            _slotUrls[i] = i < repairedUrls.length
-                ? sanitizeImageUrl(repairedUrls[i])
-                : '';
-            _slotPaths[i] =
-                i < repairedPaths.length ? repairedPaths[i].trim() : '';
-            _slotPending[i] = null;
-            _slotPendingNames[i] = '';
-          }
-        });
-      }
-    } catch (_) {}
-  }
 
   @override
   void dispose() {
@@ -8164,77 +8140,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     _vidaUtil.dispose();
     _codigo.dispose();
     super.dispose();
-  }
-
-  int get _fotoCountAtual {
-    var n = 0;
-    for (var i = 0; i < _maxFotosPorItem; i++) {
-      if (_slotUrls[i].isNotEmpty || _slotPending[i] != null) n++;
-    }
-    return n;
-  }
-
-  bool get _atingiuLimiteFotos => _fotoCountAtual >= _maxFotosPorItem;
-
-  int? _firstEmptyPhotoSlot() {
-    for (var i = 0; i < _maxFotosPorItem; i++) {
-      if (_slotUrls[i].isEmpty && _slotPending[i] == null) return i;
-    }
-    return null;
-  }
-
-  void _clearPhotoSlot(int idx) {
-    if (idx < 0 || idx >= _maxFotosPorItem) return;
-    final tenantId = widget.col.parent?.id ?? '';
-    if (tenantId.isNotEmpty) {
-      ChurchCanonicalMediaDeleteService.schedulePatrimonioSlotCleared(
-        tenantId: tenantId,
-        itemId: _itemRef.id,
-        slot: idx,
-        existingData: widget.doc?.data(),
-        docRef: widget.doc != null ? _itemRef : null,
-      );
-    }
-    setState(() {
-      _slotUrls[idx] = '';
-      _slotPaths[idx] = '';
-      _slotPending[idx] = null;
-      _slotPendingNames[idx] = '';
-    });
-  }
-
-  Future<void> _cleanupUnusedPatrimonioSlots(
-    String tenantId,
-    String itemDocId,
-    List<String> activePaths,
-  ) async {
-    final pathSet = activePaths
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toSet();
-    await Future.wait([
-      for (var s = 0; s < _maxFotosPorItem; s++)
-        if (!pathSet.contains(
-          ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, s),
-        ))
-          FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-            tenantId: tenantId,
-            itemDocId: itemDocId,
-            slot: s,
-          ),
-    ]);
-  }
-
-  void _showLimiteFotosSnack() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Limite de $_maxFotosPorItem fotos por bem (móvel, equipamento, etc.). '
-          'Remova uma para adicionar outra.',
-        ),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   Future<void> _cadastrarNovaCategoria() async {
@@ -8411,315 +8316,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     }
   }
 
-  Future<void> _pickImages() async {
-    if (_mediaPicking || _saving) return;
-    if (_atingiuLimiteFotos) {
-      _showLimiteFotosSnack();
-      return;
-    }
-    final vagas = _maxFotosPorItem - _fotoCountAtual;
-    if (vagas <= 0) {
-      _showLimiteFotosSnack();
-      return;
-    }
-    setState(() {
-      _mediaPicking = true;
-      _preparingPhotoCount = 0;
-    });
-    try {
-      final List<XFile> list;
-      if (vagas == 1) {
-        final single =
-            await MediaHandlerService.instance.pickAndProcessFromGallery(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            );
-        list = single != null ? [single] : [];
-      } else {
-        final picked =
-            await MediaHandlerService.instance.pickAndProcessMultipleImages(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            );
-        list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
-      }
-      if (list.isEmpty || !mounted) return;
-      final novosBytes = <Uint8List>[];
-      final novosNomes = <String>[];
-      for (var i = 0; i < list.length; i++) {
-        if (_fotoCountAtual + novosBytes.length >= _maxFotosPorItem) break;
-        if (mounted) {
-          setState(() => _preparingPhotoCount = i + 1);
-        }
-        final f = list[i];
-        try {
-          final bytes = await SafeImageBytes.patrimonioFromPicker(f)
-              .timeout(const Duration(seconds: 25));
-          novosBytes.add(bytes);
-          novosNomes.add(
-            f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.jpg',
-          );
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Foto ignorada: $e')),
-            );
-          }
-        }
-      }
-      if (novosBytes.isEmpty || !mounted) return;
-      setState(() {
-        for (var i = 0; i < novosBytes.length; i++) {
-          final slot = _firstEmptyPhotoSlot();
-          if (slot == null) break;
-          _slotPending[slot] = novosBytes[i];
-          _slotPendingNames[slot] = i < novosNomes.length
-              ? novosNomes[i]
-              : 'foto_${slot + 1}.jpg';
-        }
-      });
-      if (mounted) {
-        ImmediateMediaAttachFeedback.showArquivoAnexado(
-          context,
-          novosNomes.length == 1
-              ? novosNomes.first
-              : '${novosNomes.length} fotos',
-        );
-      }
-      if (list.length > novosBytes.length) {
-        _showLimiteFotosSnack();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Não foi possível abrir a galeria: '
-              '${formatFirebaseErrorForUser(e)}',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _mediaPicking = false;
-          _preparingPhotoCount = 0;
-        });
-      }
-    }
-  }
-
-  Future<void> _pickCamera() async {
-    if (_mediaPicking || _saving) return;
-    if (_atingiuLimiteFotos) {
-      _showLimiteFotosSnack();
-      return;
-    }
-    setState(() => _mediaPicking = true);
-    try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessFromCamera(
-            module: YahwehMediaModule.patrimonio,
-            context: context,
-          );
-      if (file == null || !mounted) return;
-      final bytes = await SafeImageBytes.patrimonioFromPicker(file)
-          .timeout(const Duration(seconds: 25));
-      setState(() {
-        final slot = _firstEmptyPhotoSlot();
-        if (slot != null) {
-          _slotPending[slot] = bytes;
-          _slotPendingNames[slot] =
-              file.name.isNotEmpty ? file.name : 'camera.jpg';
-        }
-      });
-      if (mounted) {
-        ImmediateMediaAttachFeedback.showArquivoAnexado(
-          context,
-          file.name.isNotEmpty ? file.name : 'camera.webp',
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Não foi possível abrir a câmera: '
-              '${formatFirebaseErrorForUser(e)}',
-            ),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _mediaPicking = false);
-    }
-  }
-
-  List<int> _occupiedPhotoSlots() {
-    final out = <int>[];
-    for (var i = 0; i < _maxFotosPorItem; i++) {
-      if (_slotUrls[i].isNotEmpty || _slotPending[i] != null) out.add(i);
-    }
-    return out;
-  }
-
-  Future<Uint8List?> _bytesFromPickerXFile(XFile file) async {
-    return SafeImageBytes.patrimonioFromPicker(file)
-        .timeout(const Duration(seconds: 25));
-  }
-
-  Future<void> _assignBytesToSlot(int slot, Uint8List bytes, String name) async {
-    if (slot < 0 || slot >= _maxFotosPorItem || bytes.isEmpty) return;
-    setState(() {
-      _slotPending[slot] = bytes;
-      _slotPendingNames[slot] = name.isNotEmpty ? name : 'foto_${slot + 1}.jpg';
-    });
-    ImmediateMediaAttachFeedback.showArquivoAnexado(context, _slotPendingNames[slot]);
-  }
-
-  Future<void> _replacePhotoAtSlot(int slot) async {
-    if (_mediaPicking || _saving) return;
-    if (slot < 0 || slot >= _maxFotosPorItem) return;
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final bottom = MediaQuery.paddingOf(ctx).bottom;
-        return Container(
-          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 12 + bottom),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Trocar foto ${slot + 1}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Galeria'),
-                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: const Text('Câmera'),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-    if (source == null || !mounted) return;
-    setState(() => _mediaPicking = true);
-    try {
-      XFile? picked;
-      if (source == ImageSource.camera) {
-        picked = await MediaHandlerService.instance.pickAndProcessFromCamera(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
-      } else {
-        picked = await MediaHandlerService.instance.pickAndProcessFromGallery(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
-      }
-      if (picked == null || !mounted) return;
-      final bytes = await _bytesFromPickerXFile(picked);
-      if (bytes == null || bytes.isEmpty || !mounted) return;
-      await _assignBytesToSlot(
-        slot,
-        bytes,
-        picked.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg',
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _mediaPicking = false);
-    }
-  }
-
-  Future<void> _replaceAllPhotos() async {
-    if (_mediaPicking || _saving) return;
-    final occupied = _occupiedPhotoSlots();
-    if (occupied.isEmpty) {
-      await _pickImages();
-      return;
-    }
-    setState(() {
-      _mediaPicking = true;
-      _preparingPhotoCount = 0;
-    });
-    try {
-      final limit = occupied.length;
-      final List<XFile> list;
-      if (limit == 1) {
-        final single =
-            await MediaHandlerService.instance.pickAndProcessFromGallery(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            );
-        list = single != null ? [single] : [];
-      } else {
-        final picked =
-            await MediaHandlerService.instance.pickAndProcessMultipleImages(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            );
-        list = picked.length > limit ? picked.sublist(0, limit) : picked;
-      }
-      if (list.isEmpty || !mounted) return;
-      for (var j = 0; j < list.length && j < occupied.length; j++) {
-        if (mounted) setState(() => _preparingPhotoCount = j + 1);
-        final bytes = await _bytesFromPickerXFile(list[j]);
-        if (bytes == null || bytes.isEmpty) continue;
-        final slot = occupied[j];
-        _slotPending[slot] = bytes;
-        _slotPendingNames[slot] = list[j].name.isNotEmpty
-            ? list[j].name
-            : 'foto_${slot + 1}.jpg';
-      }
-      if (!mounted) return;
-      setState(() {});
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          '${list.length} foto(s) prontas — toque Salvar para enviar ao Storage.',
-        ),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _mediaPicking = false;
-          _preparingPhotoCount = 0;
-        });
-      }
-    }
-  }
-
   Future<void> _save() async {
-    if (_mediaPicking) {
+    final editor = _photosEditorKey.currentState;
+    if (editor?.isBusy == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Aguarde a preparação das fotos terminar.'),
@@ -8784,15 +8383,21 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();
 
-      final indexedSlotUrls = List<String>.from(_slotUrls);
-      final indexedSlotPaths = List<String>.from(_slotPaths);
-      final uploadsBySlot = <int, Uint8List>{};
-      for (var i = 0; i < _maxFotosPorItem; i++) {
-        final pending = _slotPending[i];
-        if (pending != null) {
-          uploadsBySlot[i] = pending;
-        }
-      }
+      final photoSnap = editor?.snapshot ??
+          PatrimonioItemPhotosSnapshot(
+            slotUrls: List<String>.filled(
+              PatrimonioItemPhotosEditor.maxPhotos,
+              '',
+            ),
+            slotPaths: List<String>.filled(
+              PatrimonioItemPhotosEditor.maxPhotos,
+              '',
+            ),
+            uploadsBySlot: const {},
+          );
+      final indexedSlotUrls = photoSnap.slotUrls;
+      final indexedSlotPaths = photoSnap.slotPaths;
+      final uploadsBySlot = photoSnap.uploadsBySlot;
 
       if (uploadsBySlot.isEmpty && widget.doc != null && prev != null) {
         final oldList = PatrimonioPhotoFields.urlsFromData(prev)
@@ -8827,35 +8432,23 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       GlobalUploadProgress.instance.start('A enviar fotos do bem…');
       try {
         final corePayload = buildCorePayload();
-        final hasPendingPhotos = uploadsBySlot.isNotEmpty;
-
-        if (hasPendingPhotos) {
-          await PatrimonioSaveService.saveMetadataFirst(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: corePayload,
-            isNewDoc: widget.doc == null,
-            indexedSlotUrls: indexedSlotUrls,
-            indexedSlotPaths: indexedSlotPaths,
-          );
-        } else {
-          await PatrimonioSaveService.save(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: corePayload,
-            isNewDoc: widget.doc == null,
-            indexedSlotUrls: indexedSlotUrls,
-            indexedSlotPaths: indexedSlotPaths,
-            onProgress: (p, label) {
-              if (mounted) {
-                setState(() {
-                  _uploadProgress = p;
-                  _uploadProgressLabel = label;
-                });
-              }
-            },
-          );
-        }
+        await PatrimonioSaveService.save(
+          churchIdHint: tenantId,
+          itemId: itemId,
+          corePayload: corePayload,
+          isNewDoc: widget.doc == null,
+          uploadsBySlot: uploadsBySlot,
+          indexedSlotUrls: indexedSlotUrls,
+          indexedSlotPaths: indexedSlotPaths,
+          onProgress: (p, label) {
+            if (mounted) {
+              setState(() {
+                _uploadProgress = p;
+                _uploadProgressLabel = label;
+              });
+            }
+          },
+        );
       } finally {
         GlobalUploadProgress.instance.end();
       }
@@ -8877,44 +8470,29 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       });
       messenger.showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          uploadsBySlot.isNotEmpty
-              ? (wasNew
-                  ? 'Patrimônio cadastrado — fotos sincronizam em segundo plano.'
-                  : 'Patrimônio atualizado — fotos sincronizam em segundo plano.')
-              : (wasNew ? 'Patrimônio cadastrado.' : 'Patrimônio atualizado.'),
+          wasNew ? 'Patrimônio cadastrado.' : 'Patrimônio atualizado.',
         ),
       );
 
-      if (uploadsBySlot.isNotEmpty) {
-        unawaited(
-          PatrimonioSaveService.uploadPhotosInBackground(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: buildCorePayload(),
-            isNewDoc: widget.doc == null,
-            uploadsBySlot: uploadsBySlot,
-            indexedSlotUrls: indexedSlotUrls,
-            indexedSlotPaths: indexedSlotPaths,
-          ),
-        );
-      }
-
-      unawaited(_cleanupUnusedPatrimonioSlots(
-        tenantId,
-        itemId,
-        indexedSlotPaths.where((p) => p.trim().isNotEmpty).toList(),
-      ));
+      unawaited(
+        editor?.cleanupUnusedSlots(
+          indexedSlotPaths.where((p) => p.trim().isNotEmpty).toList(),
+        ),
+      );
       unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         final offlinePayload = buildCorePayload();
-        PatrimonioPhotoFields.applyIndexedSlots(
-          offlinePayload,
-          _slotUrls,
-          _slotPaths,
-        );
+        final offSnap = editor?.snapshot;
+        if (offSnap != null) {
+          PatrimonioPhotoFields.applyIndexedSlots(
+            offlinePayload,
+            offSnap.slotUrls,
+            offSnap.slotPaths,
+          );
+        }
         navigator.pop(<String, dynamic>{
           'ok': true,
           'itemId': _itemRef.id,
@@ -8962,376 +8540,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       default:
         return Colors.grey;
     }
-  }
-
-  static String _formatBytesPat(int n) {
-    if (n < 1000) return '$n bytes';
-    if (n < 1024 * 1024) {
-      return '${(n / 1024).toStringAsFixed(1)} KB';
-    }
-    return '${(n / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  /// Lista estilo “Arquivos” (miniatura + nome + tamanho) — até [_maxFotosPorItem] fotos, leve na RAM.
-  Widget _buildFotosArquivosSection(Color cor) {
-    final dprForm = MediaQuery.devicePixelRatioOf(context);
-    final memThumb = (52 * dprForm).round().clamp(88, 280);
-
-    Widget rowTile({
-      required Widget thumb,
-      required String title,
-      required String subtitle,
-      required VoidCallback onRemove,
-      VoidCallback? onReplace,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            thumb,
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (onReplace != null)
-              IconButton(
-                tooltip: 'Trocar foto',
-                onPressed: (_mediaPicking || _saving) ? null : onReplace,
-                icon: Icon(
-                  Icons.swap_horiz_rounded,
-                  color: ThemeCleanPremium.primary,
-                ),
-              ),
-            IconButton(
-              tooltip: 'Remover',
-              onPressed: onRemove,
-              icon: Icon(
-                Icons.delete_outline_rounded,
-                color: Colors.red.shade400,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final linhas = <Widget>[];
-    for (var slot = 0; slot < _maxFotosPorItem; slot++) {
-      final pending = _slotPending[slot];
-      if (pending != null) {
-        final nome = _slotPendingNames[slot].isNotEmpty
-            ? _slotPendingNames[slot]
-            : 'Nova imagem ${slot + 1}';
-        linhas.add(
-          rowTile(
-            thumb: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 52,
-                height: 52,
-                child: Image.memory(
-                  pending,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                ),
-              ),
-            ),
-            title: nome,
-            subtitle:
-                '${_formatBytesPat(pending.length)} · será enviado ao salvar',
-            onRemove: () => _clearPhotoSlot(slot),
-            onReplace: () => unawaited(_replacePhotoAtSlot(slot)),
-          ),
-        );
-        continue;
-      }
-      if (_slotUrls[slot].isEmpty) continue;
-      linhas.add(
-        rowTile(
-          thumb: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: FotoPatrimonioWidget(
-                key: ValueKey('pat_row_ex_$slot${_slotUrls[slot]}'),
-                storagePath: _slotPaths[slot].isNotEmpty
-                    ? _slotPaths[slot]
-                    : ChurchStorageLayout.patrimonioPhotoPath(
-                        widget.col.parent?.id ?? '',
-                        _itemRef.id,
-                        slot,
-                      ),
-                candidateUrls: [_slotUrls[slot]],
-                fit: BoxFit.cover,
-                width: 52,
-                height: 52,
-                memCacheWidth: memThumb,
-                memCacheHeight: memThumb,
-                placeholder: Container(
-                  color: cor.withValues(alpha: 0.12),
-                  child: Center(
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: cor,
-                      ),
-                    ),
-                  ),
-                ),
-                errorWidget: Container(
-                  color: cor.withValues(alpha: 0.1),
-                  child: Icon(
-                    Icons.image_not_supported_outlined,
-                    color: cor.withValues(alpha: 0.5),
-                    size: 26,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          title: 'Foto ${slot + 1}',
-          subtitle: 'image/jpeg · inventário',
-          onRemove: () => _clearPhotoSlot(slot),
-          onReplace: () => unawaited(_replacePhotoAtSlot(slot)),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _SectionHeader(
-          title: 'Fotos do Bem',
-          icon: Icons.photo_library_rounded,
-          color: cor,
-        ),
-        const SizedBox(height: 10),
-        _FormCard(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                ),
-              ),
-              child: LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 420;
-                  final hasPhotos = _occupiedPhotoSlots().isNotEmpty;
-                  final btn = Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
-                            ? null
-                            : _pickImages,
-                        icon: const Icon(Icons.add_photo_alternate_outlined,
-                            size: 20),
-                        label: const Text('Galeria'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: ThemeCleanPremium.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
-                            ? null
-                            : _pickCamera,
-                        icon: const Icon(Icons.photo_camera_outlined, size: 20),
-                        label: const Text('Câmera'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: ThemeCleanPremium.primary,
-                          side: BorderSide(
-                            color:
-                                ThemeCleanPremium.primary.withValues(alpha: 0.55),
-                            width: 1.5,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                      if (hasPhotos)
-                        OutlinedButton.icon(
-                          onPressed: (_mediaPicking || _saving)
-                              ? null
-                              : () => unawaited(_replaceAllPhotos()),
-                          icon: const Icon(Icons.swap_horiz_rounded, size: 20),
-                          label: const Text('Trocar todas'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.deepOrange.shade800,
-                            side: BorderSide(
-                              color: Colors.deepOrange.shade300,
-                              width: 1.5,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.folder_open_rounded,
-                            color: ThemeCleanPremium.primary,
-                            size: 28,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Arquivos ($_fotoCountAtual/$_maxFotosPorItem)',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 17,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Até $_maxFotosPorItem fotos por bem (móvel, equipamento, veículo, etc.). '
-                                  'Galeria permite várias de uma vez. Envio em WebP para abrir rápido.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    height: 1.35,
-                                    color: Colors.grey.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (narrow)
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton.icon(
-                              onPressed: (_atingiuLimiteFotos ||
-                                      _mediaPicking ||
-                                      _saving)
-                                  ? null
-                                  : _pickImages,
-                              icon: const Icon(Icons.add_photo_alternate_outlined,
-                                  size: 20),
-                              label: const Text('Galeria'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: ThemeCleanPremium.primary,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: (_atingiuLimiteFotos ||
-                                      _mediaPicking ||
-                                      _saving)
-                                  ? null
-                                  : _pickCamera,
-                              icon: const Icon(Icons.photo_camera_outlined),
-                              label: const Text('Câmera'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: ThemeCleanPremium.primary,
-                                side: BorderSide(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.55),
-                                  width: 1.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: btn,
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (linhas.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.cloud_upload_outlined,
-                        size: 42, color: Colors.grey.shade400),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Nenhum arquivo anexado',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Use Galeria ou Câmera acima.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ...linhas,
-          ],
-        ),
-      ],
-    );
   }
 
   @override
@@ -9404,7 +8612,26 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              _buildFotosArquivosSection(cor),
+              _SectionHeader(
+                title: 'Fotos do Bem',
+                icon: Icons.photo_library_rounded,
+                color: cor,
+              ),
+              const SizedBox(height: 10),
+              _FormCard(
+                children: [
+                  PatrimonioItemPhotosEditor(
+                    key: _photosEditorKey,
+                    churchId: _churchIdForPublish,
+                    itemId: _itemRef.id,
+                    initialData: widget.doc?.data() ?? {},
+                    docRef: _itemRef,
+                    canChangePhotos: widget.canManagePhotos,
+                    canRemovePhotos: widget.canManagePhotos,
+                    accentColor: cor,
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Identificação ──
@@ -9638,15 +8865,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ]),
               const SizedBox(height: 24),
 
-              if (_mediaPicking) ...[
+              if (_photosEditorKey.currentState?.isBusy == true) ...[
                 LinearProgressIndicator(
                   minHeight: 4,
                   backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _preparingPhotoCount > 0
-                      ? 'A preparar foto $_preparingPhotoCount…'
+                  (_photosEditorKey.currentState?.preparingPhotoCount ?? 0) > 0
+                      ? 'A preparar foto ${_photosEditorKey.currentState!.preparingPhotoCount}…'
                       : 'A preparar fotos…',
                   style: TextStyle(
                     fontSize: 13,
@@ -9684,7 +8911,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               SizedBox(
                   height: 52,
                   child: FilledButton.icon(
-                    onPressed: (_saving || _mediaPicking) ? null : _save,
+                    onPressed: (_saving ||
+                            _photosEditorKey.currentState?.isBusy == true)
+                        ? null
+                        : _save,
                     icon: _saving
                         ? const SizedBox(
                             width: 20,

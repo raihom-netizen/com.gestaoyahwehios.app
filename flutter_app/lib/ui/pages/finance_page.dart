@@ -23,7 +23,9 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
@@ -119,7 +121,13 @@ Future<void> _excluirLancamentoComAuditoria(
     lancamentoId: doc.id,
     dadosAntes: data,
   );
-  await doc.reference.delete();
+  if (kIsWeb) {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  }
+  await FirestoreWebGuard.runWithWebRecovery(
+    () => doc.reference.delete(),
+    maxAttempts: 4,
+  );
   ChurchCanonicalMediaDeleteService.scheduleComprovanteArtifactsDeleted(
     tenantId: tenantId,
     lancamentoId: doc.id,
@@ -5635,12 +5643,13 @@ class _LancamentoCard extends StatelessWidget {
                         onTap: onEdit,
                         tooltip: 'Editar',
                       ),
-                      FinancePremiumIconAction(
-                        icon: Icons.delete_outline_rounded,
-                        color: const Color(0xFFDC2626),
-                        onTap: onDelete,
-                        tooltip: 'Excluir',
-                      ),
+                      if (_financeUiCanDeleteLancamento(role))
+                        FinancePremiumIconAction(
+                          icon: Icons.delete_outline_rounded,
+                          color: const Color(0xFFDC2626),
+                          onTap: onDelete,
+                          tooltip: 'Excluir',
+                        ),
                       if (hasComprovanteAnexo) ...[
                         FinancePremiumIconAction(
                           icon: Icons.visibility_rounded,
@@ -8126,32 +8135,6 @@ bool _financeTreatSilentSuccess(
   return true;
 }
 
-void _scheduleFinanceComprovanteBackgroundUpload({
-  required String tenantId,
-  required DocumentReference<Map<String, dynamic>> docRef,
-  required Uint8List bytes,
-  required String mimeType,
-  String? fileName,
-  DateTime? referenceDate,
-  String? previousStoragePath,
-  String? previousDownloadUrl,
-}) {
-  unawaited(
-    GestaoYahwehWriteFirstPublishService.queueFinanceComprovanteAfterSave(
-      churchId: ChurchRepository.churchId(tenantId),
-      docRef: docRef,
-      bytes: bytes,
-      mimeType: mimeType,
-      fileName: fileName,
-      referenceDate: referenceDate,
-      previousStoragePath: previousStoragePath,
-      previousDownloadUrl: previousDownloadUrl,
-    ).catchError((Object e, StackTrace st) {
-      debugPrint('finance_comprovante_bg: $e\n$st');
-    }),
-  );
-}
-
 Future<bool> showFinanceLancamentoEditorForTenant(
   BuildContext context, {
   required String tenantId,
@@ -8318,9 +8301,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   var pagamentoConfirmado =
       isEdit ? (data?['pagamentoConfirmado'] != false) : true;
   var conciliado = isEdit ? (data?['conciliado'] == true) : false;
-  FinanceComprovanteAttachment? comprovanteAnexo;
-  final comprovanteExistente =
-      isEdit && FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {});
+  var comprovanteSnap = const FinanceComprovanteEditorSnapshot();
+  final canComprovanteWrite = AppPermissions.canViewFinance(
+    panelRole ?? '',
+  );
   String nomeConta(String? id) {
     if (id == null) return '';
     for (final c in contas) {
@@ -8820,102 +8804,16 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                   title: 'Comprovante',
                   icon: Icons.receipt_long_rounded,
                   accent: pageAccent,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked =
-                        await FinanceComprovanteAttachService.showPickSheet(
-                      ctx,
-                      title: comprovanteAnexo != null || comprovanteExistente
-                          ? 'Trocar comprovante'
-                          : 'Anexar comprovante',
-                    );
-                    if (picked == null) return;
-                    comprovanteAnexo = picked;
-                    setDlgState(() {});
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(ctx).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${picked.fileName} selecionado — toque «Salvar» para enviar.',
-                          ),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
-                    }
-                  },
-                  icon: Icon(
-                      comprovanteAnexo != null || comprovanteExistente
-                          ? Icons.check_circle_rounded
-                          : Icons.add_photo_alternate_rounded,
-                      size: 20),
-                  label: Text(
-                    comprovanteAnexo != null
-                        ? 'Pronto para enviar ao salvar'
-                        : (comprovanteExistente
-                            ? 'Comprovante já gravado'
-                            : 'Anexar comprovante'),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: comprovanteAnexo != null || comprovanteExistente
-                        ? ThemeCleanPremium.success
-                        : null,
-                  ),
-                ),
-                if (comprovanteAnexo != null)
-                  TextButton.icon(
-                    onPressed: () => setDlgState(() {
-                      comprovanteAnexo = null;
-                    }),
-                    icon: const Icon(Icons.close, size: 18),
-                    label: const Text('Remover novo anexo'),
-                    style: TextButton.styleFrom(
-                        foregroundColor: ThemeCleanPremium.error),
-                  ),
-                if (isEdit &&
-                    comprovanteExistente &&
-                    comprovanteAnexo == null) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                      FinanceComprovanteAttachService.displayNameFromDoc(
-                          data ?? {}),
-                      style: TextStyle(
-                          fontSize: 12, color: Colors.grey.shade700),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      TextButton.icon(
-                        onPressed: () =>
-                            FinanceComprovanteAttachService.viewFromDoc(
-                          ctx,
-                          data ?? {},
-                        ),
-                        icon: const Icon(Icons.visibility_rounded, size: 18),
-                        label: const Text('Ver comprovante'),
-                      ),
-                      TextButton.icon(
-                        onPressed: () async {
-                          final picked =
-                              await FinanceComprovanteAttachService
-                                  .showPickSheet(
-                            ctx,
-                            title: 'Trocar comprovante',
-                          );
-                          if (picked == null) return;
-                          comprovanteAnexo = picked;
-                          setDlgState(() {});
-                        },
-                        icon: const Icon(Icons.sync_rounded, size: 18),
-                        label: const Text('Trocar comprovante'),
-                      ),
-                    ],
-                  ),
-                ],
-                    ],
+                  child: FinanceComprovanteEditor(
+                    churchIdHint: effectiveTenantId,
+                    target: FinanceComprovanteEditorTarget.financeLancamento,
+                    canAdd: canComprovanteWrite,
+                    canChange: canComprovanteWrite,
+                    canRemove: canComprovanteWrite,
+                    lancamentoId: existingDoc?.id,
+                    referenceDate: dataSelLocal,
+                    existingData: isEdit ? data : null,
+                    onChanged: (snap) => comprovanteSnap = snap,
                   ),
                 ),
                       ],
@@ -8956,18 +8854,16 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     await _ensureFinanceWriteReady(context: context);
 
     if (isEdit) {
-      final novoComp = comprovanteAnexo;
-      Uint8List? pendingBytes;
-      String? pendingMime;
-      String? pendingFileName;
-      if (novoComp != null) {
-        pendingBytes = novoComp.bytes;
-        pendingMime =
-            novoComp.isPdf ? 'application/pdf' : novoComp.mimeType;
-        pendingFileName = novoComp.fileName;
+      final pending = comprovanteSnap.pending;
+      if (comprovanteSnap.removeExisting) {
         result.remove('comprovanteUrl');
         result.remove('comprovanteLink');
-      } else if (FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {})) {
+        result.remove('comprovanteStoragePath');
+        result.remove('comprovanteMimeType');
+        result.remove('comprovanteFileName');
+        result['hasComprovante'] = false;
+      } else if (pending == null &&
+          FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {})) {
         result['comprovanteUrl'] = data?['comprovanteUrl'];
         result['comprovanteLink'] =
             data?['comprovanteLink'] ?? data?['comprovanteUrl'];
@@ -8975,12 +8871,11 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         result['comprovanteMimeType'] = data?['comprovanteMimeType'];
         result['comprovanteFileName'] = data?['comprovanteFileName'];
         result['hasComprovante'] = data?['hasComprovante'] ?? true;
+      } else if (pending != null) {
+        result.remove('comprovanteUrl');
+        result.remove('comprovanteLink');
       }
       final patch = Map<String, dynamic>.from(result);
-      if (pendingBytes != null) {
-        patch[FinanceComprovantePublishService.comprovanteUploadStateField] =
-            EntityPublishStatus.uploading;
-      }
       final tt = (patch['type'] ?? '').toString();
       if (tt == 'entrada') {
         patch['contaOrigemId'] = FieldValue.delete();
@@ -9017,16 +8912,25 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         payload: patch,
         isEdit: true,
         existingRef: existingDoc.reference,
-        hasNewComprovante: pendingBytes != null,
+        hasNewComprovante: false,
         previousPayloadForSaldo: data,
       );
-      if (pendingBytes != null && pendingMime != null) {
-        _scheduleFinanceComprovanteBackgroundUpload(
-          tenantId: tenantId,
+      if (comprovanteSnap.removeExisting) {
+        await FinanceComprovanteUpdateService.removeFinanceLancamentoStrict(
+          churchIdHint: tenantId,
           docRef: existingDoc.reference,
-          bytes: pendingBytes,
-          mimeType: pendingMime,
-          fileName: pendingFileName,
+          data: data ?? {},
+        );
+      }
+      final pendingComp = comprovanteSnap.pending;
+      if (pendingComp != null) {
+        await FinanceComprovanteUpdateService.publishFinanceLancamentoStrict(
+          churchIdHint: tenantId,
+          docRef: existingDoc.reference,
+          bytes: pendingComp.bytes,
+          mimeType:
+              pendingComp.isPdf ? 'application/pdf' : pendingComp.mimeType,
+          fileName: pendingComp.fileName,
           referenceDate: FinanceComprovantePublishService.referenceDateFromMap(
             {...?data, ...patch},
           ),
@@ -9034,31 +8938,16 @@ Future<bool> showFinanceLancamentoEditorForTenant(
               (data?['comprovanteStoragePath'] ?? '').toString(),
           previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
         );
-        if (context.mounted) {
-          showFinanceSaveSnackBar(
-            context,
-            message:
-                'Lançamento salvo — comprovante sincroniza em segundo plano.',
-          );
-        }
-      } else if (context.mounted) {
+      }
+      if (context.mounted) {
         showFinanceSaveSnackBar(
           context,
-          message: 'Lançamento atualizado!',
+          message: pendingComp != null || comprovanteSnap.removeExisting
+              ? 'Lançamento e comprovante actualizados!'
+              : 'Lançamento atualizado!',
         );
       }
     } else {
-      final novoCompAdd = comprovanteAnexo;
-      Uint8List? pendingAddBytes;
-      String? pendingAddMime;
-      String? pendingAddFileName;
-      if (novoCompAdd != null) {
-        pendingAddBytes = novoCompAdd.bytes;
-        pendingAddMime =
-            novoCompAdd.isPdf ? 'application/pdf' : novoCompAdd.mimeType;
-        pendingAddFileName = novoCompAdd.fileName;
-      }
-
       final preRef = financeCol.doc();
 
       await FinanceComprovantePublishService.saveLancamentoFirst(
@@ -9066,30 +8955,28 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         payload: result,
         isEdit: false,
         preGeneratedRef: preRef,
-        hasNewComprovante: pendingAddBytes != null,
+        hasNewComprovante: false,
       );
 
-      if (pendingAddBytes != null && pendingAddMime != null) {
-        _scheduleFinanceComprovanteBackgroundUpload(
-          tenantId: tenantId,
+      final pendingAdd = comprovanteSnap.pending;
+      if (pendingAdd != null) {
+        await FinanceComprovanteUpdateService.publishFinanceLancamentoStrict(
+          churchIdHint: tenantId,
           docRef: preRef,
-          bytes: pendingAddBytes,
-          mimeType: pendingAddMime,
-          fileName: pendingAddFileName,
+          bytes: pendingAdd.bytes,
+          mimeType:
+              pendingAdd.isPdf ? 'application/pdf' : pendingAdd.mimeType,
+          fileName: pendingAdd.fileName,
           referenceDate:
               FinanceComprovantePublishService.referenceDateFromMap(result),
         );
-        if (context.mounted) {
-          showFinanceSaveSnackBar(
-            context,
-            message:
-                'Lançamento salvo — comprovante sincroniza em segundo plano.',
-          );
-        }
-      } else if (context.mounted) {
+      }
+      if (context.mounted) {
         showFinanceSaveSnackBar(
           context,
-          message: 'Lançamento salvo!',
+          message: pendingAdd != null
+              ? 'Lançamento e comprovante gravados!'
+              : 'Lançamento salvo!',
         );
       }
     }
@@ -9153,8 +9040,8 @@ Future<void> removeFinanceComprovanteForLancamento(
   if (ok != true || !context.mounted) return;
   try {
     await _ensureFinanceWriteReady(context: context);
-    await FinanceComprovantePublishService.removeComprovante(
-      tenantId: tenantId,
+    await FinanceComprovanteUpdateService.removeFinanceLancamentoStrict(
+      churchIdHint: tenantId,
       docRef: doc.reference,
       data: data,
     );
@@ -9198,64 +9085,35 @@ Future<void> uploadFinanceComprovanteForLancamento(
         FinanceComprovantePublishService.referenceDateFromMap(data);
     final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
 
-    await doc.reference.set(
-      {
-        FinanceComprovantePublishService.comprovanteUploadStateField:
-            EntityPublishStatus.uploading,
-        'hasComprovante': false,
-      },
-      SetOptions(merge: true),
-    );
-
     if (!context.mounted) return;
 
-    _scheduleFinanceComprovanteBackgroundUpload(
-      tenantId: tenantId,
-      docRef: doc.reference,
-      bytes: picked.bytes,
-      mimeType: mime,
-      fileName: picked.fileName,
-      referenceDate: refDate,
-      previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
-      previousDownloadUrl:
-          (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            jaTem
-                ? 'Comprovante a sincronizar em segundo plano.'
-                : 'Comprovante anexado — sincroniza em segundo plano.',
-            style: const TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4)));
-    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-  } catch (e) {
-    if (YahwehCentralEngineService.isOfflineQueuedSuccess(e)) {
-      final data = doc.data() ?? {};
-      final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
-      await YahwehCentralEngineService.queueFinanceComprovante(
-        churchId: ChurchRepository.churchId(tenantId),
+    await FinanceComprovanteUi.runWithProgress(
+      context,
+      label: jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…',
+      action: (onProgress) => FinanceComprovanteUpdateService
+          .publishFinanceLancamentoStrict(
+        churchIdHint: tenantId,
         docRef: doc.reference,
         bytes: picked.bytes,
         mimeType: mime,
         fileName: picked.fileName,
-        referenceDate:
-            FinanceComprovantePublishService.referenceDateFromMap(data),
+        referenceDate: refDate,
         previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
         previousDownloadUrl:
-            (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
-                .toString(),
-      );
-      if (context.mounted) {
-        showFinanceSaveSnackBar(
-          context,
-          message: jaTem
-              ? 'Comprovante guardado — sincroniza em background.'
-              : 'Comprovante anexado — sincroniza em background.',
-        );
-      }
-      unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+            (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
+        onProgress: onProgress,
+      ),
+    );
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar(
+        jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',
+      ),
+    );
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+  } catch (e) {
+    if (_financeTreatSilentSuccess(context, e, tenantId: tenantId)) {
       return;
     }
     await FinanceComprovantePublishService.markComprovanteUploadFailed(

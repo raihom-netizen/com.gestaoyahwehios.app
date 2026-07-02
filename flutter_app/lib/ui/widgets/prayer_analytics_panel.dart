@@ -6,6 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/prayer_pedidos_filter.dart';
 import 'package:gestao_yahweh/services/prayer_pedidos_report_pdf.dart';
@@ -57,15 +58,8 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
 
   String get _churchId => ChurchRepository.churchId(widget.tenantId);
 
-  bool get _isLeader {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'pastor' ||
-        r == 'lider';
-  }
+  bool get _isLeader =>
+      AppPermissions.canDeleteAnyChurchRecords(widget.role);
 
   bool get _isCustomPeriod => _filter.period == PrayerPeriodPreset.custom;
 

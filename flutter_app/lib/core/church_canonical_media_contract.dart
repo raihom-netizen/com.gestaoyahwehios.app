@@ -59,14 +59,16 @@ abstract final class ChurchCanonicalMediaContract {
     'foto02',
     'foto03',
     'foto04',
+    'foto05',
   ];
   static const patrimonioPathSlotKeys = [
     'foto01Path',
     'foto02Path',
     'foto03Path',
     'foto04Path',
+    'foto05Path',
   ];
-  static const int patrimonioMaxPhotos = 4;
+  static const int patrimonioMaxPhotos = 5;
 
   static const patrimonioLegacyUrlKeys = [
     'fotoUrls',

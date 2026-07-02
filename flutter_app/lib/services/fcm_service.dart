@@ -5,13 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/services/panel_notification_service.dart';
+import 'package:gestao_yahweh/services/yahweh_push_cache_refresh.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'church_panel_navigation_bridge.dart';
-import 'panel_notification_service.dart';
-import 'yahweh_push_cache_refresh.dart';
 
 class FcmService {
   FcmService._();
@@ -50,16 +49,9 @@ class FcmService {
   }) async {
     final s = seed.trim();
     if (s.isEmpty) return s;
-    try {
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
-        s,
-        userUid: userUid,
-        forceRefresh: forceRefresh,
-      );
-      return op.trim().isEmpty ? s : op.trim();
-    } catch (_) {
-      return s;
-    }
+    final cid = ChurchRepository.churchId(s);
+    if (cid.isNotEmpty) return cid;
+    return s;
   }
 
   /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|…}`).

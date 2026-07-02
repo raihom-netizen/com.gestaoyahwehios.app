@@ -17,12 +17,10 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'departments_page.dart';
-import 'events_manager_page.dart';
 import 'finance_page.dart';
 import 'patrimonio_page.dart';
 import 'member_card_page.dart';
 import 'members_page.dart';
-import 'mural_page.dart';
 import 'my_schedules_page.dart';
 import 'notifications_page.dart';
 import 'plans/renew_plan_page.dart';
@@ -278,10 +276,9 @@ class _DashboardPageState extends State<DashboardPage> {
           return;
         }
         if (title == 'Mural') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => MuralPage(tenantId: _effectiveTenantId, role: widget.role),
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Módulo Eventos não está disponível nesta versão.'),
             ),
           );
           return;
@@ -300,10 +297,9 @@ class _DashboardPageState extends State<DashboardPage> {
           return;
         }
         if (title == 'Eventos') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => EventsManagerPage(tenantId: _effectiveTenantId, role: widget.role),
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Módulo Eventos não está disponível nesta versão.'),
             ),
           );
           return;
@@ -461,10 +457,11 @@ class _DashboardPageState extends State<DashboardPage> {
                   title: const Text('Novo Evento'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => EventsManagerPage(tenantId: _effectiveTenantId, role: widget.role),
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Módulo Eventos não está disponível nesta versão.',
+                        ),
                       ),
                     );
                   },
@@ -806,13 +803,10 @@ class _DashboardPageState extends State<DashboardPage> {
                                 title: 'Mural de Avisos',
                                 trailing: TextButton.icon(
                                   onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => EventsManagerPage(
-                                          tenantId: _effectiveTenantId,
-                                          role: widget.role,
-                                          initialTabIndex: 1,
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Módulo Eventos não está disponível nesta versão.',
                                         ),
                                       ),
                                     );

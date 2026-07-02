@@ -602,7 +602,27 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     }
   }
 
-  Future<void> _deletar(String docId) async {
+  Future<void> _deletar(String docId, {Map<String, dynamic>? data}) async {
+    if (data != null && !_canManage(data)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir este pedido.',
+          ),
+        );
+      }
+      return;
+    }
+    if (data == null && !_isLeader) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir pedidos.',
+          ),
+        );
+      }
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1660,7 +1680,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                         onSelected: (v) {
                           if (v == 'editar') _abrirFormularioEdicao(doc);
                           if (v == 'respondida') _marcarRespondida(doc.id);
-                          if (v == 'excluir') _deletar(doc.id);
+                          if (v == 'excluir') _deletar(doc.id, data: data);
                         },
                         itemBuilder: (_) => [
                           const PopupMenuItem(

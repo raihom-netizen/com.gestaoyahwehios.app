@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
-import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
@@ -52,7 +52,7 @@ abstract final class YahwehCentralEngineService {
   static bool isOfflineQueuedSuccess(Object error) =>
       EcoFireResilientPublish.treatAsSilentSuccess(error);
 
-  /// Avisos — publicação instantânea (online strict; offline → outbox + cache local).
+  /// Módulo Avisos removido — publicação bloqueada.
   static Future<String> executeInstantSaveAviso({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -66,21 +66,9 @@ abstract final class YahwehCentralEngineService {
     DateTime? calendarDate,
     bool syncCalendar = true,
     void Function(double progress)? onUploadProgress,
-  }) =>
-      AvisoStrictPublishService.publish(
-        docRef: docRef,
-        tenantId: tenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        calendarDate: calendarDate,
-        syncCalendar: syncCalendar,
-        onUploadProgress: onUploadProgress,
-      );
+  }) async {
+    throw const ChurchPanelModuleRemovedException('Avisos');
+  }
 
   /// Comprovante enfileirado (lançamento já gravado; preview via [MuralPostPendingMediaCache]).
   static Future<void> queueFinanceComprovante({

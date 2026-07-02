@@ -463,8 +463,7 @@ class ChurchRolePermissions {
         // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
         return true;
       case 23:
-        // Chat - Igreja (membros / departamentos).
-        return true;
+        return false; // Chat Igreja removido — índice 23 reservado.
       default:
         return true;
     }

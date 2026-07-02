@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de eventos — `igrejas/{churchId}/eventos`.
@@ -177,6 +178,16 @@ abstract final class ChurchEventosLoadService {
     bool forceRefresh = false,
     bool forceServer = false,
   }) async {
+    if (!kChurchEventosModuleEnabled) {
+      final churchId = _resolve(seedTenantId);
+      return ChurchEventosLoadResult(
+        churchId: churchId,
+        docs: const [],
+        readSource: 'eventos_module_removed',
+        collectionPath:
+            churchId.isEmpty ? 'eventos' : 'igrejas/$churchId/eventos',
+      );
+    }
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
       return const ChurchEventosLoadResult(
@@ -562,6 +573,16 @@ abstract final class ChurchEventosLoadService {
     bool forceRefresh = false,
     bool forceServer = false,
   }) async {
+    if (!kChurchEventosModuleEnabled) {
+      final churchId = _resolve(seedTenantId);
+      return ChurchEventosLoadResult(
+        churchId: churchId,
+        docs: const [],
+        readSource: 'eventos_module_removed',
+        collectionPath:
+            churchId.isEmpty ? 'eventos' : 'igrejas/$churchId/eventos',
+      );
+    }
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
       return const ChurchEventosLoadResult(

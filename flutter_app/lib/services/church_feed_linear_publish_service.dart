@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
@@ -40,23 +41,9 @@ abstract final class ChurchFeedLinearPublishService {
     DateTime? calendarDate,
     bool syncCalendar = true,
     void Function(double progress)? onUploadProgress,
-  }) =>
-      _publish(
-        kind: PublicationKind.aviso,
-        docRef: docRef,
-        tenantId: tenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingPhotoRefs: existingPhotoRefs,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        calendarDate: calendarDate,
-        syncCalendar: syncCalendar,
-        hasVideo: false,
-        onUploadProgress: onUploadProgress,
-      );
+  }) async {
+    throw const ChurchPanelModuleRemovedException('Avisos');
+  }
 
   static Future<String> publishEvento({
     required DocumentReference<Map<String, dynamic>> docRef,

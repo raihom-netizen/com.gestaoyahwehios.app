@@ -13,8 +13,6 @@ import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
 import 'pages/members_page.dart';
 import 'pages/departments_page.dart';
-import 'pages/events_manager_page.dart';
-import 'pages/mural_page.dart';
 import 'pages/finance_page.dart';
 import 'pages/usuarios_permissoes_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
@@ -141,15 +139,22 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
         Navigator.push(context, MaterialPageRoute(builder: (_) => DepartmentsPage(tenantId: tenantId!, role: role)));
         break;
       case 3:
-        Navigator.push(context, MaterialPageRoute(builder: (_) => EventsManagerPage(tenantId: tenantId!, role: role)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Módulo Eventos não está disponível nesta versão.'),
+          ),
+        );
         break;
       case 4:
         // Aniversariantes: fica no painel (já exibido)
         setState(() => _menuIndex = 0);
         break;
       case 5:
-        // Avisos: pode abrir Mural
-        Navigator.push(context, MaterialPageRoute(builder: (_) => MuralPage(tenantId: tenantId!, role: role)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Módulo Eventos não está disponível nesta versão.'),
+          ),
+        );
         break;
       case 6:
         // Liderança: pode abrir Membros filtrado ou manter painel

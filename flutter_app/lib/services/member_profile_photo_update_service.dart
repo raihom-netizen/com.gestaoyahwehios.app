@@ -3,9 +3,12 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -21,11 +24,13 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
@@ -37,6 +42,7 @@ class MemberProfilePhotoUpdateResult {
   final int cacheRevision;
   final String? thumbDownloadUrl;
   final String? thumbStoragePath;
+  final bool removed;
 
   const MemberProfilePhotoUpdateResult({
     required this.downloadUrl,
@@ -44,6 +50,7 @@ class MemberProfilePhotoUpdateResult {
     required this.cacheRevision,
     this.thumbDownloadUrl,
     this.thumbStoragePath,
+    this.removed = false,
   });
 }
 
@@ -499,4 +506,116 @@ class MemberProfilePhotoUpdateService {
   /// Revisão actual para [ValueKey] de avatares no chat.
   static int cacheRevisionFromData(Map<String, dynamic> data) =>
       memberPhotoDisplayCacheRevision(data) ?? 0;
+
+  /// Remove foto de perfil — Firestore + Storage + cache + chat.
+  static Future<MemberProfilePhotoUpdateResult> removeProfilePhoto({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    void Function(String phaseLabel)? onPhase,
+  }) async {
+    YahwehFlowLog.memberPhotoStart();
+    final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
+    final docId = memberDocId.trim();
+    if (churchId.isEmpty || docId.isEmpty) {
+      throw StateError('Igreja ou membro inválido para remover a foto.');
+    }
+
+    onPhase?.call('A remover foto…');
+    final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
+    final previousThumb = sanitizeImageUrl(
+      MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
+    );
+    final revision = YahwehMediaCacheBust.freshRevisionMs();
+    final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+        .toString()
+        .trim();
+
+    final docRef = ChurchUiCollections.membros(churchId).doc(docId);
+    final patch = Map<String, dynamic>.from(
+      ChurchCanonicalMediaContract.memberProfileClearFirestorePatch(),
+    )..['fotoUrlCacheRevision'] = revision;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => docRef.set(patch, SetOptions(merge: true)),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+
+    onPhase?.call('A limpar ficheiros…');
+    await FirebaseStorageCleanupService.deleteMemberProfilePhotoArtifactsBeforeReplace(
+      tenantId: churchId,
+      memberId: docId,
+      data: memberData,
+    );
+
+    invalidateDisplayCaches(
+      previousDownloadUrl: previousUrl,
+      newDownloadUrl: '',
+      storagePath: '',
+      thumbStoragePath: '',
+      tenantId: churchId,
+      memberDocId: docId,
+      authUid: authUid.isEmpty ? null : authUid,
+    );
+    if (previousThumb.isNotEmpty) {
+      invalidateDisplayCaches(
+        previousDownloadUrl: previousThumb,
+        tenantId: churchId,
+        memberDocId: docId,
+        authUid: authUid.isEmpty ? null : authUid,
+      );
+    }
+
+    if (authUid.isNotEmpty) {
+      try {
+        await firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          'photoStoragePath': FieldValue.delete(),
+          'photoThumbStoragePath': FieldValue.delete(),
+          'fotoPath': FieldValue.delete(),
+          'fotoThumbPath': FieldValue.delete(),
+          'fotoUrlCacheRevision': revision,
+        }, SetOptions(merge: true));
+      } catch (e, st) {
+        YahwehFlowLog.error('MEMBROS', e, st);
+      }
+    }
+
+    final clearedData = Map<String, dynamic>.from(memberData);
+    for (final k in patch.keys) {
+      if (patch[k] is FieldValue) clearedData.remove(k);
+    }
+    clearedData['fotoUrlCacheRevision'] = revision;
+
+    await syncChatPeerProfilesAfterPhotoUpdate(
+      primaryTenantId: churchId,
+      memberDocId: docId,
+      memberData: clearedData,
+      photoUrl: '',
+      photoThumbUrl: '',
+      cacheRevision: revision,
+      photoStoragePath: '',
+      photoThumbStoragePath: '',
+    );
+
+    MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
+      tenantId: churchId,
+      authUid: authUid.isEmpty ? docId : authUid,
+      cacheRevision: revision,
+    );
+
+    YahwehFlowLog.memberPhotoSuccess();
+    return MemberProfilePhotoUpdateResult(
+      downloadUrl: '',
+      storagePath: '',
+      cacheRevision: revision,
+      removed: true,
+    );
+  }
 }

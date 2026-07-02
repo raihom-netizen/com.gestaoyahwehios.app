@@ -48,7 +48,7 @@ abstract final class TenantIntelligentPreload {
       case ChurchShellIndices.muralEventos:
         return TenantModuleKeys.eventos;
       case ChurchShellIndices.chatIgreja:
-        return TenantModuleKeys.chat;
+        return null;
       case ChurchShellIndices.financeiro:
         return TenantModuleKeys.financeiro;
       case ChurchShellIndices.patrimonio:

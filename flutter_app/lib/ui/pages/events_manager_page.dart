@@ -3511,6 +3511,12 @@ class _FeedTabState extends State<_FeedTab> {
     });
   }
 
+  bool get _canBulkDeleteFeed =>
+      AppPermissions.canDeleteAnyChurchRecords(
+        widget.role,
+        permissions: widget.permissions,
+      );
+
   Future<void> _deleteFeedRefs(
       List<DocumentReference<Map<String, dynamic>>> refs) async {
     if (refs.isEmpty) {
@@ -3519,13 +3525,31 @@ class _FeedTabState extends State<_FeedTab> {
             .showSnackBar(const SnackBar(content: Text('Nada para excluir.')));
       return;
     }
+    if (refs.length > 1 && !_canBulkDeleteFeed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Somente gestor, pastor ou quem eles delegarem pode excluir vários eventos de uma vez.',
+          ),
+        );
+      }
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Excluir eventos'),
-        content: Text('Deseja excluir ${refs.length} evento(s)?'),
+        icon: refs.length > 1
+            ? Icon(Icons.delete_sweep_rounded,
+                color: ThemeCleanPremium.error, size: 36)
+            : null,
+        title: Text(refs.length > 1 ? 'Excluir ${refs.length} eventos' : 'Excluir eventos'),
+        content: Text(
+          refs.length > 1
+              ? 'Esta ação não pode ser desfeita. ${refs.length} evento(s) serão removidos do feed e da galeria.'
+              : 'Deseja excluir ${refs.length} evento(s)?',
+        ),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -3584,6 +3608,16 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _deleteByCurrentPeriod() async {
+    if (!_canBulkDeleteFeed) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Somente gestor, pastor ou quem eles delegarem pode excluir eventos em lote.',
+          ),
+        );
+      }
+      return;
+    }
     final snap = await _loadEventsSnapshot();
     final allDocs =
         snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();

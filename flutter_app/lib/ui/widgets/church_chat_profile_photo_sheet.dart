@@ -4,26 +4,28 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
-import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show imageUrlFromMap, sanitizeImageUrl;
 
-/// Abre editor de foto de perfil (tela cheia — estável com galeria Android).
+/// Abre editor de foto de perfil (Membros + chat) com permissões explícitas.
 Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
   BuildContext context, {
   required String tenantId,
   required String memberDocId,
   Map<String, dynamic>? initialData,
+  required bool canChangePhoto,
+  required bool canRemovePhoto,
 }) async {
   final uid = firebaseDefaultAuth.currentUser?.uid;
   if (uid == null || uid.isEmpty) {
@@ -32,6 +34,13 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
     );
     return null;
   }
+  if (!canChangePhoto && !canRemovePhoto) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Sem permissão para alterar esta foto.')),
+    );
+    return null;
+  }
+
   Map<String, dynamic> data = Map<String, dynamic>.from(initialData ?? {});
   final churchId = ChurchRepository.churchId(tenantId.trim());
   if (data.isEmpty && churchId.isNotEmpty) {
@@ -47,7 +56,8 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
     data = snap.data() ?? {};
   }
   if (!context.mounted) return null;
-  return Navigator.of(context, rootNavigator: true).push<MemberProfilePhotoUpdateResult>(
+  return Navigator.of(context, rootNavigator: true)
+      .push<MemberProfilePhotoUpdateResult>(
     MaterialPageRoute(
       fullscreenDialog: true,
       builder: (_) => MemberProfilePhotoEditorPage(
@@ -55,6 +65,8 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
         churchId: churchId.isNotEmpty ? churchId : tenantId.trim(),
         memberId: memberDocId,
         initialData: data,
+        canChangePhoto: canChangePhoto,
+        canRemovePhoto: canRemovePhoto,
       ),
     ),
   );
@@ -65,6 +77,8 @@ Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
   BuildContext context, {
   required String tenantId,
   String? cpfDigits,
+  bool canChangePhoto = true,
+  bool canRemovePhoto = true,
 }) async {
   final uid = firebaseDefaultAuth.currentUser?.uid;
   if (uid == null || uid.isEmpty) {
@@ -95,10 +109,12 @@ Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
     tenantId: tenantId,
     memberDocId: mem.id,
     initialData: mem.data() ?? {},
+    canChangePhoto: canChangePhoto,
+    canRemovePhoto: canRemovePhoto,
   );
 }
 
-/// Editor premium — foto de perfil membro (Membros + chat).
+/// Editor — foto perfil membro (`igrejas/{churchId}/membros/…` + Storage canónico).
 class MemberProfilePhotoEditorPage extends StatefulWidget {
   const MemberProfilePhotoEditorPage({
     super.key,
@@ -106,12 +122,16 @@ class MemberProfilePhotoEditorPage extends StatefulWidget {
     required this.churchId,
     required this.memberId,
     required this.initialData,
+    required this.canChangePhoto,
+    required this.canRemovePhoto,
   });
 
   final String tenantId;
   final String churchId;
   final String memberId;
   final Map<String, dynamic> initialData;
+  final bool canChangePhoto;
+  final bool canRemovePhoto;
 
   @override
   State<MemberProfilePhotoEditorPage> createState() =>
@@ -120,7 +140,7 @@ class MemberProfilePhotoEditorPage extends StatefulWidget {
 
 class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorPage> {
   Uint8List? _previewBytes;
-  bool _uploading = false;
+  bool _busy = false;
   bool _picking = false;
   String? _pickedFileName;
   String _phaseLabel = '';
@@ -143,8 +163,19 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     return u.isEmpty ? null : u;
   }
 
+  bool get _hasExistingPhoto {
+    final url = sanitizeImageUrl(imageUrlFromMap(widget.initialData));
+    if (url.isNotEmpty) return true;
+    final path = (widget.initialData['photoStoragePath'] ??
+            widget.initialData['fotoPath'] ??
+            '')
+        .toString()
+        .trim();
+    return path.isNotEmpty;
+  }
+
   Future<void> _pickFromGallery() async {
-    if (_uploading || _picking) return;
+    if (!widget.canChangePhoto || _busy || _picking) return;
     setState(() => _picking = true);
     try {
       final hit = await MemberProfilePhotoPickService.pickFromGallery(context);
@@ -166,7 +197,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   }
 
   Future<void> _pickFromCamera() async {
-    if (_uploading || _picking || kIsWeb) return;
+    if (!widget.canChangePhoto || _busy || _picking || kIsWeb) return;
     setState(() => _picking = true);
     try {
       final hit = await MemberProfilePhotoPickService.pickFromCamera(context);
@@ -189,31 +220,24 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
 
   Future<void> _save() async {
     final bytes = _previewBytes;
-    if (bytes == null || bytes.isEmpty || _uploading) return;
+    if (bytes == null || bytes.isEmpty || _busy || !widget.canChangePhoto) return;
     setState(() {
-      _uploading = true;
-      _phaseLabel = 'Salvando…';
+      _busy = true;
+      _phaseLabel = 'A preparar…';
     });
     try {
-      final result = await FirebaseBootstrapService.runGuarded(
-        () async {
-          await AppFinalizeBootstrap.ensureSessionForPublish(
-            logLabel: 'membro_foto_editor',
-          );
-          await ensureFirebaseReadyForMediaUpload();
-          return YahwehCentralEngineService.executeSingleProfileSave(
-            collectionId: 'membros',
-            docId: widget.memberId,
-            igrejaId: widget.churchId,
-            payloadFields: const {},
-            photoBytes: bytes,
-            memberDataHint: widget.initialData,
-            onPhase: (label) {
-              if (mounted) setState(() => _phaseLabel = label);
-            },
-          );
+      await AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: 'membro_foto_editor',
+      );
+      await DirectStorageUrlPublish.ensureReady();
+      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+        tenantId: widget.churchId,
+        memberDocId: widget.memberId,
+        memberData: widget.initialData,
+        rawBytes: bytes,
+        onPhase: (label) {
+          if (mounted) setState(() => _phaseLabel = label);
         },
-        debugLabel: 'membro_foto_editor',
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -221,14 +245,85 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       );
       Navigator.pop(context, result);
     } catch (e, st) {
-      unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor'));
+      unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor_save'));
       if (!mounted) return;
       setState(() {
-        _uploading = false;
+        _busy = false;
         _phaseLabel = '';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
+      );
+    }
+  }
+
+  Future<void> _confirmRemove() async {
+    if (!widget.canRemovePhoto || _busy || !_hasExistingPhoto) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
+            SizedBox(width: 10),
+            Text('Remover foto'),
+          ],
+        ),
+        content: Text(
+          'Remover a foto de perfil de «$_memberName»? '
+          'A imagem será apagada do Storage e do cadastro.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFDC2626)),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _remove();
+  }
+
+  Future<void> _remove() async {
+    setState(() {
+      _busy = true;
+      _phaseLabel = 'A remover…';
+    });
+    try {
+      await AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: 'membro_foto_remove',
+      );
+      final result = await MemberProfilePhotoUpdateService.removeProfilePhoto(
+        tenantId: widget.churchId,
+        memberDocId: widget.memberId,
+        memberData: widget.initialData,
+        onPhase: (label) {
+          if (mounted) setState(() => _phaseLabel = label);
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Foto removida.'),
+      );
+      Navigator.pop(context, result);
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor_remove'));
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _phaseLabel = '';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar('Erro ao remover foto: $e'),
       );
     }
   }
@@ -242,7 +337,10 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           boxShadow: ThemeCleanPremium.softUiCardShadow,
-          border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.25), width: 3),
+          border: Border.all(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.25),
+            width: 3,
+          ),
         ),
         child: ClipOval(
           child: Image.memory(
@@ -278,6 +376,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   @override
   Widget build(BuildContext context) {
     final hasPreview = _previewBytes != null && _previewBytes!.isNotEmpty;
+    final canPick = widget.canChangePhoto && !_busy && !_picking;
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FB),
       appBar: AppBar(
@@ -296,7 +395,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           tooltip: 'Voltar',
-          onPressed: _uploading ? null : () => Navigator.maybePop(context),
+          onPressed: _busy ? null : () => Navigator.maybePop(context),
         ),
         title: const Text(
           'Foto de perfil',
@@ -327,35 +426,16 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
               ),
               child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.sync_rounded,
-                            size: 18, color: Colors.purple.shade700),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Mesma foto em Membros, chat e grupos — actualiza sozinha.',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              height: 1.35,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    'Storage: igrejas/${widget.churchId}/membros/',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 16),
                   Stack(
                     alignment: Alignment.center,
                     children: [
@@ -408,31 +488,33 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _PhotoSourceCard(
-                    icon: Icons.photo_library_rounded,
-                    label: kIsWeb ? 'Arquivo' : 'Galeria',
-                    tint: const Color(0xFF2563EB),
-                    onTap: (_uploading || _picking) ? null : _pickFromGallery,
-                  ),
-                ),
-                if (!kIsWeb) ...[
-                  const SizedBox(width: 12),
+            if (widget.canChangePhoto) ...[
+              const SizedBox(height: 16),
+              Row(
+                children: [
                   Expanded(
                     child: _PhotoSourceCard(
-                      icon: Icons.photo_camera_rounded,
-                      label: 'Câmera',
-                      tint: const Color(0xFF059669),
-                      onTap: (_uploading || _picking) ? null : _pickFromCamera,
+                      icon: Icons.photo_library_rounded,
+                      label: kIsWeb ? 'Arquivo' : 'Galeria',
+                      tint: const Color(0xFF2563EB),
+                      onTap: canPick ? _pickFromGallery : null,
                     ),
                   ),
+                  if (!kIsWeb) ...[
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _PhotoSourceCard(
+                        icon: Icons.photo_camera_rounded,
+                        label: 'Câmera',
+                        tint: const Color(0xFF059669),
+                        onTap: canPick ? _pickFromCamera : null,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-            if (_uploading && _phaseLabel.isNotEmpty) ...[
+              ),
+            ],
+            if (_busy && _phaseLabel.isNotEmpty) ...[
               const SizedBox(height: 14),
               LinearProgressIndicator(
                 minHeight: 3,
@@ -450,41 +532,74 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                 ),
               ),
             ],
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: (hasPreview && !_uploading && !_picking) ? _save : null,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                backgroundColor: const Color(0xFF2563EB),
-                disabledBackgroundColor: Colors.grey.shade400,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            if (widget.canChangePhoto) ...[
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: (hasPreview && !_busy && !_picking) ? _save : null,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  backgroundColor: const Color(0xFF2563EB),
+                  disabledBackgroundColor: Colors.grey.shade400,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                  ),
+                ),
+                icon: _busy
+                    ? const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.cloud_upload_rounded),
+                label: Text(
+                  _busy
+                      ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando…')
+                      : 'Guardar foto',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
-              icon: _uploading
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.cloud_upload_rounded),
-              label: Text(
-                _uploading
-                    ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando…')
-                    : 'Guardar foto',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            if (!hasPreview)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  'Escolha uma foto para activar «Guardar foto».',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: ThemeCleanPremium.onSurfaceVariant.withValues(alpha: 0.9),
+              if (!hasPreview)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    'Escolha uma foto para activar «Guardar foto».',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: ThemeCleanPremium.onSurfaceVariant.withValues(alpha: 0.9),
+                    ),
                   ),
+                ),
+            ],
+            if (widget.canRemovePhoto && _hasExistingPhoto) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _confirmRemove,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  foregroundColor: const Color(0xFFDC2626),
+                  side: const BorderSide(color: Color(0xFFDC2626)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                  ),
+                ),
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text(
+                  'Remover foto',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+            if (!widget.canChangePhoto && !widget.canRemovePhoto)
+              Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Text(
+                  'Sem permissão para alterar ou remover esta foto.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade700),
                 ),
               ),
           ],

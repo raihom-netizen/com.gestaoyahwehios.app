@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Exclusão canónica de mídia — Firestore primeiro (UI instantânea), Storage em background.
 abstract final class ChurchCanonicalMediaDeleteService {
@@ -310,6 +311,32 @@ abstract final class ChurchCanonicalMediaDeleteService {
         storagePath: storagePath,
         downloadUrl: downloadUrl,
       ),
+    );
+    ChurchBrandService.invalidate(churchId: cid);
+  }
+
+  /// Remove logo — Firestore + Storage (await strict, cadastro igreja).
+  static Future<void> removeChurchLogoStrict({
+    required String churchId,
+    Map<String, dynamic>? tenantData,
+    String? storagePath,
+    String? downloadUrl,
+  }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    if (cid.isEmpty) return;
+
+    await runFirestorePublishWithRecovery(
+      () => ChurchRepository.churchDoc(cid).set(
+        ChurchCanonicalMediaContract.churchLogoClearFirestorePatch(),
+        SetOptions(merge: true),
+      ),
+    );
+
+    await _purgeChurchLogo(
+      churchId: cid,
+      tenantData: tenantData,
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
     );
     ChurchBrandService.invalidate(churchId: cid);
   }

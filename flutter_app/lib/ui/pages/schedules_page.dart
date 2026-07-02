@@ -779,10 +779,13 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     return _filterInstancesByPeriod(deptFiltered);
   }
 
-  bool _canDeleteInstance(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final deptIdInst = (doc.data()['departmentId'] ?? '').toString();
+  bool _canDeleteInstanceForData(Map<String, dynamic> data) {
+    final deptIdInst = (data['departmentId'] ?? '').toString();
     return _canWriteFull || _managedDeptIds.contains(deptIdInst);
   }
+
+  bool _canDeleteInstance(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+      _canDeleteInstanceForData(doc.data());
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docsForMonthYear(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> pool,
@@ -4648,6 +4651,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   Future<void> _deleteInstance(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (!_canDeleteInstanceForData(doc.data() ?? {})) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir esta escala.',
+          ),
+        );
+      }
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -4661,7 +4674,13 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     if (ok != true) return;
     try {
-      await doc.reference.delete();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => doc.reference.delete(),
+        maxAttempts: 4,
+      );
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Escala excluída.'));
@@ -4715,18 +4734,23 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     if (ok != true) return;
     try {
-      WriteBatch batch = firebaseDefaultFirestore.batch();
-      var ops = 0;
-      for (final d in toDelete) {
-        batch.delete(d.reference);
-        ops++;
-        if (ops >= 450) {
-          await batch.commit();
-          batch = firebaseDefaultFirestore.batch();
-          ops = 0;
-        }
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      if (ops > 0) await batch.commit();
+      await FirestoreWebGuard.runWithWebRecovery(() async {
+        WriteBatch batch = ChurchRepository.batch();
+        var ops = 0;
+        for (final d in toDelete) {
+          batch.delete(d.reference);
+          ops++;
+          if (ops >= 450) {
+            await batch.commit();
+            batch = ChurchRepository.batch();
+            ops = 0;
+          }
+        }
+        if (ops > 0) await batch.commit();
+      }, maxAttempts: 4);
       if (mounted) {
         _refreshInstances();
         setState(() {
@@ -5331,6 +5355,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                             0, ThemeCleanPremium.minTouchTarget),
                                       ),
                                     ),
+                                  ],
+                                  if (_canDeleteInstanceForData(
+                                      doc.data() ?? {})) ...[
                                     OutlinedButton.icon(
                                       onPressed: () {
                                         closeDetail();

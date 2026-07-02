@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Fotos do património — Storage slot fixo → `foto01`…`foto04` (sem chaves legadas).
+/// Fotos do património — Storage slot fixo → `foto01`…`foto05` (sem chaves legadas).
 abstract final class ImmediatePatrimonioPhotoAttach {
   ImmediatePatrimonioPhotoAttach._();
 

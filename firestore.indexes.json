@@ -696,6 +696,65 @@
         { "fieldPath": "slug", "order": "ASCENDING" },
         { "fieldPath": "ativa", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publicado", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eventos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativo", "order": "ASCENDING" },
+        { "fieldPath": "publicado", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "fornecedores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nome", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cargos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "name", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "nome", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "escala_trocas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "alvoCpf", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "escala_trocas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "solicitanteCpf", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "visitantes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

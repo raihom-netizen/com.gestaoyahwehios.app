@@ -1,0 +1,126 @@
+import 'dart:async' show unawaited;
+import 'dart:typed_data';
+
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
+
+/// Logo institucional — path canónico `igrejas/{churchId}/configuracoes/logo_igreja.png`.
+abstract final class ChurchLogoUpdateService {
+  ChurchLogoUpdateService._();
+
+  /// Maior lado da logo no Storage (4K UHD).
+  static const int kLogoMaxSidePx = 3840;
+
+  static String resolveChurchId(String hint) =>
+      ChurchRepository.churchId(hint.trim());
+
+  static String storagePathHint(String churchIdHint) {
+    final cid = resolveChurchId(churchIdHint);
+    return ChurchStorageLayout.churchIdentityLogoPath(cid);
+  }
+
+  static Future<ChurchLogoPublishResult> publishLogoStrict({
+    required String churchIdHint,
+    required Uint8List rawBytes,
+    String? previousStoragePath,
+    void Function(double progress)? onProgress,
+  }) async {
+    final cid = resolveChurchId(churchIdHint);
+    if (cid.isEmpty) {
+      throw StateError('Igreja não identificada para enviar a logo.');
+    }
+    if (rawBytes.isEmpty) {
+      throw StateError('Imagem da logo vazia — selecione outra.');
+    }
+
+    onProgress?.call(0.02);
+    final png = await encodeChurchLogoAsPngInIsolate(
+      rawBytes,
+      maxSide: kLogoMaxSidePx,
+    );
+    onProgress?.call(0.12);
+
+    final prev = (previousStoragePath ?? '').trim();
+    if (prev.isNotEmpty) {
+      await FirebaseStorageCleanupService.deleteByUrlPathOrGs(prev);
+    }
+    await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
+      ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(cid),
+    );
+
+    onProgress?.call(0.18);
+    final identityPath = ChurchStorageLayout.churchIdentityLogoPath(cid);
+    final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
+      churchId: cid,
+      pngBytes: png,
+      onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
+    );
+
+    onProgress?.call(0.92);
+    await ChurchBrandService.persistLogoPath(
+      churchId: cid,
+      storagePath: identityPath,
+      downloadUrl: uploaded.downloadUrl,
+    );
+
+    final url = uploaded.downloadUrl;
+    await CachedNetworkImage.evictFromCache(url);
+    AppStorageImageService.instance
+        .invalidateStoragePrefix('igrejas/$cid/logo');
+    AppStorageImageService.instance
+        .invalidateStoragePrefix('igrejas/$cid/branding');
+    AppStorageImageService.instance
+        .invalidateStoragePrefix('igrejas/$cid/configuracoes');
+    FirebaseStorageService.invalidateChurchLogoCache(cid);
+    AppStorageImageService.instance.invalidate(
+      storagePath: identityPath,
+      imageUrl: url,
+    );
+    unawaited(
+      FirebaseStorageCleanupService.deleteLegacyChurchLogoMediaUnderTenant(cid),
+    );
+    FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
+      tenantId: cid,
+    );
+
+    onProgress?.call(1.0);
+    return ChurchLogoPublishResult(
+      downloadUrl: url,
+      storagePath: identityPath,
+      pngBytes: png,
+    );
+  }
+
+  static Future<void> removeLogoStrict({
+    required String churchIdHint,
+    Map<String, dynamic>? tenantData,
+    String? storagePath,
+    String? downloadUrl,
+  }) =>
+      ChurchCanonicalMediaDeleteService.removeChurchLogoStrict(
+        churchId: resolveChurchId(churchIdHint),
+        tenantData: tenantData,
+        storagePath: storagePath,
+        downloadUrl: downloadUrl,
+      );
+}
+
+final class ChurchLogoPublishResult {
+  const ChurchLogoPublishResult({
+    required this.downloadUrl,
+    required this.storagePath,
+    required this.pngBytes,
+  });
+
+  final String downloadUrl;
+  final String storagePath;
+  final Uint8List pngBytes;
+}

@@ -1,12 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_cache_base.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
-import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
 import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
-import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
@@ -51,17 +51,13 @@ abstract final class YahwehModuleCaches {
   static final avisos = YahwehModuleCacheBase(
     prefsKeyPrefix: 'yahweh_avisos',
     loader: (churchId, {forceServer = false}) async {
-      final r = await ChurchAvisosLoadService.loadFeed(
-        seedTenantId: churchId,
-        forceServer: forceServer,
+      final r = await ChurchAvisosLoadService.loadActive(
+        churchIdHint: churchId,
+        limit: ChurchAvisosLoadService.kModuleListLimit,
       );
-      return _docsSnapshot(
-        docs: r.docs,
-        readSource: r.readSource,
-        softError: r.softError,
-        fromCache: r.readSource.contains('ram') ||
-            r.readSource.contains('hive') ||
-            r.readSource.contains('cache'),
+      return YahwehModuleLoadSnapshot(
+        docs: const [],
+        readSource: 'church_avisos_v2_${r.length}',
       );
     },
   );

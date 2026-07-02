@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,25 +14,22 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser;
-import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
-import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_save_service.dart';
@@ -52,7 +48,8 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
     show ChurchPanelResilientLoadBanner, openHttpsUrlInBrowser;
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
-import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
+import 'package:gestao_yahweh/ui/widgets/church_logo_editor.dart';
+import 'package:gestao_yahweh/services/church_logo_update_service.dart';
 import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -62,7 +59,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         isFirebaseStorageHttpUrl,
         firebaseStorageDownloadUrlLooksTokenized;
-import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
@@ -212,19 +208,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   /// Caminho no Storage (renovação de token / cache central).
   String? _logoStoragePath;
 
-  /// Logo em memória (exibido imediatamente ao escolher, antes do upload).
-  Uint8List? _logoBytes;
+  var _logoSnap = const ChurchLogoEditorSnapshot();
+  final GlobalKey<ChurchLogoEditorState> _logoEditorKey =
+      GlobalKey<ChurchLogoEditorState>();
 
-  /// Há logo nova na galeria/corte ainda não publicada no Storage — [Salvar igreja] deve enviar antes do merge.
-  bool _logoStagedNotUploaded = false;
   double? _latitude;
   double? _longitude;
   bool _saving = false;
-  bool _uploadingLogo = false;
-  double _logoUploadProgress = 0;
-
-  /// '' | encoding | uploading — feedback quando o progresso de rede ainda não começou.
-  String _logoUploadPhase = '';
 
   bool _loadingCep = false;
   bool _formHydrated = false;
@@ -273,40 +263,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  Widget _buildLogoPlaceholder({
-    double? boxWidth,
-    double? boxHeight,
-    bool showPickHint = true,
-  }) {
-    final w = boxWidth ?? 280.0;
-    final h = boxHeight ?? 158.0;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          DefaultChurchLogoAsset(
-            width: w,
-            height: h * 0.78,
-            fractionOfBox: 0.92,
-          ),
-          if (showPickHint && _canEdit) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Toque para escolher a logo da igreja',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: w > 200 ? 13 : 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
-                height: 1.25,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   bool get _canEdit {
     final r = widget.role.toLowerCase();
@@ -847,30 +803,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         sanitizeImageUrl(ChurchImageFields.logoHttpsUrlFromDoc(data) ?? '');
     if (urlFromLegacy.isNotEmpty && isValidImageUrl(urlFromLegacy)) {
       _logoUrl = urlFromLegacy;
-      _logoBytes = null;
-      _logoStagedNotUploaded = false;
     } else if (urlFromLogoField.isNotEmpty &&
         isValidImageUrl(urlFromLogoField)) {
       _logoUrl = urlFromLogoField;
-      _logoBytes = null;
-      _logoStagedNotUploaded = false;
     } else {
       _logoUrl = null;
-      final b64raw = (data['logoDataBase64'] ?? data['logoBase64'] ?? '')
-          .toString()
-          .trim();
-      if (b64raw.isNotEmpty) {
-        try {
-          _logoBytes = base64Decode(b64raw);
-          _logoStagedNotUploaded = false;
-        } catch (_) {
-          _logoBytes = null;
-        }
-      } else {
-        _logoBytes = null;
-        _logoStagedNotUploaded = false;
-      }
     }
+    _logoSnap = const ChurchLogoEditorSnapshot();
 
     _cidadeCtrl.text = (data['cidade'] ?? data['localidade'] ?? '').toString();
     _estadoCtrl.text = (data['estado'] ?? data['uf'] ?? '').toString();
@@ -1300,6 +1239,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
+  Future<void> _cropPendingGestorPhoto() async {
+    final b = _gPhotoBytes;
+    if (b == null || !mounted || !_canEdit) return;
+    final cropped = await showChurchPhotoCropDialog(
+      context,
+      imageBytes: b,
+      title: 'Cortar foto do gestor',
+      circleUi: true,
+    );
+    if (cropped != null && mounted) setState(() => _gPhotoBytes = cropped);
+  }
+
   String? _validateGestorMembroFields() {
     if (!_canEdit) return null;
     final curUid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -1642,286 +1593,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Galeria ou câmera: alta resolução → bytes locais; use [Cortar] e [Enviar logo] para publicar.
-  Future<void> _pickLogoFromGallery() async {
-    if (!_canEdit) return;
-    try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromGallery(
-        context: context,
-      );
-      await _stageLogoFromPickedFile(file);
-    } catch (e) {
-      _onLogoPickError(e);
-    }
-  }
-
-  Future<void> _pickLogoFromCamera() async {
-    if (!_canEdit) return;
-    try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromCamera(
-        context: context,
-      );
-      await _stageLogoFromPickedFile(file);
-    } catch (e) {
-      _onLogoPickError(e);
-    }
-  }
-
-  void _onLogoPickError(Object e) {
-    if (mounted) {
-      setState(() {
-        _logoBytes = null;
-        _logoStagedNotUploaded = false;
-        _uploadingLogo = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro ao selecionar logo: $e'),
-      );
-    }
-  }
-
-  Future<void> _stageLogoFromPickedFile(XFile? file) async {
-    if (file == null || !mounted) return;
-    final bytes = await file.readAsBytes();
-    if (!mounted) return;
-    setState(() {
-      _logoBytes = bytes;
-      _logoStagedNotUploaded = true;
-      _uploadingLogo = false;
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-            'Logo carregada. Use Cortar se quiser; ao Salvar igreja a logo será enviada automaticamente.'),
-      );
-    }
-  }
-
-  Future<void> _cropPendingLogo() async {
-    final b = _logoBytes;
-    if (b == null || !mounted || !_canEdit) return;
-    final cropped = await showChurchPhotoCropDialog(
-      context,
-      imageBytes: b,
-      title: 'Cortar logo',
-      circleUi: false,
-      aspectRatio: 1,
-    );
-    if (cropped != null && mounted) {
-      setState(() {
-        _logoBytes = cropped;
-        _logoStagedNotUploaded = true;
-      });
-    }
-  }
-
-  Future<void> _cropPendingGestorPhoto() async {
-    final b = _gPhotoBytes;
-    if (b == null || !mounted || !_canEdit) return;
-    final cropped = await showChurchPhotoCropDialog(
-      context,
-      imageBytes: b,
-      title: 'Cortar foto do gestor',
-      circleUi: true,
-    );
-    if (cropped != null && mounted) setState(() => _gPhotoBytes = cropped);
-  }
-
-  Future<void> _deleteChurchLogoStorageObjectAndVariants(
-      String? storagePath) async {
-    final p = storagePath?.trim() ?? '';
-    if (p.isEmpty) return;
-    await FirebaseStorageCleanupService.deleteByUrlPathOrGs(p);
-    final lower = p.toLowerCase();
-    if (lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png')) {
-      final dot = p.lastIndexOf('.');
-      final base = dot < 0 ? p : p.substring(0, dot);
-      for (final suffix in <String>['_thumb.jpg', '_card.jpg', '_full.jpg']) {
-        await FirebaseStorageCleanupService.deleteByUrlPathOrGs('$base$suffix');
-      }
-      // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
-      final slash = p.lastIndexOf('/');
-      if (slash >= 0 && dot > slash) {
-        final dir = p.substring(0, slash);
-        final fileBase = p.substring(slash + 1, dot);
-        if (fileBase.isNotEmpty) {
-          await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
-            '$dir/thumb_$fileBase.jpg',
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _removeChurchLogoInstant() async {
-    if (!_canEdit) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        ),
-        title: const Text('Remover logo'),
-        content: const Text(
-          'A logo será removida do cadastro e do armazenamento.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: ThemeCleanPremium.error,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remover'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    final resolvedId = await _resolveTenantIdForSave();
-    if (resolvedId.trim().isEmpty) return;
-    ChurchCanonicalMediaDeleteService.scheduleChurchLogoRemoved(
-      churchId: resolvedId,
-      tenantData: _tenantLiveData,
-      storagePath: _logoStoragePath,
-      downloadUrl: _logoUrl,
-      churchDocRef: ChurchOperationalPaths.churchDoc(resolvedId),
-    );
-    if (!mounted) return;
-    setState(() {
-      _logoUrl = null;
-      _logoBytes = null;
-      _logoStoragePath = null;
-      _logoStagedNotUploaded = false;
-      _uploadingLogo = false;
-      _logoUploadPhase = '';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar('Logo removida.'),
-    );
-  }
-
-  /// Publica `configuracoes/logo_igreja.png` e grava **somente** [logoPath] no Firestore.
-  /// Retorna `false` se tentou enviar e falhou (o chamador pode abortar o resto do save).
-  Future<bool> _commitLogoUploadFromPending({
-    bool showCommitSuccessSnack = true,
-    bool deferFirestorePatch = false,
-    bool suppressProgressUi = false,
-  }) async {
-    if (!_canEdit || _logoBytes == null || !mounted) return true;
-    if (!suppressProgressUi) {
-      setState(() {
-        _uploadingLogo = true;
-        _logoUploadProgress = 0;
-        _logoUploadPhase = 'encoding';
-      });
-    } else {
-      _uploadingLogo = true;
-      _logoUploadPhase = 'uploading';
-    }
-    try {
-      final resolvedId = await _resolveTenantIdForSave();
-      final png =
-          await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
-      if (!mounted) return true;
-      if (!suppressProgressUi) {
-        setState(() {
-          _logoUploadPhase = 'uploading';
-          _logoUploadProgress = 0.05;
-        });
-      }
-      await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
-      // Mantém só a identidade canónica em PNG: remove legado `.jpg` no mesmo sítio.
-      await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
-        ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(resolvedId),
-      );
-      final identityPath =
-          ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
-      final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
-        churchId: resolvedId,
-        pngBytes: png,
-        onProgress: suppressProgressUi
-            ? null
-            : (p) {
-                if (!mounted) return;
-                setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
-              },
-      );
-      final url = uploaded.downloadUrl;
-      if (!mounted) return true;
-      setState(() {
-        _logoUrl = url;
-        _logoBytes = png;
-        _logoStoragePath = identityPath;
-        _uploadingLogo = false;
-        _logoUploadPhase = '';
-      });
-      await CachedNetworkImage.evictFromCache(url);
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$resolvedId/logo');
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$resolvedId/branding');
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$resolvedId/configuracoes');
-      FirebaseStorageService.invalidateChurchLogoCache(resolvedId);
-      AppStorageImageService.instance.invalidate(
-        storagePath: identityPath,
-        imageUrl: url,
-      );
-      if (!deferFirestorePatch) {
-        await ChurchBrandService.persistLogoPath(
-          churchId: resolvedId,
-          storagePath: identityPath,
-          downloadUrl: url,
-        );
-      }
-      _logoStagedNotUploaded = false;
-      FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
-        tenantId: resolvedId,
-      );
-      unawaited(
-          FirebaseStorageCleanupService.deleteLegacyChurchLogoMediaUnderTenant(
-              resolvedId));
-      if (!mounted) return true;
-      setState(() {});
-      if (mounted && showCommitSuccessSnack) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-              'Logo enviada (configuracoes/logo_igreja.png). Carteirinha, certificados e relatórios usam este ficheiro.'),
-        );
-      }
-      return true;
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _uploadingLogo = false;
-          _logoUploadPhase = '';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.errorSnackBarWithRetry(
-            formatFirebaseErrorForUser(e),
-            onRetry: () => unawaited(_commitLogoUploadFromPending()),
-          ),
-        );
-      }
-      return false;
-    } finally {
-      if (mounted) {
-        setState(() {
-          _logoUploadProgress = 0;
-          if (!_uploadingLogo) _logoUploadPhase = '';
-        });
-      }
-    }
-  }
-
   /// Busca CEP via ViaCEP e preenche rua, bairro, cidade, estado.
   Future<void> _buscarCep() async {
     final cep = _cepCtrl.text.trim().replaceAll(RegExp(r'[^0-9]'), '');
@@ -1999,8 +1670,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted || fresh == null || fresh.isEmpty) return;
       setState(() {
         _logoUrl = fresh;
-        _logoBytes = null;
-        _logoStagedNotUploaded = false;
+        _logoSnap = const ChurchLogoEditorSnapshot();
       });
     } catch (_) {}
   }
@@ -2036,8 +1706,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       setState(() {
         _logoUrl = clean;
         _logoStoragePath = path;
-        _logoBytes = null;
-        _logoStagedNotUploaded = false;
+        _logoSnap = const ChurchLogoEditorSnapshot();
       });
     } catch (_) {}
   }
@@ -2059,27 +1728,31 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       await FirebaseAuth.instance.currentUser?.getIdToken(false);
       final resolvedId = await _resolveTenantIdForSave();
       savedTenantId = resolvedId;
-      if (_canEdit &&
-          _logoStagedNotUploaded &&
-          _logoBytes != null &&
-          !_uploadingLogo) {
-        if (kIsWeb) {
-          unawaited(_commitLogoUploadFromPending(
-            showCommitSuccessSnack: true,
-            deferFirestorePatch: false,
-            suppressProgressUi: true,
-          ));
-        } else {
-          final logoOk = await _commitLogoUploadFromPending(
-            showCommitSuccessSnack: false,
-            deferFirestorePatch: true,
-          );
-          if (!mounted) return;
-          if (!logoOk) {
-            setState(() => _saving = false);
-            return;
-          }
-        }
+      if (_canEdit && _logoSnap.removeExisting) {
+        await ChurchLogoUpdateService.removeLogoStrict(
+          churchIdHint: resolvedId,
+          tenantData: _tenantLiveData,
+          storagePath: _logoStoragePath,
+          downloadUrl: _logoUrl,
+        );
+        if (!mounted) return;
+        setState(() {
+          _logoUrl = null;
+          _logoStoragePath = null;
+        });
+        _logoEditorKey.currentState?.resetAfterSave();
+      } else if (_canEdit && _logoSnap.pendingBytes != null) {
+        final published = await ChurchLogoUpdateService.publishLogoStrict(
+          churchIdHint: resolvedId,
+          rawBytes: _logoSnap.pendingBytes!,
+          previousStoragePath: _logoStoragePath,
+        );
+        if (!mounted) return;
+        setState(() {
+          _logoUrl = published.downloadUrl;
+          _logoStoragePath = published.storagePath;
+        });
+        _logoEditorKey.currentState?.resetAfterSave();
       }
       final slugRaw = _slugCtrl.text
           .trim()
@@ -2406,41 +2079,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return inner;
   }
 
-  static const _igStoryRingGradient = LinearGradient(
-    colors: [
-      Color(0xFFE879F9),
-      Color(0xFFF472B6),
-      Color(0xFF38BDF8),
-      Color(0xFF2563EB),
-    ],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  Widget _igLogoOuterFrame({
-    required double width,
-    required double height,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(3.5),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: _igStoryRingGradient,
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Container(
-        width: width,
-        height: height,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: child,
-      ),
-    );
-  }
 
   Future<void> _openGestorInstagramSheet() async {
     if (!_canEdit || !mounted) return;
@@ -3102,331 +2740,28 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   ),
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.07),
-                                          const Color(0xFFF8FAFC),
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(18),
-                                      border: Border.all(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.14),
-                                      ),
-                                      boxShadow:
-                                          ThemeCleanPremium.softUiCardShadow,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Container(
-                                              padding: const EdgeInsets.all(10),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius:
-                                                    BorderRadius.circular(14),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black
-                                                        .withValues(
-                                                            alpha: 0.05),
-                                                    blurRadius: 10,
-                                                    offset: const Offset(0, 3),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: Icon(
-                                                Icons.photo_library_rounded,
-                                                color:
-                                                    ThemeCleanPremium.primary,
-                                                size: 22,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Logo da igreja',
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                      letterSpacing: -0.35,
-                                                      color: ThemeCleanPremium
-                                                          .onSurface,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    'Toque na moldura para escolher na galeria. Ao salvar, a imagem é otimizada e enviada automaticamente.',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color:
-                                                          Colors.grey.shade600,
-                                                      height: 1.35,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-                                        if (_canEdit &&
-                                            _logoBytes != null &&
-                                            !_uploadingLogo)
-                                          Align(
-                                            alignment: Alignment.center,
-                                            child: TextButton.icon(
-                                              onPressed: _cropPendingLogo,
-                                              icon: Icon(
-                                                Icons.crop_rounded,
-                                                size: 18,
-                                                color:
-                                                    ThemeCleanPremium.primary,
-                                              ),
-                                              label: Text(
-                                                'Cortar pré-visualização',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  color:
-                                                      ThemeCleanPremium.primary,
-                                                ),
-                                              ),
-                                            ),
+                                  ChurchLogoEditor(
+                                    key: _logoEditorKey,
+                                    churchIdHint: resolvedId.isNotEmpty
+                                        ? resolvedId
+                                        : ChurchRepository.churchId(
+                                            widget.tenantId,
                                           ),
-                                        if (_uploadingLogo) ...[
-                                          const SizedBox(height: 10),
-                                          ClipRRect(
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                            child: LinearProgressIndicator(
-                                              value: _logoUploadPhase ==
-                                                          'uploading' &&
-                                                      _logoUploadProgress > 0
-                                                  ? _logoUploadProgress.clamp(
-                                                      0.0, 1.0)
-                                                  : null,
-                                              minHeight: 8,
-                                              backgroundColor: Colors.white
-                                                  .withValues(alpha: 0.85),
-                                              color: ThemeCleanPremium.primary,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            _logoUploadPhase == 'encoding'
-                                                ? 'A otimizar imagem em segundo plano…'
-                                                : 'A enviar para a nuvem: ${(_logoUploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              color: ThemeCleanPremium.primary,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
+                                    canAdd: _canEdit,
+                                    canChange: _canEdit,
+                                    canRemove: _canEdit,
+                                    existingLogoUrl: _logoUrl,
+                                    existingStoragePath: _logoStoragePath,
+                                    tenantData: _tenantLiveData,
+                                    churchNameForInitials: _nameCtrl.text
+                                            .trim()
+                                            .isNotEmpty
+                                        ? _iniciaisFromChurchName(
+                                            _nameCtrl.text,
+                                          ).toUpperCase()
+                                        : null,
+                                    onChanged: (snap) => _logoSnap = snap,
                                   ),
-                                  const SizedBox(height: 14),
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      final maxUsable =
-                                          constraints.maxWidth.isFinite &&
-                                                  constraints.maxWidth > 0
-                                              ? constraints.maxWidth
-                                              : 320.0;
-                                      const kLogoPreviewMaxW = 280.0;
-                                      final previewW =
-                                          min(maxUsable, kLogoPreviewMaxW);
-                                      final boxH = (previewW * 9 / 16)
-                                          .clamp(100.0, 158.0);
-                                      return Center(
-                                        child: Stack(
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            Material(
-                                              color: Colors.transparent,
-                                              child: InkWell(
-                                                onTap: (!_canEdit ||
-                                                        _uploadingLogo)
-                                                    ? null
-                                                    : _pickLogoFromGallery,
-                                                borderRadius:
-                                                    BorderRadius.circular(24),
-                                                child: _igLogoOuterFrame(
-                                                  width: previewW,
-                                                  height: boxH,
-                                                  child: Center(
-                                                    child: _logoBytes != null
-                                                        ? Image.memory(
-                                                            _logoBytes!,
-                                                            fit: BoxFit.contain,
-                                                            width: previewW,
-                                                            height: boxH,
-                                                            gaplessPlayback:
-                                                                true,
-                                                            filterQuality:
-                                                                FilterQuality
-                                                                    .high,
-                                                            isAntiAlias: true,
-                                                            errorBuilder: (_,
-                                                                    __, ___) =>
-                                                                _buildLogoPlaceholder(
-                                                              boxWidth: previewW,
-                                                              boxHeight: boxH,
-                                                            ),
-                                                          )
-                                                        : resolvedId.isNotEmpty
-                                                            ? StableChurchLogo(
-                                                                storagePath:
-                                                                    _logoStoragePath,
-                                                                imageUrl:
-                                                                    _logoUrl,
-                                                                tenantId:
-                                                                    resolvedId,
-                                                                tenantData:
-                                                                    _tenantLiveData,
-                                                                width: previewW,
-                                                                height: boxH,
-                                                                fit: BoxFit
-                                                                    .contain,
-                                                                memCacheWidth:
-                                                                    (previewW *
-                                                                            MediaQuery.devicePixelRatioOf(context))
-                                                                        .round()
-                                                                        .clamp(
-                                                                            128,
-                                                                            560),
-                                                                memCacheHeight:
-                                                                    (boxH *
-                                                                            MediaQuery.devicePixelRatioOf(context))
-                                                                        .round()
-                                                                        .clamp(
-                                                                            96,
-                                                                            400),
-                                                              )
-                                                            : SizedBox(
-                                                                width: previewW,
-                                                                height: boxH,
-                                                                child:
-                                                                    _buildLogoPlaceholder(
-                                                                  boxWidth:
-                                                                      previewW,
-                                                                  boxHeight:
-                                                                      boxH,
-                                                                  showPickHint:
-                                                                      _canEdit,
-                                                                ),
-                                                              ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            if (_canEdit && !_uploadingLogo)
-                                              Positioned(
-                                                left: 2,
-                                                top: 2,
-                                                child: (_logoUrl != null &&
-                                                            _logoUrl!
-                                                                .trim()
-                                                                .isNotEmpty) ||
-                                                        _logoBytes != null
-                                                    ? Material(
-                                                        elevation: 6,
-                                                        shadowColor:
-                                                            Colors.black26,
-                                                        color: ThemeCleanPremium
-                                                            .error,
-                                                        shape:
-                                                            const CircleBorder(),
-                                                        child: InkWell(
-                                                          customBorder:
-                                                              const CircleBorder(),
-                                                          onTap:
-                                                              _removeChurchLogoInstant,
-                                                          child: const Padding(
-                                                            padding:
-                                                                EdgeInsets.all(
-                                                                    9),
-                                                            child: Icon(
-                                                              Icons
-                                                                  .delete_outline_rounded,
-                                                              color:
-                                                                  Colors.white,
-                                                              size: 20,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      )
-                                                    : const SizedBox.shrink(),
-                                              ),
-                                            if (_canEdit && !_uploadingLogo)
-                                              Positioned(
-                                                right: 2,
-                                                bottom: 2,
-                                                child: Material(
-                                                  elevation: 6,
-                                                  shadowColor: Colors.black26,
-                                                  color:
-                                                      ThemeCleanPremium.primary,
-                                                  shape: const CircleBorder(),
-                                                  child: InkWell(
-                                                    customBorder:
-                                                        const CircleBorder(),
-                                                    onTap:
-                                                        _pickLogoFromGallery,
-                                                    child: const Padding(
-                                                      padding:
-                                                          EdgeInsets.all(11),
-                                                      child: Icon(
-                                                        Icons
-                                                            .camera_alt_rounded,
-                                                        color: Colors.white,
-                                                        size: 22,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  if (_nameCtrl.text.trim().isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.text_fields_rounded,
-                                            size: 16,
-                                            color: Colors.grey.shade600),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Iniciais: ${_iniciaisFromChurchName(_nameCtrl.text).toUpperCase()}',
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: ThemeCleanPremium.primary),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   Text(

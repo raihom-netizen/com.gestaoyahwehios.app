@@ -39,7 +39,6 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
-import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
@@ -102,6 +101,9 @@ import 'lideranca_page.dart';
 import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
+import 'package:gestao_yahweh/services/church_avisos_service.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
+import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_home_welcome_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
@@ -120,8 +122,6 @@ import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
 import 'finance_page.dart';
-import 'mural_page.dart';
-import 'events_manager_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'prayer_requests_page.dart';
 import 'visitors_page.dart';
@@ -194,7 +194,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Stream<QuerySnapshot<Map<String, dynamic>>>? _membersStream;
   Stream<QuerySnapshot<Map<String, dynamic>>>? _deptStream;
   bool _heavyDashboardStreamsScheduled = false;
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _avisosStream;
   /// Eventos especiais (`noticias`) com data futura / ainda no Feed — nunca o que já caiu para a Galeria.
   Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasPainelStream;
   /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
@@ -473,7 +472,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         _panelCache.hasHomeCorpo ||
         _panelCache.membersTotalCount > 0 ||
         _membersDirectory.hasEntries ||
-        (_avisosStream != null && _noticiasPainelStream != null);
+        (_noticiasPainelStream != null);
   }
 
   int? _effectiveCachedMemberTotal() {
@@ -576,13 +575,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (op.isEmpty) return;
     if (!mounted) return;
     setState(() {
-      _avisosStream = FirestoreStreamUtils.oneShotQueryFromFuture(() async {
-        final r = await ChurchAvisosLoadService.loadFeed(
-          seedTenantId: op,
-          limit: PanelFeedPostValidator.kPanelFeedPageSize,
-        );
-        return r.snapshot;
-      });
       _noticiasPainelStream = FirestoreStreamUtils.oneShotQueryFromFuture(
         () async {
           final r = await ChurchEventosLoadService.loadFeed(
@@ -1143,9 +1135,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 PanelQuickShortcuts(
                                   onOpenAniversariantesAno:
                                       _openAniversariantesAnoPage,
-                                  onOpenGaleriaEventos: () =>
+                                  onOpenAgenda: () =>
                                       widget.onNavigateToShellModule(
-                                    kChurchShellIndexMural,
+                                    kChurchShellIndexAgenda,
                                   ),
                                   onOpenOrganograma: () {
                                     Navigator.of(context).push(
@@ -1171,6 +1163,40 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                   role: widget.role,
                                   churchSlug: _churchSlug,
                                 ),
+                                const SizedBox(
+                                    height: ThemeCleanPremium.spaceMd),
+                                ChurchAvisosCarousel(
+                                  churchIdHint: _effectiveTenantId.isNotEmpty
+                                      ? _effectiveTenantId
+                                      : widget.tenantId,
+                                  onManageTap: ChurchAvisosService.canManage(
+                                    widget.role,
+                                    permissions: widget.permissions ?? const [],
+                                  )
+                                      ? () => widget.onNavigateToShellModule(
+                                            kChurchShellIndexMural,
+                                          )
+                                      : null,
+                                ),
+                                if (kChurchEventosModuleEnabled &&
+                                    _noticiasPainelStream != null) ...[
+                                  const SizedBox(
+                                      height: ThemeCleanPremium.spaceMd),
+                                  _DestaqueEventosEspeciaisPainel(
+                                    tenantId: _effectiveTenantId.isNotEmpty
+                                        ? _effectiveTenantId
+                                        : widget.tenantId,
+                                    role: widget.role,
+                                    churchSlug: _churchSlug,
+                                    nomeIgreja: _churchNome,
+                                    stream: _noticiasPainelStream!,
+                                    onRetryStream: _loadStreams,
+                                    onOpenEventos: () =>
+                                        widget.onNavigateToShellModule(
+                                      kChurchShellIndexEvents,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceMd),
                                 PanelCollapsibleSection(
@@ -1244,27 +1270,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceLg),
-                                _DestaqueEventosEspeciaisPainel(
-                                  tenantId: _effectiveTenantId,
-                                  role: widget.role,
-                                  churchSlug: _churchSlug,
-                                  nomeIgreja: _churchNome,
-                                  stream: _noticiasPainelStream ??
-                                      _emptyQueryStream(),
-                                  onRetryStream: _loadStreams,
-                                ),
-                                const SizedBox(
-                                    height: ThemeCleanPremium.spaceLg),
-                                _DestaqueAvisos(
-                                  tenantId: _effectiveTenantId,
-                                  role: widget.role,
-                                  churchSlug: _churchSlug,
-                                  nomeIgreja: _churchNome,
-                                  stream:
-                                      _avisosStream ?? _emptyQueryStream(),
-                                  panelCache: panel,
-                                  onRetryStream: _loadStreams,
-                                ),
                               ],
                             );
                           },
@@ -5496,271 +5501,6 @@ class _PainelDestaqueExpandableTextState
   }
 }
 
-/// Card de aviso a partir do cache `_panel_cache` (1 leitura, sem stream).
-class _DestaqueAvisoCacheCard extends StatelessWidget {
-  final PanelHomeAvisoLite aviso;
-  final String tenantId;
-  final String role;
-  final String churchSlug;
-  final String nomeIgreja;
-
-  const _DestaqueAvisoCacheCard({
-    required this.aviso,
-    required this.tenantId,
-    required this.role,
-    required this.churchSlug,
-    required this.nomeIgreja,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final title = aviso.title.trim().isEmpty ? 'Aviso' : aviso.title.trim();
-    final cover = (aviso.coverPhotoUrl ?? '').trim();
-    final stable = _painelDestaqueStableParamsFromRef(cover);
-    final gradient = _DestaqueCard._gradientBanner(title, false);
-    final imageH = 160.0;
-    Widget imageArea;
-    if (cover.isNotEmpty &&
-        (stable.imageUrl != null ||
-            stable.storagePath != null ||
-            stable.gsUrl != null)) {
-      imageArea = SizedBox(
-        height: imageH,
-        width: double.infinity,
-        child: _DestaqueCard._DestaqueCardImage(
-          displayImageUrl: stable.imageUrl ?? '',
-          storagePath: stable.storagePath,
-          gsUrl: stable.gsUrl,
-          videoThumbUrl: null,
-          hasVideo: false,
-          firstImgEmpty: false,
-          title: title,
-          isEvento: false,
-        ),
-      );
-    } else {
-      imageArea = SizedBox(height: imageH, width: double.infinity, child: gradient);
-    }
-    final preview = aviso.textPreview.trim();
-    return Material(
-      color: ThemeCleanPremium.cardBackground,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            ThemeCleanPremium.fadeSlideRoute(
-              MuralPage(tenantId: tenantId, role: role),
-            ),
-          );
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            imageArea,
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF1E293B),
-                    ),
-                  ),
-                  if (preview.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      preview,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Destaques de avisos (feed vertical). Eventos com mídia / galeria ficam no módulo Eventos e no site.
-class _DestaqueAvisos extends StatelessWidget {
-  final String tenantId;
-  final String role;
-  final String churchSlug;
-  final String nomeIgreja;
-  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
-  final PanelDashboardSnapshot panelCache;
-  final VoidCallback? onRetryStream;
-  const _DestaqueAvisos({
-    required this.tenantId,
-    required this.role,
-    required this.churchSlug,
-    required this.nomeIgreja,
-    required this.stream,
-    required this.panelCache,
-    this.onRetryStream,
-  });
-
-  Widget _buildFromCacheAvisos(BuildContext context) {
-    final avisos = panelCache.homeAvisos.where((a) {
-      return PanelFeedPostValidator.isRenderableForPanelFeed(
-        {
-          'title': a.title,
-          'coverPhotoUrl': a.coverPhotoUrl,
-          'textPreview': a.textPreview,
-        },
-        docId: a.id,
-        churchId: tenantId,
-      );
-    }).toList();
-    if (avisos.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.campaign_outlined,
-                  size: 48, color: Colors.grey.shade300),
-              const SizedBox(height: 8),
-              Text(
-                'Nenhum aviso recente.',
-                style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: avisos.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (context, i) => _DestaqueAvisoCacheCard(
-        aviso: avisos[i],
-        tenantId: tenantId,
-        role: role,
-        churchSlug: churchSlug,
-        nomeIgreja: nomeIgreja,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _CleanCard(
-      title: 'Avisos',
-      icon: Icons.campaign_rounded,
-      compact: false,
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: stream,
-        builder: (context, snap) {
-          if (snap.hasError) {
-            final hasLocal = panelCache.hasHomeAvisos;
-            if (hasLocal) {
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ChurchPanelResilientLoadBanner(
-                    hasLocalData: true,
-                    isSyncing: false,
-                    showStaleCache: true,
-                    errorTitle: 'Não foi possível carregar os avisos',
-                    error: snap.error,
-                    onRetry: onRetryStream,
-                  ),
-                  _buildFromCacheAvisos(context),
-                ],
-              );
-            }
-            return ChurchPanelResilientLoadBanner(
-              hasLocalData: false,
-              isSyncing: false,
-              errorTitle: 'Não foi possível carregar os avisos',
-              error: snap.error,
-              onRetry: onRetryStream,
-            );
-          }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            if (panelCache.hasHomeAvisos) {
-              return _buildFromCacheAvisos(context);
-            }
-            return SizedBox(
-              height: 104,
-              child: Row(children: List.generate(3, (_) => Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _SkeletonBox(width: 128, height: 104, borderRadius: 12),
-              ))),
-            );
-          }
-          final now = DateTime.now();
-          final docs = (snap.data?.docs ?? []).where((d) {
-            final data = d.data();
-            final type = (data['type'] ?? '').toString().toLowerCase();
-            if (type == 'evento') return false;
-            if (data['ativo'] == false) return false;
-            if (data['publicado'] == false) return false;
-            if ((data['status'] ?? '').toString().trim() == 'erro') {
-              return false;
-            }
-            final v = data['validUntil'];
-            if (v != null) {
-              if (v is Timestamp && !v.toDate().isAfter(now)) return false;
-            }
-            return PanelFeedPostValidator.isRenderableForPanelFeed(
-              data,
-              docId: d.id,
-              churchId: tenantId,
-            );
-          }).take(PanelFeedPostValidator.kPanelFeedPageSize).toList();
-          if (docs.isEmpty) {
-            return Center(child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.campaign_outlined, size: 48, color: Colors.grey.shade300),
-                const SizedBox(height: 8),
-                Text(
-                  'Nenhum aviso recente.',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                ),
-              ]),
-            ));
-          }
-          return ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: docs.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, i) => _DestaqueCard(
-              doc: docs[i],
-              tenantId: tenantId,
-              role: role,
-              churchSlug: churchSlug,
-              nomeIgreja: nomeIgreja,
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
 
 /// Eventos especiais da coleção [noticias] — **só** os que ainda estão no Feed (data não passou;
 /// os demais ficam na Galeria de Eventos no módulo Mural).
@@ -5771,6 +5511,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
   final String nomeIgreja;
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
   final VoidCallback? onRetryStream;
+  final VoidCallback? onOpenEventos;
 
   const _DestaqueEventosEspeciaisPainel({
     required this.tenantId,
@@ -5779,6 +5520,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
     required this.nomeIgreja,
     required this.stream,
     this.onRetryStream,
+    this.onOpenEventos,
   });
 
   @override
@@ -5830,6 +5572,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
                       role: role,
                       churchSlug: churchSlug,
                       nomeIgreja: nomeIgreja,
+                      onOpenEventos: onOpenEventos,
                     ),
                   ),
                 ),
@@ -5893,6 +5636,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
               role: role,
               churchSlug: churchSlug,
               nomeIgreja: nomeIgreja,
+              onOpenEventos: onOpenEventos,
             ),
           ),
         );
@@ -7673,12 +7417,14 @@ class _DestaqueCard extends StatefulWidget {
   final String role;
   final String churchSlug;
   final String nomeIgreja;
+  final VoidCallback? onOpenEventos;
   const _DestaqueCard({
     required this.doc,
     required this.tenantId,
     required this.role,
     required this.churchSlug,
     required this.nomeIgreja,
+    this.onOpenEventos,
   });
 
   @override
@@ -8033,14 +7779,8 @@ class _DestaqueCardState extends State<_DestaqueCard> {
       }
     }
     final openModulo = () {
-      Navigator.push(
-        context,
-        ThemeCleanPremium.fadeSlideRoute(
-          isEvento
-              ? EventsManagerPage(tenantId: widget.tenantId, role: widget.role)
-              : MuralPage(tenantId: widget.tenantId, role: widget.role),
-        ),
-      );
+      if (!isEvento) return;
+      widget.onOpenEventos?.call();
     };
     final tapMediaAmpliar = !showCarousel && !hasVideo
         ? () {

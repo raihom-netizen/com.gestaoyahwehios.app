@@ -45,8 +45,8 @@ import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -354,6 +354,7 @@ Future<void> showFornecedorCompromissoEditor(
   required String fornecedorId,
   required DateTime day,
   QueryDocumentSnapshot<Map<String, dynamic>>? existing,
+  bool canManageComprovante = true,
 }) async {
   var initialDate = DateTime(day.year, day.month, day.day);
   final tituloCtrl = TextEditingController();
@@ -379,12 +380,8 @@ Future<void> showFornecedorCompromissoEditor(
   }
 
   final dateNotify = ValueNotifier<DateTime>(initialDate);
-  FinanceComprovanteAttachment? pendingComprovante;
-  var hasComprovanteExistente = false;
-  if (existing != null) {
-    hasComprovanteExistente =
-        FinanceComprovanteAttachService.hasComprovanteReady(existing.data());
-  }
+  var comprovanteSnap = const FinanceComprovanteEditorSnapshot();
+  final canComprovanteWrite = canManageComprovante;
 
   final ok = await showModalBottomSheet<bool>(
     context: context,
@@ -719,47 +716,18 @@ Future<void> showFornecedorCompromissoEditor(
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked =
-                        await FinanceComprovanteAttachService.pickFromFiles(ctx);
-                    if (picked == null) return;
-                    setSheet(() {
-                      pendingComprovante = picked;
-                      hasComprovanteExistente = false;
-                    });
-                  },
-                  icon: const Icon(Icons.attach_file_rounded),
-                  label: Text(
-                    pendingComprovante != null
-                        ? 'Trocar comprovante'
-                        : (hasComprovanteExistente
-                            ? 'Trocar comprovante'
-                            : 'Anexar comprovante'),
-                  ),
+                child: FinanceComprovanteEditor(
+                  churchIdHint: compCol.parent?.id ?? '',
+                  target: FinanceComprovanteEditorTarget.fornecedorCompromisso,
+                  canAdd: canComprovanteWrite,
+                  canChange: canComprovanteWrite,
+                  canRemove: canComprovanteWrite,
+                  fornecedorId: fornecedorId,
+                  compromissoId: existing?.id,
+                  existingData: existing?.data(),
+                  onChanged: (snap) => comprovanteSnap = snap,
                 ),
               ),
-              if (pendingComprovante != null || hasComprovanteExistente)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Chip(
-                      avatar: Icon(
-                        Icons.receipt_long_rounded,
-                        size: 18,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                      label: Text(
-                        pendingComprovante?.fileName ??
-                            FinanceComprovanteAttachService.displayNameFromDoc(
-                              existing?.data() ?? {},
-                            ),
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
                 child: Row(
@@ -820,7 +788,9 @@ Future<void> showFornecedorCompromissoEditor(
     tod.hour,
     tod.minute,
   );
-  final churchId = compCol.parent?.id.trim() ?? '';
+  final churchId = FinanceComprovanteUpdateService.resolveChurchId(
+    compCol.parent?.id ?? '',
+  );
   if (churchId.isEmpty) return;
   final payload = <String, dynamic>{
     'fornecedorId': fornecedorId,
@@ -846,28 +816,35 @@ Future<void> showFornecedorCompromissoEditor(
       existing: existing,
     );
 
-    if (pendingComprovante != null) {
-      await FinanceComprovanteUi.runWithProgress(
-        context,
-        label: 'Enviando comprovante…',
-        action: (_) async {
-          await FornecedorCompromissoPublishService.attachComprovante(
-            docRef: docRef,
-            churchId: churchId,
-            fornecedorId: fornecedorId,
-            compromissoId: docRef.id,
-            bytes: pendingComprovante!.bytes,
-            mimeType: pendingComprovante!.mimeType,
-            fileName: pendingComprovante!.fileName,
-          );
-          return true;
-        },
+    if (comprovanteSnap.removeExisting && existing != null) {
+      await FinanceComprovanteUpdateService.removeFornecedorCompromissoStrict(
+        churchIdHint: churchId,
+        docRef: docRef,
+        fornecedorId: fornecedorId,
+        compromissoId: docRef.id,
+        data: existing.data(),
+      );
+    }
+    final pendingComp = comprovanteSnap.pending;
+    if (pendingComp != null) {
+      await FinanceComprovanteUpdateService.publishFornecedorCompromissoStrict(
+        churchIdHint: churchId,
+        docRef: docRef,
+        fornecedorId: fornecedorId,
+        compromissoId: docRef.id,
+        bytes: pendingComp.bytes,
+        mimeType: pendingComp.mimeType,
+        fileName: pendingComp.fileName,
       );
     }
 
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('Compromisso salvo.'),
+        ThemeCleanPremium.successSnackBar(
+          pendingComp != null || comprovanteSnap.removeExisting
+              ? 'Compromisso e comprovante gravados.'
+              : 'Compromisso salvo.',
+        ),
       );
     }
   } catch (e) {
@@ -1532,6 +1509,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       tenantId: _effectiveTenantId,
                       colFornecedores: _col,
                       onOpenFornecedor: _openHub,
+                      canWrite: _canWrite,
                     ),
                     _FornecedoresCompromissosListaTab(
                       tenantId: _effectiveTenantId,
@@ -1539,6 +1517,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       onOpenFornecedor: _openHub,
                       fornecedorIdFilter: null,
                       showFornecedorLine: true,
+                      canWrite: _canWrite,
                     ),
                   ],
                 ),
@@ -1996,6 +1975,7 @@ class _FornecedoresCompromissosListaTab extends StatefulWidget {
   final void Function(String fornecedorId)? onOpenFornecedor;
   final String? fornecedorIdFilter;
   final bool showFornecedorLine;
+  final bool canWrite;
 
   const _FornecedoresCompromissosListaTab({
     required this.tenantId,
@@ -2003,6 +1983,7 @@ class _FornecedoresCompromissosListaTab extends StatefulWidget {
     this.onOpenFornecedor,
     this.fornecedorIdFilter,
     required this.showFornecedorLine,
+    this.canWrite = false,
   });
 
   @override
@@ -2203,6 +2184,7 @@ class _FornecedoresCompromissosListaTabState
       fornecedorId: fid,
       day: day,
       existing: doc,
+      canManageComprovante: widget.canWrite,
     );
     if (mounted) setState(_reloadAgenda);
   }
@@ -2614,11 +2596,13 @@ class _FornecedoresAgendaGeralTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> colFornecedores;
   final void Function(String fornecedorId) onOpenFornecedor;
+  final bool canWrite;
 
   const _FornecedoresAgendaGeralTab({
     required this.tenantId,
     required this.colFornecedores,
     required this.onOpenFornecedor,
+    this.canWrite = false,
   });
 
   @override
@@ -2746,6 +2730,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
       fornecedorId: fid,
       day: day,
       existing: doc,
+      canManageComprovante: widget.canWrite,
     );
     if (mounted) setState(_reloadAgenda);
   }
@@ -4499,6 +4484,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 tenantId: _tenantId,
                 compCol: _compCol,
                 fornecedorId: widget.fornecedorId,
+                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                  widget.role,
+                ),
               ),
               _FornecedoresCompromissosListaTab(
                 tenantId: _tenantId,
@@ -4506,6 +4494,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 onOpenFornecedor: null,
                 fornecedorIdFilter: widget.fornecedorId,
                 showFornecedorLine: false,
+                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                  widget.role,
+                ),
               ),
             ],
           ),
@@ -4777,11 +4768,13 @@ class _AgendaTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> compCol;
   final String fornecedorId;
+  final bool canWrite;
 
   const _AgendaTab({
     required this.tenantId,
     required this.compCol,
     required this.fornecedorId,
+    this.canWrite = false,
   });
 
   @override
@@ -4846,6 +4839,7 @@ class _AgendaTabState extends State<_AgendaTab> {
       fornecedorId: widget.fornecedorId,
       day: day,
       existing: null,
+      canManageComprovante: widget.canWrite,
     );
   }
 
@@ -4864,6 +4858,7 @@ class _AgendaTabState extends State<_AgendaTab> {
       fornecedorId: widget.fornecedorId,
       day: day,
       existing: doc,
+      canManageComprovante: widget.canWrite,
     );
   }
 

@@ -23,7 +23,8 @@ import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
-import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
@@ -201,11 +202,11 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
   }) async {
-    final r = await ChurchAvisosLoadService.loadFeed(
-      seedTenantId: tenantId,
-      limit: limit,
-    );
-    return r.snapshot;
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) {
+      return ChurchUiCollections.avisos(churchId).limit(0).get();
+    }
+    return ChurchUiCollections.avisos(churchId).limit(0).get();
   }
 
   static DateTime? _avisoCreatedAt(Map<String, dynamic> data) {

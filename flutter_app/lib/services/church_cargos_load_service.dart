@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -170,11 +171,14 @@ abstract final class ChurchCargosLoadService {
     }
 
     var docs = await readCol(ChurchUiCollections.cargos(id), 'primary');
-    for (final sub in _legacySubcollections) {
-      final legacyRef = ChurchUiCollections.churchDoc(id).collection(sub);
-      if (legacyRef.path == ChurchUiCollections.cargos(id).path) continue;
-      final legacy = await readCol(legacyRef, 'legacy_$sub');
-      docs = _sortDocs(_mergeDocs(docs, legacy));
+    if (docs.isEmpty) {
+      for (final sub in _legacySubcollections) {
+        final legacyRef = ChurchUiCollections.churchDoc(id).collection(sub);
+        if (legacyRef.path == ChurchUiCollections.cargos(id).path) continue;
+        final legacy = await readCol(legacyRef, 'legacy_$sub');
+        docs = _sortDocs(_mergeDocs(docs, legacy));
+        if (docs.isNotEmpty) break;
+      }
     }
     return docs;
   }
@@ -241,10 +245,15 @@ abstract final class ChurchCargosLoadService {
       } catch (_) {}
 
       try {
-        final cacheSnap = await ChurchUiCollections.cargos(churchId)
-            .limit(kLimit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 3));
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchUiCollections.cargos(churchId)
+              .limit(kLimit)
+              .get(const GetOptions(source: Source.cache)),
+          maxAttempts: 3,
+        ).timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
           final docs = _sortDocs(cacheSnap.docs);
           putRam(churchId, docs);
@@ -403,5 +412,67 @@ abstract final class ChurchCargosLoadService {
     if (id.isEmpty) return;
     _ram.remove(cacheKey(id));
     _ram.removeWhere((k, _) => k.startsWith('${id.trim()}_cargos_'));
+  }
+
+  /// Gravação web-resiliente — `igrejas/{churchId}/cargos/{docId}`.
+  static Future<void> createCargo({
+    required String churchId,
+    required String docId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final cid = ChurchRepository.churchId(churchId.trim());
+    if (cid.isEmpty) throw StateError('Igreja não identificada.');
+    final ref = ChurchUiCollections.cargos(cid).doc(docId.trim());
+    await _writeCargoRef(ref, payload, create: true);
+    invalidateRam(cid);
+  }
+
+  static Future<void> updateCargo({
+    required DocumentReference<Map<String, dynamic>> ref,
+    required Map<String, dynamic> payload,
+  }) async {
+    await _writeCargoRef(ref, payload, create: false);
+    final parts = ref.path.split('/');
+    if (parts.length >= 2 && parts[0] == 'igrejas') {
+      invalidateRam(parts[1]);
+    }
+  }
+
+  static Future<void> deleteCargo(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => ref.delete(),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
+    final parts = ref.path.split('/');
+    if (parts.length >= 2 && parts[0] == 'igrejas') {
+      invalidateRam(parts[1]);
+    }
+  }
+
+  static Future<void> _writeCargoRef(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> payload, {
+    required bool create,
+  }) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => create ? ref.set(payload) : ref.update(payload),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
   }
 }

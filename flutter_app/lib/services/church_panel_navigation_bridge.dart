@@ -139,7 +139,7 @@ class ChurchPanelNavigationBridge {
       case 'novo_chat':
       case 'chat_message':
       case 'church_chat':
-        return kChurchShellIndexChat;
+        return kChurchShellIndexPainel;
       default:
         return null;
     }

@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -299,6 +301,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
     final cid = _churchId.trim();
     if (cid.isEmpty) return null;
 
+    final moduleDocs = YahwehModuleCaches.visitantes.docs;
+    if (moduleDocs.isNotEmpty) {
+      final docs = moduleDocs
+          .where((d) => d.id != ChurchVisitantesLoadService.kSchemaDocId)
+          .toList();
+      if (docs.isNotEmpty) {
+        return MergedFirestoreQuerySnapshot(docs);
+      }
+    }
+
     final ram = ChurchVisitantesLoadService.peekRam(cid);
     if (ram != null) {
       return MergedFirestoreQuerySnapshot(ram);
@@ -385,8 +397,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
     _visitantesLoadPending = true;
     _startWebLoadingCap();
     setState(() {
-      _visitantesFuture =
-          _loadVisitantesWithCap(forceRefresh: true, forceServer: true);
+      _visitantesFuture = _loadVisitantesWithCap(
+        forceRefresh: true,
+        forceServer: !kIsWeb,
+      );
     });
   }
 
@@ -396,10 +410,12 @@ class _VisitorsPageState extends State<VisitorsPage> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final cacheSnap = await ChurchUiCollections.visitantes(_churchId)
-          .limit(ChurchVisitantesLoadService.kDefaultLimit)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 3));
+      final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.visitantes(_churchId)
+            .limit(ChurchVisitantesLoadService.kDefaultLimit)
+            .get(const GetOptions(source: Source.cache)),
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 3));
       final docs = cacheSnap.docs
           .where((d) => d.id != ChurchVisitantesLoadService.kSchemaDocId)
           .toList();
@@ -416,6 +432,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
   void initState() {
     super.initState();
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+    unawaited(YahwehModuleCaches.visitantes.warmUp(_churchId));
     final instant = _peekInstantVisitantesSnap();
     if (instant != null) {
       _visitantesFuture = Future.value(instant);
@@ -424,9 +441,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
     } else {
       _visitantesFuture = _loadVisitantesWithCap();
       unawaited(_tryIndexedDbCacheFirst());
+      unawaited(YahwehModuleCaches.visitantes.ensureLoaded(_churchId));
     }
     _startWebLoadingCap();
-    unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
   }
 
   @override
@@ -435,6 +452,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
     if (oldWidget.tenantId != widget.tenantId) {
       _visitantesLoadGen++;
       _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+      unawaited(YahwehModuleCaches.visitantes.warmUp(_churchId));
       _visitantesLoadPending = true;
       final instant = _peekInstantVisitantesSnap();
       if (instant != null) {
@@ -444,9 +462,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
       } else {
         _visitantesFuture = _loadVisitantesWithCap();
         unawaited(_tryIndexedDbCacheFirst());
+        unawaited(YahwehModuleCaches.visitantes.ensureLoaded(_churchId));
       }
       _startWebLoadingCap();
-      unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
     }
   }
 
@@ -2495,7 +2513,6 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
         payload: payload,
         existingDocId: _isEdit ? widget.visitor!.id : null,
       );
-      unawaited(ChurchVisitantesLoadService.invalidate(churchId));
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -2778,6 +2795,20 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     }
     return FirestoreWebGuard.runWithWebRecovery(
       () => _followupsRef.orderBy('data', descending: true).get(),
+      maxAttempts: 4,
+    );
+  }
+
+  Future<void> _patchVisitorDoc(Map<String, dynamic> data) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => _visitorDoc.update(data),
+        maxAttempts: 4,
+      ),
       maxAttempts: 4,
     );
   }
@@ -3306,7 +3337,10 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
       ),
     );
     if (picked != null && picked != v.status && context.mounted) {
-      await _visitorDoc.update({'status': picked, 'updatedAt': FieldValue.serverTimestamp()});
+      await _patchVisitorDoc({
+        'status': picked,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     }
   }
 
@@ -3387,7 +3421,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
         'visitanteId': v.id,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      await _visitorDoc.update({
+      await _patchVisitorDoc({
         'status': 'Convertido',
         'convertedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -3470,7 +3504,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                       'responsavel': responsavelCtrl.text.trim(),
                       'data': FieldValue.serverTimestamp(),
                     });
-                    await _visitorDoc.update({
+                    await _patchVisitorDoc({
                       'followupCount': FieldValue.increment(1),
                       'ultimoFollowupAt': FieldValue.serverTimestamp(),
                       'updatedAt': FieldValue.serverTimestamp(),

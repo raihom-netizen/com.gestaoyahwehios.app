@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
@@ -631,6 +632,11 @@ class _CargosPageState extends State<CargosPage> {
     final seed = _loadChurchId;
     if (seed.isEmpty) return null;
 
+    final moduleDocs = YahwehModuleCaches.cargos.docs;
+    if (moduleDocs.isNotEmpty) {
+      return MergedFirestoreQuerySnapshot(moduleDocs);
+    }
+
     final ram = ChurchCargosLoadService.peekRamAny(seed) ??
         ChurchCargosLoadService.peekRam(seed);
     if (ram != null && ram.isNotEmpty) {
@@ -667,10 +673,12 @@ class _CargosPageState extends State<CargosPage> {
     if (_peekInstantCargosSnap() != null) return;
     try {
       await _prepareCargosRead();
-      final cacheSnap = await ChurchUiCollections.cargos(_loadChurchId)
-          .limit(ChurchCargosLoadService.kLimit)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 3));
+      final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.cargos(_loadChurchId)
+            .limit(ChurchCargosLoadService.kLimit)
+            .get(const GetOptions(source: Source.cache)),
+        maxAttempts: 3,
+      ).timeout(const Duration(seconds: 3));
       if (cacheSnap.docs.isEmpty || !mounted || !_cargosLoadPending) return;
       setState(() {
         _cargosFuture = Future.value(cacheSnap);
@@ -686,7 +694,9 @@ class _CargosPageState extends State<CargosPage> {
       Future<void>.delayed(Duration(seconds: delay), () async {
         if (!mounted || gen != _cargosLoadRetryGen) return;
         try {
-          final snap = await _loadCargosWithCap(forceServer: delay >= 6);
+          final snap = await _loadCargosWithCap(
+            forceServer: !kIsWeb && delay >= 6,
+          );
           if (!mounted || gen != _cargosLoadRetryGen) return;
           if (snap.docs.isNotEmpty) {
             setState(() => _cargosFuture = Future.value(snap));
@@ -738,10 +748,6 @@ class _CargosPageState extends State<CargosPage> {
       server: forceServer,
     );
 
-    if (result.docs.isEmpty && churchId.isNotEmpty && !forceServer) {
-      result = await runLoad(seed: churchId, server: true);
-    }
-
     if (result.docs.isNotEmpty) {
       ChurchCargosLoadService.putRam(result.churchId, result.docs);
       unawaited(ChurchCargosLoadService.persistAfterLoad(result));
@@ -790,6 +796,7 @@ class _CargosPageState extends State<CargosPage> {
   void initState() {
     super.initState();
     _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
+    unawaited(YahwehModuleCaches.cargos.warmUp(_loadChurchId));
     final instant = _peekInstantCargosSnap();
     if (instant != null) {
       _cargosFuture = Future.value(instant);
@@ -798,6 +805,7 @@ class _CargosPageState extends State<CargosPage> {
     } else {
       _cargosFuture = _loadCargosWithCap();
       unawaited(_tryIndexedDbCacheFirst());
+      unawaited(YahwehModuleCaches.cargos.ensureLoaded(_loadChurchId));
     }
     _startWebLoadingCap();
   }
@@ -816,6 +824,7 @@ class _CargosPageState extends State<CargosPage> {
       _resolvedTenantId = ChurchRepository.churchId(widget.tenantId);
       _triedAutoSeed = false;
       _cargosLoadPending = true;
+      unawaited(YahwehModuleCaches.cargos.warmUp(_loadChurchId));
       final instant = _peekInstantCargosSnap();
       if (instant != null) {
         _cargosFuture = Future.value(instant);
@@ -824,9 +833,24 @@ class _CargosPageState extends State<CargosPage> {
       } else {
         _cargosFuture = _loadCargosWithCap();
         unawaited(_tryIndexedDbCacheFirst());
+        unawaited(YahwehModuleCaches.cargos.ensureLoaded(_loadChurchId));
       }
       _startWebLoadingCap();
     }
+  }
+
+  Future<void> _commitCargosBatch(WriteBatch batch) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => runFirestorePublishWithRecovery(
+        () => batch.commit(),
+        maxAttempts: 4,
+      ),
+      maxAttempts: 4,
+    );
   }
 
   /// Cria na base os cargos padrão quando a coleção está vazia (novas igrejas).
@@ -863,12 +887,12 @@ class _CargosPageState extends State<CargosPage> {
           'updatedAt': FieldValue.serverTimestamp(),
         });
       }
-      await batch.commit();
+      await _commitCargosBatch(batch);
     } catch (e) {
       debugPrint('CargosPage _seedPadroes: $e');
     }
     if (mounted) {
-      setState(() => _cargosFuture = _loadCargosWithCap());
+      unawaited(_refreshCargosBackground());
     }
   }
 
@@ -913,11 +937,12 @@ class _CargosPageState extends State<CargosPage> {
 
   Future<void> _refresh({bool forceServer = false}) async {
     if (!mounted) return;
+    final server = forceServer && !kIsWeb;
     _cargosLoadRetryGen++;
     _cargosLoadPending = true;
     _startWebLoadingCap();
     setState(() {
-      _cargosFuture = _loadCargosWithCap(forceServer: forceServer);
+      _cargosFuture = _loadCargosWithCap(forceServer: server);
     });
     try {
       await _cargosFuture;
@@ -1032,8 +1057,11 @@ class _CargosPageState extends State<CargosPage> {
     );
     if (ok != true) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final existing = await _col.get();
+      if (kIsWeb) await _prepareCargosRead();
+      final existing = await FirestoreWebGuard.runWithWebRecovery(
+        () => _col.get(),
+        maxAttempts: 4,
+      );
       final have = existing.docs.map((d) => d.id).toSet();
       var n = 0;
       final batch = firebaseDefaultFirestore.batch();
@@ -1064,7 +1092,7 @@ class _CargosPageState extends State<CargosPage> {
         }
         return;
       }
-      await batch.commit();
+      await _commitCargosBatch(batch);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1072,7 +1100,7 @@ class _CargosPageState extends State<CargosPage> {
             backgroundColor: Colors.green,
           ),
         );
-        _refresh();
+        unawaited(_refreshCargosBackground());
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
@@ -1527,7 +1555,6 @@ class _CargosPageState extends State<CargosPage> {
     ).toList()
       ..sort();
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final payload = <String, dynamic>{
         'name': name,
         'key': key,
@@ -1539,21 +1566,28 @@ class _CargosPageState extends State<CargosPage> {
       if (doc == null) {
         payload['order'] = 999;
         payload['createdAt'] = FieldValue.serverTimestamp();
-        await _col.doc(key).set(payload);
+        await ChurchCargosLoadService.createCargo(
+          churchId: _loadChurchId,
+          docId: key,
+          payload: payload,
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Cargo cadastrado!', style: TextStyle(color: Colors.white)),
               backgroundColor: Colors.green));
         }
       } else {
-        await doc.reference.update(payload);
+        await ChurchCargosLoadService.updateCargo(
+          ref: doc.reference,
+          payload: payload,
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text('Cargo atualizado!', style: TextStyle(color: Colors.white)),
               backgroundColor: Colors.green));
         }
       }
-      _refresh();
+      unawaited(_refreshCargosBackground());
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
     }
@@ -1580,11 +1614,10 @@ class _CargosPageState extends State<CargosPage> {
     );
     if (ok != true) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await doc.reference.delete();
+      await ChurchCargosLoadService.deleteCargo(doc.reference);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cargo excluído.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
-        _refresh();
+        unawaited(_refreshCargosBackground());
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));

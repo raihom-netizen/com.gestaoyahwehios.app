@@ -12,19 +12,19 @@ class PanelQuickShortcuts extends StatelessWidget {
   const PanelQuickShortcuts({
     super.key,
     required this.onOpenAniversariantesAno,
-    required this.onOpenGaleriaEventos,
+    required this.onOpenAgenda,
     required this.onOpenOrganograma,
     this.onOpenPainelCorpoAdmin,
   });
 
   final VoidCallback onOpenAniversariantesAno;
-  final VoidCallback onOpenGaleriaEventos;
+  final VoidCallback onOpenAgenda;
   final VoidCallback onOpenOrganograma;
   final VoidCallback? onOpenPainelCorpoAdmin;
 
   static const _items = <(IconData, String, List<Color>)>[
     (Icons.cake_rounded, 'Ano todo', [Color(0xFFF59E0B), Color(0xFFEA580C)]),
-    (Icons.photo_library_rounded, 'Galeria', [Color(0xFF0EA5E9), Color(0xFF2563EB)]),
+    (Icons.calendar_month_rounded, 'Agenda', [Color(0xFF0EA5E9), Color(0xFF2563EB)]),
     (Icons.account_tree_rounded, 'Organograma', [Color(0xFF7C3AED), Color(0xFF6366F1)]),
     (Icons.groups_rounded, 'Corpo admin.', [Color(0xFF10B981), Color(0xFF059669)]),
   ];
@@ -33,7 +33,7 @@ class PanelQuickShortcuts extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = <VoidCallback>[
       onOpenAniversariantesAno,
-      onOpenGaleriaEventos,
+      onOpenAgenda,
       onOpenOrganograma,
       if (onOpenPainelCorpoAdmin != null) onOpenPainelCorpoAdmin!,
     ];

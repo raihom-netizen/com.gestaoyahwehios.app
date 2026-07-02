@@ -25,15 +25,8 @@ class ChurchGlobalSearchSelection {
   });
 }
 
-/// Mesma regra de edição do mural ([InstagramMural._canEdit]).
-bool churchGlobalSearchCanOpenMuralAvisoEditor(String role) {
-  final r = role.toLowerCase();
-  return r == 'adm' ||
-      r == 'admin' ||
-      r == 'gestor' ||
-      r == 'master' ||
-      r == 'lider';
-}
+/// Módulo Avisos removido — edição via busca desativada.
+bool churchGlobalSearchCanOpenMuralAvisoEditor(String role) => false;
 
 String _fieldStr(Map<String, dynamic>? m, List<String> keys) {
   if (m == null) return '';
@@ -188,26 +181,8 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       if (widget.canAccessShellIndex(kChurchShellIndexMembers)) {
         futures.add(base.collection('membros').limit(320).get());
       }
-      if (widget.canAccessShellIndex(kChurchShellIndexEvents)) {
-        futures.add(
-          base
-              .collection(ChurchTenantPostsCollections.eventos)
-              .orderBy('startAt', descending: true)
-              .limit(160)
-              .get(),
-        );
-      }
       if (widget.canAccessShellIndex(kChurchShellIndexPatrimonio)) {
         futures.add(base.collection('patrimonio').limit(220).get());
-      }
-      if (widget.canAccessShellIndex(kChurchShellIndexMural)) {
-        futures.add(
-          base
-              .collection(ChurchTenantPostsCollections.avisos)
-              .orderBy('createdAt', descending: true)
-              .limit(120)
-              .get(),
-        );
       }
 
       final cpfTroca = (widget.userCpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
@@ -241,14 +216,8 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       if (widget.canAccessShellIndex(kChurchShellIndexMembers)) {
         _membrosDocs = snaps[i++].docs;
       }
-      if (widget.canAccessShellIndex(kChurchShellIndexEvents)) {
-        _noticiasDocs = snaps[i++].docs;
-      }
       if (widget.canAccessShellIndex(kChurchShellIndexPatrimonio)) {
         _patrimonioDocs = snaps[i++].docs;
-      }
-      if (widget.canAccessShellIndex(kChurchShellIndexMural)) {
-        _avisoDocs = snaps[i++].docs;
       }
 
       if (loadTrocas) {
@@ -311,21 +280,11 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
     final m = d.data();
     final title = _fieldStr(m, ['title', 'titulo', 'nome']);
     final q = title.isNotEmpty ? title : d.id;
-    final canEdit =
-        churchGlobalSearchCanOpenMuralAvisoEditor(widget.userRole);
     Navigator.of(context).pop();
-    if (canEdit) {
-      widget.onSelect(ChurchGlobalSearchSelection(
-        shellIndex: kChurchShellIndexMural,
-        query: q,
-        avisoDocForDirectEdit: d,
-      ));
-    } else {
-      widget.onSelect(ChurchGlobalSearchSelection(
-        shellIndex: kChurchShellIndexMural,
-        query: q,
-      ));
-    }
+    widget.onSelect(ChurchGlobalSearchSelection(
+      shellIndex: kChurchShellIndexEvents,
+      query: q,
+    ));
   }
 
   void _pickTroca(QueryDocumentSnapshot<Map<String, dynamic>> d) {
@@ -370,8 +329,8 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                         decoration: InputDecoration(
                           hintText: (widget.userCpfDigits ?? '').replaceAll(RegExp(r'\D'), '').length == 11
-                              ? 'Membro, evento, aviso, patrimônio ou troca de escala…'
-                              : 'Membro, evento, aviso ou patrimônio…',
+                              ? 'Membro, patrimônio ou troca de escala…'
+                              : 'Membro ou patrimônio…',
                           border: InputBorder.none,
                           isDense: true,
                           hintStyle: TextStyle(
@@ -481,51 +440,6 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
             title: name.isEmpty ? 'Sem nome' : name,
             subtitle: subtitle,
             onTap: () => _pickMember(d),
-          ));
-        }
-      }
-    }
-
-    if (widget.canAccessShellIndex(kChurchShellIndexEvents)) {
-      final matched = _noticiasDocs
-          .where((d) => !_noticiaDocIsAviso(d.data()))
-          .where((d) => _eventSearchBlob(d.data()).contains(q))
-          .take(_maxHits)
-          .toList();
-      if (matched.isNotEmpty) {
-        addHeader('EVENTOS');
-        for (final d in matched) {
-          final m = d.data();
-          final title = _fieldStr(m, ['title', 'titulo', 'nome']);
-          hits.add(_resultTile(
-            icon: Icons.event_rounded,
-            iconColor: const Color(0xFF0EA5E9),
-            title: title.isEmpty ? 'Evento' : title,
-            subtitle: 'Abrir no Mural de Eventos',
-            onTap: () => _pickEvent(d),
-          ));
-        }
-      }
-    }
-
-    if (widget.canAccessShellIndex(kChurchShellIndexMural)) {
-      final matched = _avisoDocs
-          .where((d) => _avisoSearchBlob(d.data()).contains(q))
-          .take(_maxHits)
-          .toList();
-      if (matched.isNotEmpty) {
-        addHeader('AVISOS (MURAL)');
-        for (final d in matched) {
-          final m = d.data();
-          final title = _fieldStr(m, ['title', 'titulo', 'nome']);
-          final edit = churchGlobalSearchCanOpenMuralAvisoEditor(
-              widget.userRole);
-          hits.add(_resultTile(
-            icon: Icons.campaign_rounded,
-            iconColor: const Color(0xFF8B5CF6),
-            title: title.isEmpty ? 'Aviso' : title,
-            subtitle: edit ? 'Abrir para editar' : 'Abrir no Mural de Avisos',
-            onTap: () => _pickAviso(d),
           ));
         }
       }

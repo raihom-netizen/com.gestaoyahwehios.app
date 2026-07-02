@@ -1,6 +1,17 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
-/// 11.2.305+2045: Patrimônio/financeiro/membros/logo — fim gate bloqueante; pilar ChurchCentralStorageUpload em todos.
+/// 11.2.305+2057: Exclusão — Membros/Financeiro/Orações/Escalas (permissões, web recovery, batch canónico).
+/// 11.2.305+2056: Cadastro Igreja — logo reescrita (4K, adicionar/trocar/remover, strict Storage→Firestore).
+/// 11.2.305+2055: Financeiro/Fornecedores — comprovantes reescritos (adicionar/alterar/remover, strict Storage→Firestore, paths igrejas/{churchId}/…).
+/// 11.2.305+2054: Patrimônio — editor fotos reescrito (5 fotos/bem, alterar/remover, upload strict Storage→Firestore).
+/// 11.2.305+2053: Foto perfil membro reescrita — editor com alterar/remover, permissões, upload Storage→Firestore canónico.
+/// 11.2.305+2052: Paths produção unificados — ChurchPanelPaths catálogo, DEBUG CHURCH 15 módulos, índices Firestore, FCM via ChurchRepository.churchId.
+/// 11.2.305+2051: Cargos — cache-first web (YahwehModuleCaches), fim retry servidor quando vazio, gravação FirestoreWebGuard, path `igrejas/{id}/cargos`.
+/// 11.2.305+2050: Visitantes — cache-first web (YahwehModuleCaches), gravação com FirestoreWebGuard, path DEBUG CHURCH `igrejas/{id}/visitantes`.
+/// 11.2.305+2049: Módulo Eventos reativado — feed Instagram (10 fotos + 1 vídeo 90s), galeria, cultos fixos, painel e site público.
+/// 11.2.305+2048: Módulo Avisos v2 — publicação com até 3 fotos, carrossel painel/site, push FCM, expiração automática.
+/// 11.2.305+2047: Módulos Eventos e Chat Igreja removidos do painel — UI, nav, publicação e cache limpos.
+/// 11.2.305+2046: Módulo Avisos removido do painel — UI, publicação e serviços dedicados limpos.
 /// 11.2.305+2042: Upload unificado DirectStorageUrlPublish — bytes mobile em avisos/eventos; todos módulos (membro, patrimônio, financeiro, logo, chat) mesmo gate Storage→URL.
 /// 11.2.305+2041: Fix upload mobile — bytes comprimidos iam para Storage (paths null); fim reset Firebase no publish.
 /// 11.2.305+2040: Deploy completo — upload Storage→URL direto (chat/mídia), limpeza código legado, EcoFire anti core/no-app, regras/functions/web/AAB/iOS.
@@ -439,7 +450,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2045';
+const String appBuildNumber = '2057';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

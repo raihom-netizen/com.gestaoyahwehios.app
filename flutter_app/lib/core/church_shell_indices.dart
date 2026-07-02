@@ -37,6 +37,7 @@ const int kChurchShellIndexFinanceiro = ChurchShellIndices.financeiro;
 const int kChurchShellIndexMembers = ChurchShellIndices.membros;
 const int kChurchShellIndexMural = ChurchShellIndices.muralAvisos;
 const int kChurchShellIndexEvents = ChurchShellIndices.muralEventos;
+const int kChurchShellIndexAgenda = ChurchShellIndices.agenda;
 const int kChurchShellIndexMySchedules = ChurchShellIndices.minhaEscala;
 const int kChurchShellIndexPatrimonio = ChurchShellIndices.patrimonio;
 const int kChurchShellIndexEscalaGeral = ChurchShellIndices.escalaGeral;

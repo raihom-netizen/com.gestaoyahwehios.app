@@ -19,10 +19,8 @@ abstract final class ChurchShellLazyModulePolicy {
   static const Set<int> mobileFooterIndices = {
     ChurchShellIndices.painel,
     ChurchShellIndices.membros,
-    ChurchShellIndices.muralAvisos,
-    ChurchShellIndices.muralEventos,
     ChurchShellIndices.agenda,
-    ChurchShellIndices.chatIgreja,
+    ChurchShellIndices.pedidosOracao,
   };
 
   /// Módulos pesados fora do rodapé — não pré-montar no arranque.

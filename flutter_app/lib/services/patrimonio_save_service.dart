@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 
-/// Gravação patrimônio — Storage (4 fotos) → `foto01`…`foto04` → Firestore.
+/// Gravação patrimônio — Storage (5 fotos) → `foto01`…`foto05` → Firestore.
 abstract final class PatrimonioSaveService {
   PatrimonioSaveService._();
 
