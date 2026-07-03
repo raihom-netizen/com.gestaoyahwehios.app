@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -128,23 +128,27 @@ abstract final class ChurchBootstrapService {
                 ) ??
                 0;
           }
-          ChurchContextService.bindChurchData(
-            churchId: churchId,
-            data: data,
-            bootstrapMs: sw.elapsedMilliseconds,
-          );
-          sw.stop();
-          return ChurchBootstrapResult(
-            churchId: churchId,
-            churchData: data,
-            loadDuration: sw.elapsed,
-            logoPath: logoPath,
-            departmentsCount: deptCount,
-            cargosCount: cargosCount,
-            membersCount: membersCount,
-            readSource: readSource,
-            fromCache: true,
-          );
+          // Web: não encerrar no cache — continuar e buscar produção.
+          // Mobile: mantém comportamento instantâneo cache-first.
+          if (!kIsWeb) {
+            ChurchContextService.bindChurchData(
+              churchId: churchId,
+              data: data,
+              bootstrapMs: sw.elapsedMilliseconds,
+            );
+            sw.stop();
+            return ChurchBootstrapResult(
+              churchId: churchId,
+              churchData: data,
+              loadDuration: sw.elapsed,
+              logoPath: logoPath,
+              departmentsCount: deptCount,
+              cargosCount: cargosCount,
+              membersCount: membersCount,
+              readSource: readSource,
+              fromCache: true,
+            );
+          }
         }
       }
 
@@ -231,6 +235,12 @@ abstract final class ChurchBootstrapService {
     } catch (e) {
       error = e.toString();
       debugPrint('ChurchBootstrapService.loadPanel: $e');
+
+      // Web: se falhar rede mas já havia snapshot local, entregar fallback sem bloquear UI.
+      if (kIsWeb && data.isNotEmpty && fromCache) {
+        error = null;
+        readSource = 'local_cache_fallback';
+      }
     }
 
     sw.stop();

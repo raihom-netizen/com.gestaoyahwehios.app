@@ -1353,7 +1353,10 @@ service cloud.firestore {
           && request.resource.data.mediaUrl is string
           && request.resource.data.mediaUrl.size() > 8
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress', 'thumbUrl'
+            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress',
+            'thumbUrl', 'thumbStoragePath', 'thumbnailUrl', 'fileUrl',
+            'status', 'uploadCompleted', 'storageVerified', 'updatedAt',
+            'pendingMedia', 'erro', 'errorMessage', 'fileSize', 'size'
           ]);
       }
 
@@ -1363,7 +1366,9 @@ service cloud.firestore {
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.uploadProgress is number
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['uploadProgress', 'deliveryStatus']);
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'uploadProgress', 'deliveryStatus', 'status', 'uploadCompleted'
+          ]);
       }
 
       function chatMessageUploadQueuedOnly(tenantId, threadId) {
@@ -1372,7 +1377,9 @@ service cloud.firestore {
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'queued'
           && request.resource.data.uploadProgress is number
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus', 'uploadProgress']);
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'deliveryStatus', 'uploadProgress', 'status', 'uploadCompleted'
+          ]);
       }
 
       /// DestinatÃ¡rio marca mensagens do remetente como entregues (âœ“âœ“).

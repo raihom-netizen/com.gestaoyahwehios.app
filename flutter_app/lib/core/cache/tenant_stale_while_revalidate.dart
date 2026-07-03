@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -13,8 +14,37 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class TenantStaleWhileRevalidate {
   TenantStaleWhileRevalidate._();
 
+  static void _traceReadSource({
+    required String tenantId,
+    required String module,
+    required String readSource,
+  }) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    ChurchOperationalFirestoreTrace.record(
+      origin: 'TenantSWR:$module',
+      firestorePath: 'igrejas/$tid/*',
+      churchId: tid,
+      readSource: readSource,
+    );
+  }
+
   static Duration _networkAttemptTimeout(int attempt) {
     return ChurchPanelReadTimeouts.attempt + Duration(seconds: attempt * 4);
+  }
+
+  static Future<void> _persistSnapshot(
+    String tenantId,
+    String module,
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    if (snap.docs.isEmpty) {
+      await TenantModuleHiveCache.clearModule(tid, module);
+      return;
+    }
+    await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
   }
 
   /// Retorna cache Hive imediato (se existir) e dispara [networkFetch] em background.
@@ -26,26 +56,79 @@ abstract final class TenantStaleWhileRevalidate {
     String? firestoreCacheKey,
   }) async {
     final tid = tenantId.trim();
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? hiveDocs;
     if (tid.isNotEmpty) {
       final cachedRows = await TenantModuleHiveCache.readDocs(tid, module);
       if (cachedRows.isNotEmpty) {
-        final docs = TenantModuleHiveCache.toQueryDocuments(cachedRows);
-        if (refreshInBackground) {
-          unawaited(_refresh(tid, module, networkFetch));
-        }
-        return MergedFirestoreQuerySnapshot(docs);
+        hiveDocs = TenantModuleHiveCache.toQueryDocuments(cachedRows);
       }
     }
 
     final memKey = firestoreCacheKey?.trim() ?? '';
+    QuerySnapshot<Map<String, dynamic>>? memSnap;
     if (memKey.isNotEmpty) {
-      final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
-      if (mem != null && mem.docs.isNotEmpty) {
+      memSnap = FirestoreReadResilience.peekLastGoodQuery(memKey);
+    }
+
+    // Web: prioriza produção (server-first) e usa cache apenas como fallback.
+    if (kIsWeb && !WebPanelStability.isSessionExpired) {
+      try {
+        final fresh = await networkFetch().timeout(ChurchPanelReadTimeouts.attempt);
+        await _persistSnapshot(tid, module, fresh);
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: 'server_first',
+        );
+        return fresh;
+      } catch (_) {}
+      if (hiveDocs != null && hiveDocs.isNotEmpty) {
         if (refreshInBackground) {
           unawaited(_refresh(tid, module, networkFetch));
         }
-        return mem;
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: 'hive_fallback',
+        );
+        return MergedFirestoreQuerySnapshot(hiveDocs);
       }
+      if (memSnap != null && memSnap.docs.isNotEmpty) {
+        if (refreshInBackground) {
+          unawaited(_refresh(tid, module, networkFetch));
+        }
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: 'memory_fallback',
+        );
+        return memSnap;
+      }
+    }
+
+    // Mobile: mantém cache-first instantâneo.
+    if (hiveDocs != null && hiveDocs.isNotEmpty) {
+      if (refreshInBackground) {
+        unawaited(_refresh(tid, module, networkFetch));
+      }
+      _traceReadSource(
+        tenantId: tid,
+        module: module,
+        readSource: 'hive_cache',
+      );
+      return MergedFirestoreQuerySnapshot(hiveDocs);
+    }
+
+    if (memSnap != null && memSnap.docs.isNotEmpty) {
+      if (refreshInBackground) {
+        unawaited(_refresh(tid, module, networkFetch));
+      }
+      _traceReadSource(
+        tenantId: tid,
+        module: module,
+        readSource: 'memory_cache',
+      );
+      return memSnap;
     }
 
     Object? lastError;
@@ -62,11 +145,12 @@ abstract final class TenantStaleWhileRevalidate {
         }
         final snap =
             await networkFetch().timeout(_networkAttemptTimeout(attempt));
-        if (tid.isNotEmpty && snap.docs.isNotEmpty) {
-          unawaited(
-            TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap),
-          );
-        }
+        await _persistSnapshot(tid, module, snap);
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: attempt == 0 ? 'server' : 'server_retry_$attempt',
+        );
         return snap;
       } catch (e, st) {
         lastError = e;
@@ -77,6 +161,11 @@ abstract final class TenantStaleWhileRevalidate {
             if (refreshInBackground) {
               unawaited(_refresh(tid, module, networkFetch));
             }
+            _traceReadSource(
+              tenantId: tid,
+              module: module,
+              readSource: 'memory_fallback_after_error',
+            );
             return mem;
           }
         }
@@ -102,13 +191,12 @@ abstract final class TenantStaleWhileRevalidate {
             .catchError((_) {});
       }
       final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.warmCap);
-      if (snap.docs.isNotEmpty) {
-        await TenantModuleHiveCache.saveFromQuerySnapshot(
-          tenantId,
-          module,
-          snap,
-        );
-      }
+      await _persistSnapshot(tenantId, module, snap);
+      _traceReadSource(
+        tenantId: tenantId,
+        module: module,
+        readSource: 'background_refresh',
+      );
     } catch (_) {}
   }
 
@@ -132,9 +220,12 @@ abstract final class TenantStaleWhileRevalidate {
     }
     try {
       final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.queryCap);
-      if (tid.isNotEmpty && snap.docs.isNotEmpty) {
-        await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
-      }
+      await _persistSnapshot(tid, module, snap);
+      _traceReadSource(
+        tenantId: tid,
+        module: module,
+        readSource: 'fresh_network',
+      );
       return snap;
     } catch (_) {
       return const MergedFirestoreQuerySnapshot([]);
@@ -152,13 +243,12 @@ abstract final class TenantStaleWhileRevalidate {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.warmCap);
-      if (snap.docs.isNotEmpty) {
-        await TenantModuleHiveCache.saveFromQuerySnapshot(
-          tenantId,
-          module,
-          snap,
-        );
-      }
+      await _persistSnapshot(tenantId, module, snap);
+      _traceReadSource(
+        tenantId: tenantId,
+        module: module,
+        readSource: 'warm_network',
+      );
     } catch (_) {}
   }
 }

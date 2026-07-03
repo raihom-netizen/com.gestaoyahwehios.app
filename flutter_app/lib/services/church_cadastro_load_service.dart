@@ -255,12 +255,15 @@ abstract final class ChurchCadastroLoadService {
     if (!forceRefresh) {
       final local = await tryLocalSources(seedTenantId: seed);
       if (local != null && _hasMinimalCadastroFields(local.data)) {
-        return _resultFromData(
-          seed: seed,
-          churchId: churchId,
-          data: sliceCadastroFormFields(local.data),
-          readSource: local.readSource,
-        );
+        if (!kIsWeb) {
+          return _resultFromData(
+            seed: seed,
+            churchId: churchId,
+            data: sliceCadastroFormFields(local.data),
+            readSource: local.readSource,
+          );
+        }
+        paintedLocal = local;
       }
       if (local != null && local.data.isNotEmpty) {
         paintedLocal = local;

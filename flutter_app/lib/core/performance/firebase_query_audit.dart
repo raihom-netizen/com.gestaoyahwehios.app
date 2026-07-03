@@ -9,6 +9,7 @@ class FirebaseQueryAuditEntry {
     required this.durationMs,
     required this.docCount,
     this.limit,
+    this.readSource,
     this.error,
   });
 
@@ -18,6 +19,7 @@ class FirebaseQueryAuditEntry {
   final int durationMs;
   final int docCount;
   final int? limit;
+  final String? readSource;
   final String? error;
 
   int get estimatedBytes => docCount * 2048;
@@ -37,6 +39,7 @@ abstract final class FirebaseQueryAudit {
     required int durationMs,
     int docCount = 0,
     int? limit,
+    String? readSource,
     String? error,
   }) {
     if (path.contains('unlimited_scan')) {
@@ -50,6 +53,7 @@ abstract final class FirebaseQueryAudit {
         durationMs: durationMs,
         docCount: docCount,
         limit: limit,
+        readSource: readSource,
         error: error,
       ),
     );

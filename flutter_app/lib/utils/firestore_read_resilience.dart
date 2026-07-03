@@ -9,6 +9,9 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 class FirestoreReadResilience {
   FirestoreReadResilience._();
 
+  static Source _networkSourceForPlatform() =>
+      kIsWeb ? Source.server : Source.serverAndCache;
+
   static final Map<String, QuerySnapshot<Map<String, dynamic>>> _lastGoodByKey =
       {};
 
@@ -55,6 +58,9 @@ class FirestoreReadResilience {
     int maxAttempts = 3,
     Duration? attemptTimeout,
   }) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
     final perAttempt = attemptTimeout ??
         (kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 16));
     final key = cacheKey.trim();
@@ -88,7 +94,7 @@ class FirestoreReadResilience {
           }
         }
         final snap = await ref
-            .get(const GetOptions(source: Source.serverAndCache))
+          .get(GetOptions(source: _networkSourceForPlatform()))
             .timeout(perAttempt);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
@@ -113,6 +119,9 @@ class FirestoreReadResilience {
     int maxAttempts = kIsWeb ? 2 : 5,
     Duration? attemptTimeout,
   }) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
     final perAttempt =
         attemptTimeout ?? ChurchPanelReadTimeouts.attempt;
     final key = cacheKey.trim();
@@ -146,7 +155,7 @@ class FirestoreReadResilience {
           }
         }
         final snap = await query
-            .get(const GetOptions(source: Source.serverAndCache))
+          .get(GetOptions(source: _networkSourceForPlatform()))
             .timeout(perAttempt);
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;

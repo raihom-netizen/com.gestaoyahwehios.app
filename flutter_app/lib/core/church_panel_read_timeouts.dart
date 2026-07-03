@@ -30,7 +30,7 @@ abstract final class ChurchPanelReadTimeouts {
 
   /// Doc raiz da igreja (cadastro).
   static Duration get churchDocCap =>
-      kIsWeb ? const Duration(seconds: 100) : const Duration(seconds: 40);
+      kIsWeb ? const Duration(seconds: 24) : const Duration(seconds: 40);
 
   /// Web: polling periódico em vez de `snapshots()` — paridade com mobile.
   static Duration get webPollInterval =>

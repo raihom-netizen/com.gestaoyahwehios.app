@@ -13,6 +13,9 @@ abstract final class ChurchPanelLocalCache {
 
   static const _webPrefix = 'church_panel_cache_v1_';
   static const Duration kDefaultMaxAge = Duration(hours: 24);
+  static const Duration _kWebDefaultMaxAge = Duration(minutes: 20);
+  static const Duration _kWebCountMaxAge = Duration(minutes: 5);
+  static const Duration _kWebLogoMaxAge = Duration(hours: 6);
 
   static const String moduleCadastro = 'cadastro_igreja';
   static const String moduleConfig = 'configuracoes';
@@ -20,6 +23,15 @@ abstract final class ChurchPanelLocalCache {
 
   static String _webKey(String churchId, String module) =>
       '$_webPrefix${churchId.trim()}_$module';
+
+  static Duration _resolveWebMaxAge(String module, Duration requested) {
+    // Só reduz quando o caller usa o padrão; respeita maxAge explícito.
+    if (requested != kDefaultMaxAge) return requested;
+    final m = module.trim().toLowerCase();
+    if (m.endsWith('_count')) return _kWebCountMaxAge;
+    if (m == moduleLogo) return _kWebLogoMaxAge;
+    return _kWebDefaultMaxAge;
+  }
 
   /// Lê mapa JSON do cadastro/config (stale-while-revalidate).
   static Future<Map<String, dynamic>?> readMap({
@@ -32,12 +44,14 @@ abstract final class ChurchPanelLocalCache {
 
     if (kIsWeb) {
       try {
+        final effectiveMaxAge = _resolveWebMaxAge(module, maxAge);
         final p = await SharedPreferences.getInstance();
         final raw = p.getString(_webKey(id, module));
         final ts = p.getInt('${_webKey(id, module)}_ts');
         if (raw == null || raw.isEmpty) return null;
         if (ts != null &&
-            DateTime.now().millisecondsSinceEpoch - ts > maxAge.inMilliseconds) {
+            DateTime.now().millisecondsSinceEpoch - ts >
+                effectiveMaxAge.inMilliseconds) {
           return null;
         }
         final decoded = jsonDecode(raw);

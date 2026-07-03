@@ -16,6 +16,7 @@ abstract final class ChurchOperationalFirestoreTrace {
     String? churchId,
     int? durationMs,
     String? error,
+    String? readSource,
     bool usedTenantsCollection = false,
   }) {
     final entry = ChurchFirestoreTraceEntry(
@@ -24,6 +25,7 @@ abstract final class ChurchOperationalFirestoreTrace {
       churchId: churchId?.trim(),
       durationMs: durationMs,
       error: error,
+      readSource: readSource,
       usedTenantsCollection: usedTenantsCollection,
       at: DateTime.now(),
     );
@@ -48,6 +50,7 @@ class ChurchFirestoreTraceEntry {
     this.churchId,
     this.durationMs,
     this.error,
+    this.readSource,
     this.usedTenantsCollection = false,
     required this.at,
   });
@@ -57,6 +60,7 @@ class ChurchFirestoreTraceEntry {
   final String? churchId;
   final int? durationMs;
   final String? error;
+  final String? readSource;
   final bool usedTenantsCollection;
   final DateTime at;
 
@@ -66,6 +70,7 @@ class ChurchFirestoreTraceEntry {
         if (churchId != null) 'churchId': churchId,
         if (durationMs != null) 'durationMs': durationMs,
         if (error != null) 'error': error,
+        if (readSource != null && readSource!.isNotEmpty) 'readSource': readSource,
         'usedTenantsCollection': usedTenantsCollection,
         'at': at.toIso8601String(),
       };

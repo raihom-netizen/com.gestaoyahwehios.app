@@ -37,6 +37,8 @@ class ChurchAvisosPage extends StatefulWidget {
 /// Filtro rápido da grelha de avisos.
 enum _AvisoGridFilter { todos, permanentes, comVencimento, comFoto }
 
+enum _AvisoLayoutMode { grid, lista }
+
 class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   final Set<String> _selected = {};
   bool _selectionMode = false;
@@ -45,6 +47,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   String? _loadError;
   bool _showingStaleCache = false;
   _AvisoGridFilter _filtro = _AvisoGridFilter.todos;
+  _AvisoLayoutMode _layoutMode = _AvisoLayoutMode.grid;
   final TextEditingController _searchCtrl = TextEditingController();
   bool _sortDateAsc = true;
 
@@ -332,6 +335,19 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 
+  Future<void> _openAvisoViewer(ChurchAvisoItem item) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AvisoViewerSheet(
+        item: item,
+        dateLabel: _formatDate(item.createdAt),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final padding = ThemeCleanPremium.pagePadding(context);
@@ -364,6 +380,62 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                     ChurchAvisosCarousel(
                       churchIdHint: widget.tenantId,
                       compact: true,
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF0EA5E9).withValues(alpha: 0.12),
+                            const Color(0xFF8B5CF6).withValues(alpha: 0.12),
+                            const Color(0xFF22C55E).withValues(alpha: 0.10),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.auto_awesome_rounded,
+                            color: Colors.blue.shade700,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              'Visual moderno de Avisos: escolha lista ou grid.',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          SegmentedButton<_AvisoLayoutMode>(
+                            showSelectedIcon: false,
+                            selected: {_layoutMode},
+                            onSelectionChanged: (v) {
+                              if (v.isEmpty) return;
+                              setState(() => _layoutMode = v.first);
+                            },
+                            segments: const [
+                              ButtonSegment<_AvisoLayoutMode>(
+                                value: _AvisoLayoutMode.lista,
+                                label: Text('Lista'),
+                                icon: Icon(Icons.view_list_rounded, size: 18),
+                              ),
+                              ButtonSegment<_AvisoLayoutMode>(
+                                value: _AvisoLayoutMode.grid,
+                                label: Text('Grid'),
+                                icon: Icon(Icons.grid_view_rounded, size: 18),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     _buildFilterBar(),
@@ -478,35 +550,70 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                   padding.right,
                   padding.bottom + 24,
                 ),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossAxisCount,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.72,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final item = visible[index];
-                      return _AvisoGridCard(
-                        item: item,
-                        dateLabel: _formatDate(item.createdAt),
-                        canManage: _canManage,
-                        selectionMode: _selectionMode,
-                        selected: _selected.contains(item.id),
-                        onToggleSelect: () => setState(() {
-                          if (_selected.contains(item.id)) {
-                            _selected.remove(item.id);
-                          } else {
-                            _selected.add(item.id);
-                          }
-                        }),
-                        onDelete: () => _confirmDeleteOne(item),
-                      );
-                    },
-                    childCount: visible.length,
-                  ),
-                ),
+                sliver: _layoutMode == _AvisoLayoutMode.grid
+                    ? SliverGrid(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 0.74,
+                        ),
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final item = visible[index];
+                            return _AvisoGridCard(
+                                item: item,
+                                dateLabel: _formatDate(item.createdAt),
+                                canManage: _canManage,
+                                selectionMode: _selectionMode,
+                                selected: _selected.contains(item.id),
+                                onToggleSelect: () => setState(() {
+                                  if (_selected.contains(item.id)) {
+                                    _selected.remove(item.id);
+                                  } else {
+                                    _selected.add(item.id);
+                                  }
+                                }),
+                                onView: () => _openAvisoViewer(item),
+                                onDelete: () => _confirmDeleteOne(item),
+                              );
+                              return _AvisoStaggeredAppear(
+                                key: ValueKey('grid_${item.id}'),
+                                index: index,
+                                child: card,
+                              );
+                          },
+                          childCount: visible.length,
+                        ),
+                      )
+                    : SliverList.separated(
+                        itemCount: visible.length,
+                        itemBuilder: (context, index) {
+                          final item = visible[index];
+                          return _AvisoListCard(
+                            item: item,
+                            dateLabel: _formatDate(item.createdAt),
+                            canManage: _canManage,
+                            selectionMode: _selectionMode,
+                            selected: _selected.contains(item.id),
+                            onToggleSelect: () => setState(() {
+                              if (_selected.contains(item.id)) {
+                                _selected.remove(item.id);
+                              } else {
+                                _selected.add(item.id);
+                              }
+                            }),
+                            onView: () => _openAvisoViewer(item),
+                            onDelete: () => _confirmDeleteOne(item),
+                          );
+                          return _AvisoStaggeredAppear(
+                            key: ValueKey('list_${item.id}'),
+                            index: index,
+                            child: card,
+                          );
+                        },
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      ),
               ),
           ],
         ),
@@ -521,7 +628,115 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 }
 
-class _AvisoGridCard extends StatelessWidget {
+class _AvisoTone {
+  const _AvisoTone({
+    required this.primary,
+    required this.secondary,
+    required this.soft,
+  });
+
+  final Color primary;
+  final Color secondary;
+  final Color soft;
+}
+
+class _AvisoStaggeredAppear extends StatefulWidget {
+  const _AvisoStaggeredAppear({
+    super.key,
+    required this.index,
+    required this.child,
+  });
+
+  final int index;
+  final Widget child;
+
+  @override
+  State<_AvisoStaggeredAppear> createState() => _AvisoStaggeredAppearState();
+}
+
+class _AvisoStaggeredAppearState extends State<_AvisoStaggeredAppear>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fade;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 320),
+    );
+    _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.055),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+
+    final delayMs = (widget.index * 35).clamp(0, 280);
+    Future<void>.delayed(Duration(milliseconds: delayMs)).then((_) {
+      if (mounted) _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.maybeOf(context);
+    final reduceMotion =
+        (media?.disableAnimations ?? false) || (media?.accessibleNavigation ?? false);
+    if (reduceMotion) return widget.child;
+
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+_AvisoTone _resolveAvisoTone(ChurchAvisoItem item) {
+  if (item.permanent) {
+    return const _AvisoTone(
+      primary: Color(0xFF059669),
+      secondary: Color(0xFF10B981),
+      soft: Color(0xFFD1FAE5),
+    );
+  }
+
+  final expiresSoon =
+      item.expiresAt != null && item.expiresAt!.difference(DateTime.now()).inDays <= 3;
+  if (expiresSoon) {
+    return const _AvisoTone(
+      primary: Color(0xFFEA580C),
+      secondary: Color(0xFFF59E0B),
+      soft: Color(0xFFFFEDD5),
+    );
+  }
+
+  if (item.hasImages) {
+    return const _AvisoTone(
+      primary: Color(0xFF7C3AED),
+      secondary: Color(0xFF8B5CF6),
+      soft: Color(0xFFEDE9FE),
+    );
+  }
+
+  return const _AvisoTone(
+    primary: Color(0xFF0284C7),
+    secondary: Color(0xFF0EA5E9),
+    soft: Color(0xFFE0F2FE),
+  );
+}
+
+class _AvisoGridCard extends StatefulWidget {
   const _AvisoGridCard({
     required this.item,
     required this.dateLabel,
@@ -529,6 +744,7 @@ class _AvisoGridCard extends StatelessWidget {
     required this.selectionMode,
     required this.selected,
     required this.onToggleSelect,
+    required this.onView,
     required this.onDelete,
   });
 
@@ -538,30 +754,66 @@ class _AvisoGridCard extends StatelessWidget {
   final bool selectionMode;
   final bool selected;
   final VoidCallback onToggleSelect;
+  final VoidCallback onView;
   final VoidCallback onDelete;
 
   @override
+  State<_AvisoGridCard> createState() => _AvisoGridCardState();
+}
+
+class _AvisoGridCardState extends State<_AvisoGridCard> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      elevation: 0,
-      borderRadius: BorderRadius.circular(16),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: selectionMode ? onToggleSelect : null,
-        onLongPress: canManage && !selectionMode ? onDelete : null,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selected
-                  ? const Color(0xFF0EA5E9)
-                  : const Color(0xFFE2E8F0),
-              width: selected ? 2 : 1,
-            ),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: Column(
+    final tone = _resolveAvisoTone(widget.item);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        scale: _hover && !widget.selectionMode ? 1.015 : 1,
+        child: Material(
+          color: Colors.transparent,
+          elevation: 0,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: widget.selectionMode ? widget.onToggleSelect : widget.onView,
+            onLongPress:
+                widget.canManage && !widget.selectionMode ? widget.onDelete : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  colors: [
+                    tone.secondary.withValues(alpha: 0.15),
+                    tone.primary.withValues(alpha: 0.08),
+                    Colors.white,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(
+                  color: widget.selected
+                      ? tone.primary
+                      : const Color(0xFFE2E8F0),
+                  width: widget.selected ? 2 : 1,
+                ),
+                boxShadow: _hover
+                    ? [
+                        ...ThemeCleanPremium.softUiCardShadow,
+                        BoxShadow(
+                          color: tone.primary.withValues(alpha: 0.18),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ]
+                    : ThemeCleanPremium.softUiCardShadow,
+              ),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
@@ -569,21 +821,21 @@ class _AvisoGridCard extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    if (item.hasImages)
+                    if (widget.item.hasImages)
                       SafeNetworkImage(
-                        imageUrl: item.imageUrls.first,
+                        imageUrl: widget.item.imageUrls.first,
                         fit: BoxFit.cover,
                       )
                     else
                       Container(
-                        color: const Color(0xFFEFF6FF),
+                        color: tone.soft,
                         child: Icon(
                           Icons.campaign_outlined,
                           size: 40,
-                          color: Colors.blue.shade300,
+                          color: tone.primary,
                         ),
                       ),
-                    if (selectionMode)
+                    if (widget.selectionMode)
                       Positioned(
                         top: 6,
                         left: 6,
@@ -591,28 +843,48 @@ class _AvisoGridCard extends StatelessWidget {
                           color: Colors.white.withValues(alpha: 0.92),
                           shape: const CircleBorder(),
                           child: Checkbox(
-                            value: selected,
-                            onChanged: (_) => onToggleSelect(),
+                            value: widget.selected,
+                            onChanged: (_) => widget.onToggleSelect(),
                           ),
                         ),
                       ),
-                    if (canManage && !selectionMode)
+                    if (widget.canManage && !widget.selectionMode)
                       Positioned(
                         top: 4,
                         right: 4,
-                        child: IconButton(
-                          visualDensity: VisualDensity.compact,
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.92),
-                          ),
-                          tooltip: 'Excluir',
-                          onPressed: onDelete,
-                          icon: Icon(
-                            Icons.delete_outline_rounded,
-                            color: Colors.red.shade400,
-                            size: 20,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.94),
+                              ),
+                              tooltip: 'Ver completo',
+                              onPressed: widget.onView,
+                              icon: Icon(
+                                Icons.visibility_rounded,
+                                color: tone.primary,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    Colors.white.withValues(alpha: 0.94),
+                              ),
+                              tooltip: 'Excluir',
+                              onPressed: widget.onDelete,
+                              icon: Icon(
+                                Icons.delete_outline_rounded,
+                                color: Colors.red.shade400,
+                                size: 20,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                   ],
@@ -626,7 +898,7 @@ class _AvisoGridCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item.title.isEmpty ? 'Aviso' : item.title,
+                        widget.item.title.isEmpty ? 'Aviso' : widget.item.title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -637,20 +909,37 @@ class _AvisoGridCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        item.permanent
+                        widget.item.permanent
                             ? 'Permanente'
-                            : 'Vence ${_formatExpiry(item.expiresAt)}',
+                            : 'Vence ${_formatExpiry(widget.item.expiresAt)}',
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: item.permanent
-                              ? const Color(0xFF059669)
-                              : const Color(0xFFD97706),
+                          color: tone.primary,
                         ),
                       ),
                       const Spacer(),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.photo_library_rounded,
+                            size: 14,
+                            color: tone.secondary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${widget.item.imageUrls.length} foto(s)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: tone.secondary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
                       Text(
-                        'Publicado $dateLabel',
+                        'Publicado ${widget.dateLabel}',
                         style: TextStyle(
                           fontSize: 10,
                           color: Colors.grey.shade600,
@@ -661,6 +950,7 @@ class _AvisoGridCard extends StatelessWidget {
                 ),
               ),
             ],
+              ),
           ),
         ),
       ),
@@ -670,6 +960,433 @@ class _AvisoGridCard extends StatelessWidget {
   static String _formatExpiry(DateTime? dt) {
     if (dt == null) return '—';
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+}
+
+class _AvisoListCard extends StatefulWidget {
+  const _AvisoListCard({
+    required this.item,
+    required this.dateLabel,
+    required this.canManage,
+    required this.selectionMode,
+    required this.selected,
+    required this.onToggleSelect,
+    required this.onView,
+    required this.onDelete,
+  });
+
+  final ChurchAvisoItem item;
+  final String dateLabel;
+  final bool canManage;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback onToggleSelect;
+  final VoidCallback onView;
+  final VoidCallback onDelete;
+
+  @override
+  State<_AvisoListCard> createState() => _AvisoListCardState();
+}
+
+class _AvisoListCardState extends State<_AvisoListCard> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = _resolveAvisoTone(widget.item);
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        scale: _hover && !widget.selectionMode ? 1.01 : 1,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              colors: [
+                tone.secondary.withValues(alpha: 0.13),
+                tone.primary.withValues(alpha: 0.09),
+                Colors.white,
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(
+              color: widget.selected ? tone.primary : const Color(0xFFE2E8F0),
+              width: widget.selected ? 2 : 1,
+            ),
+            boxShadow: _hover
+                ? [
+                    ...ThemeCleanPremium.softUiCardShadow,
+                    BoxShadow(
+                      color: tone.primary.withValues(alpha: 0.16),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: widget.selectionMode ? widget.onToggleSelect : widget.onView,
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 86,
+                  height: 86,
+                  child: widget.item.hasImages
+                      ? SafeNetworkImage(
+                          imageUrl: widget.item.imageUrls.first,
+                          fit: BoxFit.cover,
+                        )
+                      : Container(
+                          color: tone.soft,
+                          child: Icon(
+                            Icons.campaign_rounded,
+                            color: tone.primary,
+                            size: 32,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.item.title.isEmpty ? 'Aviso' : widget.item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.item.body.isEmpty
+                          ? 'Sem descrição.'
+                        : widget.item.body,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _miniTag(
+                          icon: Icons.calendar_month_rounded,
+                          text: widget.dateLabel,
+                          color: tone.primary,
+                        ),
+                        _miniTag(
+                          icon: Icons.photo_library_outlined,
+                          text: '${widget.item.imageUrls.length} foto(s)',
+                          color: tone.secondary,
+                        ),
+                        _miniTag(
+                          icon: widget.item.permanent
+                              ? Icons.all_inclusive_rounded
+                              : Icons.timer_outlined,
+                          text: widget.item.permanent ? 'Permanente' : 'Com validade',
+                          color: tone.primary,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 6),
+              Column(
+                children: [
+                  if (widget.selectionMode)
+                    Checkbox(
+                      value: widget.selected,
+                      onChanged: (_) => widget.onToggleSelect(),
+                    )
+                  else ...[
+                    IconButton.filledTonal(
+                      tooltip: 'Ver completo',
+                      style: IconButton.styleFrom(
+                        backgroundColor: tone.soft,
+                      ),
+                      onPressed: widget.onView,
+                      icon: Icon(Icons.visibility_rounded, color: tone.primary),
+                    ),
+                    if (widget.canManage)
+                      IconButton.filledTonal(
+                        tooltip: 'Excluir',
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFFFEE2E2),
+                        ),
+                        onPressed: widget.onDelete,
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFDC2626),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _miniTag({
+    required IconData icon,
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AvisoViewerSheet extends StatefulWidget {
+  const _AvisoViewerSheet({
+    required this.item,
+    required this.dateLabel,
+  });
+
+  final ChurchAvisoItem item;
+  final String dateLabel;
+
+  @override
+  State<_AvisoViewerSheet> createState() => _AvisoViewerSheetState();
+}
+
+class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
+  final PageController _pageCtrl = PageController();
+  int _index = 0;
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final tone = _resolveAvisoTone(item);
+    final pad = MediaQuery.of(context).padding;
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+      ),
+      margin: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: tone.soft,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Aviso completo',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: tone.primary,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(16, 6, 16, 16 + pad.bottom),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title.isEmpty ? 'Aviso' : item.title,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      height: 1.15,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _viewerTag(Icons.calendar_today_rounded, widget.dateLabel,
+                          tone.primary),
+                      _viewerTag(
+                        item.permanent
+                            ? Icons.all_inclusive_rounded
+                            : Icons.timer_rounded,
+                        item.permanent
+                            ? 'Permanente'
+                            : 'Com vencimento',
+                        tone.primary,
+                      ),
+                      _viewerTag(Icons.photo_library_rounded,
+                          '${item.imageUrls.length} foto(s)', tone.secondary),
+                    ],
+                  ),
+                  if (item.authorName.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Publicado por ${item.authorName}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  if (item.imageUrls.isNotEmpty)
+                    Column(
+                      children: [
+                        AspectRatio(
+                          aspectRatio: 16 / 10,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: PageView.builder(
+                              controller: _pageCtrl,
+                              itemCount: item.imageUrls.length,
+                              onPageChanged: (i) => setState(() => _index = i),
+                              itemBuilder: (_, i) => SafeNetworkImage(
+                                imageUrl: item.imageUrls[i],
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (item.imageUrls.length > 1) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            children: List.generate(
+                              item.imageUrls.length,
+                              (i) => AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                width: i == _index ? 20 : 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(999),
+                                  color: i == _index
+                                      ? tone.primary
+                                      : Colors.grey.shade300,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  if (item.body.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Text(
+                        item.body,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          height: 1.45,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _viewerTag(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -84,6 +84,7 @@ abstract final class ChurchFirestoreAccess {
           maxAttempts: kIsWeb ? 2 : 2,
         ),
       ).timeout(ChurchPanelReadTimeouts.queryCap);
+      final source = snap.metadata.isFromCache ? 'firestore_cache' : 'server';
       FirebaseQueryAudit.record(
         module: module,
         path: path,
@@ -91,6 +92,7 @@ abstract final class ChurchFirestoreAccess {
         durationMs: sw.elapsedMilliseconds,
         docCount: snap.docs.length,
         limit: capped,
+        readSource: source,
       );
       return snap;
     } catch (e) {

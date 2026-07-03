@@ -37,20 +37,36 @@ service firebase.storage {
 
     function tokenTenantMatches(igrejaId) {
       return isSignedIn() && (
-        request.auth.token.igrejaId == igrejaId
-        || request.auth.token.tenantId == igrejaId
-        || request.auth.token.churchId == igrejaId
-        || request.auth.token.churchCanonicalId == igrejaId
-        || request.auth.token.canonicalTenantId == igrejaId
+        storageTenantValueMatches(request.auth.token.igrejaId, igrejaId)
+        || storageTenantValueMatches(request.auth.token.tenantId, igrejaId)
+        || storageTenantValueMatches(request.auth.token.churchId, igrejaId)
+        || storageTenantValueMatches(request.auth.token.churchCanonicalId, igrejaId)
+        || storageTenantValueMatches(request.auth.token.canonicalTenantId, igrejaId)
+      );
+    }
+
+    // Compatibilidade de tenant (canónico + legados): `igreja_xxx`, `id_igreja_xxx`,
+    // `v_igreja_xxx` e formatos path-like `igrejas/{id}/...`.
+    function storageTenantValueMatches(value, igrejaId) {
+      return value is string && (
+        value == igrejaId
+        || value == ('id_' + igrejaId)
+        || value == ('v_' + igrejaId)
+        || igrejaId == ('id_' + value)
+        || igrejaId == ('v_' + value)
+        || value.matches('^/?igrejas/' + igrejaId + '(/.*)?$')
+        || value.matches('^/?igrejas/v_' + igrejaId + '(/.*)?$')
+        || value.matches('^.*/igrejas/' + igrejaId + '(/.*)?$')
+        || value.matches('^.*/igrejas/v_' + igrejaId + '(/.*)?$')
       );
     }
 
     function tenantIdMatchesUserData(igrejaId, d) {
-      return d.get('igrejaId', '') == igrejaId
-        || d.get('tenantId', '') == igrejaId
-        || d.get('churchId', '') == igrejaId
-        || d.get('churchCanonicalId', '') == igrejaId
-        || d.get('canonicalTenantId', '') == igrejaId;
+      return storageTenantValueMatches(d.get('igrejaId', ''), igrejaId)
+        || storageTenantValueMatches(d.get('tenantId', ''), igrejaId)
+        || storageTenantValueMatches(d.get('churchId', ''), igrejaId)
+        || storageTenantValueMatches(d.get('churchCanonicalId', ''), igrejaId)
+        || storageTenantValueMatches(d.get('canonicalTenantId', ''), igrejaId);
     }
 
     function storageUserDocMatchesTenant(igrejaId) {
