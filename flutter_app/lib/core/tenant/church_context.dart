@@ -45,9 +45,16 @@ abstract final class ChurchContext {
   /// **Sempre** aplica [TenantResolverService.mapLegacySeedToCanonical] — mesmo quando
   /// a sessão ficou bound a um slug legado (`o-brasil-cristo-jardim-goiano`).
   static String resolveChurchId([String? shellHint]) {
+    final hint = shellHint?.trim() ?? '';
+    if (hint.isNotEmpty) {
+      final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
+      if (mapped != null && mapped.isNotEmpty) return mapped;
+      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(hint)) return hint;
+    }
+
     final ctx = currentChurchId;
     if (ctx != null && ctx.isNotEmpty) return _canonicalize(ctx);
-    return _canonicalize(shellHint ?? '');
+    return _canonicalize(hint);
   }
 
   static String _canonicalize(String raw) {

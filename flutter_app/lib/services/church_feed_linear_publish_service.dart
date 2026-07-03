@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
@@ -17,6 +19,7 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
+import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
@@ -42,7 +45,22 @@ abstract final class ChurchFeedLinearPublishService {
     bool syncCalendar = true,
     void Function(double progress)? onUploadProgress,
   }) async {
-    throw const ChurchPanelModuleRemovedException('Avisos');
+    return _publish(
+      kind: PublicationKind.aviso,
+      docRef: docRef,
+      tenantId: tenantId,
+      corePayload: corePayload,
+      isNewDoc: isNewDoc,
+      existingPhotoRefs: existingPhotoRefs,
+      startSlotIndex: startSlotIndex,
+      newImagesBytes: newImagesBytes,
+      newImagePaths: newImagePaths,
+      publicSite: publicSite,
+      calendarDate: calendarDate,
+      syncCalendar: syncCalendar,
+      onUploadProgress: onUploadProgress,
+      hasVideo: false,
+    );
   }
 
   static Future<String> publishEvento({
@@ -112,6 +130,11 @@ abstract final class ChurchFeedLinearPublishService {
     final docId = docRef.id;
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
 
+    logFirebasePublishPhase(
+      'linear_publish_start',
+      '$postType path=${docRef.path} tenant=$churchId photos=${newImagesBytes?.length ?? newImagePaths?.length ?? 0}',
+    );
+
     await DirectStorageUrlPublish.ensureReady();
     _report(onUploadProgress, 0.18);
 
@@ -131,56 +154,91 @@ abstract final class ChurchFeedLinearPublishService {
     final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
+    var uploadedCount = 0;
 
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
-      _report(onUploadProgress, 0.20);
-      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-        tenantId: churchId,
-        postType: postType,
-        postId: docId,
-        startSlotIndex: startSlotIndex,
-        bytesList: newImagesBytes,
-        localPaths: newImagePaths,
-        alreadyCompressed: newImagesBytes?.isNotEmpty ?? false,
-        onProgress: (batchP) {
-          _report(onUploadProgress, 0.20 + batchP * 0.52);
-        },
+      logFirebasePublishPhase(
+        'linear_upload_start',
+        '$postType path=${docRef.path} tenant=$churchId',
       );
-      for (final slot in slots) {
-        uploadedPaths.add(slot.fullPath);
-        alignedThumbPaths.add(slot.thumbPath);
-        final direct = sanitizeImageUrl(slot.fullUrl);
-        if (isValidImageUrl(direct)) {
-          existingUrls = dedupeImageRefsByStorageIdentity([
-            ...existingUrls,
-            direct,
-          ]);
-        } else {
-          final url = await EcoFireFeedPublishService.refsToPlayableUrls(
-            [slot.fullPath],
-          );
-          if (url.isNotEmpty) {
+      _report(onUploadProgress, 0.20);
+      if (isEvento) {
+        final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
+          tenantId: churchId,
+          postType: postType,
+          postId: docId,
+          startSlotIndex: startSlotIndex,
+          bytesList: newImagesBytes,
+          localPaths: newImagePaths,
+          alreadyCompressed: newImagesBytes?.isNotEmpty ?? false,
+          onProgress: (batchP) {
+            _report(onUploadProgress, 0.20 + batchP * 0.52);
+          },
+        );
+        for (final slot in slots) {
+          uploadedPaths.add(slot.fullPath);
+          alignedThumbPaths.add(slot.thumbPath);
+          final direct = sanitizeImageUrl(slot.fullUrl);
+          if (isValidImageUrl(direct)) {
             existingUrls = dedupeImageRefsByStorageIdentity([
               ...existingUrls,
-              ...url,
+              direct,
+            ]);
+          } else {
+            final url = await EcoFireFeedPublishService.refsToPlayableUrls(
+              [slot.fullPath],
+            );
+            if (url.isNotEmpty) {
+              existingUrls = dedupeImageRefsByStorageIdentity([
+                ...existingUrls,
+                ...url,
+              ]);
+            }
+          }
+          final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
+          if (isValidImageUrl(thumbDirect)) {
+            alignedThumbUrls.add(thumbDirect);
+          }
+        }
+        uploadedCount = slots.length;
+      } else {
+        final images = newImagesBytes ?? const <Uint8List>[];
+        if (images.isEmpty) {
+          throw StateError('Inclua pelo menos uma foto no aviso.');
+        }
+        for (var i = 0; i < images.length; i++) {
+          final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
+            churchId: churchId,
+            postId: docId,
+            slotIndex: startSlotIndex + i,
+            rawBytes: images[i],
+            alreadyCompressed: true,
+          );
+          uploadedPaths.add(uploaded.storagePath);
+          final url = sanitizeImageUrl(uploaded.downloadUrl);
+          if (isValidImageUrl(url)) {
+            existingUrls = dedupeImageRefsByStorageIdentity([
+              ...existingUrls,
+              url,
             ]);
           }
         }
-        final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
-        if (isValidImageUrl(thumbDirect)) {
-          alignedThumbUrls.add(thumbDirect);
-        }
+        uploadedCount = uploadedPaths.length;
       }
-      ChurchPublishFlowLog.uploadOk('$postType $docId (${slots.length} fotos)');
+      ChurchPublishFlowLog.uploadOk('$postType $docId ($uploadedCount fotos)');
+      logFirebasePublishPhase(
+        'linear_upload_ok',
+        '$postType path=${docRef.path} tenant=$churchId uploaded=$uploadedCount',
+      );
       _report(onUploadProgress, 0.74);
-      if (slots.isEmpty) {
+      if (uploadedCount == 0) {
         throw StateError(
           'Não foi possível enviar as fotos para o Storage. '
           'Verifique a rede e toque em «Tentar novamente».',
         );
       }
-      if (alignedThumbUrls.isEmpty) {
+      if (isEvento && alignedThumbUrls.isEmpty) {
         for (final tp in alignedThumbPaths) {
           final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);
           if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
@@ -250,6 +308,10 @@ abstract final class ChurchFeedLinearPublishService {
     payload['publicSite'] = publicSite;
 
     _report(onUploadProgress, 0.78);
+    logFirebasePublishPhase(
+      'linear_firestore_before_save',
+      '$postType path=${docRef.path} tenant=$churchId',
+    );
     await PublicationEngine.saveStrictPublished(
       docRef: docRef,
       tenantId: churchId,
@@ -269,6 +331,10 @@ abstract final class ChurchFeedLinearPublishService {
     await _verifyFeedDocPublished(
       docRef: docRef,
       isEvento: isEvento,
+    );
+    logFirebasePublishPhase(
+      'linear_firestore_verified',
+      '$postType path=${docRef.path} tenant=$churchId',
     );
     _report(onUploadProgress, 0.88);
 
@@ -313,6 +379,10 @@ abstract final class ChurchFeedLinearPublishService {
       isNewDoc: isNewDoc,
       publicSite: publicSite,
       phase: PublicationDistributionPhase.afterMediaFinalized,
+    );
+    logFirebasePublishPhase(
+      'linear_publish_ok',
+      '$postType path=${docRef.path} tenant=$churchId',
     );
 
     await _logDiagnostic(

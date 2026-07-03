@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -84,7 +85,14 @@ abstract final class ChurchAvisosService {
 
   static const int kMaxPhotos = 3;
 
-  static String churchId(String hint) => ChurchRepository.churchId(hint.trim());
+  static String churchId(String hint) {
+    final raw = hint.trim();
+    if (raw.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(raw);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(raw)) return raw;
+    return ChurchRepository.churchId(raw);
+  }
 
   static bool canManage(
     String role, {
@@ -153,9 +161,6 @@ abstract final class ChurchAvisosService {
     if (titulo.isEmpty) throw StateError('Informe o título do aviso.');
 
     final imgs = photoBytes.where((b) => b.isNotEmpty).take(kMaxPhotos).toList();
-    if (imgs.isEmpty) {
-      throw StateError('Inclua pelo menos uma foto no aviso.');
-    }
 
     if (!permanent && expiresAtEndOfDay == null) {
       throw StateError('Escolha a data de vencimento ou marque como permanente.');
@@ -216,11 +221,13 @@ abstract final class ChurchAvisosService {
       'ativo': true,
       'permanent': permanent,
       'imageUrls': imageUrls,
-      'imageUrl': imageUrls.first,
-      'coverPhotoUrl': imageUrls.first,
-      'fotoUrl': imageUrls.first,
       'photoStoragePaths': storagePaths,
       'imageStoragePaths': storagePaths,
+      if (imageUrls.isNotEmpty) ...{
+        'imageUrl': imageUrls.first,
+        'coverPhotoUrl': imageUrls.first,
+        'fotoUrl': imageUrls.first,
+      },
       if (expTs != null) ...{
         'avisoExpiresAt': expTs,
         'validUntil': validUntil,
@@ -239,6 +246,142 @@ abstract final class ChurchAvisosService {
     );
 
     return postId;
+  }
+
+  /// Atualiza aviso existente (título, mensagem, validade e fotos opcionais).
+  static Future<void> update({
+    required String churchIdHint,
+    required String docId,
+    required String title,
+    required String body,
+    required bool permanent,
+    DateTime? expiresAtEndOfDay,
+    List<String> existingImageUrls = const [],
+    List<Uint8List> newPhotoBytes = const [],
+    String role = '',
+    List<String>? permissions,
+  }) async {
+    if (!canManage(role, permissions: permissions)) {
+      throw StateError('Sem permissão para editar avisos.');
+    }
+
+    final cid = churchId(churchIdHint);
+    final id = docId.trim();
+    if (cid.isEmpty || id.isEmpty) {
+      throw StateError('Aviso não identificado para edição.');
+    }
+
+    final titulo = title.trim();
+    if (titulo.isEmpty) throw StateError('Informe o título do aviso.');
+
+    if (!permanent && expiresAtEndOfDay == null) {
+      throw StateError('Escolha a data de vencimento ou marque como permanente.');
+    }
+
+    final keepUrls = <String>[];
+    for (final raw in existingImageUrls) {
+      final u = raw.trim();
+      if (u.isNotEmpty && !keepUrls.contains(u)) keepUrls.add(u);
+      if (keepUrls.length >= kMaxPhotos) break;
+    }
+
+    final remainingSlots = (kMaxPhotos - keepUrls.length).clamp(0, kMaxPhotos);
+    final newImages = newPhotoBytes
+        .where((b) => b.isNotEmpty)
+        .take(remainingSlots)
+        .toList();
+
+    final uploadedUrls = <String>[];
+    final uploadedPaths = <String>[];
+    for (var i = 0; i < newImages.length; i++) {
+      final slotIndex = keepUrls.length + i;
+      final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
+        churchId: cid,
+        postId: id,
+        slotIndex: slotIndex,
+        rawBytes: newImages[i],
+        onProgress: null,
+      );
+      uploadedUrls.add(uploaded.downloadUrl);
+      uploadedPaths.add(uploaded.storagePath);
+    }
+
+    final mergedUrls = <String>[...keepUrls, ...uploadedUrls]
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+
+    Timestamp? expTs;
+    Timestamp? validUntil;
+    if (!permanent && expiresAtEndOfDay != null) {
+      final end = DateTime(
+        expiresAtEndOfDay.year,
+        expiresAtEndOfDay.month,
+        expiresAtEndOfDay.day,
+        23,
+        59,
+        59,
+      );
+      expTs = Timestamp.fromDate(end);
+      validUntil = expTs;
+    }
+
+    final payload = <String, dynamic>{
+      'type': 'aviso',
+      'title': titulo,
+      'titulo': titulo,
+      'body': body.trim(),
+      'text': body.trim(),
+      'mensagem': body.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'publicado': true,
+      'status': 'publicado',
+      'publishState': 'published',
+      'ativo': true,
+      'permanent': permanent,
+      if (expTs != null) ...{
+        'avisoExpiresAt': expTs,
+        'validUntil': validUntil,
+      } else ...{
+        'avisoExpiresAt': FieldValue.delete(),
+        'validUntil': FieldValue.delete(),
+      },
+    };
+
+    if (mergedUrls.isNotEmpty) {
+      payload.addAll({
+        'imageUrls': mergedUrls,
+        'imageUrl': mergedUrls.first,
+        'coverPhotoUrl': mergedUrls.first,
+        'fotoUrl': mergedUrls.first,
+      });
+      if (uploadedPaths.isNotEmpty && keepUrls.isEmpty) {
+        payload['photoStoragePaths'] = uploadedPaths;
+        payload['imageStoragePaths'] = uploadedPaths;
+      }
+    } else {
+      payload.addAll({
+        'imageUrls': FieldValue.delete(),
+        'imageUrl': FieldValue.delete(),
+        'coverPhotoUrl': FieldValue.delete(),
+        'fotoUrl': FieldValue.delete(),
+        'photoStoragePaths': FieldValue.delete(),
+        'imageStoragePaths': FieldValue.delete(),
+      });
+    }
+
+    final docRef = ChurchUiCollections.avisos(cid).doc(id);
+    await AdminFeedFirestoreBridge.upsertDocRef(
+      docRef: docRef,
+      data: payload,
+      isNewDoc: false,
+      directWrite: () => runFirestorePublishWithRecovery(
+        () => docRef.set(payload, SetOptions(merge: true)),
+        maxAttempts: 4,
+        criticalWrite: true,
+      ),
+    );
+
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
   }
 
   /// Exclui um aviso (Firestore + Storage em background).

@@ -1,6 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
-/// 11.2.305+2060: Atalhos YahwehChat/WhatsApp unificados (painel, membros, dept, aniversariantes); deploy completo web/AAB/iOS.
+/// 11.2.305+2061: Deploy completo — avisos/publicacao central, upload Storage canonico, atalhos chat/WhatsApp.
 /// 11.2.305+2059: Mídia unificada Web — AdminFeedFirestoreBridge direct-first (avisos, financeiro, fornecedores, chat, logo, membros, eventos); fim CF INTERNAL comprovantes.
 /// 11.2.305+2057: Exclusão — Membros/Financeiro/Orações/Escalas (permissões, web recovery, batch canónico).
 /// 11.2.305+2056: Cadastro Igreja — logo reescrita (4K, adicionar/trocar/remover, strict Storage→Firestore).
@@ -452,7 +452,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2060';
+const String appBuildNumber = '2061';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

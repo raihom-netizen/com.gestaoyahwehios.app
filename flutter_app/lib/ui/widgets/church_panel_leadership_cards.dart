@@ -188,6 +188,7 @@ class _ChurchPanelLeadershipCardSectionState
             builder: (context, constraints) {
               final narrow =
                   constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
+              final crossAxisCount = narrow ? 1 : 2;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -206,17 +207,26 @@ class _ChurchPanelLeadershipCardSectionState
                         ),
                       ),
                     ),
-                  for (var i = 0; i < list.length; i++) ...[
-                    if (i > 0) const SizedBox(height: 10),
-                    ChurchPanelLeaderWisdomCard(
-                      entry: list[i],
-                      tenantId: widget.tenantId,
-                      role: widget.role,
-                      viewerCpfDigits: widget.viewerCpfDigits,
-                      accent: _accent,
-                      dense: narrow,
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: list.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: narrow ? 1.08 : 1.02,
                     ),
-                  ],
+                    itemBuilder: (context, index) {
+                      return ChurchPanelLeaderAttentionCard(
+                        entry: list[index],
+                        tenantId: widget.tenantId,
+                        role: widget.role,
+                        viewerCpfDigits: widget.viewerCpfDigits,
+                        accent: _accent,
+                      );
+                    },
+                  ),
                 ],
               );
             },
@@ -372,6 +382,176 @@ class ChurchPanelLeaderWisdomCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Card em grelha estilo atenção pastoral — com foto, nome completo e atalhos.
+class ChurchPanelLeaderAttentionCard extends StatelessWidget {
+  const ChurchPanelLeaderAttentionCard({
+    super.key,
+    required this.entry,
+    required this.tenantId,
+    required this.role,
+    required this.viewerCpfDigits,
+    required this.accent,
+  });
+
+  final ChurchPanelLeaderEntry entry;
+  final String tenantId;
+  final String role;
+  final String viewerCpfDigits;
+  final Color accent;
+
+  String _fullName(Map<String, dynamic> data) {
+    for (final k in const ['NOME_COMPLETO', 'nome', 'name', 'NOME']) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return entry.displayName.trim().isNotEmpty ? entry.displayName.trim() : 'Membro';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = entry.memberData;
+    final nome = _fullName(data);
+    final subtitle = entry.subtitleLine;
+    final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
+    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
+    final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
+    final cpf = (data['CPF'] ?? data['cpf'] ?? '')
+        .toString()
+        .replaceAll(RegExp(r'\D'), '');
+    final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            const Color(0xFFF8FAFC),
+            ThemeCleanPremium.primary.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FotoMembroWidget(
+                  imageUrl: foto,
+                  memberData: data,
+                  tenantId: tenantId,
+                  memberId: entry.memberDocId,
+                  cpfDigits: cpf.length == 11 ? cpf : null,
+                  authUid: MemberProfilePhotoResolver.authUidFromData(
+                    data,
+                    memberDocId: entry.memberDocId,
+                  ),
+                  size: 52,
+                  memCacheWidth: 120,
+                  memCacheHeight: 120,
+                  preferListThumbnail: true,
+                  backgroundColor:
+                      avatarColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  fallbackChild: CircleAvatar(
+                    radius: 26,
+                    backgroundColor:
+                        avatarColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.15),
+                    child: Text(
+                      initial,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 20,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        maxLines: 3,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          letterSpacing: -0.25,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (subtitle.trim().isNotEmpty)
+                        Text(
+                          subtitle,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.3,
+                            color: Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: YahwehSuperPremiumActionButton.chat(
+                    compact: true,
+                    onPressed: () => ChurchMemberContactChat.tapYahwehChat(
+                      context: context,
+                      tenantId: tenantId,
+                      memberRole: role,
+                      viewerCpfDigits: viewerCpfDigits,
+                      memberData: data,
+                      displayName: nome,
+                      memberDocId: entry.memberDocId,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: YahwehSuperPremiumActionButton.whatsapp(
+                    compact: true,
+                    onPressed: () => ChurchMemberContactChat.tapWhatsApp(
+                      context: context,
+                      memberData: data,
+                      tenantId: tenantId,
+                      memberDocId: entry.memberDocId,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

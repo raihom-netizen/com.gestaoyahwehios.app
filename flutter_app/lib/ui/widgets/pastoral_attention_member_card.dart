@@ -38,8 +38,10 @@ class PastoralAttentionMemberCard extends StatelessWidget {
     final avatarColor =
         avatarColorForMember(memberData, hasPhoto: hasFoto);
     final cpf = alert.cpfDigits.length == 11 ? alert.cpfDigits : null;
-    final initial =
-        alert.name.isNotEmpty ? alert.name[0].toUpperCase() : '?';
+    final nomeCompleto = (memberData['NOME_COMPLETO'] ?? memberData['nome'] ?? alert.name)
+      .toString()
+      .trim();
+    final initial = nomeCompleto.isNotEmpty ? nomeCompleto[0].toUpperCase() : '?';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -104,7 +106,10 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        alert.name,
+                        nomeCompleto,
+                        maxLines: 3,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
@@ -151,7 +156,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                       memberRole: memberRole,
                       viewerCpfDigits: viewerCpfDigits,
                       memberData: memberData,
-                      displayName: alert.name,
+                      displayName: nomeCompleto,
                       memberDocId: alert.memberId,
                       draftText: prefill,
                     ),

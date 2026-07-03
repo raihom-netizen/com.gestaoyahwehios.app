@@ -168,6 +168,21 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     if (created == true) await _reload();
   }
 
+  Future<void> _openEditSheet(ChurchAvisoItem item) async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ChurchAvisoEditorSheet(
+        tenantId: widget.tenantId,
+        role: widget.role,
+        permissions: widget.permissions,
+        initialItem: item,
+      ),
+    );
+    if (updated == true) await _reload();
+  }
+
   Future<void> _confirmDeleteOne(ChurchAvisoItem item) async {
     final ok = await _showDeleteConfirmDialog(count: 1);
     if (ok != true) return;
@@ -382,6 +397,11 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                       compact: true,
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    _AvisosHeroHeader(
+                      total: visible.length,
+                      fetching: _loading,
+                      onRefresh: _reload,
+                    ),
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -561,7 +581,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final item = visible[index];
-                            return _AvisoGridCard(
+                            final card = _AvisoGridCard(
                                 item: item,
                                 dateLabel: _formatDate(item.createdAt),
                                 canManage: _canManage,
@@ -575,13 +595,14 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                                   }
                                 }),
                                 onView: () => _openAvisoViewer(item),
+                                onEdit: () => _openEditSheet(item),
                                 onDelete: () => _confirmDeleteOne(item),
                               );
-                              return _AvisoStaggeredAppear(
-                                key: ValueKey('grid_${item.id}'),
-                                index: index,
-                                child: card,
-                              );
+                            return _AvisoStaggeredAppear(
+                              key: ValueKey('grid_${item.id}'),
+                              index: index,
+                              child: card,
+                            );
                           },
                           childCount: visible.length,
                         ),
@@ -590,7 +611,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                         itemCount: visible.length,
                         itemBuilder: (context, index) {
                           final item = visible[index];
-                          return _AvisoListCard(
+                          final card = _AvisoListCard(
                             item: item,
                             dateLabel: _formatDate(item.createdAt),
                             canManage: _canManage,
@@ -604,6 +625,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                               }
                             }),
                             onView: () => _openAvisoViewer(item),
+                            onEdit: () => _openEditSheet(item),
                             onDelete: () => _confirmDeleteOne(item),
                           );
                           return _AvisoStaggeredAppear(
@@ -638,6 +660,92 @@ class _AvisoTone {
   final Color primary;
   final Color secondary;
   final Color soft;
+}
+
+class _AvisosHeroHeader extends StatelessWidget {
+  const _AvisosHeroHeader({
+    required this.total,
+    required this.fetching,
+    required this.onRefresh,
+  });
+
+  final int total;
+  final bool fetching;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0EA5E9),
+            Color(0xFF3B82F6),
+            Color(0xFF8B5CF6),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0EA5E9).withValues(alpha: 0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Painel de Avisos',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$total aviso(s) ativo(s)',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (fetching)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.white,
+              ),
+            )
+          else
+            Material(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(12),
+              child: IconButton(
+                tooltip: 'Atualizar',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _AvisoStaggeredAppear extends StatefulWidget {
@@ -745,6 +853,7 @@ class _AvisoGridCard extends StatefulWidget {
     required this.selected,
     required this.onToggleSelect,
     required this.onView,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -755,6 +864,7 @@ class _AvisoGridCard extends StatefulWidget {
   final bool selected;
   final VoidCallback onToggleSelect;
   final VoidCallback onView;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -814,143 +924,159 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                     : ThemeCleanPremium.softUiCardShadow,
               ),
               child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                flex: 3,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (widget.item.hasImages)
-                      SafeNetworkImage(
-                        imageUrl: widget.item.imageUrls.first,
-                        fit: BoxFit.cover,
-                      )
-                    else
-                      Container(
-                        color: tone.soft,
-                        child: Icon(
-                          Icons.campaign_outlined,
-                          size: 40,
-                          color: tone.primary,
-                        ),
-                      ),
-                    if (widget.selectionMode)
-                      Positioned(
-                        top: 6,
-                        left: 6,
-                        child: Material(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          shape: const CircleBorder(),
-                          child: Checkbox(
-                            value: widget.selected,
-                            onChanged: (_) => widget.onToggleSelect(),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (widget.item.hasImages)
+                          SafeNetworkImage(
+                            imageUrl: widget.item.imageUrls.first,
+                            fit: BoxFit.cover,
+                          )
+                        else
+                          Container(
+                            color: tone.soft,
+                            child: Icon(
+                              Icons.campaign_outlined,
+                              size: 40,
+                              color: tone.primary,
+                            ),
                           ),
-                        ),
-                      ),
-                    if (widget.canManage && !widget.selectionMode)
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              style: IconButton.styleFrom(
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.94),
-                              ),
-                              tooltip: 'Ver completo',
-                              onPressed: widget.onView,
-                              icon: Icon(
-                                Icons.visibility_rounded,
-                                color: tone.primary,
-                                size: 20,
+                        if (widget.selectionMode)
+                          Positioned(
+                            top: 6,
+                            left: 6,
+                            child: Material(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              shape: const CircleBorder(),
+                              child: Checkbox(
+                                value: widget.selected,
+                                onChanged: (_) => widget.onToggleSelect(),
                               ),
                             ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              style: IconButton.styleFrom(
-                                backgroundColor:
-                                    Colors.white.withValues(alpha: 0.94),
-                              ),
-                              tooltip: 'Excluir',
-                              onPressed: widget.onDelete,
-                              icon: Icon(
-                                Icons.delete_outline_rounded,
-                                color: Colors.red.shade400,
-                                size: 20,
-                              ),
+                          ),
+                        if (widget.canManage && !widget.selectionMode)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  style: IconButton.styleFrom(
+                                    backgroundColor:
+                                        Colors.white.withValues(alpha: 0.94),
+                                  ),
+                                  tooltip: 'Ver completo',
+                                  onPressed: widget.onView,
+                                  icon: Icon(
+                                    Icons.visibility_rounded,
+                                    color: tone.primary,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  style: IconButton.styleFrom(
+                                    backgroundColor:
+                                        Colors.white.withValues(alpha: 0.94),
+                                  ),
+                                  tooltip: 'Editar',
+                                  onPressed: widget.onEdit,
+                                  icon: Icon(
+                                    Icons.edit_rounded,
+                                    color: tone.secondary,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  visualDensity: VisualDensity.compact,
+                                  style: IconButton.styleFrom(
+                                    backgroundColor:
+                                        Colors.white.withValues(alpha: 0.94),
+                                  ),
+                                  tooltip: 'Excluir',
+                                  onPressed: widget.onDelete,
+                                  icon: Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: Colors.red.shade400,
+                                    size: 20,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.item.title.isEmpty ? 'Aviso' : widget.item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13.5,
-                          height: 1.2,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.item.permanent
-                            ? 'Permanente'
-                            : 'Vence ${_formatExpiry(widget.item.expiresAt)}',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: tone.primary,
-                        ),
-                      ),
-                      const Spacer(),
-                      Row(
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.photo_library_rounded,
-                            size: 14,
-                            color: tone.secondary,
-                          ),
-                          const SizedBox(width: 4),
                           Text(
-                            '${widget.item.imageUrls.length} foto(s)',
+                            widget.item.title.isEmpty ? 'Aviso' : widget.item.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13.5,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.item.permanent
+                                ? 'Permanente'
+                                : 'Vence ${_formatExpiry(widget.item.expiresAt)}',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: tone.primary,
+                            ),
+                          ),
+                          const Spacer(),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.photo_library_rounded,
+                                size: 14,
+                                color: tone.secondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${widget.item.imageUrls.length} foto(s)',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: tone.secondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Publicado ${widget.dateLabel}',
                             style: TextStyle(
                               fontSize: 10,
-                              color: tone.secondary,
-                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade600,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Publicado ${widget.dateLabel}',
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-              ),
+            ),
           ),
         ),
       ),
@@ -972,6 +1098,7 @@ class _AvisoListCard extends StatefulWidget {
     required this.selected,
     required this.onToggleSelect,
     required this.onView,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -982,6 +1109,7 @@ class _AvisoListCard extends StatefulWidget {
   final bool selected;
   final VoidCallback onToggleSelect;
   final VoidCallback onView;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   @override
@@ -1128,6 +1256,19 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                       onPressed: widget.onView,
                       icon: Icon(Icons.visibility_rounded, color: tone.primary),
                     ),
+                    if (widget.canManage)
+                      IconButton.filledTonal(
+                        tooltip: 'Editar',
+                        style: IconButton.styleFrom(
+                          backgroundColor:
+                              tone.secondary.withValues(alpha: 0.18),
+                        ),
+                        onPressed: widget.onEdit,
+                        icon: Icon(
+                          Icons.edit_rounded,
+                          color: tone.secondary,
+                        ),
+                      ),
                     if (widget.canManage)
                       IconButton.filledTonal(
                         tooltip: 'Excluir',
@@ -1395,11 +1536,13 @@ class _ChurchAvisoEditorSheet extends StatefulWidget {
     required this.tenantId,
     required this.role,
     required this.permissions,
+    this.initialItem,
   });
 
   final String tenantId;
   final String role;
   final List<String> permissions;
+  final ChurchAvisoItem? initialItem;
 
   @override
   State<_ChurchAvisoEditorSheet> createState() =>
@@ -1410,9 +1553,24 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   final _titleCtrl = TextEditingController();
   final _bodyCtrl = TextEditingController();
   bool _permanent = true;
-  DateTime? _expiresAt;
+  DateTime _expiresAt = DateTime.now().add(const Duration(days: 7));
+  final List<String> _existingImageUrls = [];
   final List<Uint8List> _photos = [];
   bool _publishing = false;
+
+  bool get _isEdit => widget.initialItem != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.initialItem;
+    if (item == null) return;
+    _titleCtrl.text = item.title;
+    _bodyCtrl.text = item.body;
+    _permanent = item.permanent;
+    _expiresAt = item.expiresAt ?? DateTime.now().add(const Duration(days: 7));
+    _existingImageUrls.addAll(item.imageUrls);
+  }
 
   @override
   void dispose() {
@@ -1422,7 +1580,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   }
 
   Future<void> _pickPhotos() async {
-    final remaining = ChurchAvisosService.kMaxPhotos - _photos.length;
+    final remaining =
+        ChurchAvisosService.kMaxPhotos - (_photos.length + _existingImageUrls.length);
     if (remaining <= 0) return;
 
     final files = await MediaHandlerService.instance.pickAndProcessMultipleImages(
@@ -1442,26 +1601,45 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: now.add(const Duration(days: 7)),
+      initialDate: _expiresAt,
       firstDate: now,
       lastDate: now.add(const Duration(days: 365 * 3)),
     );
     if (picked != null) setState(() => _expiresAt = picked);
   }
 
+  String _formatDateBr(DateTime dt) {
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
   Future<void> _publish() async {
     setState(() => _publishing = true);
     try {
-      await ChurchAvisosService.publish(
-        churchIdHint: widget.tenantId,
-        title: _titleCtrl.text,
-        body: _bodyCtrl.text,
-        permanent: _permanent,
-        expiresAtEndOfDay: _permanent ? null : _expiresAt,
-        photoBytes: _photos,
-        role: widget.role,
-        permissions: widget.permissions,
-      );
+      if (_isEdit) {
+        await ChurchAvisosService.update(
+          churchIdHint: widget.tenantId,
+          docId: widget.initialItem!.id,
+          title: _titleCtrl.text,
+          body: _bodyCtrl.text,
+          permanent: _permanent,
+          expiresAtEndOfDay: _permanent ? null : _expiresAt,
+          existingImageUrls: _existingImageUrls,
+          newPhotoBytes: _photos,
+          role: widget.role,
+          permissions: widget.permissions,
+        );
+      } else {
+        await ChurchAvisosService.publish(
+          churchIdHint: widget.tenantId,
+          title: _titleCtrl.text,
+          body: _bodyCtrl.text,
+          permanent: _permanent,
+          expiresAtEndOfDay: _permanent ? null : _expiresAt,
+          photoBytes: _photos,
+          role: widget.role,
+          permissions: widget.permissions,
+        );
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -1480,11 +1658,10 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
-        margin: const EdgeInsets.all(12),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        margin: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(24),
           boxShadow: ThemeCleanPremium.softUiCardShadow,
         ),
         child: SingleChildScrollView(
@@ -1492,137 +1669,221 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Novo aviso',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(18, 14, 12, 14),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFFDB2777)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              TextField(
-                controller: _titleCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Título',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(14)),
-                  ),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _bodyCtrl,
-                minLines: 2,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  labelText: 'Mensagem (opcional)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(14)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Aviso permanente'),
-                value: _permanent,
-                onChanged: (v) => setState(() => _permanent = v),
-              ),
-              if (!_permanent)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Data de vencimento'),
-                  subtitle: Text(
-                    _expiresAt == null
-                        ? 'Toque para escolher'
-                        : '${_expiresAt!.day.toString().padLeft(2, '0')}/${_expiresAt!.month.toString().padLeft(2, '0')}/${_expiresAt!.year}',
-                  ),
-                  trailing: const Icon(Icons.calendar_month_rounded),
-                  onTap: _pickExpiry,
-                ),
-              const SizedBox(height: 8),
-              Text(
-                'Fotos (${_photos.length}/${ChurchAvisosService.kMaxPhotos})',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (var i = 0; i < _photos.length; i++)
-                    Stack(
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.memory(
-                            _photos[i],
-                            width: 88,
-                            height: 88,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: IconButton(
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black54,
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(32, 32),
-                            ),
-                            iconSize: 18,
-                            onPressed: () => setState(() => _photos.removeAt(i)),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (_photos.length < ChurchAvisosService.kMaxPhotos)
-                    InkWell(
-                      onTap: _publishing ? null : _pickPhotos,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: 88,
-                        height: 88,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey.shade300),
-                          color: Colors.grey.shade50,
-                        ),
-                        child: const Icon(Icons.add_a_photo_outlined),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _publishing ? null : _publish,
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-                child: _publishing
-                    ? const SizedBox(
-                        height: 22,
-                        width: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _isEdit ? 'Editar aviso' : 'Novo aviso',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
                           color: Colors.white,
                         ),
-                      )
-                    : const Text('Publicar aviso'),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: _titleCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Título',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.all(Radius.circular(14)),
+                        ),
+                        prefixIcon: Icon(Icons.title_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _bodyCtrl,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'Mensagem (opcional)',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.all(Radius.circular(14)),
+                        ),
+                        prefixIcon: Icon(Icons.article_outlined),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            const Color(0xFF2563EB).withValues(alpha: 0.08),
+                            const Color(0xFFDB2777).withValues(alpha: 0.08),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: const Color(0xFF2563EB).withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Aviso permanente',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text(
+                          _permanent
+                              ? 'Fica ativo sem data de vencimento.'
+                              : 'Usa a data abaixo para vencimento do aviso.',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        ),
+                        value: _permanent,
+                        onChanged: (v) => setState(() => _permanent = v),
+                        secondary: const Icon(Icons.all_inclusive_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _publishing ? null : _pickExpiry,
+                      icon: const Icon(Icons.calendar_month_rounded, size: 18),
+                      label: Text(
+                        _permanent
+                            ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
+                            : 'Data de vencimento: ${_formatDateBr(_expiresAt)}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (var i = 0; i < _existingImageUrls.length; i++)
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: SafeNetworkImage(
+                                  imageUrl: _existingImageUrls[i],
+                                  width: 88,
+                                  height: 88,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: IconButton(
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black54,
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(32, 32),
+                                  ),
+                                  iconSize: 18,
+                                  onPressed: () =>
+                                      setState(() => _existingImageUrls.removeAt(i)),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ),
+                            ],
+                          ),
+                        for (var i = 0; i < _photos.length; i++)
+                          Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.memory(
+                                  _photos[i],
+                                  width: 88,
+                                  height: 88,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 0,
+                                right: 0,
+                                child: IconButton(
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black54,
+                                    foregroundColor: Colors.white,
+                                    minimumSize: const Size(32, 32),
+                                  ),
+                                  iconSize: 18,
+                                  onPressed: () => setState(() => _photos.removeAt(i)),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ),
+                            ],
+                          ),
+                        if ((_existingImageUrls.length + _photos.length) <
+                            ChurchAvisosService.kMaxPhotos)
+                          InkWell(
+                            onTap: _publishing ? null : _pickPhotos,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Container(
+                              width: 88,
+                              height: 88,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade300),
+                                color: Colors.grey.shade50,
+                              ),
+                              child: const Icon(Icons.add_a_photo_outlined),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _publishing ? null : _publish,
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      child: _publishing
+                          ? const SizedBox(
+                              height: 22,
+                              width: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(_isEdit ? 'Salvar alterações' : 'Publicar aviso'),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

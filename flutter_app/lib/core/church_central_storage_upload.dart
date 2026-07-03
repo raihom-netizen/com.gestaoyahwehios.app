@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -63,6 +64,11 @@ abstract final class ChurchCentralStorageUpload {
     if (rawBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outro ficheiro.');
     }
+    
+    logFirebasePublishPhase(
+      'storage_upload_start',
+      '$logLabel path=${storagePath.trim()} bytes=${rawBytes.length}',
+    );
 
     try {
       final ({Uint8List bytes, String mime}) processed;
@@ -100,6 +106,12 @@ abstract final class ChurchCentralStorageUpload {
         bytes: processed.bytes,
       );
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'storage_upload_error',
+        '$logLabel path=${storagePath.trim()}',
+        error: e,
+        stack: st,
+      );
       unawaited(
         CrashlyticsService.record(
           e,
@@ -202,6 +214,10 @@ abstract final class ChurchCentralStorageUpload {
     if (pngBytes.isEmpty) {
       throw StateError('Logo vazia — selecione outra imagem.');
     }
+    logFirebasePublishPhase(
+      'storage_upload_start',
+      'church_logo path=${path.trim()} bytes=${pngBytes.length}',
+    );
     try {
       final url = await DirectStorageUrlPublish.uploadBytes(
         storagePath: path,
@@ -216,6 +232,12 @@ abstract final class ChurchCentralStorageUpload {
         bytes: pngBytes,
       );
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'storage_upload_error',
+        'church_logo path=${path.trim()}',
+        error: e,
+        stack: st,
+      );
       unawaited(CrashlyticsService.record(e, st, reason: 'central_upload_logo'));
       rethrow;
     }
@@ -250,6 +272,11 @@ abstract final class ChurchCentralStorageUpload {
     );
     _assertCanonicalPath(path, 'finance_comprovante');
 
+    logFirebasePublishPhase(
+      'storage_upload_start',
+      'finance_comprovante path=${path.trim()} mime=$uploadMime bytes=${uploadBytes.length}',
+    );
+
     try {
       final url = await DirectStorageUrlPublish.uploadBytes(
         storagePath: path,
@@ -264,6 +291,12 @@ abstract final class ChurchCentralStorageUpload {
         bytes: uploadBytes,
       );
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'storage_upload_error',
+        'finance_comprovante path=${path.trim()}',
+        error: e,
+        stack: st,
+      );
       unawaited(
         CrashlyticsService.record(e, st, reason: 'central_upload_finance'),
       );

@@ -2755,11 +2755,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     continue;
                   }
                   if (!isDept && prefs.isHiddenDmThread(doc.id)) continue;
-                  final archived = prefs.isArchived(doc.id);
                   if (_conversasFilter == _HubConversasFilter.archived) {
-                    if (!archived) continue;
-                  } else if (archived) {
-                    continue;
+                    if (!prefs.isArchived(doc.id)) continue;
                   }
                   if (!ChatHubOperations.userParticipatesInThread(
                     threadId: doc.id,
@@ -3963,7 +3960,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         const SizedBox(height: 3),
                         Text(
                           subtitle,
-                          maxLines: subtitleMaxLines,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: subtitleIsTyping

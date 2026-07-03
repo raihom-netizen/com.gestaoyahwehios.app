@@ -620,8 +620,8 @@ class AppPermissions {
     List<String>? permissions,
   }) {
     if (canDeleteAnyChurchRecords(role, permissions: permissions)) return true;
-    if (!canManageChurchMuralEventsAgenda(role, permissions: permissions)) {
-      return false;
+    if (canManageChurchMuralEventsAgenda(role, permissions: permissions)) {
+      return true;
     }
     final author = muralFeedAuthorUid(data);
     final uid = currentUid.trim();

@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -58,7 +59,14 @@ abstract final class ChurchMembersLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
-  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+  static String _resolve(String hint) {
+    final raw = hint.trim();
+    if (raw.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(raw);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(raw)) return raw;
+    return ChurchRepository.churchId(raw);
+  }
 
   static String resolveChurchId(String hint) => _resolve(hint);
 

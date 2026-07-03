@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -32,7 +33,14 @@ abstract final class ChurchAvisosLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 15);
 
-  static String _churchId(String hint) => ChurchRepository.churchId(hint.trim());
+  static String _churchId(String hint) {
+    final raw = hint.trim();
+    if (raw.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(raw);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(raw)) return raw;
+    return ChurchRepository.churchId(raw);
+  }
 
   static String cacheKey(String churchId, int limit) =>
       '${churchId.trim()}_avisos_active_$limit';

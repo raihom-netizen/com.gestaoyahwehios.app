@@ -21,6 +21,7 @@ param(
     [switch] $ForceClean,
     [switch] $ForceFirestoreRules,
     [switch] $SkipProductionGate,
+    [switch] $SkipPreflight,
     [switch] $ContinueOnRulesFailure,
     [switch] $SkipRules,
     [switch] $SkipFunctionsDeploy,
@@ -44,6 +45,7 @@ if ($ForceFunctions)       { $invokeArgs.ForceFunctions       = $true }
 if ($ForceClean)           { $invokeArgs.ForceClean           = $true }
 if ($ForceFirestoreRules)  { $invokeArgs.ForceFirestoreRules  = $true }
 if ($SkipProductionGate)   { $invokeArgs.SkipProductionGate   = $true }
+if ($SkipPreflight)        { $invokeArgs.SkipPreflight        = $true }
 if ($SkipRules)            { $invokeArgs.SkipRules            = $true }
 if ($SkipFunctionsDeploy)  { $invokeArgs.SkipFunctionsDeploy  = $true }
 if ($SkipWeb)               { $invokeArgs.SkipWeb               = $true }

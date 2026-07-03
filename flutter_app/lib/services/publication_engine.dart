@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
@@ -126,6 +127,11 @@ abstract final class PublicationEngine {
     await ensureFirebaseCore(requireAuth: true);
     final patch = _buildFirestorePatch(request);
     final merge = request.merge ?? !request.isNewDoc;
+    
+    logFirebasePublishPhase(
+      'firestore_save_start',
+      '${request.postType} path=${request.docRef.path} tenant=${request.tenantId.trim()}',
+    );
     try {
       await runFirestorePublishWithRecovery(
         () => ChurchDataService.instance.setTenantDocument(
@@ -136,6 +142,12 @@ abstract final class PublicationEngine {
         ),
       );
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'firestore_save_error',
+        '${request.postType} path=${request.docRef.path}',
+        error: e,
+        stack: st,
+      );
       ChurchPublishFlowLog.firestoreError(e, st);
       rethrow;
     }
@@ -167,6 +179,10 @@ abstract final class PublicationEngine {
     ChurchTenantWriteLog.publishStubCommitted(
       request.docRef.path,
       module: request.postType,
+    );
+    logFirebasePublishPhase(
+      'firestore_save_ok',
+      '${request.postType} path=${request.docRef.path}',
     );
     if (request.isEvento) {
       ChurchPublishFlowLog.eventoFirestoreOk();
@@ -228,6 +244,11 @@ abstract final class PublicationEngine {
       payload: patch,
       isNewDoc: isNewDoc,
     );
+    
+    logFirebasePublishPhase(
+      'firestore_save_start',
+      '${request.postType} strict path=${docRef.path} tenant=${tenantId.trim()}',
+    );
     try {
       final collection = request.isEvento ? 'eventos' : 'avisos';
       await AdminFeedFirestoreBridge.upsertTenantDoc(
@@ -247,6 +268,12 @@ abstract final class PublicationEngine {
         ),
       );
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'firestore_save_error',
+        '${request.postType} strict path=${docRef.path}',
+        error: e,
+        stack: st,
+      );
       ChurchPublishFlowLog.firestoreError(e, st);
       rethrow;
     }
@@ -254,6 +281,10 @@ abstract final class PublicationEngine {
     ChurchTenantWriteLog.publishStubCommitted(
       docRef.path,
       module: request.postType,
+    );
+    logFirebasePublishPhase(
+      'firestore_save_ok',
+      '${request.postType} strict path=${docRef.path}',
     );
     return docRef.id;
   }

@@ -38,6 +38,7 @@ param(
     [switch] $ForceClean,
     [switch] $ForceFirestoreRules,
     [switch] $SkipProductionGate,
+    [switch] $SkipPreflight,
     [switch] $ContinueOnRulesFailure,
     [switch] $SkipRules,
     [switch] $SkipFunctionsDeploy,
@@ -110,7 +111,10 @@ try {
 finally { Pop-Location }
 
 $preflight = Join-Path $RepoRoot "scripts\preflight_deploy_compile.ps1"
-if (Test-Path $preflight) {
+if ($SkipPreflight) {
+    Write-Host "=== Preflight deploy: SKIP (-SkipPreflight) ===" -ForegroundColor Yellow
+}
+elseif (Test-Path $preflight) {
     & $preflight
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

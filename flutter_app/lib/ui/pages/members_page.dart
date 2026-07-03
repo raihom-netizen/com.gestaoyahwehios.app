@@ -103,6 +103,7 @@ import '../../services/app_permissions.dart';
 import '../../services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
@@ -235,6 +236,9 @@ class _MembersPageState extends State<MembersPage> {
   /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
   Future<String> _resolveEffectiveTenantId() async {
     final seed = _forceCanonicalTenantId(widget.tenantId);
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(seed);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(seed)) return seed;
     final id = ChurchRepository.churchId(seed);
     return id.isNotEmpty ? id : seed.trim();
   }

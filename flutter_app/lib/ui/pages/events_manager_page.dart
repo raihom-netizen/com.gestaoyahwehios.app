@@ -8493,21 +8493,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      if (isNewDoc &&
-          compressedPhotos.isEmpty &&
-          existingUrls.isEmpty &&
-          !_eventHasHostedVideoForPublish(publishTenantId) &&
-          _videoUrl.text.trim().isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.errorSnackBarWithRetry(
-              'Adicione pelo menos uma foto ou um vídeo ao evento.',
-              onRetry: _save,
-            ),
-          );
-        }
-        return;
-      }
+      // Permite evento sem mídia (somente texto/data/local), mantendo
+      // upload opcional de fotos/vídeos quando houver anexos.
       if (compressedPhotos.isNotEmpty) {
         await MuralPostPendingMediaCache.put(
           tenantId: publishTenantId,

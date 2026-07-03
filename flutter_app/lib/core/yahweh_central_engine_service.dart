@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_data_engine_fetcher.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
+import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 
 /// Módulos do Gestão YAHWEH — **uma** porta de entrada para persistência offline-first.
 enum YahwehCentralModule {
@@ -67,7 +68,20 @@ abstract final class YahwehCentralEngineService {
     bool syncCalendar = true,
     void Function(double progress)? onUploadProgress,
   }) async {
-    throw const ChurchPanelModuleRemovedException('Avisos');
+    return ChurchFeedLinearPublishService.publishAviso(
+      docRef: docRef,
+      tenantId: tenantId,
+      corePayload: corePayload,
+      isNewDoc: isNewDoc,
+      existingPhotoRefs: existingUrls,
+      startSlotIndex: startSlotIndex,
+      newImagesBytes: newImagesBytes,
+      newImagePaths: newImagePaths,
+      publicSite: publicSite,
+      calendarDate: calendarDate,
+      syncCalendar: syncCalendar,
+      onUploadProgress: onUploadProgress,
+    );
   }
 
   /// Comprovante enfileirado (lançamento já gravado; preview via [MuralPostPendingMediaCache]).
