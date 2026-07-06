@@ -261,6 +261,12 @@ abstract final class FinanceComprovanteAttachService {
   static Future<FinanceComprovanteAttachment?> _pickFromGallery(
     BuildContext context,
   ) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.financeiro,
+    )) {
+      return null;
+    }
     try {
       final picker = ImagePicker();
       final xfile = await picker.pickImage(

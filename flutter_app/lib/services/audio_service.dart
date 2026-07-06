@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:record/record.dart';
 
 /// Gravação de voz estilo WhatsApp para o Chat Igreja (AAC/M4A mobile; web via blob).
@@ -18,6 +19,18 @@ class ChatAudioService {
 
   bool get isRecording => _recorder != null;
   String? get currentPath => _path;
+
+  Future<bool> _ensureMicrophonePermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await ph.Permission.microphone.status;
+      if (status.isGranted || status.isLimited) return true;
+      final requested = await ph.Permission.microphone.request();
+      return requested.isGranted || requested.isLimited;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<bool> hasPermission() async {
     final r = AudioRecorder();
@@ -31,6 +44,12 @@ class ChatAudioService {
   /// Inicia gravação (mobile: ficheiro `.m4a`; web: blob em memória).
   Future<String?> startRecording() async {
     await stopRecording(send: false);
+    final nativePermissionOk = await _ensureMicrophonePermission();
+    if (!nativePermissionOk) {
+      throw StateError(
+        'Permissão de microfone negada. Ative em Ajustes do telefone.',
+      );
+    }
 
     final recorder = AudioRecorder();
     var permitted = await recorder.hasPermission();

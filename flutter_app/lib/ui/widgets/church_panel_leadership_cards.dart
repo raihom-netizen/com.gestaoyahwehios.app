@@ -184,52 +184,38 @@ class _ChurchPanelLeadershipCardSectionState
 
         return _LeadershipPanelShell(
           accent: _accent,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow =
-                  constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
-              final crossAxisCount = narrow ? 1 : 2;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_refreshing || snap.connectionState == ConnectionState.waiting)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: _accent.withValues(alpha: 0.7),
-                          ),
-                        ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_refreshing || snap.connectionState == ConnectionState.waiting)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: _accent.withValues(alpha: 0.7),
                       ),
                     ),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: list.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: crossAxisCount,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: narrow ? 1.08 : 1.02,
-                    ),
-                    itemBuilder: (context, index) {
-                      return ChurchPanelLeaderAttentionCard(
-                        entry: list[index],
-                        tenantId: widget.tenantId,
-                        role: widget.role,
-                        viewerCpfDigits: widget.viewerCpfDigits,
-                        accent: _accent,
-                      );
-                    },
                   ),
+                ),
+              _LeadershipGalleryStrip(
+                accent: _accent,
+                children: [
+                  for (final entry in list)
+                    ChurchPanelLeaderAttentionCard(
+                      entry: entry,
+                      tenantId: widget.tenantId,
+                      role: widget.role,
+                      viewerCpfDigits: widget.viewerCpfDigits,
+                      accent: _accent,
+                    ),
                 ],
-              );
-            },
+              ),
+            ],
           ),
         );
       },
@@ -279,6 +265,55 @@ class _LeadershipPanelShell extends StatelessWidget {
       borderTint: accent,
       padding: const EdgeInsets.all(12),
       child: child,
+    );
+  }
+}
+
+/// Galeria compacta — faixa horizontal em mobile; wrap em telas largas.
+class _LeadershipGalleryStrip extends StatelessWidget {
+  const _LeadershipGalleryStrip({
+    required this.accent,
+    required this.children,
+  });
+
+  final Color accent;
+  final List<Widget> children;
+
+  static const double _cardWidth = 152;
+  static const double _stripHeight = 196;
+
+  @override
+  Widget build(BuildContext context) {
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 640;
+        if (wide) {
+          return Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.start,
+            children: [
+              for (final child in children)
+                SizedBox(width: _cardWidth, child: child),
+            ],
+          );
+        }
+        return SizedBox(
+          height: _stripHeight,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: children.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (_, i) => SizedBox(
+              width: _cardWidth,
+              child: children[i],
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -387,7 +422,7 @@ class ChurchPanelLeaderWisdomCard extends StatelessWidget {
   }
 }
 
-/// Card em grelha estilo atenção pastoral — com foto, nome completo e atalhos.
+/// Card compacto WISDOMAPP — foto, nome e cargo centralizados + Chat/WhatsApp.
 class ChurchPanelLeaderAttentionCard extends StatelessWidget {
   const ChurchPanelLeaderAttentionCard({
     super.key,
@@ -416,7 +451,7 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = entry.memberData;
     final nome = _fullName(data);
-    final subtitle = entry.subtitleLine;
+    final subtitle = entry.subtitleLine.trim();
     final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
     final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
     final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
@@ -424,6 +459,7 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
         .toString()
         .replaceAll(RegExp(r'\D'), '');
     final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
+    const photoSize = 48.0;
 
     return Container(
       decoration: BoxDecoration(
@@ -433,93 +469,78 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
           colors: [
             Colors.white,
             const Color(0xFFF8FAFC),
-            ThemeCleanPremium.primary.withValues(alpha: 0.04),
+            accent.withValues(alpha: 0.05),
           ],
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                FotoMembroWidget(
-                  imageUrl: foto,
-                  memberData: data,
-                  tenantId: tenantId,
-                  memberId: entry.memberDocId,
-                  cpfDigits: cpf.length == 11 ? cpf : null,
-                  authUid: MemberProfilePhotoResolver.authUidFromData(
-                    data,
-                    memberDocId: entry.memberDocId,
-                  ),
-                  size: 52,
-                  memCacheWidth: 120,
-                  memCacheHeight: 120,
-                  preferListThumbnail: true,
-                  backgroundColor:
-                      avatarColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                  fallbackChild: CircleAvatar(
-                    radius: 26,
-                    backgroundColor:
-                        avatarColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.15),
-                    child: Text(
-                      initial,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 20,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                    ),
+            FotoMembroWidget(
+              imageUrl: foto,
+              memberData: data,
+              tenantId: tenantId,
+              memberId: entry.memberDocId,
+              cpfDigits: cpf.length == 11 ? cpf : null,
+              authUid: MemberProfilePhotoResolver.authUidFromData(
+                data,
+                memberDocId: entry.memberDocId,
+              ),
+              size: photoSize,
+              memCacheWidth: 112,
+              memCacheHeight: 112,
+              preferListThumbnail: true,
+              backgroundColor:
+                  avatarColor ?? accent.withValues(alpha: 0.12),
+              fallbackChild: CircleAvatar(
+                radius: photoSize / 2,
+                backgroundColor:
+                    avatarColor ?? accent.withValues(alpha: 0.15),
+                child: Text(
+                  initial,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: accent,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nome,
-                        maxLines: 3,
-                        softWrap: true,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          letterSpacing: -0.25,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      if (subtitle.trim().isNotEmpty)
-                        Text(
-                          subtitle,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.3,
-                            color: Colors.grey.shade700,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
+            Text(
+              nome,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                letterSpacing: -0.2,
+                height: 1.2,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            if (subtitle.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  height: 1.25,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -536,7 +557,7 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: YahwehSuperPremiumActionButton.whatsapp(
                     compact: true,

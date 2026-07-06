@@ -1,10 +1,10 @@
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
-import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
@@ -19,7 +19,6 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
@@ -204,17 +203,24 @@ abstract final class ChurchFeedLinearPublishService {
         uploadedCount = slots.length;
       } else {
         final images = newImagesBytes ?? const <Uint8List>[];
-        if (images.isEmpty) {
+        final imagePaths = newImagePaths
+                ?.map((p) => p.trim())
+                .where((p) => p.isNotEmpty)
+                .toList() ??
+            const <String>[];
+        if (images.isEmpty && imagePaths.isEmpty) {
           throw StateError('Inclua pelo menos uma foto no aviso.');
         }
+        var nextSlot = startSlotIndex;
         for (var i = 0; i < images.length; i++) {
           final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
             churchId: churchId,
             postId: docId,
-            slotIndex: startSlotIndex + i,
+            slotIndex: nextSlot,
             rawBytes: images[i],
             alreadyCompressed: true,
           );
+          nextSlot++;
           uploadedPaths.add(uploaded.storagePath);
           final url = sanitizeImageUrl(uploaded.downloadUrl);
           if (isValidImageUrl(url)) {
@@ -222,6 +228,39 @@ abstract final class ChurchFeedLinearPublishService {
               ...existingUrls,
               url,
             ]);
+          }
+        }
+        if (imagePaths.isNotEmpty) {
+          if (kIsWeb) {
+            throw StateError(
+              'As fotos do aviso na web devem ser enviadas em memória (bytes).',
+            );
+          }
+          for (final localPath in imagePaths) {
+            final file = File(localPath);
+            if (!await file.exists()) {
+              throw StateError('Foto do aviso não encontrada no aparelho.');
+            }
+            final bytes = await file.readAsBytes();
+            if (bytes.isEmpty) {
+              throw StateError('Foto do aviso vazia — selecione outra imagem.');
+            }
+            final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
+              churchId: churchId,
+              postId: docId,
+              slotIndex: nextSlot,
+              rawBytes: bytes,
+              alreadyCompressed: false,
+            );
+            nextSlot++;
+            uploadedPaths.add(uploaded.storagePath);
+            final url = sanitizeImageUrl(uploaded.downloadUrl);
+            if (isValidImageUrl(url)) {
+              existingUrls = dedupeImageRefsByStorageIdentity([
+                ...existingUrls,
+                url,
+              ]);
+            }
           }
         }
         uploadedCount = uploadedPaths.length;

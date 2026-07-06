@@ -1,10 +1,12 @@
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show BuildContext;
+import 'package:flutter/material.dart'
+    show BuildContext, ScaffoldMessenger, SnackBar, Text;
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 
 // Condicional: mobile usa compressão nativa; web só usa image_picker com qualidade.
 import 'media_handler_service_io.dart'
@@ -19,6 +21,23 @@ class MediaHandlerService {
   static final MediaHandlerService instance = MediaHandlerService._();
 
   final ImagePicker _picker = ImagePicker();
+
+  void _showPermissionError(BuildContext? context, String message) {
+    if (context == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<bool> _ensureCameraPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await ph.Permission.camera.status;
+      if (status.isGranted || status.isLimited) return true;
+      final requested = await ph.Permission.camera.request();
+      return requested.isGranted || requested.isLimited;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Padrão "feed social": arquivo leve com qualidade visual boa.
   /// Objetivo: uploads mais rápidos (especialmente em rede móvel).
@@ -44,6 +63,13 @@ class MediaHandlerService {
     YahwehMediaModule? module,
     BuildContext? context,
   }) async {
+    if (source == ImageSource.camera && !await _ensureCameraPermission()) {
+      _showPermissionError(
+        context,
+        'Permissão de câmera negada. Ative nas configurações do aparelho.',
+      );
+      return null;
+    }
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: context,
       module: module,
@@ -159,6 +185,13 @@ class MediaHandlerService {
     int webpOutputQuality = kPremiumMuralFeedWebpQuality,
     YahwehMediaModule? module,
   }) async {
+    if (source == ImageSource.camera && !await _ensureCameraPermission()) {
+      _showPermissionError(
+        webCropContext,
+        'Permissão de câmera negada. Ative nas configurações do aparelho.',
+      );
+      return null;
+    }
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: webCropContext,
       module: module,
@@ -179,6 +212,13 @@ class MediaHandlerService {
     BuildContext? webCropContext,
     bool requireAuth = true,
   }) async {
+    if (source == ImageSource.camera && !await _ensureCameraPermission()) {
+      _showPermissionError(
+        webCropContext,
+        'Permissão de câmera negada. Ative nas configurações do aparelho.',
+      );
+      return null;
+    }
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: webCropContext,
       module: YahwehMediaModule.membros,

@@ -16,6 +16,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   gal
   geolocator_windows
   local_auth_windows
+  permission_handler_windows
   printing
   record_windows
   screen_retriever_windows

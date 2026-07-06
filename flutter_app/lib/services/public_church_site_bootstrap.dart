@@ -41,18 +41,30 @@ abstract final class PublicChurchSiteBootstrap {
       return;
     }
 
+    // RAM — primeiro frame sem esperar rede.
+    final peek = PublicChurchSlugResolver.peek(slug);
+    if (peek != null) {
+      warmCaches(peek.churchId);
+      yield peek;
+    }
+
     // Não bloquear first paint do site público.
     unawaited(prepareVisit());
 
-    PublicChurchResolved? fast;
-    try {
-      fast = await PublicChurchSlugResolver.resolveFast(slug).timeout(
-        const Duration(seconds: 6),
-      );
-    } catch (_) {
-      fast = null;
+    PublicChurchResolved? fast = peek;
+    if (peek == null || peek.fromIndexOnly) {
+      try {
+        fast = await PublicChurchSlugResolver.resolveFast(slug).timeout(
+          const Duration(seconds: 4),
+        );
+      } catch (_) {
+        fast = peek;
+      }
     }
-    if (fast != null) {
+    if (fast != null &&
+        (peek == null ||
+            fast.churchId != peek.churchId ||
+            (peek.fromIndexOnly && !fast.fromIndexOnly))) {
       warmCaches(fast.churchId);
       yield fast;
     }
@@ -61,7 +73,7 @@ abstract final class PublicChurchSiteBootstrap {
       try {
         final resolvedChurchId =
             await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slug)
-                .timeout(const Duration(seconds: 6));
+                .timeout(const Duration(seconds: 4));
         if (resolvedChurchId != null && resolvedChurchId.isNotEmpty) {
           final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(
             resolvedChurchId,

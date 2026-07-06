@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Igreja resolvida a partir do slug da URL pública (`/igreja/{slug}`).
@@ -224,6 +226,26 @@ abstract final class PublicChurchSlugResolver {
           logoUrl: panel.churchLogoUrl ?? out.logoUrl,
           fromIndexOnly: true,
         );
+        final feedRows = panel.feedData.isNotEmpty
+            ? panel.feedData
+            : panel.feedPreview;
+        if (feedRows.isNotEmpty) {
+          unawaited(
+            YahwehLocalSnapshotStore.saveJsonList(
+              out.churchId,
+              'public_feed',
+              feedRows,
+            ),
+          );
+        }
+        final logo = panel.churchLogoUrl ?? out.logoUrl ?? '';
+        if (logo.startsWith('http')) {
+          FirebaseStorageService.seedChurchLogoDownloadUrl(
+            out.churchId,
+            logo,
+            tenantData: out.profile,
+          );
+        }
       }
     } catch (_) {}
 

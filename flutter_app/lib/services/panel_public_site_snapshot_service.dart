@@ -99,11 +99,11 @@ abstract final class PanelPublicSiteSnapshotService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelPublicSiteSnapshot();
     try {
-      final cached = await ref(tid).get(
-        const GetOptions(source: Source.cache),
+      final snap = await ref(tid).get(
+        const GetOptions(source: Source.serverAndCache),
       );
-      final fromCache = PanelPublicSiteSnapshot.fromMap(cached.data());
-      if (fromCache.hasData) return fromCache;
+      final parsed = PanelPublicSiteSnapshot.fromMap(snap.data());
+      if (parsed.hasData) return parsed;
     } catch (_) {}
     try {
       final snap = await ref(tid).get();

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -83,7 +84,7 @@ class ChurchAvisoItem {
 abstract final class ChurchAvisosService {
   ChurchAvisosService._();
 
-  static const int kMaxPhotos = 3;
+  static const int kMaxPhotos = 5;
 
   static String churchId(String hint) {
     final raw = hint.trim();
@@ -279,9 +280,14 @@ abstract final class ChurchAvisosService {
     }
 
     final keepUrls = <String>[];
+    final keepStoragePaths = <String>[];
     for (final raw in existingImageUrls) {
       final u = raw.trim();
       if (u.isNotEmpty && !keepUrls.contains(u)) keepUrls.add(u);
+      final p = ChurchCanonicalMediaContract.storagePathFromHttpsUrl(u);
+      if (p != null && p.isNotEmpty && !keepStoragePaths.contains(p)) {
+        keepStoragePaths.add(p);
+      }
       if (keepUrls.length >= kMaxPhotos) break;
     }
 
@@ -308,6 +314,10 @@ abstract final class ChurchAvisosService {
 
     final mergedUrls = <String>[...keepUrls, ...uploadedUrls]
         .where((e) => e.trim().isNotEmpty)
+        .toList();
+    final mergedPaths = <String>[...keepStoragePaths, ...uploadedPaths]
+        .where((e) => e.trim().isNotEmpty)
+        .toSet()
         .toList();
 
     Timestamp? expTs;
@@ -354,9 +364,9 @@ abstract final class ChurchAvisosService {
         'coverPhotoUrl': mergedUrls.first,
         'fotoUrl': mergedUrls.first,
       });
-      if (uploadedPaths.isNotEmpty && keepUrls.isEmpty) {
-        payload['photoStoragePaths'] = uploadedPaths;
-        payload['imageStoragePaths'] = uploadedPaths;
+      if (mergedPaths.isNotEmpty) {
+        payload['photoStoragePaths'] = mergedPaths;
+        payload['imageStoragePaths'] = mergedPaths;
       }
     } else {
       payload.addAll({

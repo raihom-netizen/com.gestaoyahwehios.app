@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -419,7 +421,7 @@ class _ChurchPublicMuralStreamSliverState
       );
       if (!_liveFallbackScheduled) {
         _liveFallbackScheduled = true;
-        Future.delayed(const Duration(seconds: 12), () {
+        Future.delayed(const Duration(seconds: 5), () {
           if (!mounted || _cachedRows.isNotEmpty || _items != null) return;
           _subscribeLive();
         });
@@ -1737,6 +1739,12 @@ class _ChurchPublicTenantResolved {
   const _ChurchPublicTenantResolved({required this.id, required this.data});
 }
 
+_ChurchPublicTenantResolved _churchPublicTenantFromResolved(
+  PublicChurchResolved r,
+) {
+  return _ChurchPublicTenantResolved(id: r.churchId, data: r.profile);
+}
+
 Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
   String slugClean,
 ) {
@@ -1751,72 +1759,65 @@ Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
       );
 }
 
-/// First paint sem tela de bloqueio: mostra shell do site imediatamente.
+/// Shell instantâneo — mesmo layout do site (AppBar + nav + skeleton), sem bloquear.
 class _ChurchPublicFirstPaintShell extends StatelessWidget {
   final String churchLabel;
+  final String slugClean;
 
-  const _ChurchPublicFirstPaintShell({required this.churchLabel});
+  const _ChurchPublicFirstPaintShell({
+    required this.churchLabel,
+    required this.slugClean,
+  });
 
   @override
   Widget build(BuildContext context) {
+    const accent = Color(0xFF2563EB);
+    final churchData = <String, dynamic>{
+      'nome': churchLabel,
+      'name': churchLabel,
+    };
     return ChurchPublicSiteScaffoldBackground(
-      child: SafeArea(
-        child: Padding(
-          padding: ThemeCleanPremium.pagePadding(context),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.86),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Row(
-                  children: [
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2.2),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        churchLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: Skeletonizer(
-                  enabled: true,
-                  child: ListView(
-                    children: List.generate(
-                      5,
-                      (_) => Container(
-                        height: 120,
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
+      child: CustomScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        slivers: [
+          ChurchPublicSiteSliverAppBar(
+            nome: churchLabel,
+            tenantId: slugClean,
+            churchData: churchData,
+            accentColor: accent,
+            onAcessar: () => Navigator.pushNamed(context, '/igreja/login'),
+          ),
+          ChurchPublicPortalNavSliver(
+            accent: accent,
+            onInicio: () {},
+            onAvisos: () {},
+            onDestaques: () {},
+            onEventos: () {},
+            onAcessarSistema: () =>
+                Navigator.pushNamed(context, '/igreja/login'),
+          ),
+          SliverPadding(
+            padding: ThemeCleanPremium.pagePadding(context),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Skeletonizer(
+                    enabled: true,
+                    child: Container(
+                      height: i == 0 ? 168 : 120,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),
                 ),
+                childCount: 4,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1845,6 +1846,13 @@ class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
       widget.churchData,
       churchIdHint: widget.tenantId,
     );
+    if (https.startsWith('http')) {
+      FirebaseStorageService.seedChurchLogoDownloadUrl(
+        widget.tenantId,
+        https,
+        tenantData: widget.churchData,
+      );
+    }
     unawaited(() async {
       final meta = await PublicSiteMediaPrefetchService.readPrefetchMeta(
         widget.tenantId,
@@ -1943,6 +1951,7 @@ class _ChurchPublicOpenAnalyticsBinderState
 
 class _ChurchPublicPageInner extends StatelessWidget {
   final String slug;
+  final _ChurchPublicTenantResolved? bootTenant;
 
   /// Abre detalhe da publicação ao carregar (rota `/{slug}/{noticiaId}`).
   final String? openNoticiaId;
@@ -1958,6 +1967,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
   const _ChurchPublicPageInner({
     super.key,
     required this.slug,
+    this.bootTenant,
     this.openNoticiaId,
     required this.sectionInicioKey,
     required this.sectionAvisosKey,
@@ -2043,8 +2053,9 @@ class _ChurchPublicPageInner extends StatelessWidget {
         color: const Color(0xFFF8FAFC),
         child: StreamBuilder<_ChurchPublicTenantResolved?>(
           stream: _churchPublicTenantBySlugStream(slugClean),
+          initialData: bootTenant,
           builder: (context, snap) {
-            if (snap.hasError) {
+            if (snap.hasError && snap.data == null) {
               return _ErrorBox(
                 title: 'Não foi possível carregar esta igreja',
                 message: 'Erro: ${snap.error}',
@@ -2053,6 +2064,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
             if (!snap.hasData) {
               return _ChurchPublicFirstPaintShell(
                 churchLabel: _prettyName(slugClean),
+                slugClean: slugClean,
               );
             }
             final tenant = snap.data;
@@ -3564,14 +3576,31 @@ class _PublicEventosSection extends StatefulWidget {
 
 class _PublicEventosSectionState extends State<_PublicEventosSection> {
   int _selectedDays = 7;
+  List<Map<String, dynamic>>? _cachedFixos;
+  late Future<List<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadWithCache(_selectedDays);
+  }
+
+  Future<List<Map<String, dynamic>>> _loadWithCache(int days) async {
+    final ram = PanelProgramacaoLoader.peekRam(widget.igrejaId, days);
+    final disk = ram ?? await PanelProgramacaoLoader.readDisk(widget.igrejaId, days);
+    if (disk.isNotEmpty && mounted) {
+      setState(() => _cachedFixos = disk);
+    }
+    return _loadPublicProgramacao(widget.igrejaId, days);
+  }
 
   @override
   Widget build(BuildContext context) {
     const accentEvento = Color(0xFF2563EB);
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: _loadPublicProgramacao(widget.igrejaId, _selectedDays),
+      future: _future,
       builder: (context, fixSnap) {
-        final fixos = fixSnap.data ?? [];
+        final fixos = fixSnap.data ?? _cachedFixos ?? [];
         if (fixos.isEmpty) {
           return const SizedBox.shrink();
         }
@@ -3602,7 +3631,10 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                   return FilterChip(
                     label: Text('$d dias'),
                     selected: selected,
-                    onSelected: (_) => setState(() => _selectedDays = d),
+                    onSelected: (_) => setState(() {
+                      _selectedDays = d;
+                      _future = _loadWithCache(d);
+                    }),
                     showCheckmark: false,
                     selectedColor: accentEvento.withValues(alpha: 0.2),
                     backgroundColor: Colors.white,
@@ -3745,18 +3777,43 @@ ProgramacaoEventCover _publicEventTemplateCover(
 
 Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
     String igrejaId, int days) async {
+  final tid = igrejaId.trim();
+  final staleRam = PanelProgramacaoLoader.peekRam(tid, days);
+  final staleDisk = staleRam ??
+      await PanelProgramacaoLoader.readDisk(tid, days);
+  if (staleDisk.isNotEmpty) {
+    unawaited(() async {
+      final fresh = await _fetchPublicProgramacao(tid, days);
+      if (fresh.isNotEmpty) {
+        PanelProgramacaoLoader.rememberRam(tid, days, fresh);
+      }
+    }());
+    return staleDisk;
+  }
+  final fresh = await _fetchPublicProgramacao(tid, days);
+  if (fresh.isNotEmpty) {
+    PanelProgramacaoLoader.rememberRam(tid, days, fresh);
+  }
+  return fresh;
+}
+
+Future<List<Map<String, dynamic>>> _fetchPublicProgramacao(
+    String igrejaId, int days) async {
   try {
     final now = DateTime.now();
     final end = now.add(Duration(days: days));
     final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
-    final noticiasRef =         ChurchUiCollections.eventos(op);
-    final eventosSnap = await noticiasRef
-        .where('type', isEqualTo: 'evento')
-        .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
-        .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
-        .orderBy('startAt')
-        .limit(60)
-        .get();
+    final noticiasRef = ChurchUiCollections.eventos(op);
+    final eventosSnap = await PanelProgramacaoLoader.queryCacheFirst(
+      noticiasRef
+          .where('type', isEqualTo: 'evento')
+          .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
+          .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
+          .orderBy('startAt')
+          .limit(60),
+      cacheKey: 'public_${op}_eventos_prog_$days',
+      serverTimeout: const Duration(seconds: 10),
+    );
     final itens = <Map<String, dynamic>>[];
     final seenTplDay = <String>{};
     for (final d in eventosSnap.docs) {
@@ -3785,10 +3842,13 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
         'photoStoragePath': path0 != null && path0.isNotEmpty ? path0 : '',
       });
     }
-    final tplSnap = await         ChurchUiCollections.churchDoc(igrejaId)
-        .collection('event_templates')
-        .where('active', isEqualTo: true)
-        .get();
+    final tplSnap = await PanelProgramacaoLoader.queryCacheFirst(
+      ChurchUiCollections.churchDoc(igrejaId)
+          .collection('event_templates')
+          .where('active', isEqualTo: true),
+      cacheKey: 'public_${op}_event_templates_active',
+      serverTimeout: const Duration(seconds: 10),
+    );
     for (final d in tplSnap.docs) {
       final m = d.data();
       if (!eventTemplateIncludeInAgenda(m)) continue;
@@ -4912,7 +4972,10 @@ class _ChurchTenantFallback extends StatelessWidget {
       future: _loadTenant(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return _ChurchPublicFirstPaintShell(churchLabel: prettyName);
+          return _ChurchPublicFirstPaintShell(
+            churchLabel: prettyName,
+            slugClean: slugClean,
+          );
         }
         final tenantDoc = snap.data;
         if (tenantDoc == null || !tenantDoc.exists) {
@@ -5860,6 +5923,7 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
   final GlobalKey _sectionAvisosKey = GlobalKey();
   final GlobalKey _sectionDestaquesKey = GlobalKey();
   final GlobalKey _sectionEventosKey = GlobalKey();
+  _ChurchPublicTenantResolved? _bootTenant;
 
   void _scrollToSection(GlobalKey key) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -5878,19 +5942,65 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
   @override
   void initState() {
     super.initState();
+    final slug = PublicChurchSiteBootstrap.normalizeSlugInput(widget.slug);
+    final peek = PublicChurchSlugResolver.peek(slug);
+    if (peek != null) {
+      _bootTenant = _churchPublicTenantFromResolved(peek);
+    }
+    unawaited(PublicSiteMediaAuth.ensurePublicVisitorMediaAccess());
     unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
       module: YahwehMediaModule.eventos,
     ));
     unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
       module: YahwehMediaModule.avisos,
     ));
-    unawaited(PublicSiteMediaAuth.ensurePublicVisitorMediaAccess());
+    unawaited(PublicChurchSiteBootstrap.prepareVisit());
+    unawaited(_bootstrapSlug(slug));
+  }
+
+  Future<void> _bootstrapSlug(String slug) async {
+    if (slug.isEmpty) return;
+    try {
+      final fast = await PublicChurchSlugResolver.resolveFast(slug).timeout(
+        const Duration(seconds: 4),
+      );
+      if (!mounted || fast == null) return;
+      final next = _churchPublicTenantFromResolved(fast);
+      final changed = _bootTenant?.id != next.id ||
+          (_bootTenant?.data['nome'] ?? '') != (next.data['nome'] ?? '');
+      if (changed) {
+        setState(() => _bootTenant = next);
+      }
+      PublicChurchSiteBootstrap.warmCaches(next.id);
+      final logo = fast.logoUrl ?? (fast.profile['logoUrl'] ?? '').toString();
+      if (logo.startsWith('http')) {
+        FirebaseStorageService.seedChurchLogoDownloadUrl(
+          next.id,
+          logo,
+          tenantData: next.data,
+        );
+      }
+      unawaited(
+        YahwehPublicFeedRepository.readInstantFeed(
+          next.id,
+          refreshServerCacheInBackground: true,
+        ),
+      );
+      for (final days in const [7, 15, 30]) {
+        unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(next.id, days));
+      }
+      unawaited(PublicChurchSlugResolver.resolveEnrich(slug, seed: fast));
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
     return _ChurchPublicPageInner(
+      key: ValueKey(
+        '${widget.slug}|${_bootTenant?.id ?? ''}',
+      ),
       slug: widget.slug,
+      bootTenant: _bootTenant,
       openNoticiaId: widget.openNoticiaId,
       sectionInicioKey: _sectionInicioKey,
       sectionAvisosKey: _sectionAvisosKey,
