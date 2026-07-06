@@ -22,6 +22,7 @@ abstract final class EcoFireStorageUpload {
     required Uint8List bytes,
     required String mimeType,
     void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     LegacyPathGuard.assertCanonicalStoragePath(
       storagePath,
@@ -49,6 +50,7 @@ abstract final class EcoFireStorageUpload {
             cacheControl: StorageUploadMetadata.cacheControl,
           ),
         );
+        onUploadTaskCreated?.call(task);
         final snap = await awaitStorageUploadTask(
           task,
           payloadBytes: bytes.length,

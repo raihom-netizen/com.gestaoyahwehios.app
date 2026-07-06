@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -292,6 +293,8 @@ abstract final class PatrimonioPublishService {
     }
 
     onUploadProgress?.call(0.92);
+
+    await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
 
     await AdminFeedFirestoreBridge.upsertTenantDoc(
       churchId: igrejaId,

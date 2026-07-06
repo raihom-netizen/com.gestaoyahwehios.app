@@ -1,16 +1,19 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 
 /// Gravação patrimônio — Storage (5 fotos) → `foto01`…`foto05` → Firestore.
 abstract final class PatrimonioSaveService {
   PatrimonioSaveService._();
+
+  static const Duration kSaveTimeout = Duration(seconds: 120);
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
@@ -33,6 +36,9 @@ abstract final class PatrimonioSaveService {
     onProgress?.call(0.02, 'Salvando patrimônio e enviando fotos…');
 
     final hasSlotUploads = uploadsBySlot.isNotEmpty || newImages.isNotEmpty;
+    if (hasSlotUploads) {
+      await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.patrimonio);
+    }
 
     Future<void> runPublish() async {
       if (hasSlotUploads) {
@@ -86,7 +92,13 @@ abstract final class PatrimonioSaveService {
     Object? last;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        await runPublish();
+        await runPublish().timeout(
+          kSaveTimeout,
+          onTimeout: () => throw TimeoutException(
+            'Salvar patrimônio demorou demais. Verifique a rede e tente de novo.',
+            kSaveTimeout,
+          ),
+        );
         return;
       } catch (e, st) {
         last = e;

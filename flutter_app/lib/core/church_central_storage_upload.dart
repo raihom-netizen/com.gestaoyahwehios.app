@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -47,6 +49,24 @@ abstract final class ChurchCentralStorageUpload {
 
   static const Duration kDefaultUploadTimeout = Duration(seconds: 60);
 
+  /// Valida tamanho **antes** do upload (evita rejeição pelas regras Storage).
+  static void assertPayloadWithinRules({
+    required int bytes,
+    required String logLabel,
+    int maxBytes = kStorageRulesMaxFeedImageBytes,
+  }) {
+    if (bytes <= 0) {
+      throw StateError('Ficheiro vazio — selecione outra imagem.');
+    }
+    if (bytes > maxBytes) {
+      final mb = (bytes / (1024 * 1024)).toStringAsFixed(1);
+      final cap = (maxBytes / (1024 * 1024)).toStringAsFixed(0);
+      throw StateError(
+        'Ficheiro muito grande ($mb MB). Máximo permitido: $cap MB ($logLabel).',
+      );
+    }
+  }
+
   static void _assertCanonicalPath(String path, String context) {
     LegacyPathGuard.assertCanonicalStoragePath(path, context: context);
   }
@@ -59,11 +79,11 @@ abstract final class ChurchCentralStorageUpload {
     bool compressForFeed = true,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
+    void Function(UploadTask task)? onUploadTaskCreated,
+    int maxBytes = kStorageRulesMaxFeedImageBytes,
   }) async {
     _assertCanonicalPath(storagePath, logLabel);
-    if (rawBytes.isEmpty) {
-      throw StateError('Imagem vazia — selecione outro ficheiro.');
-    }
+    assertPayloadWithinRules(bytes: rawBytes.length, logLabel: logLabel, maxBytes: maxBytes);
     
     logFirebasePublishPhase(
       'storage_upload_start',
@@ -92,6 +112,7 @@ abstract final class ChurchCentralStorageUpload {
         mimeType: processed.mime,
         onProgress: onProgress,
         requireAuth: requireAuth,
+        onUploadTaskCreated: onUploadTaskCreated,
       ).timeout(
         kDefaultUploadTimeout,
         onTimeout: () => throw TimeoutException(
@@ -253,6 +274,14 @@ abstract final class ChurchCentralStorageUpload {
     void Function(double progress)? onProgress,
   }) async {
     final mime = mimeType.toLowerCase();
+    final maxBytes = mime.contains('pdf')
+        ? kStorageRulesMaxFinanceDocBytes
+        : kStorageRulesMaxFeedImageBytes;
+    assertPayloadWithinRules(
+      bytes: bytes.length,
+      logLabel: 'finance_comprovante',
+      maxBytes: maxBytes,
+    );
     late final Uint8List uploadBytes;
     late final String uploadMime;
     if (mime.contains('pdf')) {

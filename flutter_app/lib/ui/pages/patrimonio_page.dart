@@ -8342,6 +8342,20 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
       return;
     }
+
+    final editorSnap = _photosEditorKey.currentState?.snapshot;
+    final pendingPhotos = editorSnap?.uploadsBySlot ?? const {};
+    if (pendingPhotos.isNotEmpty) {
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.patrimonio,
+        logLabel: 'patrimonio_save',
+        withPhotos: true,
+      )) {
+        return;
+      }
+    }
+
     setState(() {
       _saving = true;
       _uploadProgress = 0;

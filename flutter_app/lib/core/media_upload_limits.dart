@@ -45,6 +45,15 @@ const int kStorageUploadCompressedImageStallSeconds = 15;
 /// Cancela upload se bytes não avançarem neste intervalo (imagens maiores).
 const int kStorageUploadImageStallSeconds = 30;
 
+/// Teto alinhado às regras Storage (`storage.rules`) para fotos de feed/perfil/património.
+const int kStorageRulesMaxFeedImageBytes = 10 * 1024 * 1024;
+
+/// PDF/comprovante financeiro — regra Storage até 25 MB.
+const int kStorageRulesMaxFinanceDocBytes = 25 * 1024 * 1024;
+
+/// Chat vídeo — regra Storage até 200 MB.
+const int kStorageRulesMaxChatVideoBytes = 200 * 1024 * 1024;
+
 /// Património — até 4 fotos por bem (móvel, equipamento, veículo, etc.).
 const int kMaxPatrimonioPhotosPerItem = 5;
 

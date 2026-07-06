@@ -6,6 +6,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -14,6 +17,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
@@ -70,7 +74,9 @@ abstract final class FinanceComprovantePublishService {
       );
 
   static Future<void> _ensureReady() async {
-    await DirectStorageUrlPublish.ensureReady();
+    await ChurchMediaUploadFacade.ensureModuleReady(
+      YahwehMediaModule.financeiro,
+    );
   }
 
   /// Compressão em isolate antes do Storage (imagens apenas).
@@ -273,12 +279,15 @@ abstract final class FinanceComprovantePublishService {
     }
   }
 
+  static const Duration kComprovantePublishTimeout = Duration(seconds: 90);
+
   static Future<void> _mergeComprovantePatch({
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> patch,
   }) async {
     final data = Map<String, dynamic>.from(patch)
       ..['updatedAt'] = FieldValue.serverTimestamp();
+    await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
       await AdminFeedFirestoreBridge.upsertDocRef(
@@ -463,6 +472,13 @@ abstract final class FinanceComprovantePublishService {
     if (mt.startsWith('video/')) {
       throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
     }
+    ChurchCentralStorageUpload.assertPayloadWithinRules(
+      bytes: rawBytes.length,
+      logLabel: 'finance_comprovante',
+      maxBytes: mt.contains('pdf')
+          ? kStorageRulesMaxFinanceDocBytes
+          : kStorageRulesMaxFeedImageBytes,
+    );
 
     onProgress?.call(0.08);
     await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
@@ -580,6 +596,12 @@ abstract final class FinanceComprovantePublishService {
       },
       debugLabel: 'finance_comprovante_upload',
       requireAuth: true,
+    ).timeout(
+      kComprovantePublishTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Envio do comprovante demorou demais. Verifique a rede e tente de novo.',
+        kComprovantePublishTimeout,
+      ),
     );
   }
 

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
@@ -351,6 +352,7 @@ abstract final class ChurchFeedLinearPublishService {
       'linear_firestore_before_save',
       '$postType path=${docRef.path} tenant=$churchId',
     );
+    await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
     await PublicationEngine.saveStrictPublished(
       docRef: docRef,
       tenantId: churchId,

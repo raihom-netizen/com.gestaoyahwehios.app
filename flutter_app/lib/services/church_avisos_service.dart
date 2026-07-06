@@ -4,14 +4,16 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
-import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
-import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -85,6 +87,11 @@ abstract final class ChurchAvisosService {
   ChurchAvisosService._();
 
   static const int kMaxPhotos = 5;
+  static const Duration kPublishTimeout = Duration(seconds: 90);
+
+  static Future<void> _ensurePublishReady() async {
+    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.avisos);
+  }
 
   static String churchId(String hint) {
     final raw = hint.trim();
@@ -167,26 +174,13 @@ abstract final class ChurchAvisosService {
       throw StateError('Escolha a data de vencimento ou marque como permanente.');
     }
 
-    await purgeExpired(churchIdHint: cid);
+    unawaited(purgeExpired(churchIdHint: cid));
+
+    await _ensurePublishReady();
 
     final user = FirebaseAuth.instance.currentUser;
     final docRef = ChurchUiCollections.avisos(cid).doc();
     final postId = docRef.id;
-
-    final imageUrls = <String>[];
-    final storagePaths = <String>[];
-
-    for (var i = 0; i < imgs.length; i++) {
-      final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
-        churchId: cid,
-        postId: postId,
-        slotIndex: i,
-        rawBytes: imgs[i],
-        onProgress: null,
-      );
-      imageUrls.add(uploaded.downloadUrl);
-      storagePaths.add(uploaded.storagePath);
-    }
 
     final now = FieldValue.serverTimestamp();
     Timestamp? expTs;
@@ -204,7 +198,7 @@ abstract final class ChurchAvisosService {
       validUntil = expTs;
     }
 
-    final payload = <String, dynamic>{
+    final corePayload = <String, dynamic>{
       'type': 'aviso',
       'title': titulo,
       'titulo': titulo,
@@ -216,35 +210,46 @@ abstract final class ChurchAvisosService {
       'authorUid': user?.uid ?? '',
       'authorName': (user?.displayName ?? '').trim(),
       'publicSite': true,
-      'publicado': true,
-      'status': 'publicado',
-      'publishState': 'published',
-      'ativo': true,
       'permanent': permanent,
-      'imageUrls': imageUrls,
-      'photoStoragePaths': storagePaths,
-      'imageStoragePaths': storagePaths,
-      if (imageUrls.isNotEmpty) ...{
-        'imageUrl': imageUrls.first,
-        'coverPhotoUrl': imageUrls.first,
-        'fotoUrl': imageUrls.first,
-      },
       if (expTs != null) ...{
         'avisoExpiresAt': expTs,
         'validUntil': validUntil,
       },
     };
 
-    await AdminFeedFirestoreBridge.upsertDocRef(
-      docRef: docRef,
-      data: payload,
-      isNewDoc: true,
-      directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload),
-        maxAttempts: 4,
-        criticalWrite: true,
-      ),
+    logFirebasePublishPhase(
+      'avisos_service_publish_start',
+      'path=${docRef.path} photos=${imgs.length}',
     );
+
+    try {
+      await ChurchFeedLinearPublishService.publishAviso(
+        docRef: docRef,
+        tenantId: cid,
+        corePayload: corePayload,
+        isNewDoc: true,
+        existingPhotoRefs: const [],
+        startSlotIndex: 0,
+        newImagesBytes: imgs.isNotEmpty ? imgs : null,
+        publicSite: true,
+        calendarDate: permanent ? null : expiresAtEndOfDay,
+        syncCalendar: true,
+      ).timeout(
+        kPublishTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Publicação do aviso demorou demais. Verifique a rede e tente de novo.',
+          kPublishTimeout,
+        ),
+      );
+    } catch (e, st) {
+      logFirebasePublishPhase(
+        'avisos_service_publish_error',
+        'path=${docRef.path}',
+        error: e,
+        stack: st,
+      );
+      rethrow;
+    }
 
     return postId;
   }
@@ -279,15 +284,12 @@ abstract final class ChurchAvisosService {
       throw StateError('Escolha a data de vencimento ou marque como permanente.');
     }
 
+    await _ensurePublishReady();
+
     final keepUrls = <String>[];
-    final keepStoragePaths = <String>[];
     for (final raw in existingImageUrls) {
       final u = raw.trim();
       if (u.isNotEmpty && !keepUrls.contains(u)) keepUrls.add(u);
-      final p = ChurchCanonicalMediaContract.storagePathFromHttpsUrl(u);
-      if (p != null && p.isNotEmpty && !keepStoragePaths.contains(p)) {
-        keepStoragePaths.add(p);
-      }
       if (keepUrls.length >= kMaxPhotos) break;
     }
 
@@ -295,29 +297,6 @@ abstract final class ChurchAvisosService {
     final newImages = newPhotoBytes
         .where((b) => b.isNotEmpty)
         .take(remainingSlots)
-        .toList();
-
-    final uploadedUrls = <String>[];
-    final uploadedPaths = <String>[];
-    for (var i = 0; i < newImages.length; i++) {
-      final slotIndex = keepUrls.length + i;
-      final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
-        churchId: cid,
-        postId: id,
-        slotIndex: slotIndex,
-        rawBytes: newImages[i],
-        onProgress: null,
-      );
-      uploadedUrls.add(uploaded.downloadUrl);
-      uploadedPaths.add(uploaded.storagePath);
-    }
-
-    final mergedUrls = <String>[...keepUrls, ...uploadedUrls]
-        .where((e) => e.trim().isNotEmpty)
-        .toList();
-    final mergedPaths = <String>[...keepStoragePaths, ...uploadedPaths]
-        .where((e) => e.trim().isNotEmpty)
-        .toSet()
         .toList();
 
     Timestamp? expTs;
@@ -335,7 +314,7 @@ abstract final class ChurchAvisosService {
       validUntil = expTs;
     }
 
-    final payload = <String, dynamic>{
+    final corePayload = <String, dynamic>{
       'type': 'aviso',
       'title': titulo,
       'titulo': titulo,
@@ -343,10 +322,6 @@ abstract final class ChurchAvisosService {
       'text': body.trim(),
       'mensagem': body.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
-      'publicado': true,
-      'status': 'publicado',
-      'publishState': 'published',
-      'ativo': true,
       'permanent': permanent,
       if (expTs != null) ...{
         'avisoExpiresAt': expTs,
@@ -357,39 +332,41 @@ abstract final class ChurchAvisosService {
       },
     };
 
-    if (mergedUrls.isNotEmpty) {
-      payload.addAll({
-        'imageUrls': mergedUrls,
-        'imageUrl': mergedUrls.first,
-        'coverPhotoUrl': mergedUrls.first,
-        'fotoUrl': mergedUrls.first,
-      });
-      if (mergedPaths.isNotEmpty) {
-        payload['photoStoragePaths'] = mergedPaths;
-        payload['imageStoragePaths'] = mergedPaths;
-      }
-    } else {
-      payload.addAll({
-        'imageUrls': FieldValue.delete(),
-        'imageUrl': FieldValue.delete(),
-        'coverPhotoUrl': FieldValue.delete(),
-        'fotoUrl': FieldValue.delete(),
-        'photoStoragePaths': FieldValue.delete(),
-        'imageStoragePaths': FieldValue.delete(),
-      });
-    }
-
     final docRef = ChurchUiCollections.avisos(cid).doc(id);
-    await AdminFeedFirestoreBridge.upsertDocRef(
-      docRef: docRef,
-      data: payload,
-      isNewDoc: false,
-      directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: true)),
-        maxAttempts: 4,
-        criticalWrite: true,
-      ),
+
+    logFirebasePublishPhase(
+      'avisos_service_update_start',
+      'path=${docRef.path} keep=${keepUrls.length} new=${newImages.length}',
     );
+
+    try {
+      await ChurchFeedLinearPublishService.publishAviso(
+        docRef: docRef,
+        tenantId: cid,
+        corePayload: corePayload,
+        isNewDoc: false,
+        existingPhotoRefs: keepUrls,
+        startSlotIndex: keepUrls.length,
+        newImagesBytes: newImages.isNotEmpty ? newImages : null,
+        publicSite: true,
+        calendarDate: permanent ? null : expiresAtEndOfDay,
+        syncCalendar: true,
+      ).timeout(
+        kPublishTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Atualização do aviso demorou demais. Verifique a rede e tente de novo.',
+          kPublishTimeout,
+        ),
+      );
+    } catch (e, st) {
+      logFirebasePublishPhase(
+        'avisos_service_update_error',
+        'path=${docRef.path}',
+        error: e,
+        stack: st,
+      );
+      rethrow;
+    }
 
     unawaited(ChurchAvisosLoadService.invalidate(cid));
   }

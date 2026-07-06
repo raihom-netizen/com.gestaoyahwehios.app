@@ -1720,6 +1720,21 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _save() async {
     if (!_canEdit) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    final needsLogoUpload =
+        _canEdit &&
+        (_logoSnap.pendingBytes != null || _logoSnap.removeExisting);
+    if (needsLogoUpload) {
+      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+        context: context,
+        module: YahwehMediaModule.cadastro,
+        logLabel: 'igreja_cadastro_logo',
+        withPhotos: _logoSnap.pendingBytes != null,
+      )) {
+        return;
+      }
+    }
+
     ThemeCleanPremium.hapticAction();
     setState(() => _saving = true);
     var savedTenantId = '';
@@ -1962,7 +1977,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted) return;
       final msg = FirestoreWebGuard.isInternalAssertionError(e)
           ? 'Firestore instável na web. Aguarde 3 segundos e toque em Salvar novamente.'
-          : 'Erro ao salvar: $e';
+          : formatFirebaseErrorForUser(e);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(msg),
       );

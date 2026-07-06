@@ -46,8 +46,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/storage_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -4946,12 +4946,15 @@ class _MembersPageState extends State<MembersPage> {
         final op = ChurchRepository.churchId(targetTenantId);
         final assinaturaPath =
             '${ChurchStorageLayout.churchRoot(op)}/membros/${member.id}_assinatura.png';
-        await StorageService.uploadBytes(
-          storagePath: assinaturaPath,
+        final uploaded = await ChurchMediaUploadFacade.uploadMidia(
           bytes: newAssinaturaBytes!,
-          contentType: 'image/png',
+          storagePath: assinaturaPath,
+          logLabel: 'membro_assinatura',
+          alreadyCompressed: true,
+          compressForFeed: false,
         );
-        updates['assinaturaStoragePath'] = assinaturaPath;
+        updates['assinaturaStoragePath'] = uploaded.storagePath;
+        updates['assinaturaUrl'] = uploaded.downloadUrl;
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar('Assinatura enviada.'));
@@ -4959,7 +4962,7 @@ class _MembersPageState extends State<MembersPage> {
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar(
-                  'Erro ao enviar assinatura: $e'));
+                  'Erro ao enviar assinatura: ${ChurchMediaUploadFacade.mensagemAmigavel(e)}'));
       }
     }
     if (removeAssinatura) {

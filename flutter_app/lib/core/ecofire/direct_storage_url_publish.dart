@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -55,6 +56,7 @@ abstract final class DirectStorageUrlPublish {
     required String mimeType,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
+    void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     await ensureReady(requireAuth: requireAuth);
     return EcoFireStorageUpload.putData(
@@ -62,6 +64,7 @@ abstract final class DirectStorageUrlPublish {
       bytes: bytes,
       mimeType: mimeType,
       onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
     );
   }
 

@@ -19,6 +19,9 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload unificado — Web, Android e iOS usam o mesmo pipeline ([MediaUploadService]
 /// + bootstrap + retry). A Web é a referência; nativos usam [putFile] quando há path local.
+///
+/// **Painel igreja (avisos, eventos, membros, património, financeiro):** preferir
+/// [ChurchMediaUploadFacade] / [ChurchCentralStorageUpload] — gate + timeout + regras Storage.
 abstract final class UnifiedUploadService {
   UnifiedUploadService._();
 

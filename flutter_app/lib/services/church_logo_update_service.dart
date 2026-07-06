@@ -1,10 +1,13 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
@@ -15,6 +18,8 @@ import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 /// Logo institucional — path canónico `igrejas/{churchId}/configuracoes/logo_igreja.png`.
 abstract final class ChurchLogoUpdateService {
   ChurchLogoUpdateService._();
+
+  static const Duration kLogoPublishTimeout = Duration(seconds: 90);
 
   /// Maior lado da logo no Storage (4K UHD).
   static const int kLogoMaxSidePx = 3840;
@@ -41,6 +46,8 @@ abstract final class ChurchLogoUpdateService {
       throw StateError('Imagem da logo vazia — selecione outra.');
     }
 
+    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.cadastro);
+
     onProgress?.call(0.02);
     final png = await encodeChurchLogoAsPngInIsolate(
       rawBytes,
@@ -65,6 +72,7 @@ abstract final class ChurchLogoUpdateService {
     );
 
     onProgress?.call(0.92);
+    await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
     await ChurchBrandService.persistLogoPath(
       churchId: cid,
       storagePath: identityPath,

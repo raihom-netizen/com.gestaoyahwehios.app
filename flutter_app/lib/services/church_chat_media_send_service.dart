@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -19,6 +20,7 @@ import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
@@ -76,12 +78,12 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      await ensureFirebaseReadyForChatSend();
+      await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
     } catch (e) {
       if (isFirebaseNoAppError(e)) {
         await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
         try {
-          await ensureFirebaseReadyForChatSend();
+          await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
         } catch (e2) {
           onError?.call(ChurchChatService.formatInstantSendError(e2));
           rethrow;
@@ -155,6 +157,7 @@ abstract final class ChurchChatMediaSendService {
   }) async {
     ChurchPublishFlowLog.chatStart();
     onProgress?.call(0.04);
+    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
 
     final displayName = ChurchChatMessageFields.isDocumentType(pending.kind)
         ? (pending.fileName.isNotEmpty ? pending.fileName : 'file')
@@ -473,6 +476,7 @@ abstract final class ChurchChatMediaSendService {
     int? fileSize,
     Map<String, dynamic>? replyTo,
   }) async {
+    await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
     Future<({String messageId, bool allowed})> writeOnce() =>
         ChurchChatService.writeMediaMessageFirestoreOnce(
           tenantId: resolvedTenant,

@@ -17,6 +17,8 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -8113,7 +8115,21 @@ String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
 /// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
 /// Retorna `true` se gravou com sucesso.
 Future<void> _ensureFinanceWriteReady({BuildContext? context}) async {
-  await DirectStorageUrlPublish.ensureReady();
+  if (context != null && context.mounted) {
+    final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
+      context: context,
+      module: YahwehMediaModule.financeiro,
+      logLabel: 'finance_write',
+      withPhotos: true,
+    );
+    if (!ok) {
+      throw StateError(
+        'Não foi possível preparar o envio do comprovante. Tente novamente.',
+      );
+    }
+    return;
+  }
+  await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.financeiro);
 }
 
 bool _financeTreatSilentSuccess(
@@ -9049,9 +9065,9 @@ Future<void> removeFinanceComprovanteForLancamento(
     unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível remover o comprovante: $e',
+          ChurchMediaUploadFacade.mensagemAmigavel(e),
         ),
       );
     }

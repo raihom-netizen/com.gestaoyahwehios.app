@@ -330,7 +330,17 @@ abstract final class YahwehModuleMediaGate {
 
   }) async {
 
-    await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+
+    if (requireAuth) {
+
+      await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
+
+    } else if (kIsWeb) {
+
+      await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
+
+    }
 
   }
 

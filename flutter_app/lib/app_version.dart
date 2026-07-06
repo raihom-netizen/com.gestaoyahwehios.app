@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2065: Deploy completo — upload unificado (Chat, Patrimônio, Cadastro, Eventos, Avisos, Financeiro/comprovantes), ChurchMediaUploadFacade, gates Firebase.
 /// 11.2.305+2064: Deploy completo — site público rápido (cache slug/logo/feed/programação), cards líderes/corpo admin compactos, upload/mídia e Play e-mail.
 /// 11.2.305+2063: Play Store — Segurança dos dados: declarar e-mail (Firebase Auth, cadastro membro/igreja); novo AAB.
 /// 11.2.305+2062: Deploy completo — regras/functions/web/AAB/iOS (Play: ficha Gestão YAHWEH, chave upload 96:91:41:90).
@@ -455,7 +456,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2064';
+const String appBuildNumber = '2065';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -1,7 +1,7 @@
 import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -1613,6 +1613,25 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   }
 
   Future<void> _publish() async {
+    final titulo = _titleCtrl.text.trim();
+    if (titulo.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Informe o título do aviso.')),
+        );
+      }
+      return;
+    }
+
+    if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+      context: context,
+      module: YahwehMediaModule.avisos,
+      logLabel: 'avisos_editor_publish',
+      withPhotos: _photos.isNotEmpty,
+    )) {
+      return;
+    }
+
     setState(() => _publishing = true);
     try {
       if (_isEdit) {
@@ -1641,10 +1660,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         );
       }
       if (mounted) Navigator.pop(context, true);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('ChurchAvisoEditorSheet._publish: $e\n$st');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(e.toString()),
+          ThemeCleanPremium.feedbackSnackBar(formatUploadErrorForUser(e)),
         );
       }
     } finally {
