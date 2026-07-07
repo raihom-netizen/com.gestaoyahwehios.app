@@ -320,11 +320,25 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                 label: Text(_sortDateAsc ? 'Data ↑ antigos' : 'Data ↓ recentes'),
                 selected: true,
                 onSelected: (_) => setState(() => _sortDateAsc = !_sortDateAsc),
+                showCheckmark: false,
+                labelStyle: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.2,
+                ),
+                backgroundColor: const Color(0xFF2563EB),
+                selectedColor: const Color(0xFF2563EB),
+                side: BorderSide.none,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
                 avatar: Icon(
                   _sortDateAsc
                       ? Icons.arrow_upward_rounded
                       : Icons.arrow_downward_rounded,
                   size: 16,
+                  color: Colors.white,
                 ),
               ),
             ],
@@ -340,8 +354,22 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       label: Text(label),
       selected: sel,
       onSelected: (_) => setState(() => _filtro = value),
-      selectedColor: const Color(0xFF0EA5E9).withValues(alpha: 0.18),
-      checkmarkColor: const Color(0xFF0EA5E9),
+      showCheckmark: true,
+      checkmarkColor: Colors.white,
+      labelStyle: TextStyle(
+        color: sel ? Colors.white : const Color(0xFF1E293B),
+        fontWeight: FontWeight.w800,
+        fontSize: 12.2,
+      ),
+      backgroundColor: const Color(0xFFF1F5F9),
+      selectedColor: const Color(0xFF0EA5E9),
+      side: BorderSide(
+        color: sel ? const Color(0xFF0284C7) : const Color(0xFFD5DEE8),
+      ),
+      shadowColor: const Color(0xFF0284C7).withValues(alpha: 0.22),
+      elevation: sel ? 1.5 : 0,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
     );
   }
 
@@ -469,6 +497,12 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                               icon: const Icon(Icons.add_photo_alternate_outlined),
                               label: const Text('Novo aviso'),
                               style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFF1554C0),
+                                foregroundColor: Colors.white,
+                                textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                ),
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
@@ -480,6 +514,14 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                           IconButton.filledTonal(
                             tooltip:
                                 _selectionMode ? 'Cancelar seleção' : 'Selecionar',
+                            style: IconButton.styleFrom(
+                              backgroundColor: _selectionMode
+                                  ? const Color(0xFFFEE2E2)
+                                  : const Color(0xFFDBEAFE),
+                              foregroundColor: _selectionMode
+                                  ? const Color(0xFFB91C1C)
+                                  : const Color(0xFF1D4ED8),
+                            ),
                             onPressed: () => setState(() {
                               _selectionMode = !_selectionMode;
                               if (!_selectionMode) _selected.clear();
@@ -634,7 +676,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                             child: card,
                           );
                         },
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
                       ),
               ),
           ],

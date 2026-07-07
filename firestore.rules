@@ -463,6 +463,7 @@ service cloud.firestore {
         || muralRoleFromMemberDoc(tenantId)
         || muralRoleFromLinkedMemberDoc(tenantId)
         || muralRoleFromTenantUserDoc(tenantId)
+        || (canAccessTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
         || (canAccessTenant(tenantId) && (
           isPastoralOrSecretariatMuralRole()
           || isEventosMuralEditorRole()
@@ -485,6 +486,7 @@ service cloud.firestore {
     /// Exclusão mural: equipe admin/pastoral tudo; líder de departamento só o que criou.
     function canDeleteMuralFeedPost(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
         || (canWriteMuralFeed(tenantId) && isSignedIn()
             && muralFeedAuthorUidFromData(resource.data) == request.auth.uid);
     }

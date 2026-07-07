@@ -51,6 +51,26 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 . (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 
+function Remove-PathRobust {
+    param([Parameter(Mandatory = $true)][string]$PathToRemove)
+
+    if (-not (Test-Path $PathToRemove)) { return }
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            Remove-Item -Path $PathToRemove -Recurse -Force -ErrorAction Stop
+            if (-not (Test-Path $PathToRemove)) { return }
+        }
+        catch {
+            Start-Sleep -Milliseconds (200 * $attempt)
+        }
+    }
+
+    try {
+        cmd /c "rmdir /s /q \"$PathToRemove\"" | Out-Null
+    }
+    catch {}
+}
+
 $Project = "gestaoyahweh-21e23"
 $rc = Join-Path $RepoRoot ".firebaserc"
 if (Test-Path $rc) {
@@ -98,8 +118,11 @@ try {
             (Join-Path $FlutterApp "build\app\outputs\bundle\release\app-release.aab")
         )
         foreach ($p in $cleanPaths) {
-            if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $p) { Remove-PathRobust -PathToRemove $p }
         }
+        # Extra: evita duplicacao assets/assets no build web em Windows.
+        Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets")
+        Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets\assets")
     }
     Write-Host "Rodando flutter pub get..." -ForegroundColor DarkGray
     $prevEap = $ErrorActionPreference

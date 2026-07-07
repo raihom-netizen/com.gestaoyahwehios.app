@@ -8450,11 +8450,26 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     try {
-      if (!await YahwehModuleMediaGate.prepareForPublishUpload(
+      var publishReady = await YahwehModuleMediaGate.prepareForPublishUpload(
         context: context,
         module: YahwehMediaModule.eventos,
         logLabel: 'eventos_manager_save',
-      )) {
+      );
+      if (!publishReady) {
+        await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+          StateError('core/no-app'),
+        );
+        await ensureFirebaseReadyForPublishUpload();
+        await EventoCreatePublishService.ensureReady(
+          logLabel: 'eventos_manager_save_retry',
+        );
+        publishReady = await YahwehModuleMediaGate.prepareForPublishUpload(
+          context: context,
+          module: YahwehMediaModule.eventos,
+          logLabel: 'eventos_manager_save_retry',
+        );
+      }
+      if (!publishReady) {
         if (mounted) setState(() => _saving = false);
         return;
       }

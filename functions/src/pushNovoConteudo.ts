@@ -166,7 +166,7 @@ function hasValidFeedMedia(d: Record<string, unknown>): boolean {
 }
 
 function isPushableAvisoDoc(d: Record<string, unknown>): boolean {
-  return isPublishedFeedDoc(d) && hasValidFeedTitle(d) && hasValidFeedMedia(d);
+  return isPublishedFeedDoc(d) && hasValidFeedTitle(d);
 }
 
 export const onNovoAvisoMuralPush = functions

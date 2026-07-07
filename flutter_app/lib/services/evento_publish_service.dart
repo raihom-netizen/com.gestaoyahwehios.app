@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+  show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
@@ -12,6 +14,7 @@ import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Publicação de evento — pipeline **linear**: bootstrap → fotos/vídeo → Storage → Firestore → agenda → feed/site.
 ///
@@ -120,33 +123,56 @@ abstract final class EventoPublishService {
       ChurchPublishFlowLog.uploadOk('evento video ${docRef.id}');
     }
 
-    try {
-      return await ChurchFeedLinearPublishService.publishEvento(
-        docRef: docRef,
-        tenantId: churchId,
-        corePayload: payload,
-        isNewDoc: isNewDoc,
-        existingPhotoRefs: existingUrls,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
-        videoStoragePath:
-            resolvedVideoPath.isNotEmpty ? resolvedVideoPath : null,
-        eventStartAt: eventStartAt,
-        location: location,
-        syncAgenda: syncAgenda,
-        agendaCategory: agendaCategory,
-        agendaColorHex: agendaColorHex,
-        onUploadProgress: onUploadProgress,
-      );
-    } catch (e) {
-      if (EcoFireResilientPublish.shouldQueueSilently(e)) {
-        ChurchPublishFlowLog.logCatch(e, StackTrace.current, label: 'evento_offline');
+    Object? last;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await ChurchFeedLinearPublishService.publishEvento(
+          docRef: docRef,
+          tenantId: churchId,
+          corePayload: payload,
+          isNewDoc: isNewDoc,
+          existingPhotoRefs: existingUrls,
+          startSlotIndex: startSlotIndex,
+          newImagesBytes: newImagesBytes,
+          newImagePaths: newImagePaths,
+          publicSite: publicSite,
+          hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
+          videoStoragePath:
+              resolvedVideoPath.isNotEmpty ? resolvedVideoPath : null,
+          eventStartAt: eventStartAt,
+          location: location,
+          syncAgenda: syncAgenda,
+          agendaCategory: agendaCategory,
+          agendaColorHex: agendaColorHex,
+          onUploadProgress: onUploadProgress,
+        );
+      } catch (e) {
+        last = e;
+        final retryable =
+            isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e);
+        if (attempt == 0 && retryable) {
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
+          await prepareFullPipeline(
+            logLabel: 'evento_publish_retry_${docRef.id}',
+            withMedia: hasNewPhotos || localVideo.isNotEmpty || hasVideo,
+          );
+          await ChurchMediaUploadFacade.ensureModuleReady(
+            YahwehMediaModule.eventos,
+          );
+          continue;
+        }
+        if (EcoFireResilientPublish.shouldQueueSilently(e)) {
+          ChurchPublishFlowLog.logCatch(
+            e,
+            StackTrace.current,
+            label: 'evento_offline',
+          );
+          rethrow;
+        }
         rethrow;
       }
-      rethrow;
     }
+
+    throw StateError(last?.toString() ?? 'Falha ao publicar evento.');
   }
 }

@@ -378,6 +378,8 @@ abstract final class YahwehModuleMediaGate {
 
         }
 
+        await ensureFirebaseReadyForPublishUpload();
+
         await DirectStorageUrlPublish.ensureReady(
           requireAuth: requireAuth,
         );
@@ -388,7 +390,10 @@ abstract final class YahwehModuleMediaGate {
 
         last = e;
 
-        if (attempt < 4 && isFirebaseNoAppError(e)) {
+        if (
+          attempt < 4 &&
+          (isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e))
+        ) {
 
           continue;
 
@@ -479,6 +484,10 @@ abstract final class YahwehModuleMediaGate {
     if (!isFirebaseNoAppError(e)) return;
 
     try {
+      await FirebaseBootstrapService.ensureAlwaysOn(
+        refreshAuthToken: requireAuth,
+      );
+      await ensureFirebaseReadyForPublishUpload();
       await EcoFireDirectFirebase.ensureDefaultApp();
       await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
       if (kIsWeb && requireAuth) {

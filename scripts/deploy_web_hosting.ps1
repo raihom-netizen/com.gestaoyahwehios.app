@@ -14,6 +14,26 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 
+function Remove-PathRobust {
+    param([Parameter(Mandatory = $true)][string]$PathToRemove)
+
+    if (-not (Test-Path $PathToRemove)) { return }
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            Remove-Item -Path $PathToRemove -Recurse -Force -ErrorAction Stop
+            if (-not (Test-Path $PathToRemove)) { return }
+        }
+        catch {
+            Start-Sleep -Milliseconds (200 * $attempt)
+        }
+    }
+
+    try {
+        cmd /c "rmdir /s /q \"$PathToRemove\"" | Out-Null
+    }
+    catch {}
+}
+
 if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
     Write-Host "Erro: flutter_app nao encontrado em $FlutterApp" -ForegroundColor Red
     exit 1
@@ -30,6 +50,11 @@ if (-not $SkipPubGet) {
 } else {
     Write-Host "=== flutter clean / pub get saltados (-SkipPubGet) ===" -ForegroundColor DarkGray
 }
+
+# Limpeza extra para evitar conflito `build/web/assets/assets/...` no Windows.
+Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web")
+Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets")
+Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets\assets")
 
 Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop) ===" -ForegroundColor Cyan
 # FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).

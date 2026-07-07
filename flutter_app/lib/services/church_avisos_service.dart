@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -90,7 +91,77 @@ abstract final class ChurchAvisosService {
   static const Duration kPublishTimeout = Duration(seconds: 90);
 
   static Future<void> _ensurePublishReady() async {
-    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.avisos);
+    Object? last;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) {
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+            last ?? StateError('core/no-app'),
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: 180 + (attempt * 220)),
+          );
+        }
+        await ensureFirebaseReadyForPublishUpload();
+        await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.avisos);
+        return;
+      } catch (e) {
+        last = e;
+        if (attempt >= 2) rethrow;
+      }
+    }
+  }
+
+  static Future<void> _publishAvisoWithRecovery({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String tenantId,
+    required Map<String, dynamic> corePayload,
+    required bool isNewDoc,
+    required List<String> existingPhotoRefs,
+    required int startSlotIndex,
+    List<Uint8List>? newImagesBytes,
+    required bool publicSite,
+    DateTime? calendarDate,
+    bool syncCalendar = true,
+  }) async {
+    Object? last;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) {
+          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
+            last ?? StateError('core/no-app'),
+          );
+          await ensureFirebaseReadyForPublishUpload();
+          await _ensurePublishReady();
+        }
+        await ChurchFeedLinearPublishService.publishAviso(
+          docRef: docRef,
+          tenantId: tenantId,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingPhotoRefs: existingPhotoRefs,
+          startSlotIndex: startSlotIndex,
+          newImagesBytes: newImagesBytes,
+          publicSite: publicSite,
+          calendarDate: calendarDate,
+          syncCalendar: syncCalendar,
+        ).timeout(
+          kPublishTimeout,
+          onTimeout: () => throw TimeoutException(
+            isNewDoc
+                ? 'Publicação do aviso demorou demais. Verifique a rede e tente de novo.'
+                : 'Atualização do aviso demorou demais. Verifique a rede e tente de novo.',
+            kPublishTimeout,
+          ),
+        );
+        return;
+      } catch (e) {
+        last = e;
+        final retryable =
+            isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e);
+        if (!retryable || attempt >= 1) rethrow;
+      }
+    }
   }
 
   static String churchId(String hint) {
@@ -223,7 +294,7 @@ abstract final class ChurchAvisosService {
     );
 
     try {
-      await ChurchFeedLinearPublishService.publishAviso(
+      await _publishAvisoWithRecovery(
         docRef: docRef,
         tenantId: cid,
         corePayload: corePayload,
@@ -234,12 +305,6 @@ abstract final class ChurchAvisosService {
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
-      ).timeout(
-        kPublishTimeout,
-        onTimeout: () => throw TimeoutException(
-          'Publicação do aviso demorou demais. Verifique a rede e tente de novo.',
-          kPublishTimeout,
-        ),
       );
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -340,7 +405,7 @@ abstract final class ChurchAvisosService {
     );
 
     try {
-      await ChurchFeedLinearPublishService.publishAviso(
+      await _publishAvisoWithRecovery(
         docRef: docRef,
         tenantId: cid,
         corePayload: corePayload,
@@ -351,12 +416,6 @@ abstract final class ChurchAvisosService {
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
-      ).timeout(
-        kPublishTimeout,
-        onTimeout: () => throw TimeoutException(
-          'Atualização do aviso demorou demais. Verifique a rede e tente de novo.',
-          kPublishTimeout,
-        ),
       );
     } catch (e, st) {
       logFirebasePublishPhase(

@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
 import 'package:gestao_yahweh/services/church_chat_media_storage.dart';
+import 'package:gestao_yahweh/services/church_chat_media_upload_coordinator.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
@@ -36,6 +37,11 @@ abstract final class ChurchChatMediaSendService {
 
   static const Duration kSendTimeout = Duration(seconds: 90);
   static const Duration kPrepareTimeout = Duration(seconds: 25);
+  static const Duration kStorageImageTimeout = Duration(seconds: 90);
+  static const Duration kStorageThumbTimeout = Duration(seconds: 20);
+  static const Duration kStorageVideoTimeout = Duration(seconds: 180);
+  static const Duration kStorageAudioTimeout = Duration(seconds: 120);
+  static const Duration kStorageDocumentTimeout = Duration(seconds: 150);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,
@@ -95,7 +101,7 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      await sendInternal(
+      await ChurchChatMediaUploadCoordinator.run(() => sendInternal(
         resolvedTenant: resolvedTenant,
         threadId: threadId,
         pending: pending,
@@ -104,7 +110,7 @@ abstract final class ChurchChatMediaSendService {
         replyTo: replyTo,
         onProgress: onProgress,
         onReplyCleared: onReplyCleared,
-      ).timeout(
+      )).timeout(
         kSendTimeout,
         onTimeout: () => throw TimeoutException(
           'O envio demorou demais. Verifique a rede e toque em «Tentar de novo».',
@@ -267,7 +273,7 @@ abstract final class ChurchChatMediaSendService {
           bytes: prepared.fullBytes,
           contentType: prepared.fullMime,
           onProgress: (t) => _mapProgress(reportProgress, 0.2, 0.78, t),
-        );
+        ).timeout(kStorageImageTimeout);
         reportProgress(0.82);
 
         // Thumb não bloqueia envio — timeout curto; Firestore segue com imagem principal.
@@ -283,7 +289,7 @@ abstract final class ChurchChatMediaSendService {
               bytes: prepared.thumbBytes!,
               contentType: 'image/webp',
               onProgress: (t) => _mapProgress(reportProgress, 0.82, 0.88, t),
-            ).timeout(const Duration(seconds: 8));
+            ).timeout(kStorageThumbTimeout);
           } catch (_) {
             thumbStoragePath = null;
             thumbUrl = null;
@@ -321,14 +327,14 @@ abstract final class ChurchChatMediaSendService {
             bytes: u8,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
-          );
+          ).timeout(kStorageVideoTimeout);
         } else if (videoLocalPath.isNotEmpty) {
           mediaUrl = await ChurchChatMediaStorage.putFile(
             storagePath: storagePath,
             localPath: videoLocalPath,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
-          );
+          ).timeout(kStorageVideoTimeout);
           if (fileSize == null) {
             try {
               fileSize = await File(videoLocalPath).length();
@@ -351,7 +357,7 @@ abstract final class ChurchChatMediaSendService {
               bytes: thumbBytes,
               contentType: 'image/jpeg',
               onProgress: (t) => _mapProgress(reportProgress, 0.85, 0.9, t),
-            ).timeout(const Duration(seconds: 15));
+            ).timeout(kStorageThumbTimeout);
           } catch (_) {
             thumbStoragePath = null;
             thumbUrl = null;
@@ -369,14 +375,14 @@ abstract final class ChurchChatMediaSendService {
             bytes: u8,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-          );
+          ).timeout(kStorageAudioTimeout);
         } else if (uploadPath.isNotEmpty) {
           mediaUrl = await ChurchChatMediaStorage.putFile(
             storagePath: storagePath,
             localPath: uploadPath,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-          );
+          ).timeout(kStorageAudioTimeout);
           try {
             fileSize = await File(uploadPath).length();
           } catch (_) {}
@@ -395,14 +401,14 @@ abstract final class ChurchChatMediaSendService {
               ? pending.mime
               : 'application/octet-stream',
           onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-        );
+        ).timeout(kStorageDocumentTimeout);
       } else if (uploadPath.isNotEmpty) {
         mediaUrl = await ChurchChatMediaStorage.putFile(
           storagePath: storagePath,
           localPath: uploadPath,
           contentType: pending.mime,
           onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-        );
+        ).timeout(kStorageDocumentTimeout);
         try {
           fileSize = await File(uploadPath).length();
         } catch (_) {}

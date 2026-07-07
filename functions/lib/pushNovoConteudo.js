@@ -174,7 +174,7 @@ function hasValidFeedMedia(d) {
     return false;
 }
 function isPushableAvisoDoc(d) {
-    return isPublishedFeedDoc(d) && hasValidFeedTitle(d) && hasValidFeedMedia(d);
+    return isPublishedFeedDoc(d) && hasValidFeedTitle(d);
 }
 exports.onNovoAvisoMuralPush = functions
     .region("us-central1")

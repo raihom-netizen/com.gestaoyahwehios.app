@@ -13,9 +13,10 @@ abstract final class SessionRestoreService {
 
   static bool _restoreAttempted = false;
 
-  static int get _diskPollAttempts => kIsWeb ? 4 : 16;
   static Duration get _diskPollDelay =>
       kIsWeb ? const Duration(milliseconds: 50) : const Duration(milliseconds: 80);
+  static Duration get _diskPollCap =>
+      kIsWeb ? const Duration(seconds: 3) : const Duration(milliseconds: 1400);
 
   /// Aguarda `currentUser` do Firebase Auth (memória + persistência local).
   static Future<User?> waitForPersistedFirebaseUser() async {
@@ -71,10 +72,15 @@ abstract final class SessionRestoreService {
   }
 
   static Future<User?> _pollAuthUserFromDisk() async {
-    for (var i = 0; i < _diskPollAttempts; i++) {
-      if (i > 0) await Future<void>.delayed(_diskPollDelay);
+    final startedAt = DateTime.now();
+    while (true) {
       final u = firebaseDefaultAuth.currentUser;
       if (u != null && !u.isAnonymous) return u;
+
+      if (DateTime.now().difference(startedAt) >= _diskPollCap) {
+        break;
+      }
+      await Future<void>.delayed(_diskPollDelay);
     }
     return null;
   }

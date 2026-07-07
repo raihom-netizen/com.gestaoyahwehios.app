@@ -3256,9 +3256,26 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         return;
       }
     } catch (e) {
+      final msg = e.toString();
+      final micDenied = _isMicrophonePermissionError(msg);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível gravar: $e')),
+          SnackBar(
+            content: Text(
+              micDenied
+                  ? (kIsWeb
+                      ? 'Microfone bloqueado no navegador. Autorize e tente novamente.'
+                      : 'Microfone bloqueado no iPhone. Ative em Ajustes > Privacidade e Segurança > Microfone.')
+                  : 'Não foi possível gravar: $e',
+            ),
+            behavior: SnackBarBehavior.floating,
+            action: micDenied
+                ? SnackBarAction(
+                    label: 'Anexar áudio',
+                    onPressed: () => unawaited(_pickAudioFile()),
+                  )
+                : null,
+          ),
         );
       }
       return;
@@ -3290,6 +3307,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         }
       });
     });
+  }
+
+  bool _isMicrophonePermissionError(String message) {
+    final lower = message.toLowerCase();
+    return lower.contains('permissão de microfone negada') ||
+        lower.contains('permission denied') ||
+        lower.contains('notallowederror') ||
+        lower.contains('microphone');
   }
 
   Future<void> _finishVoiceRecording({required bool send}) async {
@@ -4119,6 +4144,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     final hasActivePending = _pendingOutbound.any(
                       (p) => !p.failed && !p.cancelled,
                     );
+                    final pendingMessageIds = _pendingOutbound
+                        .map((p) => p.firestoreMessageId?.trim() ?? '')
+                        .where((id) => id.isNotEmpty)
+                        .toSet();
+                    final pendingStoragePaths = _pendingOutbound
+                        .map((p) => p.storagePath?.trim() ?? '')
+                        .where((sp) => sp.isNotEmpty)
+                        .toSet();
                     var streamDocs = visibleDocs.where((d) {
                       if (hideFirestoreMsgIds.contains(d.id)) return false;
                       final m = d.data();
@@ -4167,6 +4200,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         }
                         if (hasActivePending &&
                             (m['senderUid'] ?? '').toString() == uid) {
+                          final storagePath = ChurchChatMessageFields
+                              .storagePath(m)
+                              .trim();
+                          final isSamePending =
+                              pendingMessageIds.contains(d.id) ||
+                                  (storagePath.isNotEmpty &&
+                                      pendingStoragePaths.contains(storagePath));
+                          if (!isSamePending) {
+                            return true;
+                          }
                           return false;
                         }
                       }

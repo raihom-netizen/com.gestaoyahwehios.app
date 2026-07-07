@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Firebase directo — init único + Storage put + Firestore write.
@@ -138,12 +140,23 @@ abstract final class EcoFireDirectFirebase {
       user = FirebaseAuth.instanceFor(app: Firebase.app()).currentUser;
     }
     if (user == null || user.isAnonymous) {
+      try {
+        user = await SessionRestoreService.waitForPersistedFirebaseUser().timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => null,
+        );
+      } catch (_) {}
+    }
+    if (user == null || user.isAnonymous) {
       if (strict) {
         throw StateError(
           'Sessão expirada. Toque em «Trocar de conta» e entre novamente.',
         );
       }
       return;
+    }
+    if (kIsWeb) {
+      WebPanelStability.bindLoginSession(user);
     }
     try {
       await user.getIdToken(false).timeout(const Duration(seconds: 8));
