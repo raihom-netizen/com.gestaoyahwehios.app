@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -55,14 +55,7 @@ abstract final class ChurchLogoUpdateService {
     );
     onProgress?.call(0.12);
 
-    final prev = (previousStoragePath ?? '').trim();
-    if (prev.isNotEmpty) {
-      await FirebaseStorageCleanupService.deleteByUrlPathOrGs(prev);
-    }
-    await FirebaseStorageCleanupService.deleteByUrlPathOrGs(
-      ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(cid),
-    );
-
+    // Controle Total: upload novo primeiro; limpar legado/antigo só depois.
     onProgress?.call(0.18);
     final identityPath = ChurchStorageLayout.churchIdentityLogoPath(cid);
     final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
@@ -91,6 +84,16 @@ abstract final class ChurchLogoUpdateService {
     AppStorageImageService.instance.invalidate(
       storagePath: identityPath,
       imageUrl: url,
+    );
+
+    final prev = (previousStoragePath ?? '').trim();
+    if (prev.isNotEmpty && prev != identityPath) {
+      unawaited(FirebaseStorageCleanupService.deleteByUrlPathOrGs(prev));
+    }
+    unawaited(
+      FirebaseStorageCleanupService.deleteByUrlPathOrGs(
+        ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(cid),
+      ),
     );
     unawaited(
       FirebaseStorageCleanupService.deleteLegacyChurchLogoMediaUnderTenant(cid),

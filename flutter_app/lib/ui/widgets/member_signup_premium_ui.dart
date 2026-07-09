@@ -197,7 +197,9 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
                         kIsWeb ? Icons.crop_rounded : Icons.photo_library_rounded,
                         size: 20,
                       ),
-                      label: Text(kIsWeb ? 'Escolher e recortar' : 'Galeria'),
+                      label: Text(
+                        kIsWeb ? 'Escolher foto' : 'Galeria',
+                      ),
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
@@ -227,9 +229,10 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             hasPhoto
-                ? 'Foto recortada. Confirme abaixo para gravar no cadastro.'
-                : 'Escolha uma foto nítida, ajuste o enquadramento (quadrado 1:1) '
-                    'e confirme — usada no cartão de membro e no painel.',
+                ? 'Foto pronta. Confirme abaixo para gravar no cadastro.'
+                : 'Toque em «Escolher foto»: use automaticamente (centro) '
+                    'ou ajuste o corte. Uma foto por membro — ao guardar, '
+                    'a anterior é substituída.',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,

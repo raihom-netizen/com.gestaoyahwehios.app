@@ -6,15 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
-/// Escolha de foto de perfil — **mesmo pipeline** do cadastro público:
-/// picker → recorte/quadrado → WebP → bytes.
+/// Modo de enquadramento da foto de perfil.
+enum MemberPhotoCropMode {
+  /// Centro 1:1 automático — sem editor (mais rápido).
+  auto,
+
+  /// Editor «Ajustar foto de perfil» (manual).
+  manual,
+}
+
+/// Escolha de foto de perfil — painel + cadastro público.
+///
+/// Fluxo moderno: origem → **Usar automaticamente** ou **Ajustar manualmente** → WebP.
 abstract final class MemberProfilePhotoPickService {
   MemberProfilePhotoPickService._();
 
-  /// Diálogo premium — câmera/galeria (mobile) ou galeria/arquivo (web).
+  /// Diálogo premium — câmera/galeria + modo auto/manual.
   static Future<({Uint8List bytes, String displayName})?> pickForMemberEdit(
     BuildContext context, {
     bool requireAuth = true,
@@ -26,116 +37,27 @@ abstract final class MemberProfilePhotoPickService {
     )) {
       return null;
     }
-    if (kIsWeb) {
-      final source = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) => _sourceSheet(ctx, web: true),
-      );
-      if (source == null || !context.mounted) return null;
-      if (source == 'file') {
-        return pickFromWebFileWithCrop(context, requireAuth: requireAuth);
-      }
-      return pickFromGallery(context, requireAuth: requireAuth);
-    }
-    final source = await showModalBottomSheet<ImageSource>(
+
+    final choice = await showModalBottomSheet<_PickChoice>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _sourceSheet(ctx, web: false),
+      isScrollControlled: true,
+      builder: (ctx) => _MemberPhotoPickSheet(web: kIsWeb),
     );
-    if (source == null || !context.mounted) return null;
-    if (source == ImageSource.camera) {
-      return pickFromCamera(context, requireAuth: requireAuth);
-    }
-    return pickFromGallery(context, requireAuth: requireAuth);
-  }
+    if (choice == null || !context.mounted) return null;
 
-  static Widget _sourceSheet(BuildContext ctx, {required bool web}) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(99),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Foto do perfil',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_rounded),
-              title: Text(web ? 'Escolher imagem' : 'Escolher da galeria'),
-              onTap: () => Navigator.pop(
-                ctx,
-                web ? 'gallery' : ImageSource.gallery,
-              ),
-            ),
-            if (web)
-              ListTile(
-                leading: const Icon(Icons.folder_open_rounded),
-                title: const Text('Arquivo (JPG/PNG/WebP)'),
-                onTap: () => Navigator.pop(ctx, 'file'),
-              ),
-            if (!web)
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded),
-                title: const Text('Tirar foto'),
-                onTap: () => Navigator.pop(ctx, ImageSource.camera),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
+    return _pickAndEncode(
+      context,
+      sourceKey: choice.source,
+      cropMode: choice.cropMode,
+      requireAuth: requireAuth,
     );
   }
 
   static Future<({Uint8List bytes, String displayName})?> pickFromGallery(
     BuildContext context, {
     bool requireAuth = true,
-  }) async {
-    final file = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
-      source: ImageSource.gallery,
-      webCropContext: context,
-      requireAuth: requireAuth,
-    );
-    return _resultFromXFile(file);
-  }
-
-  static Future<({Uint8List bytes, String displayName})?> pickFromCamera(
-    BuildContext context, {
-    bool requireAuth = true,
-  }) async {
-    if (kIsWeb) return null;
-    final file = await MediaHandlerService.instance.pickCropEncodeMemberPhotoWebp(
-      source: ImageSource.camera,
-      webCropContext: context,
-      requireAuth: requireAuth,
-    );
-    return _resultFromXFile(file);
-  }
-
-  /// Web: ficheiro local → ecrã de recorte (igual cadastro público).
-  static Future<({Uint8List bytes, String displayName})?> pickFromWebFileWithCrop(
-    BuildContext context, {
-    bool requireAuth = true,
+    MemberPhotoCropMode cropMode = MemberPhotoCropMode.manual,
   }) async {
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: context,
@@ -144,26 +66,107 @@ abstract final class MemberProfilePhotoPickService {
     )) {
       return null;
     }
-    final result = await YahwehFilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-      withData: true,
+    return _pickAndEncode(
+      context,
+      sourceKey: 'gallery',
+      cropMode: cropMode,
+      requireAuth: requireAuth,
     );
-    if (result == null || result.files.isEmpty) return null;
-    final f = result.files.single;
-    final raw = f.bytes;
-    if (raw == null || raw.isEmpty || !context.mounted) return null;
-    final name = f.name.trim().isNotEmpty ? f.name.trim() : 'foto_perfil.webp';
-    final encoded = await cropEncodePickedToWebp(
-      XFile.fromData(raw, name: name),
-      profile: HighResCropProfile.memberSquare,
-      webCropContext: context,
+  }
+
+  static Future<({Uint8List bytes, String displayName})?> pickFromCamera(
+    BuildContext context, {
+    bool requireAuth = true,
+    MemberPhotoCropMode cropMode = MemberPhotoCropMode.manual,
+  }) async {
+    if (kIsWeb) return null;
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.membros,
+      requireAuth: requireAuth,
+    )) {
+      return null;
+    }
+    return _pickAndEncode(
+      context,
+      sourceKey: 'camera',
+      cropMode: cropMode,
+      requireAuth: requireAuth,
     );
-    if (encoded == null) return null;
-    final bytes = await encoded.readAsBytes();
-    if (bytes.isEmpty) return null;
-    final outName = encoded.name.trim().isNotEmpty ? encoded.name.trim() : name;
-    return (bytes: bytes, displayName: outName);
+  }
+
+  /// Web: ficheiro local → auto ou crop.
+  static Future<({Uint8List bytes, String displayName})?> pickFromWebFileWithCrop(
+    BuildContext context, {
+    bool requireAuth = true,
+    MemberPhotoCropMode cropMode = MemberPhotoCropMode.manual,
+  }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: YahwehMediaModule.membros,
+      requireAuth: requireAuth,
+    )) {
+      return null;
+    }
+    return _pickAndEncode(
+      context,
+      sourceKey: 'file',
+      cropMode: cropMode,
+      requireAuth: requireAuth,
+    );
+  }
+
+  static Future<({Uint8List bytes, String displayName})?> _pickAndEncode(
+    BuildContext context, {
+    required String sourceKey,
+    required MemberPhotoCropMode cropMode,
+    required bool requireAuth,
+  }) async {
+    XFile? picked;
+    if (sourceKey == 'file') {
+      final result = await YahwehFilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return null;
+      final f = result.files.single;
+      final raw = f.bytes;
+      if (raw == null || raw.isEmpty) return null;
+      final name = f.name.trim().isNotEmpty ? f.name.trim() : 'foto_perfil.webp';
+      picked = XFile.fromData(raw, name: name);
+    } else if (sourceKey == 'camera') {
+      picked = await MediaHandlerService.instance.pickAndProcessImage(
+        source: ImageSource.camera,
+        module: YahwehMediaModule.membros,
+        context: context,
+        imageQuality: 92,
+        minWidth: 1280,
+        minHeight: 1280,
+      );
+    } else {
+      picked = await MediaHandlerService.instance.pickAndProcessImage(
+        source: ImageSource.gallery,
+        module: YahwehMediaModule.membros,
+        context: context,
+        imageQuality: 92,
+        minWidth: 1280,
+        minHeight: 1280,
+      );
+    }
+    if (picked == null || !context.mounted) return null;
+
+    final XFile? encoded;
+    if (cropMode == MemberPhotoCropMode.auto) {
+      encoded = await encodeMemberPhotoAutoCenterWebp(picked);
+    } else {
+      encoded = await cropEncodePickedToWebp(
+        picked,
+        profile: HighResCropProfile.memberSquare,
+        webCropContext: context,
+      );
+    }
+    return _resultFromXFile(encoded);
   }
 
   static Future<({Uint8List bytes, String displayName})?> _resultFromXFile(
@@ -175,5 +178,199 @@ abstract final class MemberProfilePhotoPickService {
     final name =
         file.name.trim().isNotEmpty ? file.name.trim() : 'foto_perfil.webp';
     return (bytes: bytes, displayName: name);
+  }
+}
+
+class _PickChoice {
+  const _PickChoice({required this.source, required this.cropMode});
+  final String source;
+  final MemberPhotoCropMode cropMode;
+}
+
+class _MemberPhotoPickSheet extends StatelessWidget {
+  const _MemberPhotoPickSheet({required this.web});
+
+  final bool web;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Foto do perfil',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Escolha a origem e o enquadramento. Uma foto por membro — '
+                    'ao guardar, a anterior é substituída no Storage.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF64748B),
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ),
+              _sectionLabel('Usar automaticamente (centro 1:1)'),
+              if (web) ...[
+                _tile(
+                  context,
+                  icon: Icons.bolt_rounded,
+                  title: 'Galeria — automático',
+                  subtitle: 'Sem abrir o editor de corte',
+                  choice: const _PickChoice(
+                    source: 'gallery',
+                    cropMode: MemberPhotoCropMode.auto,
+                  ),
+                ),
+                _tile(
+                  context,
+                  icon: Icons.folder_open_rounded,
+                  title: 'Arquivo — automático',
+                  subtitle: 'JPG, PNG ou WebP',
+                  choice: const _PickChoice(
+                    source: 'file',
+                    cropMode: MemberPhotoCropMode.auto,
+                  ),
+                ),
+              ] else ...[
+                _tile(
+                  context,
+                  icon: Icons.bolt_rounded,
+                  title: 'Galeria — automático',
+                  subtitle: 'Sem abrir o editor de corte',
+                  choice: const _PickChoice(
+                    source: 'gallery',
+                    cropMode: MemberPhotoCropMode.auto,
+                  ),
+                ),
+                _tile(
+                  context,
+                  icon: Icons.photo_camera_rounded,
+                  title: 'Câmera — automático',
+                  subtitle: 'Selfie com corte central',
+                  choice: const _PickChoice(
+                    source: 'camera',
+                    cropMode: MemberPhotoCropMode.auto,
+                  ),
+                ),
+              ],
+              _sectionLabel('Ajustar manualmente'),
+              if (web) ...[
+                _tile(
+                  context,
+                  icon: Icons.crop_rounded,
+                  title: 'Galeria — recortar',
+                  subtitle: 'Abrir «Ajustar foto de perfil»',
+                  choice: const _PickChoice(
+                    source: 'gallery',
+                    cropMode: MemberPhotoCropMode.manual,
+                  ),
+                ),
+                _tile(
+                  context,
+                  icon: Icons.crop_free_rounded,
+                  title: 'Arquivo — recortar',
+                  subtitle: 'Escolher e ajustar a área',
+                  choice: const _PickChoice(
+                    source: 'file',
+                    cropMode: MemberPhotoCropMode.manual,
+                  ),
+                ),
+              ] else ...[
+                _tile(
+                  context,
+                  icon: Icons.crop_rounded,
+                  title: 'Galeria — recortar',
+                  subtitle: 'Abrir editor de enquadramento',
+                  choice: const _PickChoice(
+                    source: 'gallery',
+                    cropMode: MemberPhotoCropMode.manual,
+                  ),
+                ),
+                _tile(
+                  context,
+                  icon: Icons.camera_alt_rounded,
+                  title: 'Câmera — recortar',
+                  subtitle: 'Tirar foto e ajustar',
+                  choice: const _PickChoice(
+                    source: 'camera',
+                    cropMode: MemberPhotoCropMode.manual,
+                  ),
+                ),
+              ],
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF94A3B8),
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required _PickChoice choice,
+  }) {
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: const Color(0xFFEEF2FF),
+        child: Icon(icon, color: ThemeCleanPremium.primary, size: 22),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+      onTap: () => Navigator.pop(context, choice),
+    );
   }
 }

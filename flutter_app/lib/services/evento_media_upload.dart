@@ -3,15 +3,16 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 
 /// Upload de fotos de evento — `igrejas/{churchId}/eventos/{postId}/…`.
 ///
-/// Pipeline único: [ChurchCentralStorageUpload] → URL https → Firestore.
+/// Pipeline único (Controle Total): fachada → Storage → URL → Firestore só link.
 abstract final class EventoMediaUpload {
   EventoMediaUpload._();
 
@@ -19,7 +20,7 @@ abstract final class EventoMediaUpload {
   static const int maxParallelSlots = kMaxEventFeedPhotosPerPost;
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
-    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.eventos);
   }
 
   /// Capa de template — `igrejas/{id}/eventos/templates/{templateId}.jpg`.
@@ -37,18 +38,15 @@ abstract final class EventoMediaUpload {
     if (compressedBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outra foto.');
     }
+    await ensureUploadReady();
     final path = ChurchStorageLayout.eventTemplateCoverPath(cid, tid);
-    final uploaded = await ChurchCentralStorageUpload.uploadImageAtPath(
+    final uploaded = await ChurchMediaUploadFacade.uploadMidia(
+      bytes: compressedBytes,
       storagePath: path,
-      rawBytes: compressedBytes,
       logLabel: 'evento_template_cover',
       alreadyCompressed: true,
       onProgress: onProgress,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da capa do template demorou demais. Verifique a rede.',
-      ),
+      timeout: uploadTimeout,
     );
     return uploaded.downloadUrl;
   }
@@ -71,6 +69,7 @@ abstract final class EventoMediaUpload {
     }
 
     EcoFireFlow.log('EVENTO_PHOTO slot $pid#$slotIndex');
+    await ensureUploadReady();
 
     final uploaded = await ChurchCentralStorageUpload.uploadEventoPhoto(
       churchId: cid,

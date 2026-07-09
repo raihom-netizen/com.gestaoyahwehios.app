@@ -5,7 +5,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
@@ -487,14 +486,6 @@ abstract final class FinanceComprovantePublishService {
     );
 
     final ext = _extFromMime(mimeType, fileName);
-    await deleteComprovanteArtifacts(
-      tenantId: churchId,
-      lancamentoId: lancamentoId,
-      storagePath: previousStoragePath,
-      downloadUrl: previousDownloadUrl,
-      referenceDate: referenceDate,
-      ext: ext,
-    );
     onProgress?.call(0.15);
 
     final path = comprovantePathFor(
@@ -509,6 +500,7 @@ abstract final class FinanceComprovantePublishService {
       mimeType: mimeType,
     );
 
+    // Controle Total: Storage primeiro; apagar antigo só depois do novo OK.
     final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: path,
       bytes: optimized.bytes,
@@ -529,6 +521,22 @@ abstract final class FinanceComprovantePublishService {
       timeout: const Duration(seconds: 12),
     );
 
+    // Apagar só o artefacto anterior distinto do path novo (nunca o ficheiro acabado de subir).
+    final prevPath = (previousStoragePath ?? '').trim();
+    final prevUrl = (previousDownloadUrl ?? '').trim();
+    if (prevPath.isNotEmpty && prevPath != uploaded.storagePath) {
+      try {
+        await firebaseDefaultStorage.ref(prevPath).delete();
+      } catch (_) {}
+    }
+    if (prevUrl.isNotEmpty &&
+        isFirebaseStorageHttpUrl(prevUrl) &&
+        !prevUrl.contains(uploaded.storagePath)) {
+      unawaited(
+        FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(prevUrl),
+      );
+    }
+
     final safeName = (fileName ?? '').trim().isNotEmpty
         ? fileName!.trim()
         : 'comprovante.$ext';
@@ -543,8 +551,9 @@ abstract final class FinanceComprovantePublishService {
   }
 
   /// Upload Storage → validar → gravar URL no Firestore (síncrono, sem falso sucesso).
-  /// Web: CF `gyUploadFinanceComprovante` (Admin SDK — paridade Controle Total).
-  /// Mobile: Storage directo + merge Firestore.
+  ///
+  /// Web = mobile: `putData` via [ChurchCentralStorageUpload] (padrão CT ocorrências).
+  /// CF `gyUploadFinanceComprovante` só como fallback se o cliente falhar na Web.
   static Future<String> uploadComprovanteNow({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -569,7 +578,26 @@ abstract final class FinanceComprovantePublishService {
         final uploadMime = prepared.mimeType;
         final churchId = ChurchRepository.churchId(tenantId.trim());
 
-        if (kIsWeb) {
+        FinanceComprovantePersistResult? persisted;
+        Object? clientError;
+        try {
+          persisted = await _uploadComprovanteStorageCore(
+            tenantId: tenantId,
+            lancamentoId: docRef.id,
+            rawBytes: uploadBytes,
+            mimeType: uploadMime,
+            fileName: fileName,
+            referenceDate: referenceDate,
+            previousStoragePath: previousStoragePath,
+            previousDownloadUrl: previousDownloadUrl,
+            onProgress: onProgress,
+          );
+        } catch (e) {
+          clientError = e;
+          if (!kIsWeb) rethrow;
+        }
+
+        if (persisted == null && kIsWeb) {
           onProgress?.call(0.12);
           final refDate = referenceDate;
           String? yearMonth;
@@ -586,30 +614,21 @@ abstract final class FinanceComprovantePublishService {
             referenceYearMonth: yearMonth,
           );
           if (!cf.ok || cf.comprovanteUrl.trim().isEmpty) {
-            throw StateError('Falha ao enviar comprovante via servidor.');
+            throw clientError ??
+                StateError('Falha ao enviar comprovante (cliente e servidor).');
           }
-          onProgress?.call(0.96);
-          await verifyComprovantePersisted(
-            docRef: docRef,
+          persisted = FinanceComprovantePersistResult(
+            url: sanitizeImageUrl(cf.comprovanteUrl),
             storagePath: cf.storagePath,
+            mimeType: cf.mimeType,
+            fileName: cf.fileName,
           );
-          YahwehFlowLog.financeiroUploadOk();
-          YahwehFlowLog.financeiroSuccess();
-          onProgress?.call(1.0);
-          return sanitizeImageUrl(cf.comprovanteUrl);
         }
 
-        final persisted = await _uploadComprovanteStorageCore(
-          tenantId: tenantId,
-          lancamentoId: docRef.id,
-          rawBytes: uploadBytes,
-          mimeType: uploadMime,
-          fileName: fileName,
-          referenceDate: referenceDate,
-          previousStoragePath: previousStoragePath,
-          previousDownloadUrl: previousDownloadUrl,
-          onProgress: onProgress,
-        );
+        if (persisted == null) {
+          throw clientError ??
+              StateError('Falha ao enviar comprovante para o Storage.');
+        }
 
         await _mergeComprovantePatch(
           docRef: docRef,

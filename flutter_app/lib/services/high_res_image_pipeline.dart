@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_image_encode_isolate.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:path_provider/path_provider.dart';
@@ -492,6 +493,25 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebp(
     }
   }
   return out;
+}
+
+/// Foto de membro — **corte automático** (centro 1:1) sem abrir o editor.
+/// Usar quando o utilizador escolhe «Usar automaticamente».
+Future<XFile?> encodeMemberPhotoAutoCenterWebp(
+  XFile picked, {
+  int webpOutputQuality = kHighResWebpQuality,
+}) async {
+  final rawBytes = await _readPickedImageBytes(picked);
+  if (rawBytes == null || rawBytes.isEmpty) return null;
+  final prepared =
+      await YahwehUnifiedImagePipeline.prepareMemberFull(rawBytes);
+  if (prepared.isEmpty) return null;
+  return _bytesToWebpXFile(
+    prepared,
+    quality: webpOutputQuality,
+    encodeMaxWidth: kMemberCropWebpMaxEdgePx,
+    encodeMaxHeight: kMemberCropWebpMaxEdgePx,
+  );
 }
 
 /// Já existe [XFile] (ex. galeria multi) → recorte → WebP.

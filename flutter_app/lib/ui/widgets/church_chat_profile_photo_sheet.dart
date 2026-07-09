@@ -247,7 +247,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       final result = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
               publish,
-              maxAttempts: 4,
+              maxAttempts: 2,
             )
           : await publish();
       if (!mounted) return;
@@ -441,7 +441,8 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
               child: Column(
                 children: [
                   Text(
-                    'Toque abaixo para escolher e recortar a foto (quadrado 1:1).',
+                    'Toque abaixo: use automaticamente (centro) ou ajuste o corte. '
+                    'Uma foto por membro — ao guardar, a anterior é substituída.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,

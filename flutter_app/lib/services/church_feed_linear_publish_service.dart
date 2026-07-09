@@ -7,12 +7,13 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
@@ -23,7 +24,9 @@ import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
-/// Pipeline único e síncrono: upload → Storage OK → Firestore → agenda → distribuição.
+/// Pipeline único e síncrono (Controle Total):
+/// comprimir → Storage → URL/storagePath → Firestore → agenda → distribuição.
+/// UI dos módulos só lê o link — nunca bytes no documento.
 abstract final class ChurchFeedLinearPublishService {
   ChurchFeedLinearPublishService._();
 
@@ -135,7 +138,14 @@ abstract final class ChurchFeedLinearPublishService {
       '$postType path=${docRef.path} tenant=$churchId photos=${newImagesBytes?.length ?? newImagePaths?.length ?? 0}',
     );
 
-    await DirectStorageUrlPublish.ensureReady();
+    final hasNewPhotos =
+        (newImagesBytes?.isNotEmpty ?? false) ||
+        (newImagePaths?.isNotEmpty ?? false);
+
+    await ChurchMediaUploadFacade.ensureModuleReady(
+      isEvento ? YahwehMediaModule.eventos : YahwehMediaModule.avisos,
+      withPhotos: hasNewPhotos || hasVideo,
+    );
     _report(onUploadProgress, 0.18);
 
     if (isEvento) {
@@ -145,9 +155,6 @@ abstract final class ChurchFeedLinearPublishService {
     }
 
     final existingPaths = _pathsFromRefs(existingPhotoRefs);
-    final hasNewPhotos =
-        (newImagesBytes?.isNotEmpty ?? false) ||
-        (newImagePaths?.isNotEmpty ?? false);
 
     var existingUrls =
         await EcoFireFeedPublishService.refsToPlayableUrls(existingPhotoRefs);

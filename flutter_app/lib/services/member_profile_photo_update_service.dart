@@ -262,22 +262,29 @@ class MemberProfilePhotoUpdateService {
           'Upload da foto não concluiu. Verifique a rede e tente novamente.',
         );
       }
-      await _afterPhotoSaved(
-        tenantId: tenantId,
-        memberDocId: memberDocId,
-        memberData: memberData,
-        result: r,
+      // Sync users/chat em background — UI já tem Storage+Firestore OK.
+      unawaited(
+        _afterPhotoSaved(
+          tenantId: tenantId,
+          memberDocId: memberDocId,
+          memberData: memberData,
+          result: r,
+        ),
       );
-      invalidateDisplayCaches(
-        previousDownloadUrl: previousUrl,
-        newDownloadUrl: sanitizeImageUrl(r.downloadUrl),
-        storagePath: r.storagePath,
-        thumbStoragePath: r.thumbStoragePath,
-        tenantId: tenantId,
-        memberDocId: memberDocId,
-        authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
-            .toString()
-            .trim(),
+      unawaited(
+        Future(() {
+          invalidateDisplayCaches(
+            previousDownloadUrl: previousUrl,
+            newDownloadUrl: sanitizeImageUrl(r.downloadUrl),
+            storagePath: r.storagePath,
+            thumbStoragePath: r.thumbStoragePath,
+            tenantId: tenantId,
+            memberDocId: memberDocId,
+            authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+                .toString()
+                .trim(),
+          );
+        }),
       );
       YahwehFlowLog.memberPhotoSuccess();
       ChurchPublishFlowLog.memberPhotoSuccess();

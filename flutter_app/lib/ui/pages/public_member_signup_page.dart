@@ -19,8 +19,10 @@ import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/member_profile_media_upload.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
@@ -1011,8 +1013,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     });
   }
 
-  /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — nome fixo (sobrescreve ao trocar).
-  /// Upload síncrono para já gravar URL final no Firestore (cadastro público e painel).
+  /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — path fixo (1 foto).
+  /// Só Storage aqui; Firestore grava no submit (padrão CT + cadastro público).
   Future<({String url, String storagePath})> _uploadPhoto({
     required String tenantId,
     required String memberDocId,
@@ -1027,20 +1029,26 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     final mid = memberDocId.trim().isEmpty
         ? 'membro_${DateTime.now().millisecondsSinceEpoch}'
         : memberDocId.trim();
-    final full =
-        ChurchStorageLayout.memberCanonicalProfilePhotoPath(tenantId, mid);
-    final uploaded = await ChurchCanonicalMediaPublish.compressAndUploadImage(
-      rawBytes: raw,
-      storagePath: full,
-      gateModule: YahwehMediaModule.membros,
-      logLabel: 'public_member_signup_foto',
+    // Evita compressão dupla se o pick já entregou WebP leve.
+    final bytes = raw.length <= 420 * 1024
+        ? raw
+        : await YahwehUnifiedImagePipeline.prepareMemberFull(raw);
+    final url = await MemberProfileMediaUpload.uploadProfileFull(
+      churchId: tenantId.trim(),
+      storageFolderId: mid,
+      fullBytes: bytes,
       requireAuth: false,
     );
+    if (url.trim().isEmpty) {
+      throw Exception('Falha ao enviar a foto. Tente novamente.');
+    }
+    final path =
+        ChurchStorageLayout.memberCanonicalProfilePhotoPath(tenantId, mid);
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
       tenantId: tenantId,
       memberId: mid,
     );
-    return (url: uploaded.downloadUrl, storagePath: uploaded.storagePath);
+    return (url: url, storagePath: path);
   }
 
   /// Avatar automático quando o membro não envia foto.
@@ -1257,11 +1265,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           ...ChurchCanonicalMediaPublish.memberProfileFields(
             downloadUrl: photoUrlField,
             storagePath: photoStoragePathField,
-            thumbStoragePath:
-                ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(
-              _tenantId!,
-              ref.id,
-            ),
+            thumbStoragePath: photoStoragePathField,
           ),
         'PUBLIC_SIGNUP': true,
         'STATUS': 'pendente',

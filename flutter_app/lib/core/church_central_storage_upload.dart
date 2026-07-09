@@ -40,9 +40,10 @@ class ChurchCentralUploadResult {
   final Uint8List bytes;
 }
 
-/// **Pilar central** — compressão → Storage → `getDownloadURL` → Firestore.
+/// **Pilar central** — compressão → Storage → `getDownloadURL` → Firestore (só link).
 ///
-/// Usar em avisos, eventos, chat, membros, patrimônio, financeiro e cadastro.
+/// Padrão Controle Total. Usar via [ChurchMediaUploadFacade] nas telas;
+/// orquestradores de domínio (membro, logo, patrimônio, feed, financeiro) delegam aqui.
 /// Não criar uploads soltos na UI nem segundo serviço paralelo.
 abstract final class ChurchCentralStorageUpload {
   ChurchCentralStorageUpload._();

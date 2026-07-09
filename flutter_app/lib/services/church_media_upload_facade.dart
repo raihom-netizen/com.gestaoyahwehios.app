@@ -66,12 +66,44 @@ class ChurchMediaUploadBatchResult {
 /// **Ponto único** de upload de mídia no painel igreja (Eventos, Avisos, Membros,
 /// Património, Financeiro, Chat, Cadastro).
 ///
-/// Ordem obrigatória nas telas: validar → [ensureReady] → upload(s) → Firestore.
-/// Não criar uploads soltos na UI — delegar aqui ou em [ChurchCentralStorageUpload].
+/// Padrão Controle Total (definitivo) — Web = Android = iOS:
+/// 1. Picker → bytes (`Uint8List`; Web: nunca `putFile`)
+/// 2. Validar MIME + tamanho ([media_upload_limits])
+/// 3. [ensureModuleReady] / [ensureReady]
+/// 4. Comprimir no app ([ChurchCentralStorageUpload] / MediaService / EcoFire)
+/// 5. Upload Storage path canónico `igrejas/{churchId}/…`
+/// 6. Confirmar objeto → gravar Firestore **só** `storagePath` + URL
+/// 7. UI lê **só** o link ([SafeNetworkImage])
+/// 8. Replace: apagar path antigo **só depois** do upload novo OK
+///
+/// Proibido: ImageMagick/yt-dlp no Flutter; base64 permanente no Firestore;
+/// upload solto na UI. Orquestradores de domínio delegam aqui / central.
 abstract final class ChurchMediaUploadFacade {
   ChurchMediaUploadFacade._();
 
   static const Duration kDefaultTimeout = Duration(seconds: 60);
+
+  /// Apaga path/URL antigo **após** o novo objeto existir (padrão CT ocorrências).
+  /// Se [oldPathOrUrl] for igual a [newStoragePath], não apaga (overwrite no mesmo path).
+  static Future<void> deletePreviousAfterSuccess({
+    required String? oldPathOrUrl,
+    required String newStoragePath,
+    Future<void> Function(String pathOrUrl)? deleteFn,
+  }) async {
+    final old = (oldPathOrUrl ?? '').trim();
+    final neu = newStoragePath.trim();
+    if (old.isEmpty || neu.isEmpty) return;
+    if (old == neu || old.endsWith('/$neu') || neu.endsWith(old)) return;
+    // Mesmo objeto sob URL vs path — não apagar.
+    if (old.contains(neu) || neu.contains(old.split('?').first)) return;
+    final del = deleteFn;
+    if (del != null) {
+      try {
+        await del(old);
+      } catch (_) {}
+      return;
+    }
+  }
 
   /// Alias pedido no prompt — bytes + path canónico `igrejas/{churchId}/…`.
   static Future<ChurchCentralUploadResult> uploadMidia({
