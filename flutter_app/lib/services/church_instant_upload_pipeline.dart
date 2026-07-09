@@ -90,7 +90,7 @@ abstract final class ChurchInstantUploadPipeline {
       return ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
     }
     if (t == 'evento') {
-      return ChurchStorageLayout.eventPostPhotoCanonicalPath(
+      return ChurchStorageLayout.eventPostPhotoPath(
         tenantId,
         postId,
         slotIndex,

@@ -542,6 +542,22 @@ service firebase.storage {
         && photoImageOrBlob();
     }
 
+    // Capa marketing (Master / site divulgação) — staff da igreja
+    match /igrejas/{igrejaId}/marketing_destaque/{path=**} {
+      allow read: if true;
+      allow write: if isChurchStaffWriter(igrejaId)
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Templates certificados — fundos HD
+    match /igrejas/{igrejaId}/templates/certificados/{path=**} {
+      allow read: if true;
+      allow write: if isChurchStaffWriter(igrejaId)
+        && request.resource.size < 25 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
     // Fornecedores — comprovantes de compromissos (foto/PDF)
     match /igrejas/{igrejaId}/fornecedores/{path=**} {
       allow read: if true;
@@ -596,6 +612,8 @@ service firebase.storage {
         && seg != 'comprovantes'
         && seg != 'financeiro'
         && seg != 'fornecedores'
+        && seg != 'marketing_destaque'
+        && seg != 'templates'
         && seg != 'certificados_gestor'
         && seg != 'membros'
         && request.resource.size < 10 * 1024 * 1024

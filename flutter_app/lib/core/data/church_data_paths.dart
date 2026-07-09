@@ -67,10 +67,19 @@ abstract final class ChurchDataPaths {
     'membros',
     'eventos',
     'avisos',
+    'noticias',
     'patrimonio',
+    'financeiro',
+    'fornecedores',
     'certificados',
-    'cartoes',
-    'chat',
+    'cartao_membro',
+    'configuracoes',
+    'chat_media',
+    'chat_stickers',
+    'departamentos',
+    'marketing_destaque',
+    'gestor',
+    'templates',
   ];
 
   static String storageRoot(String churchId) => 'igrejas/${churchId.trim()}';

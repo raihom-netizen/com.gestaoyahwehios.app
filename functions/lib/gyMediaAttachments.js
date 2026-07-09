@@ -192,22 +192,21 @@ exports.gyUploadFinanceComprovante = functions
                 : "image/jpeg";
     const bucket = (0, adminDb_1.storageBucket)();
     const file = bucket.file(storagePath);
+    const token = (0, adminDb_1.fs)().collection("_meta").doc().id;
     await file.save(buffer, {
         metadata: {
             contentType,
             cacheControl: "public, max-age=31536000",
+            metadata: { firebaseStorageDownloadTokens: token },
         },
         resumable: false,
     });
-    await file.makePublic().catch(() => undefined);
     const [metadata] = await file.getMetadata();
     if (!metadata?.name) {
         throw new functions.https.HttpsError("internal", "Falha ao confirmar upload Storage.");
     }
-    const [downloadUrl] = await file.getSignedUrl({
-        action: "read",
-        expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
-    });
+    const encoded = encodeURIComponent(storagePath);
+    const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${token}`;
     const docRef = (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(auth.churchId)

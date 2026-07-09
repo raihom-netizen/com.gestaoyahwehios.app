@@ -5,6 +5,9 @@
 # Uso (na raiz do repo, PowerShell):
 #   .\scripts\build_android_play_store_aab.ps1
 #
+# Comportamento padrao: incrementa automaticamente +1 no build/versionCode
+# antes de gerar o AAB (evita erro Play Console de codigo de versao ja usado).
+#
 # Cópia versionada do .aab: por defeito para D:\Temporarios (pasta de entrega).
 # Desativar cópia: .\scripts\build_android_play_store_aab.ps1 -CopyTo ""
 #
@@ -20,6 +23,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
+$BumpBuildScript = Join-Path $RepoRoot "scripts\bump_build.ps1"
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 $KeyProps = Join-Path $FlutterApp "android\key.properties"
 $DebugInfoDir = Join-Path $FlutterApp "debug-info"
@@ -238,6 +242,11 @@ if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
     exit 1
 }
 
+if (-not (Test-Path $BumpBuildScript)) {
+    Write-Host "Erro: script de bump nao encontrado em $BumpBuildScript" -ForegroundColor Red
+    exit 1
+}
+
 if (-not (Test-Path $KeyProps)) {
     if ($NoAutoSigning) {
         Write-Host ""
@@ -269,6 +278,17 @@ if (-not $SkipPubGet) {
     Write-Host "Limpando apenas build/app/outputs/bundle (release anterior)..." -ForegroundColor DarkGray
     $oldBundle = Join-Path $FlutterApp "build\app\outputs\bundle\release\app-release.aab"
     if (Test-Path $oldBundle) { Remove-Item $oldBundle -Force -ErrorAction SilentlyContinue }
+}
+
+Write-Host "`n=== auto-bump versionCode/build (+1) ===" -ForegroundColor Cyan
+$global:LASTEXITCODE = 0
+& $BumpBuildScript -Increment 1
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$newVerLine = Select-String -Path (Join-Path $FlutterApp "pubspec.yaml") -Pattern "^version:\s*" | Select-Object -First 1
+if ($newVerLine) {
+    $newVer = ($newVerLine.Line -replace '^version:\s*', '').Trim()
+    Write-Host "Versao ativa para build: $newVer" -ForegroundColor Green
 }
 
 if (-not (Test-Path $DebugInfoDir)) {

@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
+import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
@@ -367,7 +368,7 @@ abstract final class PublicationEngine {
         ),
       );
 
-  /// Firestore → upload fotos em background (mobile). Web: Storage → Firestore (uma gravação).
+  /// Upload → Storage → Firestore (linear). Aviso/evento/notícia nunca usam stub Firestore-first.
   static Future<String> publishWithPhotosInBackground({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -390,6 +391,37 @@ abstract final class PublicationEngine {
         payload: corePayload,
         isNewDoc: isNewDoc,
         publicSite: publicSite,
+      );
+    }
+
+    await FeedPublishPreflight.prepareForFirestoreSave();
+
+    if (kind == PublicationKind.aviso) {
+      return ChurchFeedLinearPublishService.publishAviso(
+        docRef: docRef,
+        tenantId: tenantId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingPhotoRefs: existingUrls,
+        startSlotIndex: startSlotIndex,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
+        publicSite: publicSite,
+      );
+    }
+
+    if (kind == PublicationKind.evento || kind == PublicationKind.noticia) {
+      return ChurchFeedLinearPublishService.publishEvento(
+        docRef: docRef,
+        tenantId: tenantId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingPhotoRefs: existingUrls,
+        startSlotIndex: startSlotIndex,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
+        publicSite: publicSite,
+        hasVideo: hasVideo,
       );
     }
 

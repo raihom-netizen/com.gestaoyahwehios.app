@@ -336,10 +336,11 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegEventos/$pid/videos/video_principal.mp4';
   }
 
-  /// Post **evento** — novos uploads → [eventPostPhotoCanonicalPath]; leitura legada mantida.
+  /// Post **evento** — novos uploads → layout produção (abril+):
+  /// `eventos/{postId}/banner_evento.jpg` + `galeria_NN.jpg`.
   static String eventPostPhotoPath(
           String tenantId, String postDocId, int slotIndex) =>
-      eventPostPhotoCanonicalPath(tenantId, postDocId, slotIndex);
+      eventPostPhotoPathLegacy(tenantId, postDocId, slotIndex);
 
   /// Legado: `eventos/{postId}/banner_evento.jpg` …
   static String eventPostPhotoPathLegacy(

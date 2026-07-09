@@ -1794,12 +1794,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Galeria de eventos (coleÃ§Ã£o raiz) â€” leitura pÃºblica para site; escrita autenticada (EventoGalleryService)
+    // Galeria de eventos (coleção raiz legada) — só leitura; escrita em igrejas/{id}/eventos.
     match /eventos/{eventoId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if false;
       match /comentarios/{commentId} {
-        allow read, write: if request.auth != null;
+        allow read: if true;
+        allow write: if false;
       }
     }
 

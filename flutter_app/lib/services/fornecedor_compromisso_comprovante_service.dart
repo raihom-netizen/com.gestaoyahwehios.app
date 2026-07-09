@@ -1,9 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/services/upload_bytes_core.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 
 /// Upload de comprovante (print/imagem/PDF) — path fixo com overwrite no Storage.
 abstract final class FornecedorCompromissoComprovanteService {
@@ -16,6 +15,7 @@ abstract final class FornecedorCompromissoComprovanteService {
     required Uint8List bytes,
     required String contentType,
     String ext = 'jpg',
+    void Function(double progress)? onProgress,
   }) async {
     final cid = churchId.trim();
     final fid = fornecedorId.trim();
@@ -27,34 +27,24 @@ abstract final class FornecedorCompromissoComprovanteService {
       throw StateError('Anexo vazio — selecione outro ficheiro.');
     }
 
-    await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
-
-    var payload = bytes;
-    var mime = contentType.trim().isEmpty ? 'application/octet-stream' : contentType;
-    var fileExt = ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
-
-    if (mime.startsWith('image/') && mime != 'application/pdf') {
-      payload = await ImageHelper.compressPatrimonioPhotoForUpload(bytes);
-      mime = 'image/jpeg';
-      fileExt = 'jpg';
-    } else if (mime.startsWith('video/')) {
+    final mime = contentType.trim().isEmpty ? 'application/octet-stream' : contentType;
+    if (mime.startsWith('video/')) {
       throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
     }
 
-    final path = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
-      tenantId: cid,
+    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.financeiro);
+
+    final uploaded =
+        await ChurchCentralStorageUpload.uploadFornecedorCompromissoComprovante(
+      churchId: cid,
       fornecedorId: fid,
       compromissoId: compId,
-      ext: fileExt,
+      bytes: bytes,
+      mimeType: mime,
+      ext: ext,
+      onProgress: onProgress,
     );
 
-    return uploadStoragePutDataWithRetry(
-      storagePath: path,
-      bytes: payload,
-      contentType: mime,
-      cacheControl: 'public, max-age=31536000',
-      maxAttempts: 4,
-      useOfflineQueue: false,
-    );
+    return uploaded.downloadUrl;
   }
 }

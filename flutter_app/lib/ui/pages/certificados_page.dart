@@ -44,7 +44,7 @@ import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -4014,10 +4014,11 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
       );
       final basePath = ChurchStorageLayout.certificadoDedicatedLogoBaseWithoutExt(
           op);
-      final upload = await MediaUploadService.uploadBytesDetailed(
+      final upload = await ChurchCentralStorageUpload.uploadImageAtPath(
         storagePath: '$basePath.jpg',
-        bytes: bytes,
-        contentType: 'image/jpeg',
+        rawBytes: bytes,
+        logLabel: 'certificado_logo',
+        alreadyCompressed: false,
         onProgress: (p) {
           if (!mounted) return;
           setState(() => _uploadingLogoProgress = (0.12 + (p.clamp(0.0, 1.0) * 0.84)));

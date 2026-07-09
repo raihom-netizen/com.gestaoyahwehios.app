@@ -333,6 +333,79 @@ abstract final class ChurchCentralStorageUpload {
     }
   }
 
+  /// Fornecedor — comprovante de compromisso (imagem ou PDF).
+  static Future<ChurchCentralUploadResult> uploadFornecedorCompromissoComprovante({
+    required String churchId,
+    required String fornecedorId,
+    required String compromissoId,
+    required Uint8List bytes,
+    required String mimeType,
+    String ext = 'jpg',
+    void Function(double progress)? onProgress,
+  }) async {
+    final mime = mimeType.toLowerCase();
+    final maxBytes = mime.contains('pdf')
+        ? kStorageRulesMaxFinanceDocBytes
+        : kStorageRulesMaxFeedImageBytes;
+    assertPayloadWithinRules(
+      bytes: bytes.length,
+      logLabel: 'fornecedor_comprovante',
+      maxBytes: maxBytes,
+    );
+
+    late final Uint8List uploadBytes;
+    late final String uploadMime;
+    late final String uploadExt;
+    if (mime.contains('pdf')) {
+      uploadBytes = bytes;
+      uploadMime = mimeType;
+      uploadExt = 'pdf';
+    } else {
+      uploadBytes = await MediaOptimizationService.optimizeForReceipt(bytes);
+      uploadMime = 'image/jpeg';
+      uploadExt = 'jpg';
+    }
+
+    final path = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+      tenantId: churchId,
+      fornecedorId: fornecedorId,
+      compromissoId: compromissoId,
+      ext: uploadExt.isNotEmpty ? uploadExt : ext,
+    );
+    _assertCanonicalPath(path, 'fornecedor_comprovante');
+
+    logFirebasePublishPhase(
+      'storage_upload_start',
+      'fornecedor_comprovante path=${path.trim()} mime=$uploadMime bytes=${uploadBytes.length}',
+    );
+
+    try {
+      final url = await DirectStorageUrlPublish.uploadBytes(
+        storagePath: path,
+        bytes: uploadBytes,
+        mimeType: uploadMime,
+        onProgress: onProgress,
+      );
+      return ChurchCentralUploadResult(
+        downloadUrl: sanitizeImageUrl(url),
+        storagePath: path,
+        contentType: uploadMime,
+        bytes: uploadBytes,
+      );
+    } catch (e, st) {
+      logFirebasePublishPhase(
+        'storage_upload_error',
+        'fornecedor_comprovante path=${path.trim()}',
+        error: e,
+        stack: st,
+      );
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'central_upload_fornecedor'),
+      );
+      rethrow;
+    }
+  }
+
   /// Chat / genérico — path já resolvido em `igrejas/{id}/chat_media/…`.
   static Future<ChurchCentralUploadResult> uploadAtCanonicalPath({
     required String storagePath,

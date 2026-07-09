@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -542,7 +543,8 @@ abstract final class FinanceComprovantePublishService {
   }
 
   /// Upload Storage → validar → gravar URL no Firestore (síncrono, sem falso sucesso).
-  /// Web e mobile: Storage directo + [AdminFeedFirestoreBridge] (sem Cloud Function).
+  /// Web: CF `gyUploadFinanceComprovante` (Admin SDK — paridade Controle Total).
+  /// Mobile: Storage directo + merge Firestore.
   static Future<String> uploadComprovanteNow({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -565,6 +567,37 @@ abstract final class FinanceComprovantePublishService {
         );
         final uploadBytes = prepared.bytes;
         final uploadMime = prepared.mimeType;
+        final churchId = ChurchRepository.churchId(tenantId.trim());
+
+        if (kIsWeb) {
+          onProgress?.call(0.12);
+          final refDate = referenceDate;
+          String? yearMonth;
+          if (refDate != null) {
+            yearMonth =
+                '${refDate.year}_${refDate.month.toString().padLeft(2, '0')}';
+          }
+          final cf = await ChurchFunctionsService.uploadFinanceComprovante(
+            churchId: churchId,
+            lancamentoId: docRef.id,
+            bytes: uploadBytes,
+            mimeType: uploadMime,
+            fileName: fileName,
+            referenceYearMonth: yearMonth,
+          );
+          if (!cf.ok || cf.comprovanteUrl.trim().isEmpty) {
+            throw StateError('Falha ao enviar comprovante via servidor.');
+          }
+          onProgress?.call(0.96);
+          await verifyComprovantePersisted(
+            docRef: docRef,
+            storagePath: cf.storagePath,
+          );
+          YahwehFlowLog.financeiroUploadOk();
+          YahwehFlowLog.financeiroSuccess();
+          onProgress?.call(1.0);
+          return sanitizeImageUrl(cf.comprovanteUrl);
+        }
 
         final persisted = await _uploadComprovanteStorageCore(
           tenantId: tenantId,
