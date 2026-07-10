@@ -450,6 +450,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
           downloadUrl: uploaded.downloadUrl,
           storagePath: uploaded.storagePath,
           kind: kind,
+          cacheRevision: uploaded.cacheRevision,
         ),
         // Firestore não permite FieldValue.serverTimestamp() dentro de arrays.
         'uploadedAt': Timestamp.now(),

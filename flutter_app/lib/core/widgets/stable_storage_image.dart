@@ -235,7 +235,8 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
     } else if (u != null) {
       uStr = u.toString();
     }
-    return '${churchTenantLogoUrl(m)}|${ChurchImageFields.logoStoragePath(m) ?? ''}|$uStr';
+    final rev = m['logoCacheRevision'] ?? '';
+    return '${churchTenantLogoUrl(m)}|${ChurchImageFields.logoStoragePath(m) ?? ''}|$uStr|$rev';
   }
 
   String? _preferHttpsImageUrl() {

@@ -2,8 +2,14 @@ import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
 /**
- * Remove mensagens de chat expiradas (texto ~30d, mídia ~3d — campo expiresAt)
- * e apaga o ficheiro no Storage quando existir storagePath.
+ * Remove mensagens de chat expiradas (campo expiresAt) e apaga Storage.
+ *
+ * App grava:
+ * - texto ~30d (ChurchChatService.textRetention)
+ * - mídia ~90d (ChurchChatService.mediaRetention) — NÃO 3 dias
+ *
+ * Mensagens antigas com expiresAt de 3 dias (legado) serão limpas quando
+ * expirarem; novos envios já usam 90 dias.
  */
 export const pruneExpiredChurchChatMessages = functions
   .region("us-central1")

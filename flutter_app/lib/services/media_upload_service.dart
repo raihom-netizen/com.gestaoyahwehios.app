@@ -361,39 +361,6 @@ class MediaUploadService {
       contentType: contentType,
     );
   }
-
-  /// Legado: gravava `_thumb` / `_card` / `_full` no mesmo bucket (três ficheiros).
-  /// Política atual: **um** ficheiro canónico por recurso (como buckets só com o original).
-  @Deprecated('Usar um único uploadBytesDetailed/uploadFileDetailed; não criar variantes no Storage.')
-  static Future<Map<String, MediaUploadResult>> uploadImageVariants({
-    required String basePathWithoutExt,
-    required Uint8List imageBytes,
-    String ext = 'jpg',
-    String contentType = 'image/jpeg',
-    String cacheControl = 'public, max-age=31536000',
-  }) async {
-    final cleanExt = ext.replaceAll('.', '').toLowerCase();
-    final variants = <String, String>{
-      'thumb': '${basePathWithoutExt}_thumb.$cleanExt',
-      'card': '${basePathWithoutExt}_card.$cleanExt',
-      'full': '${basePathWithoutExt}_full.$cleanExt',
-    };
-    final entries = variants.entries.toList();
-    final results = await Future.wait(
-      entries.map(
-        (entry) => uploadBytesDetailed(
-          storagePath: entry.value,
-          bytes: imageBytes,
-          contentType: contentType,
-          cacheControl: cacheControl,
-        ),
-      ),
-    );
-    return Map<String, MediaUploadResult>.fromIterables(
-      entries.map((e) => e.key),
-      results,
-    );
-  }
 }
 
 class MediaUploadResult {

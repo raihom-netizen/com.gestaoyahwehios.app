@@ -122,6 +122,29 @@ abstract final class ChurchCadastroLoadService {
     return _hasIdentityField(data);
   }
 
+  static bool _hasAddressOrContact(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return false;
+    final slice = sliceCadastroFormFields(data);
+    for (final k in [
+      'rua',
+      'address',
+      'endereco',
+      'bairro',
+      'cidade',
+      'estado',
+      'cep',
+      'phone',
+      'telefone',
+      'instagramUrl',
+      'youtubeUrl',
+      'facebookUrl',
+      'whatsappChatUrl',
+    ]) {
+      if ((slice[k] ?? '').toString().trim().isNotEmpty) return true;
+    }
+    return false;
+  }
+
   static Map<String, dynamic> _bestCadastroPayload({
     Map<String, dynamic>? primary,
     Map<String, dynamic>? secondary,
@@ -254,19 +277,21 @@ abstract final class ChurchCadastroLoadService {
     ChurchCadastroLoadResult? paintedLocal;
     if (!forceRefresh) {
       final local = await tryLocalSources(seedTenantId: seed);
-      if (local != null && _hasMinimalCadastroFields(local.data)) {
-        if (!kIsWeb) {
-          return _resultFromData(
-            seed: seed,
-            churchId: churchId,
-            data: sliceCadastroFormFields(local.data),
-            readSource: local.readSource,
-          );
-        }
-        paintedLocal = local;
-      }
       if (local != null && local.data.isNotEmpty) {
         paintedLocal = local;
+      }
+      // Mobile: só devolver cache se o perfil for «rico» (endereço/contacto).
+      // Nome+slug sozinho → continua à rede (evita formulário incompleto).
+      if (!kIsWeb &&
+          local != null &&
+          _isUsableProfile(local.data) &&
+          _hasAddressOrContact(local.data)) {
+        return _resultFromData(
+          seed: seed,
+          churchId: churchId,
+          data: sliceCadastroFormFields(local.data),
+          readSource: local.readSource,
+        );
       }
     }
 
@@ -281,12 +306,22 @@ abstract final class ChurchCadastroLoadService {
         directDocId = direct.docId;
         directData = Map<String, dynamic>.from(direct.data);
       }
-      if (directData.isNotEmpty && _hasMinimalCadastroFields(directData)) {
+      if (directData.isNotEmpty &&
+          _isUsableProfile(directData) &&
+          _hasAddressOrContact(directData)) {
         return _resultFromData(
           seed: seed,
           churchId: directDocId ?? churchId,
           data: ChurchTenantFields.stamp(directDocId ?? churchId, directData),
           readSource: 'direct_read',
+        );
+      }
+      if (directData.isNotEmpty) {
+        paintedLocal ??= _resultFromData(
+          seed: seed,
+          churchId: directDocId ?? churchId,
+          data: ChurchTenantFields.stamp(directDocId ?? churchId, directData),
+          readSource: 'direct_read_partial',
         );
       }
     } catch (e) {

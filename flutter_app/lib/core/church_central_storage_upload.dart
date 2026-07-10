@@ -163,6 +163,8 @@ abstract final class ChurchCentralStorageUpload {
         rawBytes: rawBytes,
         logLabel: 'aviso_photo',
         alreadyCompressed: alreadyCompressed,
+        // Já veio do crop/encode do editor — NÃO recomprimir (qualidade).
+        compressForFeed: !alreadyCompressed,
         onProgress: onProgress,
       );
 
@@ -184,6 +186,7 @@ abstract final class ChurchCentralStorageUpload {
         rawBytes: rawBytes,
         logLabel: 'evento_photo',
         alreadyCompressed: alreadyCompressed,
+        compressForFeed: !alreadyCompressed,
         onProgress: onProgress,
       );
 
@@ -207,12 +210,14 @@ abstract final class ChurchCentralStorageUpload {
       );
 
   /// Patrimônio — slot de galeria.
+  /// Com [alreadyCompressed] (JPEG do editor) — NÃO recomprimir (padrão CT).
   static Future<ChurchCentralUploadResult> uploadPatrimonioPhoto({
     required String churchId,
     required String itemDocId,
     required int slotIndex,
     required Uint8List rawBytes,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) =>
       uploadImageAtPath(
         storagePath: ChurchStorageLayout.patrimonioPhotoPath(
@@ -222,6 +227,8 @@ abstract final class ChurchCentralStorageUpload {
         ),
         rawBytes: rawBytes,
         logLabel: 'patrimonio_photo',
+        alreadyCompressed: alreadyCompressed,
+        compressForFeed: !alreadyCompressed,
         onProgress: onProgress,
       );
 
@@ -266,6 +273,7 @@ abstract final class ChurchCentralStorageUpload {
   }
 
   /// Financeiro — comprovante (imagem ou PDF).
+  /// Com [alreadyCompressed] — NÃO recomprimir (padrão CT / uma compressão só).
   static Future<ChurchCentralUploadResult> uploadFinanceComprovante({
     required String churchId,
     required String lancamentoId,
@@ -273,6 +281,7 @@ abstract final class ChurchCentralStorageUpload {
     required String mimeType,
     DateTime? referenceDate,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     final mime = mimeType.toLowerCase();
     final maxBytes = mime.contains('pdf')
@@ -288,6 +297,10 @@ abstract final class ChurchCentralStorageUpload {
     if (mime.contains('pdf')) {
       uploadBytes = bytes;
       uploadMime = mimeType;
+    } else if (alreadyCompressed &&
+        (mime.contains('jpeg') || mime.contains('jpg'))) {
+      uploadBytes = bytes;
+      uploadMime = 'image/jpeg';
     } else {
       uploadBytes = await MediaOptimizationService.optimizeForReceipt(bytes);
       uploadMime = 'image/jpeg';
@@ -335,6 +348,7 @@ abstract final class ChurchCentralStorageUpload {
   }
 
   /// Fornecedor — comprovante de compromisso (imagem ou PDF).
+  /// Extensão no path = ficheiro real (JPEG após compress → `.jpg`).
   static Future<ChurchCentralUploadResult> uploadFornecedorCompromissoComprovante({
     required String churchId,
     required String fornecedorId,
@@ -343,6 +357,7 @@ abstract final class ChurchCentralStorageUpload {
     required String mimeType,
     String ext = 'jpg',
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     final mime = mimeType.toLowerCase();
     final maxBytes = mime.contains('pdf')
@@ -361,6 +376,11 @@ abstract final class ChurchCentralStorageUpload {
       uploadBytes = bytes;
       uploadMime = mimeType;
       uploadExt = 'pdf';
+    } else if (alreadyCompressed &&
+        (mime.contains('jpeg') || mime.contains('jpg'))) {
+      uploadBytes = bytes;
+      uploadMime = 'image/jpeg';
+      uploadExt = 'jpg';
     } else {
       uploadBytes = await MediaOptimizationService.optimizeForReceipt(bytes);
       uploadMime = 'image/jpeg';

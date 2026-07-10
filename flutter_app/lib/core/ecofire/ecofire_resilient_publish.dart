@@ -39,46 +39,45 @@ abstract final class EcoFireResilientPublish {
       e is ResilientPublishQueuedException;
 
   /// Deve enfileirar em background (sem bloquear o utilizador).
-  /// Erros de init Firebase (`core/no-app`) **não** entram aqui quando online — devem falhar visível.
+  ///
+  /// **Só com offline real.** Na Web, `timeout` / `internal` / assert com rede
+  /// **não** são sucesso silencioso (chat: bolha sumia → «Sem mensagens ainda»).
   static bool shouldQueueSilently(Object error) {
     if (error is ResilientPublishQueuedException) return true;
-    if (FirestoreWebGuard.isInternalAssertionError(error)) return true;
     if (!AppConnectivityService.instance.isOnline) return true;
+
+    // Online: nunca tratar timeout/internal/assert como fila silenciosa.
+    if (FirestoreWebGuard.isInternalAssertionError(error)) return false;
+    if (error is TimeoutException) return false;
 
     if (error is FirebaseException) {
       switch (error.code) {
         case 'unavailable':
         case 'network-request-failed':
+          // Ainda pode ser rede intermitente — só fila se connectivity diz offline
+          // (já tratado acima). Online → falha visível.
+          return false;
         case 'deadline-exceeded':
         case 'resource-exhausted':
         case 'aborted':
         case 'cancelled':
         case 'internal':
-          return true;
+          return false;
       }
     }
-    if (error is TimeoutException) return true;
 
     final low = error.toString().toLowerCase();
-    if (low.contains('network') ||
-        low.contains('timeout') ||
-        low.contains('tempo esgotado') ||
-        low.contains('connection') ||
-        low.contains('offline') ||
+    if (low.contains('offline') ||
         low.contains('sem conexão') ||
-        low.contains('unavailable') ||
-        low.contains('socket') ||
-        low.contains('failed host lookup')) {
-      return true;
+        low.contains('client is offline')) {
+      return !AppConnectivityService.instance.isOnline;
     }
-
-    if (error is StateError) {
-      final m = error.message.toLowerCase();
-      // Sessão ambígua com rede → fila (token refresh no drain).
-      if (m.contains('sessão expirada') &&
-          AppConnectivityService.instance.isOnline) {
-        return true;
-      }
+    if (low.contains('timeout') ||
+        low.contains('tempo esgotado') ||
+        low.contains('deadline') ||
+        low.contains('internal assertion') ||
+        low.contains('failed to fetch')) {
+      return false;
     }
 
     return false;
@@ -289,6 +288,7 @@ abstract final class EcoFireResilientPublish {
         mimeType: comprovanteMime ?? 'image/jpeg',
         fileName: comprovanteFileName,
         referenceDateMs: referenceDate?.millisecondsSinceEpoch,
+        alreadyCompressed: true,
       );
     }
 
@@ -323,6 +323,7 @@ abstract final class EcoFireResilientPublish {
     DateTime? referenceDate,
     String? previousStoragePath,
     String? previousDownloadUrl,
+    bool alreadyCompressed = true,
   }) async {
     final tid = churchId.trim();
 
@@ -338,6 +339,7 @@ abstract final class EcoFireResilientPublish {
           referenceDate: referenceDate,
           previousStoragePath: previousStoragePath,
           previousDownloadUrl: previousDownloadUrl,
+          alreadyCompressed: alreadyCompressed,
         );
         scheduleSync(reason: 'finance_comprovante_web_direct');
         return;
@@ -362,6 +364,7 @@ abstract final class EcoFireResilientPublish {
       referenceDateMs: referenceDate?.millisecondsSinceEpoch,
       previousStoragePath: previousStoragePath,
       previousDownloadUrl: previousDownloadUrl,
+      alreadyCompressed: alreadyCompressed,
     );
     await SyncEngine.enqueue(
       SyncTask(

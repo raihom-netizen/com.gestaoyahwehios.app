@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
+import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/transactional_media_publish_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 
@@ -16,18 +17,22 @@ class ChurchCanonicalUploadResult {
     required this.storagePath,
     required this.contentType,
     required this.bytes,
+    this.cacheRevision,
   });
 
   final String downloadUrl;
   final String storagePath;
   final String contentType;
   final Uint8List bytes;
+
+  /// Bust para overwrite no mesmo path (capa.jpg / assets Master).
+  final int? cacheRevision;
 }
 
-/// Núcleo único — compressão (quando imagem) → EcoFire Storage → campos Firestore.
+/// Núcleo único — compressão (quando imagem) → Storage putData → campos Firestore.
 ///
-/// Usar em todos os módulos (membros, avisos, eventos, patrimônio, master,
-/// cultos fixos, cadastro público) em vez de `putData` solto na UI.
+/// Padrão Controle Total (anexo): **1 compressão** → putData → URL → Firestore.
+/// Sem recompressão; path = MIME real.
 abstract final class ChurchCanonicalMediaPublish {
   ChurchCanonicalMediaPublish._();
 
@@ -39,7 +44,9 @@ abstract final class ChurchCanonicalMediaPublish {
     LegacyPathGuard.assertCanonicalStoragePath(path, context: context);
   }
 
-  /// Imagem: gate → comprimir → upload → URL https.
+  /// Imagem: gate → comprimir **uma vez** → putData → URL https.
+  ///
+  /// Com [alreadyCompressed] — NÃO recomprimir (bytes já JPEG/WebP do picker).
   static Future<ChurchCanonicalUploadResult> compressAndUploadImage({
     required Uint8List rawBytes,
     required String storagePath,
@@ -48,6 +55,7 @@ abstract final class ChurchCanonicalMediaPublish {
     MediaImageProfile profile = MediaImageProfile.feed,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
+    bool alreadyCompressed = false,
   }) async {
     _assertPath(storagePath, context: logLabel);
     if (rawBytes.isEmpty) {
@@ -62,28 +70,40 @@ abstract final class ChurchCanonicalMediaPublish {
       throw StateError('Firebase indisponível para enviar mídia.');
     }
 
-    final upload = await TransactionalMediaPublishPipeline.compressAndUpload(
-      rawBytes: rawBytes,
+    onProgress?.call(0.05);
+    late final Uint8List uploadBytes;
+    late final String mime;
+    if (alreadyCompressed) {
+      uploadBytes = rawBytes;
+      mime = MediaService.contentTypeForProfile(profile, uploadBytes);
+    } else {
+      uploadBytes = await MediaService.compressImageBytes(
+        rawBytes,
+        profile: profile,
+      );
+      mime = MediaService.contentTypeForProfile(profile, uploadBytes);
+    }
+    onProgress?.call(0.15);
+
+    // Uma compressão só → putData directo (padrão CT / finance/patrimônio).
+    final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: storagePath,
-      contentType: MediaService.contentTypeForProfile(
-        profile,
-        await MediaService.compressImageBytes(rawBytes, profile: profile),
-      ),
-      module: TransactionalMediaModule.strict,
-      onProgress: onProgress == null
-          ? null
-          : (phase, p) {
-              if (phase == TransactionalMediaPhase.uploading) {
-                onProgress(p);
-              }
-            },
+      bytes: uploadBytes,
+      mimeType: mime,
+      logLabel: logLabel,
+      onProgress: (p) => onProgress?.call(0.15 + p * 0.80),
     );
 
+    final rev = YahwehMediaCacheBust.freshRevisionMs();
+    final displayUrl = YahwehMediaCacheBust.apply(uploaded.downloadUrl, rev);
+
+    onProgress?.call(1.0);
     return ChurchCanonicalUploadResult(
-      downloadUrl: sanitizeImageUrl(upload.downloadUrl),
-      storagePath: upload.storagePath,
-      contentType: upload.contentType,
-      bytes: upload.compressedBytes,
+      downloadUrl: displayUrl,
+      storagePath: uploaded.storagePath,
+      contentType: uploaded.contentType,
+      bytes: uploadBytes,
+      cacheRevision: rev,
     );
   }
 
@@ -142,10 +162,12 @@ abstract final class ChurchCanonicalMediaPublish {
   static Map<String, dynamic> marketingClienteCapaFields({
     required String downloadUrl,
     required String storagePath,
+    int? cacheRevision,
   }) =>
       ChurchCanonicalMediaContract.marketingClienteCapaWritePatch(
         downloadUrl: downloadUrl,
         storagePath: storagePath,
+        cacheRevision: cacheRevision,
       );
 
   /// Culto / evento fixo (`event_templates`).
@@ -163,10 +185,12 @@ abstract final class ChurchCanonicalMediaPublish {
     required String downloadUrl,
     required String storagePath,
     required String kind,
+    int? cacheRevision,
   }) =>
       ChurchCanonicalMediaContract.divulgacaoAssetWritePatch(
         downloadUrl: downloadUrl,
         storagePath: storagePath,
         kind: kind,
+        cacheRevision: cacheRevision,
       );
 }

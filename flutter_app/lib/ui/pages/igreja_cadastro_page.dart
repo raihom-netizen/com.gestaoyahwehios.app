@@ -59,6 +59,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         isFirebaseStorageHttpUrl,
         firebaseStorageDownloadUrlLooksTokenized;
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
@@ -340,7 +341,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         if (!mounted || gen != _cadastroRetryGen) return;
         if (_nameCtrl.text.trim().isNotEmpty &&
             TenantResolverService.churchProfileRichnessScore(_tenantLiveData) >=
-                ChurchCadastroLoadService.kMinProfileScore) {
+                ChurchCadastroLoadService.kMinProfileScore &&
+            !_cadastroAddressFieldsEmpty()) {
           return;
         }
         await _reloadChurchDataInBackground(forceRefresh: delay >= 6);
@@ -802,10 +804,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final urlFromLogoField =
         sanitizeImageUrl(ChurchImageFields.logoHttpsUrlFromDoc(data) ?? '');
     if (urlFromLegacy.isNotEmpty && isValidImageUrl(urlFromLegacy)) {
-      _logoUrl = urlFromLegacy;
+      _logoUrl = YahwehMediaCacheBust.applyFromDocRevision(urlFromLegacy, data);
     } else if (urlFromLogoField.isNotEmpty &&
         isValidImageUrl(urlFromLogoField)) {
-      _logoUrl = urlFromLogoField;
+      _logoUrl = YahwehMediaCacheBust.applyFromDocRevision(urlFromLogoField, data);
     } else {
       _logoUrl = null;
     }
@@ -1764,8 +1766,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         );
         if (!mounted) return;
         setState(() {
-          _logoUrl = published.downloadUrl;
+          _logoUrl = YahwehMediaCacheBust.apply(
+            published.downloadUrl,
+            published.cacheRevision,
+          );
           _logoStoragePath = published.storagePath;
+          _tenantLiveData = {
+            ..._tenantLiveData,
+            'logoUrl': published.downloadUrl,
+            'logoPath': published.downloadUrl,
+            'logoStoragePath': published.storagePath,
+            'logoCacheRevision': published.cacheRevision,
+          };
         });
         _logoEditorKey.currentState?.resetAfterSave();
       }
@@ -2187,20 +2199,56 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final slim = ChurchCadastroLoadService.sliceCadastroFormFields(live);
     final incomingScore =
         TenantResolverService.churchProfileRichnessScore(slim);
+    // Sempre aceitar doc mais rico OU com campos de endereço/contacto que
+    // o cache local (só nome/slug) ainda não tinha — evita formulário incompleto.
+    final hasAddressGap = _cadastroAddressFieldsEmpty() &&
+        _incomingHasAddressOrContact(slim);
     if (_hydratedTenantId == resolvedId &&
         _formHydrated &&
         _nameCtrl.text.trim().isNotEmpty &&
-        incomingScore <= _hydratedProfileScore) {
+        incomingScore <= _hydratedProfileScore &&
+        !hasAddressGap) {
       return;
     }
     _applyData(slim, docIdFallback: resolvedId);
     _tenantLiveData = Map<String, dynamic>.from(slim);
     _formHydrated = true;
     _hydratedTenantId = resolvedId;
-    _hydratedProfileScore = incomingScore;
+    _hydratedProfileScore = incomingScore > _hydratedProfileScore
+        ? incomingScore
+        : _hydratedProfileScore;
     _notedNonexistentIgrejaDoc = false;
     if (mounted) setState(() {});
     unawaited(_afterFormHydrated(resolvedId, slim));
+  }
+
+  bool _cadastroAddressFieldsEmpty() {
+    return _ruaCtrl.text.trim().isEmpty &&
+        _bairroCtrl.text.trim().isEmpty &&
+        _cidadeCtrl.text.trim().isEmpty &&
+        _cepCtrl.text.trim().isEmpty &&
+        _telefoneCtrl.text.trim().isEmpty;
+  }
+
+  bool _incomingHasAddressOrContact(Map<String, dynamic> data) {
+    for (final k in [
+      'rua',
+      'address',
+      'endereco',
+      'bairro',
+      'cidade',
+      'estado',
+      'cep',
+      'phone',
+      'telefone',
+      'instagramUrl',
+      'youtubeUrl',
+      'facebookUrl',
+      'whatsappChatUrl',
+    ]) {
+      if ((data[k] ?? '').toString().trim().isNotEmpty) return true;
+    }
+    return false;
   }
 
   Future<void> _afterFormHydrated(

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart'
+    show kEventoAvisoFeedEncodeMaxEdgePx, kEventoAvisoFeedWebpQuality;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
@@ -42,14 +44,14 @@ abstract final class WebImageCompressService {
 
   static int _edgeFor(MediaImageProfile profile) => switch (profile) {
         MediaImageProfile.chat => MediaService.chatImageMaxEdge,
-        MediaImageProfile.feed => kStandardUploadImageMaxEdge,
+        MediaImageProfile.feed => kEventoAvisoFeedEncodeMaxEdgePx,
         MediaImageProfile.thumb => MediaService.thumbMaxEdge,
         MediaImageProfile.patrimonio => kStandardUploadImageMaxEdge,
       };
 
   static int _qualityFor(MediaImageProfile profile) => switch (profile) {
         MediaImageProfile.chat => kStandardUploadImageQuality,
-        MediaImageProfile.feed => kStandardUploadImageQuality,
+        MediaImageProfile.feed => kEventoAvisoFeedWebpQuality,
         MediaImageProfile.thumb => MediaService.thumbJpegQuality,
         MediaImageProfile.patrimonio => kStandardUploadImageQuality,
       };

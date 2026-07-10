@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -60,6 +59,8 @@ abstract final class FornecedorCompromissoPublishService {
     required Uint8List bytes,
     required String mimeType,
     required String fileName,
+    void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     final cid = ChurchRepository.churchId(churchId.trim());
     if (kIsWeb) {
@@ -68,25 +69,22 @@ abstract final class FornecedorCompromissoPublishService {
         refreshAuthToken: true,
       );
     }
-    final ext = FinanceComprovanteAttachService.extensionForMime(mimeType);
-    final url = await FornecedorCompromissoComprovanteService.upload(
+    onProgress?.call(0.08);
+    // Path/ext = resultado real do upload (JPEG → .jpg), nunca mime cru do PNG picker.
+    final uploaded = await FornecedorCompromissoComprovanteService.upload(
       churchId: cid,
       fornecedorId: fornecedorId,
       compromissoId: compromissoId,
       bytes: bytes,
       contentType: mimeType,
-      ext: ext,
+      onProgress: (p) => onProgress?.call(0.08 + p * 0.82),
+      alreadyCompressed: alreadyCompressed,
     );
-    final storagePath = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
-      tenantId: cid,
-      fornecedorId: fornecedorId,
-      compromissoId: compromissoId,
-      ext: ext,
-    );
+    onProgress?.call(0.92);
     final patch = ChurchCanonicalMediaContract.financeComprovanteWritePatch(
-      url: url,
-      storagePath: storagePath,
-      mimeType: mimeType,
+      url: uploaded.downloadUrl,
+      storagePath: uploaded.storagePath,
+      mimeType: uploaded.contentType,
       fileName: fileName,
     );
     patch['updatedAt'] = FieldValue.serverTimestamp();
@@ -99,6 +97,7 @@ abstract final class FornecedorCompromissoPublishService {
         () => docRef.update(patch),
       ),
     );
+    onProgress?.call(1.0);
   }
 
   /// Remove comprovante — Firestore + Storage (`igrejas/{churchId}/fornecedores/…`).

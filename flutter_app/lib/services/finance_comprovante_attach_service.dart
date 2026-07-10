@@ -16,11 +16,15 @@ class FinanceComprovanteAttachment {
     required this.bytes,
     required this.fileName,
     required this.mimeType,
+    this.alreadyOptimized = false,
   });
 
   final Uint8List bytes;
   final String fileName;
   final String mimeType;
+
+  /// true quando o picker já passou por [MediaOptimizationService.optimizeForReceipt].
+  final bool alreadyOptimized;
 
   bool get isPdf => mimeType.contains('pdf');
   bool get isImage => mimeType.startsWith('image/');
@@ -141,10 +145,25 @@ abstract final class FinanceComprovanteAttachService {
         return null;
       }
 
+      // Uma compressão só (CT): imagens → JPEG no pick; PDF intacto.
+      if (mime.contains('pdf')) {
+        return FinanceComprovanteAttachment(
+          bytes: bytes,
+          fileName: f.name,
+          mimeType: 'application/pdf',
+          alreadyOptimized: true,
+        );
+      }
+      final optimized = await MediaOptimizationService.optimizeForReceipt(bytes);
+      if (optimized.lengthInBytes > maxBytes) {
+        _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
+        return null;
+      }
       return FinanceComprovanteAttachment(
-        bytes: bytes,
-        fileName: f.name,
-        mimeType: mime,
+        bytes: optimized,
+        fileName: f.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
+        mimeType: 'image/jpeg',
+        alreadyOptimized: true,
       );
     } catch (e) {
       _showSnack(
@@ -186,8 +205,9 @@ abstract final class FinanceComprovanteAttachService {
       }
       return FinanceComprovanteAttachment(
         bytes: bytes,
-        fileName: xfile.name,
+        fileName: xfile.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
         mimeType: 'image/jpeg',
+        alreadyOptimized: true,
       );
     } catch (e) {
       _showSnack(
@@ -288,8 +308,9 @@ abstract final class FinanceComprovanteAttachService {
       }
       return FinanceComprovanteAttachment(
         bytes: bytes,
-        fileName: xfile.name,
+        fileName: xfile.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
         mimeType: 'image/jpeg',
+        alreadyOptimized: true,
       );
     } catch (e) {
       _showSnack(
@@ -298,18 +319,6 @@ abstract final class FinanceComprovanteAttachService {
       );
       return null;
     }
-  }
-
-  /// PDF passa direto; imagens → JPEG 1280px/75% em isolate.
-  static Future<({Uint8List bytes, String mimeType})> prepareUploadBytes(
-    FinanceComprovanteAttachment attachment,
-  ) async {
-    if (attachment.isPdf) {
-      return (bytes: attachment.bytes, mimeType: 'application/pdf');
-    }
-    final compressed =
-        await MediaOptimizationService.optimizeForReceipt(attachment.bytes);
-    return (bytes: compressed, mimeType: 'image/jpeg');
   }
 
   static Future<void> viewFromDoc(

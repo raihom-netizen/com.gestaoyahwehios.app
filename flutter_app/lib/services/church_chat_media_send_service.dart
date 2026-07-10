@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Chat mídia estilo WhatsApp — Ecofire: Firebase OK → Storage → Firestore **uma vez** (`sent`).
@@ -119,7 +120,11 @@ abstract final class ChurchChatMediaSendService {
       );
       onSuccess?.call();
     } catch (e) {
-      if (EcoFireResilientPublish.shouldQueueSilently(e)) {
+      // Só fila silenciosa se estiver REALMENTE offline.
+      // Na Web, `internal`/`timeout` após Storage NÃO pode virar «sucesso» —
+      // isso removia a bolha e o chat ficava «Sem mensagens ainda».
+      final trulyOffline = !AppConnectivityService.instance.isOnline;
+      if (trulyOffline && EcoFireResilientPublish.shouldQueueSilently(e)) {
         try {
           await EcoFireResilientPublish.queueChatMedia(
             tenantId: resolvedTenant,
@@ -163,7 +168,7 @@ abstract final class ChurchChatMediaSendService {
   }) async {
     ChurchPublishFlowLog.chatStart();
     onProgress?.call(0.04);
-    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
+    // Gate já feito em [send] — não repetir (atrasava «A confirmar envio»).
 
     final displayName = ChurchChatMessageFields.isDocumentType(pending.kind)
         ? (pending.fileName.isNotEmpty ? pending.fileName : 'file')

@@ -45,20 +45,20 @@ Map<String, dynamic> stripVideoFieldsForAvisoPayload(
   return out;
 }
 
-/// Eventos + avisos — upload e leitura ultrarrápidos.
+/// Eventos + avisos — qualidade visual boa + upload ainda leve (padrão CT).
 ///
-/// Compressão feed avisos/eventos — máx. 1080px, qualidade 75% (texto da UI do editor).
-const int kEventoAvisoFeedEncodeMaxEdgePx = 1080;
-const int kEventoAvisoFeedWebpQuality = 75;
+/// Compressão feed: máx. **1920px**, qualidade **85%** (antes 1080/75 — fotos «ruins»).
+const int kEventoAvisoFeedEncodeMaxEdgePx = 1920;
+const int kEventoAvisoFeedWebpQuality = 85;
 
-/// Capa de aviso — teto de upload (~150 KB) para publicação rápida em 4G/web.
-const int kAvisoCapaMaxUploadBytes = 150 * 1024;
+/// Capa de aviso — teto por foto (~600 KB) — nitidez no mural/site.
+const int kAvisoCapaMaxUploadBytes = 600 * 1024;
 
-/// Fotos de evento — mesmo teto (~150 KB) por slot (até 10 fotos).
-const int kEventoFotoMaxUploadBytes = 150 * 1024;
+/// Fotos de evento — mesmo teto (~600 KB) por slot (até 10 fotos).
+const int kEventoFotoMaxUploadBytes = 600 * 1024;
 
-/// Teto de decode em RAM no feed (equivalente prático ao `memCacheWidth: 800` do CachedNetworkImage).
-const int kEventoAvisoFeedMemCacheMaxPx = 800;
+/// Teto de decode em RAM no feed (listas leves; full no tap/zoom).
+const int kEventoAvisoFeedMemCacheMaxPx = 1200;
 
 /// Web e mobile alinhados ao teto 1920px.
 int eventoAvisoFeedEncodeMaxEdgePx() =>

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/ui_asset_layout_constants.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_web_lazy_logo_image.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -223,6 +224,11 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
     final hasPrimary =
         primary != null && resolvedUrlLooksUsable(primary);
 
+    String? bust(String? url) {
+      if (url == null || url.isEmpty) return url;
+      return YahwehMediaCacheBust.applyFromDocRevision(url, item);
+    }
+
     if (hasPath && hasPrimary) {
       final both = await Future.wait<String?>([
         AppStorageImageService.instance.resolveImageUrl(
@@ -236,10 +242,10 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
       final byPath = both[0];
       final byUrl = both[1];
       if (resolvedUrlLooksUsable(byPath)) {
-        return sanitizeImageUrl(byPath!);
+        return bust(sanitizeImageUrl(byPath!));
       }
       if (resolvedUrlLooksUsable(byUrl)) {
-        return sanitizeImageUrl(byUrl!);
+        return bust(sanitizeImageUrl(byUrl!));
       }
       return null;
     }
@@ -249,7 +255,7 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
         imageUrl: null,
       );
       if (resolvedUrlLooksUsable(byPath)) {
-        return sanitizeImageUrl(byPath!);
+        return bust(sanitizeImageUrl(byPath!));
       }
     }
     if (hasPrimary) {
@@ -257,7 +263,7 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
         imageUrl: primary,
       );
       if (resolvedUrlLooksUsable(byUrl)) {
-        return sanitizeImageUrl(byUrl!);
+        return bust(sanitizeImageUrl(byUrl!));
       }
     }
     return null;
@@ -295,7 +301,7 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
   late String _itemSig;
 
   static String _itemSigOf(Map<String, dynamic> m) =>
-      '${m['id']}_${m['fotoPath']}_${m['fotoUrl']}_${m['igrejaTenantId']}_${m['tenantId']}';
+      '${m['id']}_${m['fotoPath']}_${m['fotoUrl']}_${m['fotoUrlCacheRevision']}_${m['igrejaTenantId']}_${m['tenantId']}';
 
   @override
   void initState() {

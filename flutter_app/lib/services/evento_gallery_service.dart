@@ -35,7 +35,7 @@ class EventoGalleryService {
   static const int _maxPhotosPerEvent = kMaxEventFeedPhotosPerPost;
   static const int _photoQuality = kStandardUploadImageQuality;
   static const int _photoMaxWidth = 1920;
-  static const int _photoMaxHeight = 1080;
+  static const int _photoMaxHeight = 1920;
 
   /// Adiciona mídia a um evento em `igrejas/{tenantId}/eventos/{eventoId}`.
   Future<void> adicionarMidiaAoEvento(

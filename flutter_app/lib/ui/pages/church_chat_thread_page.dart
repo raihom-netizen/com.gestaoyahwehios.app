@@ -1838,26 +1838,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       }
     }
     final capped = list.take(kChatMaxImagesPerPick).toList();
-    if (capped.isEmpty) return;
-    if (!mounted) return;
-    final albumId = _newAlbumGroupIdIfBatch(capped.length);
-    if (capped.length > 1) {
+    if (capped.isEmpty || !mounted) return;
+
+    // Preview estilo galeria (1 ou várias) — confirmar antes de enviar.
+    final confirmed = await confirmChatImageBatchPreview(context, capped);
+    if (confirmed == null || confirmed.isEmpty || !mounted) return;
+
+    final albumId = _newAlbumGroupIdIfBatch(confirmed.length);
+    if (confirmed.length > 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('A enviar ${capped.length} foto(s)…'),
+          content: Text('A enviar ${confirmed.length} foto(s)…'),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
         ),
       );
     }
-    for (var i = 0; i < capped.length; i++) {
+    for (var i = 0; i < confirmed.length; i++) {
       if (!mounted) return;
       unawaited(_sendPickedImageFile(
-        capped[i],
+        confirmed[i],
         previewBeforeSend: false,
         albumGroupId: albumId,
         albumIndex: i,
-        albumCount: list.length,
+        albumCount: confirmed.length,
       ));
     }
   }
@@ -2471,8 +2475,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         },
         onSuccess: () {
           if (pending.offlineQueued) {
-            if (mounted && pending.albumIndex == 0) {
-              setState(() => _replyDraft = null);
+            // Offline real: bolha some, outbox reenvia depois — avisar.
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Sem rede — o ficheiro ficou na fila e será enviado ao voltar online.',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  duration: Duration(seconds: 4),
+                ),
+              );
+              if (pending.albumIndex == 0) {
+                setState(() => _replyDraft = null);
+              }
             }
             _removePending(pending.localId);
             return;
@@ -2494,6 +2510,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             setState(() => _replyDraft = null);
           }
           _removePending(pending.localId);
+          // Web: snapshots podem estar desligados — forçar leitura para a bolha aparecer.
+          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
         },
         onError: (msg) {
           final i =
@@ -2754,21 +2772,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     } else if ((p.kind == 'image' || p.kind == 'video') &&
         p.previewBytes != null) {
+      final previewSide = (maxBubbleW * 0.92).clamp(240.0, 320.0);
       body = ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Stack(
           alignment: Alignment.center,
           children: [
             Image.memory(
               p.previewBytes!,
-              width: 200,
-              height: 200,
+              width: previewSide,
+              height: previewSide,
               fit: BoxFit.cover,
             ),
             if (p.kind == 'video')
               Container(
-                width: 42,
-                height: 42,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.55),
                   shape: BoxShape.circle,
@@ -2776,7 +2795,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 child: const Icon(
                   Icons.play_arrow_rounded,
                   color: Colors.white,
-                  size: 26,
+                  size: 30,
                 ),
               ),
             if (!p.failed)
@@ -2785,13 +2804,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
                   return Container(
-                    width: 200,
-                    height: 200,
+                    width: previewSide,
+                    height: previewSide,
                     color: Colors.black.withValues(alpha: 0.35),
                     child: Center(
                       child: SizedBox(
-                        width: 36,
-                        height: 36,
+                        width: 40,
+                        height: 40,
                         child: CircularProgressIndicator(
                           value: progress > 0 ? progress : null,
                           strokeWidth: 3,
@@ -2809,20 +2828,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         p.localPath != null &&
         p.localPath!.isNotEmpty &&
         p.kind == 'image') {
+      final previewSide = (maxBubbleW * 0.92).clamp(240.0, 320.0);
       body = ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Stack(
           alignment: Alignment.center,
           children: [
             Image.file(
               File(p.localPath!),
-              width: 200,
-              height: 200,
+              width: previewSide,
+              height: previewSide,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const SizedBox(
-                width: 200,
-                height: 120,
-                child: Icon(Icons.broken_image_outlined),
+              errorBuilder: (_, __, ___) => SizedBox(
+                width: previewSide,
+                height: previewSide * 0.6,
+                child: const Icon(Icons.broken_image_outlined),
               ),
             ),
             if (!p.failed)
@@ -2831,13 +2851,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
                   return Container(
-                    width: 200,
-                    height: 200,
+                    width: previewSide,
+                    height: previewSide,
                     color: Colors.black.withValues(alpha: 0.35),
                     child: Center(
                       child: SizedBox(
-                        width: 36,
-                        height: 36,
+                        width: 40,
+                        height: 40,
                         child: CircularProgressIndicator(
                           value: progress > 0 ? progress : null,
                           strokeWidth: 3,
@@ -4990,8 +5010,12 @@ class _MessageBody extends StatelessWidget {
               },
       ));
     }
-    final maxW = MediaQuery.sizeOf(context).width * 0.72;
-    return ChurchChatAlbumGrid(items: cells, maxWidth: maxW);
+    final maxW = MediaQuery.sizeOf(context).width * 0.78;
+    return ChurchChatAlbumGrid(
+      items: cells,
+      maxWidth: maxW.clamp(260.0, 360.0),
+      maxVisible: 6,
+    );
   }
 
   @override
@@ -5048,9 +5072,9 @@ class _MessageBody extends StatelessWidget {
               data: data,
               tenantId: tenantId,
               messageId: messageId,
-              height: 168,
+              height: 220,
               fit: BoxFit.contain,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
         ],
@@ -5110,15 +5134,15 @@ class _MessageBody extends StatelessWidget {
           ..._quotePrefix(context),
           LayoutBuilder(
             builder: (context, c) {
-              final maxW = c.maxWidth.isFinite ? c.maxWidth : 280.0;
-              final w = maxW.clamp(140.0, 280.0);
+              final maxW = c.maxWidth.isFinite ? c.maxWidth : 320.0;
+              final w = maxW.clamp(180.0, 320.0);
               final dpr = MediaQuery.devicePixelRatioOf(context);
               return Align(
                 alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                 child: SizedBox(
                   width: w,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(16),
                     child: Stack(
                       alignment: Alignment.bottomCenter,
                       children: [
@@ -5130,10 +5154,10 @@ class _MessageBody extends StatelessWidget {
                             messageId: messageId,
                             width: w,
                             fit: BoxFit.cover,
-                            memCacheWidth: (dpr * w).round().clamp(96, 320),
+                            memCacheWidth: (dpr * w).round().clamp(160, 720),
                             memCacheHeight:
-                                (dpr * w * 0.75).round().clamp(72, 240),
-                            borderRadius: BorderRadius.circular(14),
+                                (dpr * w * 0.75).round().clamp(120, 540),
+                            borderRadius: BorderRadius.circular(16),
                             onTap: () async {
                               final sp =
                                   ChurchChatMessageFields.storagePath(data);

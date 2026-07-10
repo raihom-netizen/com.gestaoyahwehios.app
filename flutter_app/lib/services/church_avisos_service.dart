@@ -123,6 +123,7 @@ abstract final class ChurchAvisosService {
     required bool publicSite,
     DateTime? calendarDate,
     bool syncCalendar = true,
+    void Function(double progress)? onUploadProgress,
   }) async {
     Object? last;
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -145,6 +146,7 @@ abstract final class ChurchAvisosService {
           publicSite: publicSite,
           calendarDate: calendarDate,
           syncCalendar: syncCalendar,
+          onUploadProgress: onUploadProgress,
         ).timeout(
           kPublishTimeout,
           onTimeout: () => throw TimeoutException(
@@ -228,6 +230,7 @@ abstract final class ChurchAvisosService {
     required List<Uint8List> photoBytes,
     String role = '',
     List<String>? permissions,
+    void Function(double progress)? onUploadProgress,
   }) async {
     if (!canManage(role, permissions: permissions)) {
       throw StateError('Sem permissão para publicar avisos.');
@@ -305,6 +308,7 @@ abstract final class ChurchAvisosService {
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
+        onUploadProgress: onUploadProgress,
       );
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -316,6 +320,7 @@ abstract final class ChurchAvisosService {
       rethrow;
     }
 
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
     return postId;
   }
 
@@ -331,6 +336,7 @@ abstract final class ChurchAvisosService {
     List<Uint8List> newPhotoBytes = const [],
     String role = '',
     List<String>? permissions,
+    void Function(double progress)? onUploadProgress,
   }) async {
     if (!canManage(role, permissions: permissions)) {
       throw StateError('Sem permissão para editar avisos.');
@@ -416,6 +422,7 @@ abstract final class ChurchAvisosService {
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
+        onUploadProgress: onUploadProgress,
       );
     } catch (e, st) {
       logFirebasePublishPhase(

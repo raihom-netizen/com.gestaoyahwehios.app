@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -299,10 +300,16 @@ abstract final class ChurchFeedLinearPublishService {
     ]);
 
     if (hasNewPhotos && uploadedPaths.isNotEmpty) {
-      await ChurchStorageMetadataVerify.assertAllExist(
-        uploadedPaths,
-        timeout: ChurchStorageMetadataVerify.kDefaultTimeout,
-        maxAttempts: ChurchStorageMetadataVerify.kMaxAttempts,
+      // Happy path CT: putData já confirmou o objeto — NÃO bloquear em getMetadata
+      // (era o travão ~74–88% «A gravar evento…» na Web).
+      unawaited(
+        ChurchStorageMetadataVerify.assertAllExist(
+          uploadedPaths,
+          timeout: const Duration(seconds: 8),
+          maxAttempts: 2,
+        ).catchError((Object e) {
+          debugPrint('feed metadata verify (background): $e');
+        }),
       );
     }
 
@@ -369,28 +376,37 @@ abstract final class ChurchFeedLinearPublishService {
       onProgress: onUploadProgress,
     );
     if (isEvento) {
-      await _mirrorEventoToLegacyEventsCollection(
-        churchId: churchId,
-        docId: docId,
-        payload: payload,
+      // Mirror legado em background — não segurar o progresso em ~78–88%.
+      unawaited(
+        _mirrorEventoToLegacyEventsCollection(
+          churchId: churchId,
+          docId: docId,
+          payload: payload,
+        ),
       );
     }
 
-    await _verifyFeedDocPublished(
-      docRef: docRef,
-      isEvento: isEvento,
+    // Verify em background — não segurar a UI em 78–88%.
+    unawaited(
+      _verifyFeedDocPublished(
+        docRef: docRef,
+        isEvento: isEvento,
+      ).catchError((Object e) {
+        debugPrint('feed doc verify (background): $e');
+      }),
     );
     logFirebasePublishPhase(
-      'linear_firestore_verified',
+      'linear_firestore_saved',
       '$postType path=${docRef.path} tenant=$churchId',
     );
     _report(onUploadProgress, 0.88);
 
+    // Agenda/calendário em background — não segurar UI em ~88% (Web).
     if (isEvento && syncAgenda) {
       final start = eventStartAt ?? _startAtFromPayload(payload);
       if (start != null) {
-        try {
-          await ChurchFeedAgendaSyncService.upsertForEvento(
+        unawaited(
+          ChurchFeedAgendaSyncService.upsertForEvento(
             tenantId: churchId,
             eventoId: docId,
             title: (payload['title'] ?? '').toString(),
@@ -399,22 +415,30 @@ abstract final class ChurchFeedLinearPublishService {
             location: location,
             category: agendaCategory ?? 'evento_social',
             colorHex: agendaColorHex ?? '#E11D48',
-          ).timeout(
-            kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 30),
-          );
-        } catch (e) {
-          debugPrint('EVENTOS agenda sync (não bloqueia publish): $e');
-        }
+          )
+              .timeout(
+                kIsWeb
+                    ? const Duration(seconds: 12)
+                    : const Duration(seconds: 30),
+              )
+              .catchError((Object e) {
+            debugPrint('EVENTOS agenda sync (background): $e');
+          }),
+        );
       }
     } else if (!isEvento && syncCalendar) {
       final refDate = calendarDate ?? _validUntilFromPayload(payload);
       if (refDate != null) {
-        await ChurchFeedAgendaSyncService.upsertForAviso(
-          tenantId: churchId,
-          avisoId: docId,
-          title: (payload['title'] ?? '').toString(),
-          description: (payload['text'] ?? '').toString(),
-          referenceDate: refDate,
+        unawaited(
+          ChurchFeedAgendaSyncService.upsertForAviso(
+            tenantId: churchId,
+            avisoId: docId,
+            title: (payload['title'] ?? '').toString(),
+            description: (payload['text'] ?? '').toString(),
+            referenceDate: refDate,
+          ).catchError((Object e) {
+            debugPrint('AVISOS calendar sync (background): $e');
+          }),
         );
       }
     }

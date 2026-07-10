@@ -242,6 +242,21 @@ abstract final class ChurchAvisosLoadService {
     _ram[key] = (items: List.from(items), at: DateTime.now());
   }
 
+  /// Cache RAM imediato (UI sem esperar rede) — padrão Membros/Eventos.
+  static List<ChurchAvisoItem>? peekRam(String churchIdHint, {int? limit}) {
+    final churchId = _churchId(churchIdHint);
+    if (churchId.isEmpty) return null;
+    final lim = limit ?? kModuleListLimit;
+    final hit = _ram[cacheKey(churchId, lim)];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ramTtl) return null;
+    final items = hit.items;
+    if (limit != null && items.length > limit) {
+      return items.sublist(0, limit);
+    }
+    return List.from(items);
+  }
+
   static Future<void> _refreshInBackground({
     required String churchId,
     required int limit,

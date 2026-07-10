@@ -443,22 +443,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 FirebasePaths.storageMarketingCapa(tenantRaw);
                             final oldPath =
                                 (ref?['fotoPath'] ?? '').toString().trim();
-                            if (oldPath.isNotEmpty && oldPath != photoPath) {
-                              try {
-                                await firebaseDefaultStorage
-                                    .ref(oldPath)
-                                    .delete();
-                              } catch (_) {}
-                              if (oldPath.endsWith('/capa.jpg')) {
-                                final parent = oldPath.substring(
-                                    0, oldPath.length - '/capa.jpg'.length);
-                                try {
-                                  await firebaseDefaultStorage
-                                      .ref('$parent/thumb_capa.jpg')
-                                      .delete();
-                                } catch (_) {}
-                              }
-                            }
+                            // CT: Storage primeiro; apagar capa antiga só depois do novo OK.
                             final uploaded =
                                 await ChurchCanonicalMediaPublish
                                     .compressAndUploadImage(
@@ -485,6 +470,77 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 imageUrl: prevUrl,
                               );
                             }
+                            // Apagar só path antigo diferente do overwrite canónico.
+                            if (oldPath.isNotEmpty && oldPath != photoPath) {
+                              try {
+                                await firebaseDefaultStorage
+                                    .ref(oldPath)
+                                    .delete();
+                              } catch (_) {}
+                              if (oldPath.endsWith('/capa.jpg')) {
+                                final parent = oldPath.substring(
+                                    0, oldPath.length - '/capa.jpg'.length);
+                                try {
+                                  await firebaseDefaultStorage
+                                      .ref('$parent/thumb_capa.jpg')
+                                      .delete();
+                                } catch (_) {}
+                              }
+                            }
+
+                            final ordem =
+                                int.tryParse(ordemCtrl.text.trim()) ?? 0;
+                            final next = Map<String, dynamic>.from(ref ?? {});
+                            next.addAll({
+                              'id': entryId,
+                              'nomeIgreja': nome,
+                              'igrejaTenantId': tenantRaw,
+                              'pastor': pastorCtrl.text.trim(),
+                              'gestor': gestorCtrl.text.trim(),
+                              'whatsapp': whatsCtrl.text.trim(),
+                              'sitePublico': siteCtrl.text.trim(),
+                              'localizacao': locCtrl.text.trim(),
+                              'corpo': corpoCtrl.text.trim(),
+                              'ordem': ordem,
+                              'ativo': ativo,
+                              ...ChurchCanonicalMediaPublish
+                                  .marketingClienteCapaFields(
+                                downloadUrl: pendingFotoUrl!,
+                                storagePath: pendingFotoPath!,
+                                cacheRevision: uploaded.cacheRevision,
+                              ),
+                            });
+
+                            final list = _cloneItems(
+                              (await _marketingClientesDocRef.get()).data(),
+                            );
+                            if (ref != null) {
+                              final oldId = (ref['id'] ?? '').toString();
+                              final idx = list.indexWhere(
+                                (e) => (e['id'] ?? '').toString() == oldId,
+                              );
+                              if (idx >= 0) {
+                                list[idx] = next;
+                              } else {
+                                list.add(next);
+                              }
+                            } else {
+                              list.add(next);
+                            }
+                            list.sort(
+                              (a, b) => _parseOrdem(a['ordem'])
+                                  .compareTo(_parseOrdem(b['ordem'])),
+                            );
+
+                            await _marketingClientesDocRef.set(
+                              {
+                                'items': list,
+                                'updatedAt': FieldValue.serverTimestamp(),
+                              },
+                              SetOptions(merge: true),
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx, true);
+                            return;
                           }
 
                           final ordem = int.tryParse(ordemCtrl.text.trim()) ?? 0;
@@ -812,7 +868,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                           children: [
                             MarketingClienteCapaThumb(
                               key: ValueKey<String>(
-                                'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['igrejaTenantId']}',
+                                'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['fotoUrlCacheRevision']}_${it['igrejaTenantId']}',
                               ),
                               item: Map<String, dynamic>.from(it),
                               width: 72,

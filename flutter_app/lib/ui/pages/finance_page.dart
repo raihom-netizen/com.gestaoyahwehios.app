@@ -29,7 +29,6 @@ import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -8949,6 +8948,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           previousStoragePath:
               (data?['comprovanteStoragePath'] ?? '').toString(),
           previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
+          alreadyCompressed: pendingComp.alreadyOptimized,
         );
       }
       if (context.mounted) {
@@ -8981,6 +8981,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           fileName: pendingAdd.fileName,
           referenceDate:
               FinanceComprovantePublishService.referenceDateFromMap(result),
+          alreadyCompressed: pendingAdd.alreadyOptimized,
         );
       }
       if (context.mounted) {
@@ -9114,6 +9115,7 @@ Future<void> uploadFinanceComprovanteForLancamento(
         previousDownloadUrl:
             (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
         onProgress: onProgress,
+        alreadyCompressed: picked.alreadyOptimized,
       ),
     );
 

@@ -116,10 +116,11 @@ class MediaHandlerService {
         context: context,
       );
 
-  /// Múltiplas imagens da galeria (ex.: eventos), processadas para Full HD.
+  /// Múltiplas imagens da galeria (ex.: chat/eventos), processadas para Full HD.
   Future<List<XFile>> pickAndProcessMultipleImages({
     YahwehMediaModule? module,
     BuildContext? context,
+    int maxCount = kChatMaxImagesPerPick,
   }) async {
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: context,
@@ -131,6 +132,7 @@ class MediaHandlerService {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
     final list = await _picker.pickMultiImage(
+      limit: maxCount,
       imageQuality: kIsWeb ? quality : 100,
       maxWidth: kIsWeb ? maxWidth.toDouble() : null,
       maxHeight: kIsWeb ? maxHeight.toDouble() : null,
@@ -138,8 +140,9 @@ class MediaHandlerService {
     if (list.isEmpty) return [];
     const batch = 4;
     final out = <XFile>[];
-    for (var start = 0; start < list.length; start += batch) {
-      final chunk = list.skip(start).take(batch).toList();
+    final capped = list.take(maxCount).toList();
+    for (var start = 0; start < capped.length; start += batch) {
+      final chunk = capped.skip(start).take(batch).toList();
       final processed = await Future.wait(
         chunk.map(
           (x) => impl.processPickedImage(

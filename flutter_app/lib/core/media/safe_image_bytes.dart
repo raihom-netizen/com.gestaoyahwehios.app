@@ -96,7 +96,17 @@ abstract final class SafeImageBytes {
         'Imagem demasiado grande (${raw.length ~/ (1024 * 1024)} MB).',
       );
     }
+    // MediaHandler já comprimiu (JPEG leve) — 1 compressão só no domínio (padrão CT).
+    if (_looksLikeJpeg(raw) &&
+        raw.length <= ImageHelper.kPatrimonioMaxUploadBytes) {
+      return raw;
+    }
     return ImageHelper.compressPatrimonioPhotoForUpload(raw);
+  }
+
+  static bool _looksLikeJpeg(Uint8List bytes) {
+    if (bytes.length < 3) return false;
+    return bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
   }
 
   /// Foto de perfil (membros / chat) — compressão no disco, sem OOM.

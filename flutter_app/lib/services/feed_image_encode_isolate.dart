@@ -2,10 +2,10 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
-/// Lado maior máximo (px) — alinhado ao teto efectivo do feed (~1024).
-const int kFeedEncodeFallbackMaxEdgePx = 1024;
+/// Lado maior máximo (px) — alinhado ao teto do feed (1920).
+const int kFeedEncodeFallbackMaxEdgePx = 1920;
 
-const int kFeedEncodeFallbackJpegQuality = 78;
+const int kFeedEncodeFallbackJpegQuality = 85;
 
 /// Top-level para [compute] — decode/resize/encode JPEG sem plugins nativos.
 Uint8List encodeFeedImageForUploadIsolate(Uint8List raw) {

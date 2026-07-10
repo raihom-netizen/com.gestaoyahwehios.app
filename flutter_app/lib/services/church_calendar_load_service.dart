@@ -123,89 +123,53 @@ abstract final class ChurchCalendarLoadService {
       }
     }
 
-    // Web: 2 queries por vez — menos INTERNAL ASSERTION / timeout falso.
-    if (kIsWeb) {
-      muralEventos = await guard(
+    // Web + mobile: paralelo (2 lotes) — evita ~80s sequenciais na Web.
+    final batch1 = await Future.wait<dynamic>([
+      guard(
         ChurchTenantResilientReads.muralEventosByStartAtRange(
           churchId,
           start: start,
           end: end,
         ),
         (e) => softError ??= _humanize(e),
-      );
-      eventosByData = await guard(
+      ),
+      guard(
         ChurchTenantResilientReads.eventosByDataEventoRange(
           churchId,
           start: start,
           end: end,
         ),
         (e) => softError ??= _humanize(e),
-      );
-      cultosSnap = await guard(
+      ),
+      guard(
         ChurchTenantResilientReads.cultosByDateRange(
           churchId,
           start: start,
           end: end,
         ),
         (e) => softError ??= _humanize(e),
-      );
-      escalasSnap = await guard(
+      ),
+    ]);
+    muralEventos = batch1[0] as QuerySnapshot<Map<String, dynamic>>?;
+    eventosByData = batch1[1] as QuerySnapshot<Map<String, dynamic>>;
+    cultosSnap = batch1[2] as QuerySnapshot<Map<String, dynamic>>;
+
+    final batch2 = await Future.wait<dynamic>([
+      guard(
         ChurchTenantResilientReads.escalasByDateRange(
           churchId,
           start: start,
           end: end,
         ),
         (e) {},
-      );
-      templatesSnap = await guard(
+      ),
+      guard(
         ChurchTenantResilientReads.eventTemplates(churchId),
         (e) {},
-      ).timeout(const Duration(seconds: 8));
-    } else {
-      final parallel = await Future.wait<dynamic>([
-        guard(
-          ChurchTenantResilientReads.muralEventosByStartAtRange(
-            churchId,
-            start: start,
-            end: end,
-          ),
-          (e) => softError ??= _humanize(e),
-        ),
-        guard(
-          ChurchTenantResilientReads.eventosByDataEventoRange(
-            churchId,
-            start: start,
-            end: end,
-          ),
-          (e) => softError ??= _humanize(e),
-        ),
-        guard(
-          ChurchTenantResilientReads.cultosByDateRange(
-            churchId,
-            start: start,
-            end: end,
-          ),
-          (e) => softError ??= _humanize(e),
-        ),
-        guard(
-          ChurchTenantResilientReads.escalasByDateRange(
-            churchId,
-            start: start,
-            end: end,
-          ),
-          (e) {},
-        ),
-        guard(
-          ChurchTenantResilientReads.eventTemplates(churchId),
-          (e) {},
-        ).timeout(const Duration(seconds: 8)),
-      ]);
-      muralEventos = parallel[0] as QuerySnapshot<Map<String, dynamic>>?;
-      eventosByData = parallel[1] as QuerySnapshot<Map<String, dynamic>>;
-      cultosSnap = parallel[2] as QuerySnapshot<Map<String, dynamic>>;
-      escalasSnap = parallel[3] as QuerySnapshot<Map<String, dynamic>>?;
-      templatesSnap = parallel[4] as QuerySnapshot<Map<String, dynamic>>;
-    }
+      ).timeout(const Duration(seconds: 8)),
+    ]);
+    escalasSnap = batch2[0] as QuerySnapshot<Map<String, dynamic>>?;
+    templatesSnap = batch2[1] as QuerySnapshot<Map<String, dynamic>>;
 
     final eventosCount = eventosByData.docs.length +
         (muralEventos?.docs.length ?? 0);

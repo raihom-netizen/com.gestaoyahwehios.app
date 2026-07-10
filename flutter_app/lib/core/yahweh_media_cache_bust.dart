@@ -30,7 +30,12 @@ abstract final class YahwehMediaCacheBust {
   }
 
   static int? _revisionFromData(Map<String, dynamic> data) {
-    for (final k in ['fotoUrlCacheRevision', 'logoCacheRevision']) {
+    for (final k in [
+      'fotoUrlCacheRevision',
+      'logoCacheRevision',
+      'comprovanteCacheRevision',
+      'fotosCacheRevision',
+    ]) {
       final r = data[k];
       if (r is int) return r;
       if (r is num) return r.toInt();

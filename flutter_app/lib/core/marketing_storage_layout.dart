@@ -84,10 +84,6 @@ abstract final class MarketingStorageLayout {
   /// Config global de links de download (Play Store / iOS).
   static const String appDownloadsConfigPath = 'config/appDownloads';
 
-  /// Thumb legada de capa de cliente em destaque.
-  static String clienteShowcaseThumbPath(String parentFolder) =>
-      '$parentFolder/thumb_capa.jpg';
-
   /// Mesmo formato em lista, grelha e Firestore (evita exclusão que não encontra o item).
   static String normalizeObjectPath(String p) {
     var s = p.replaceAll('\\', '/').trim();

@@ -46,6 +46,7 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -827,22 +828,32 @@ Future<void> showFornecedorCompromissoEditor(
     }
     final pendingComp = comprovanteSnap.pending;
     if (pendingComp != null) {
-      await FinanceComprovanteUpdateService.publishFornecedorCompromissoStrict(
-        churchIdHint: churchId,
-        docRef: docRef,
-        fornecedorId: fornecedorId,
-        compromissoId: docRef.id,
-        bytes: pendingComp.bytes,
-        mimeType: pendingComp.mimeType,
-        fileName: pendingComp.fileName,
+      if (!context.mounted) return;
+      await FinanceComprovanteUi.runWithProgress(
+        context,
+        label: 'A enviar comprovante…',
+        successMessage: 'Comprovante anexado.',
+        action: (onProgress) =>
+            FinanceComprovanteUpdateService.publishFornecedorCompromissoStrict(
+          churchIdHint: churchId,
+          docRef: docRef,
+          fornecedorId: fornecedorId,
+          compromissoId: docRef.id,
+          bytes: pendingComp.bytes,
+          mimeType: pendingComp.mimeType,
+          fileName: pendingComp.fileName,
+          onProgress: onProgress,
+          alreadyCompressed: pendingComp.alreadyOptimized,
+        ),
       );
     }
 
     if (context.mounted) {
+      // Progress UI já confirma o comprovante; aqui só o compromisso.
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          pendingComp != null || comprovanteSnap.removeExisting
-              ? 'Compromisso e comprovante gravados.'
+          comprovanteSnap.removeExisting && pendingComp == null
+              ? 'Compromisso actualizado (comprovante removido).'
               : 'Compromisso salvo.',
         ),
       );

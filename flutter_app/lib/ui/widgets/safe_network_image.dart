@@ -551,7 +551,7 @@ List<String> dedupeImageRefsByStorageIdentity(Iterable<String> refs) {
 
 /// URLs em mapas `photoVariants` / `imageVariants` / `logoVariants`.
 /// Prefere **full / original** antes de card/thumb (extensão Firebase Resize, uploads antigos com
-/// [MediaUploadService.uploadImageVariants] ou paths `*_full` / `thumbs/`).
+/// Prefere path canónico único (sem variantes `_thumb` / `_card` / `_full`).
 /// Alinhado a [FirebaseStorageCleanupService.urlsFromVariantMap], com [sanitizeImageUrl].
 List<String> imageUrlsFromVariantMap(dynamic v) {
   if (v is! Map) return [];

@@ -82,7 +82,9 @@ class ChurchChatService {
   ChurchChatService._();
 
   static const Duration textRetention = Duration(days: 30);
-  static const Duration mediaRetention = Duration(days: 3);
+  /// Alinhado a [ChurchChatStorageRetentionService] e CF `pruneExpiredChurchChatMessages`.
+  /// 3 dias apagava áudio/foto/PDF quase de imediato (sintoma «enviou e sumiu»).
+  static const Duration mediaRetention = Duration(days: 90);
 
   /// Estados de entrega (estilo WhatsApp).
   static const String deliveryLocal = 'local';
@@ -2396,22 +2398,25 @@ class ChurchChatService {
     bool skipStorageVerify = false,
   }) async {
     ChurchPublishFlowLog.chatStart();
-    await ensureFirebaseReadyForChatSend();
+    // Gate/Storage já feitos no MediaSend — não repetir ensure no hot path.
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
     }
     final resolvedTenant =
         ChurchPublishContext.churchIdForPublish(tenantId.trim());
-    if (!await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: resolvedTenant,
-      threadId: threadId,
-    )) {
-      return (messageId: '', allowed: false);
+    // Grupos (ex.: Diáconos) não passam por canSend DM — evita get+retries na Web.
+    if (threadId.trim().startsWith('dm_')) {
+      if (!await ChurchChatMemberPrefs.canSendToDmThread(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+      )) {
+        return (messageId: '', allowed: false);
+      }
+      await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+      );
     }
-    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: resolvedTenant,
-      threadId: threadId,
-    );
     if (!skipStorageVerify) {
       await assertChatMediaUploaded(
         storagePath,
@@ -2476,12 +2481,13 @@ class ChurchChatService {
     };
     await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
     Object? last;
-    for (var attempt = 1; attempt <= 5; attempt++) {
+    // Happy path: 2 tentativas (não 5) — falha visível com «Tentar de novo».
+    for (var attempt = 1; attempt <= 2; attempt++) {
       try {
         if (attempt > 1) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           await ensureFirebaseReadyForChatSend();
-          await Future<void>.delayed(Duration(milliseconds: 240 * attempt));
+          await Future<void>.delayed(const Duration(milliseconds: 320));
         }
         if (kIsWeb) {
           await FirestoreWebGuard.runChatWriteWithRecovery(
@@ -2512,7 +2518,7 @@ class ChurchChatService {
         return (messageId: msgRef.id, allowed: true);
       } catch (e) {
         last = e;
-        if (attempt >= 5) break;
+        if (attempt >= 2) break;
       }
     }
     throw last ?? StateError('Não foi possível gravar a mensagem no servidor.');

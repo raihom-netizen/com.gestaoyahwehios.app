@@ -23,12 +23,14 @@ abstract final class PatrimonioPhotoFields {
   static void applyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
-    List<String> slotPaths,
-  ) =>
+    List<String> slotPaths, {
+    int? cacheRevision,
+  }) =>
       ChurchCanonicalMediaContract.patrimonioApplyIndexedSlots(
         payload,
         slotUrls,
         slotPaths,
+        cacheRevision: cacheRevision,
       );
 
   /// Grava listas ordenadas (foto01 = urls[0]) — slots canónicos apenas.

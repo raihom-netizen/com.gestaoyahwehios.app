@@ -21,8 +21,8 @@ abstract final class ChurchChatStorageRetentionService {
   static const _mediaTypes = <String>['image', 'video', 'audio', 'file'];
 
   /// Executa no máximo uma vez por ~20h por tenant (arranque/resume).
+  /// Web incluída — limpa Storage órfão / mídia >90d (antes só mobile).
   static Future<void> maybeRunForTenant(String tenantId) async {
-    if (kIsWeb) return;
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
@@ -34,8 +34,8 @@ abstract final class ChurchChatStorageRetentionService {
     try {
       final purged = await purgeExpiredMedia(
         tid,
-        maxMessagesPerRun: 48,
-        maxThreadsPerRun: 24,
+        maxMessagesPerRun: kIsWeb ? 24 : 48,
+        maxThreadsPerRun: kIsWeb ? 12 : 24,
       );
       if (purged > 0 && kDebugMode) {
         debugPrint('ChurchChatStorageRetention: $purged mídias antigas ($tid)');

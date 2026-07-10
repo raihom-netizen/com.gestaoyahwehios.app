@@ -55,6 +55,7 @@ abstract final class FinanceComprovanteUpdateService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) {
     return FinanceComprovantePublishService.uploadComprovanteNow(
       tenantId: resolveChurchId(churchIdHint),
@@ -66,6 +67,7 @@ abstract final class FinanceComprovanteUpdateService {
       previousStoragePath: previousStoragePath,
       previousDownloadUrl: previousDownloadUrl,
       onProgress: onProgress,
+      alreadyCompressed: alreadyCompressed,
     );
   }
 
@@ -88,6 +90,8 @@ abstract final class FinanceComprovanteUpdateService {
     required Uint8List bytes,
     required String mimeType,
     required String fileName,
+    void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) =>
       FornecedorCompromissoPublishService.attachComprovante(
         docRef: docRef,
@@ -97,6 +101,8 @@ abstract final class FinanceComprovanteUpdateService {
         bytes: bytes,
         mimeType: mimeType,
         fileName: fileName,
+        onProgress: onProgress,
+        alreadyCompressed: alreadyCompressed,
       );
 
   static Future<void> removeFornecedorCompromissoStrict({

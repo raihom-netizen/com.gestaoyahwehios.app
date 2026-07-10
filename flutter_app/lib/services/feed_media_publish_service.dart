@@ -3,10 +3,10 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/services/feed_media_publish_fast.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
@@ -14,11 +14,10 @@ import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-/// Fachada legada — **toda** publicação mural/feed delega a [PublicationEngine].
+/// Fachada fina — **toda** publicação mural/feed delega a [PublicationEngine].
 ///
-/// Aviso, evento, notícia, mural e feed público: um único fluxo
-/// (Firestore → distribuição em background).
-@Deprecated('Preferir PublicationEngine diretamente')
+/// Preferir [PublicationEngine] / Strict / Linear nos callers novos.
+/// Mantido só para rascunhos, constantes e resume de pending queue.
 abstract final class FeedMediaPublishService {
   FeedMediaPublishService._();
 
@@ -36,40 +35,13 @@ abstract final class FeedMediaPublishService {
     required String postType,
     String? postId,
   }) async {
-    final db = await FirebaseService.firestore(requireAuth: true);
+    await FirebaseService.firestore(requireAuth: true);
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.eventos;
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final ref =         ChurchOperationalPaths.churchDoc(op)
-        .collection(col);
+    final ref = ChurchOperationalPaths.churchDoc(op).collection(col);
     return postId == null ? ref.doc() : ref.doc(postId);
-  }
-
-  @Deprecated('Use PublicationEngine.publishNow')
-  static Future<String> createPost({
-    required DocumentReference<Map<String, dynamic>> docRef,
-    required Map<String, dynamic> payload,
-    required bool isNewDoc,
-    int pendingPhotoCount = 0,
-  }) async {
-    await ensureFirebaseReadyForPublishUpload();
-    final patch = FirestoreWriteGuard.stripHeavyFields(
-      Map<String, dynamic>.from(payload),
-    );
-    patch['publishState'] = statusProcessing;
-    FirestoreWriteGuard.applyMuralPublishMetaPatch(
-      patch,
-      isNewDoc: isNewDoc,
-      pendingPhotoCount: pendingPhotoCount > 0 ? pendingPhotoCount : null,
-      clearPublishError: true,
-    );
-    if (isNewDoc) {
-      await docRef.set(patch);
-    } else {
-      await docRef.set(patch, SetOptions(merge: true));
-    }
-    return docRef.id;
   }
 
   static Future<String> publishNow({
@@ -138,6 +110,7 @@ abstract final class FeedMediaPublishService {
     return docRef.id;
   }
 
+  /// Publicação com fotos — sempre via [PublicationEngine] (nunca Fast paralelo).
   static Future<String> publish({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -152,7 +125,7 @@ abstract final class FeedMediaPublishService {
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
     bool publicSite = true,
-  }) {
+  }) async {
     if (postType == 'aviso' || postType == 'evento') {
       throw StateError(
         'Publicação legada desativada para $postType. '
@@ -161,21 +134,26 @@ abstract final class FeedMediaPublishService {
     }
     final pending =
         (newImagesBytes?.length ?? newImagePaths?.length ?? 0).clamp(0, 99);
-    return FeedMediaPublishFast.publishWithPhotosInBackground(
+    final id = await PublicationEngine.publishWithPhotosInBackground(
       docRef: docRef,
       tenantId: tenantId,
-      postType: postType,
+      kind: PublicationEngine.kindFromPostType(postType),
       corePayload: corePayload,
       isNewDoc: isNewDoc,
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
       pendingPhotoCount: pending,
+      publicSite: publicSite,
       newImagesBytes: newImagesBytes,
       newImagePaths: newImagePaths,
-      onPublished: onPublished,
-      publicSite: publicSite,
     );
+    if (onPublished != null) {
+      try {
+        await onPublished();
+      } catch (_) {}
+    }
+    return id;
   }
 
   static Future<void> markPublishFailed({
@@ -203,47 +181,6 @@ abstract final class FeedMediaPublishService {
   static Future<void> resumePendingUploadsForTenant(String tenantId) async {
     if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     await PendingUploadsFirestoreService.resumeAllForTenant(tenantId);
-  }
-
-  static Future<String> saveStubAndSchedulePhotos({
-    required DocumentReference<Map<String, dynamic>> docRef,
-    required String tenantId,
-    required String postType,
-    required Map<String, dynamic> stubPayload,
-    required bool isNewDoc,
-    required int pendingPhotoCount,
-    required List<String> existingUrls,
-    required int startSlotIndex,
-    required bool hasVideo,
-    List<Uint8List>? newImagesBytes,
-    List<String>? newImagePaths,
-    Future<void> Function()? onPublished,
-    bool publicSite = true,
-  }) async {
-    if (pendingPhotoCount <= 0) {
-      return publishNow(
-        docRef: docRef,
-        payload: stubPayload,
-        isNewDoc: isNewDoc,
-        postType: postType,
-        publicSite: publicSite,
-      );
-    }
-    return FeedMediaPublishFast.publishWithPhotosInBackground(
-      docRef: docRef,
-      tenantId: tenantId,
-      postType: postType,
-      corePayload: stubPayload,
-      isNewDoc: isNewDoc,
-      existingUrls: existingUrls,
-      startSlotIndex: startSlotIndex,
-      hasVideo: hasVideo,
-      pendingPhotoCount: pendingPhotoCount,
-      newImagesBytes: newImagesBytes,
-      newImagePaths: newImagePaths,
-      onPublished: onPublished,
-      publicSite: publicSite,
-    );
   }
 
   static String _tenantFromRef(DocumentReference<Map<String, dynamic>> ref) {

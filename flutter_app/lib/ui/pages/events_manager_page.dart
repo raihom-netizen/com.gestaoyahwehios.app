@@ -45,6 +45,7 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
@@ -616,9 +617,25 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final published = result == true ||
         (result is Map && (result['ok'] == true || result['ok'] == 'true'));
     if (published && mounted) {
-      _feedTabKey.currentState?._refresh();
-      setState(() {});
-      _feedTabKey.currentState?._refresh();
+      void refreshFeed() {
+        if (!mounted) return;
+        _feedTabKey.currentState?._refresh();
+        setState(() {});
+      }
+
+      // Editor fecha cedo (barra global) — NÃO refrescar o feed enquanto o
+      // upload/gravação ainda corre (causava timeout «Demorou demais» na Web).
+      if (GlobalUploadProgress.instance.state.value != null) {
+        late final VoidCallback listener;
+        listener = () {
+          if (GlobalUploadProgress.instance.state.value != null) return;
+          GlobalUploadProgress.instance.state.removeListener(listener);
+          refreshFeed();
+        };
+        GlobalUploadProgress.instance.state.addListener(listener);
+      } else {
+        refreshFeed();
+      }
     }
   }
 
@@ -990,8 +1007,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                             ? await SafeImageBytes
                                                                 .fromPath(
                                                                 file.path,
-                                                                maxEdge: 1080,
-                                                                quality: 70,
+                                                                maxEdge: 1920,
+                                                                quality: 85,
                                                               )
                                                             : await ImageHelper
                                                                 .compressImage(
@@ -999,7 +1016,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                                     .readAsBytes(),
                                                                 minWidth: 800,
                                                                 minHeight: 600,
-                                                                quality: 70,
+                                                                quality: 85,
                                                               );
                                                     final templateStorageId =
                                                         stableTemplateId;
@@ -1076,14 +1093,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                               final compressed = file.path.trim().isNotEmpty
                                   ? await SafeImageBytes.fromPath(
                                       file.path,
-                                      maxEdge: 1080,
-                                      quality: 70,
+                                                                maxEdge: 1920,
+                                                                quality: 85,
                                     )
                                   : await ImageHelper.compressImage(
                                       await file.readAsBytes(),
                                       minWidth: 800,
                                       minHeight: 600,
-                                      quality: 70,
+                                      quality: 85,
                                     );
                               final templateStorageId = stableTemplateId;
                               final storagePath =
@@ -6968,8 +6985,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   double? _locationLat;
   double? _locationLng;
   static int get _maxVideoSeconds => kMediaEventVideoMaxSeconds;
-  static const int _maxVideosPerEvent = FeedMediaPublishService.kMaxVideosPerPost;
-  static const int _maxPhotosPerEvent = FeedMediaPublishService.kMaxPhotosPerEvento;
+  static const int _maxVideosPerEvent = PublicationEngine.kMaxVideosPerPost;
+  static const int _maxPhotosPerEvent = PublicationEngine.kMaxPhotosPerEvento;
 
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
     final endereco = (data['endereco'] ?? '').toString().trim();
@@ -7978,7 +7995,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + JPEG (1080 px · 75%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
+                    'Fotos: recorte + JPEG (1920 px · 85%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -9012,8 +9029,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 6),
                   Text(
                     kIsWeb
-                        ? 'Fotos comprimidas no dispositivo (1080 px). Vídeos até $_maxVideoSeconds s.'
-                        : 'Fotos leves no celular (1080 px · 75%). Vídeos até $_maxVideoSeconds s e máx. 15 MB — acima disso o app bloqueia para não travar.',
+                        ? 'Fotos comprimidas no dispositivo (1920 px · 85%). Vídeos até $_maxVideoSeconds s.'
+                        : 'Fotos nítidas no celular (1920 px · 85%). Vídeos até $_maxVideoSeconds s e máx. 15 MB — acima disso o app bloqueia para não travar.',
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,

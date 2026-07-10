@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
@@ -80,13 +81,19 @@ abstract final class FinanceComprovantePublishService {
   }
 
   /// Compressão em isolate antes do Storage (imagens apenas).
+  /// Com [alreadyCompressed] (JPEG do picker) — NÃO recomprimir (padrão CT).
   static Future<({Uint8List bytes, String mimeType})> _optimizedForUpload({
     required Uint8List rawBytes,
     required String mimeType,
+    bool alreadyCompressed = false,
   }) async {
     final mime = mimeType.toLowerCase();
     if (mime.contains('pdf')) {
       return (bytes: rawBytes, mimeType: mimeType);
+    }
+    if (alreadyCompressed &&
+        (mime.contains('jpeg') || mime.contains('jpg'))) {
+      return (bytes: rawBytes, mimeType: 'image/jpeg');
     }
     final optimized = await MediaOptimizationService.optimizeForReceipt(rawBytes);
     return (bytes: optimized, mimeType: 'image/jpeg');
@@ -258,15 +265,19 @@ abstract final class FinanceComprovantePublishService {
   }
 
   static Future<String> resolveComprovanteUrl(Map<String, dynamic> data) async {
-    final cached = sanitizeImageUrl(
+    final cached = YahwehMediaCacheBust.applyFromDocRevision(
       (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
+      data,
     );
     final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
     if (path.isEmpty) return cached;
     try {
       await ensureFirebaseCore(requireAuth: false);
-      Future<String> loadUrl() =>
-          firebaseDefaultStorage.ref(path).getDownloadURL();
+      Future<String> loadUrl() async {
+        final fresh = await firebaseDefaultStorage.ref(path).getDownloadURL();
+        return YahwehMediaCacheBust.applyFromDocRevision(fresh, data);
+      }
+
       if (kIsWeb) {
         return await FirestoreWebGuard.runWithWebRecovery(
           loadUrl,
@@ -345,18 +356,6 @@ abstract final class FinanceComprovantePublishService {
     return null;
   }
 
-  static String _extFromMime(String mimeType, String? fileName) {
-    final m = mimeType.toLowerCase();
-    if (m.contains('pdf')) return 'pdf';
-    if (m.contains('png')) return 'png';
-    if (m.contains('webp')) return 'webp';
-    final fn = (fileName ?? '').toLowerCase();
-    if (fn.endsWith('.pdf')) return 'pdf';
-    if (fn.endsWith('.png')) return 'png';
-    if (fn.endsWith('.webp')) return 'webp';
-    return 'jpg';
-  }
-
   static Future<void> deleteComprovanteArtifacts({
     required String tenantId,
     required String lancamentoId,
@@ -431,6 +430,7 @@ abstract final class FinanceComprovantePublishService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     return FirebaseBootstrapService.runGuarded(
       () => _uploadComprovanteStorageCore(
@@ -443,6 +443,7 @@ abstract final class FinanceComprovantePublishService {
         previousStoragePath: previousStoragePath,
         previousDownloadUrl: previousDownloadUrl,
         onProgress: onProgress,
+        alreadyCompressed: alreadyCompressed,
       ),
       debugLabel: 'finance_comprovante_storage',
       requireAuth: true,
@@ -459,6 +460,7 @@ abstract final class FinanceComprovantePublishService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     await _ensureReady();
     final churchId = ChurchRepository.churchId(tenantId.trim());
@@ -485,7 +487,14 @@ abstract final class FinanceComprovantePublishService {
       churchId,
     );
 
-    final ext = _extFromMime(mimeType, fileName);
+    onProgress?.call(0.12);
+    // Uma compressão só (CT): picker já otimizou → alreadyCompressed.
+    final optimized = await _optimizedForUpload(
+      rawBytes: rawBytes,
+      mimeType: mimeType,
+      alreadyCompressed: alreadyCompressed,
+    );
+    final ext = optimized.mimeType.contains('pdf') ? 'pdf' : 'jpg';
     onProgress?.call(0.15);
 
     final path = comprovantePathFor(
@@ -493,11 +502,6 @@ abstract final class FinanceComprovantePublishService {
       lancamentoId: lancamentoId,
       referenceDate: referenceDate,
       ext: ext,
-    );
-
-    final optimized = await _optimizedForUpload(
-      rawBytes: rawBytes,
-      mimeType: mimeType,
     );
 
     // Controle Total: Storage primeiro; apagar antigo só depois do novo OK.
@@ -554,6 +558,8 @@ abstract final class FinanceComprovantePublishService {
   ///
   /// Web = mobile: `putData` via [ChurchCentralStorageUpload] (padrão CT ocorrências).
   /// CF `gyUploadFinanceComprovante` só como fallback se o cliente falhar na Web.
+  ///
+  /// Com [alreadyCompressed] (picker já otimizou JPEG) — NÃO recomprimir.
   static Future<String> uploadComprovanteNow({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -564,18 +570,13 @@ abstract final class FinanceComprovantePublishService {
     String? previousStoragePath,
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
   }) async {
     return FirebaseBootstrapService.runGuarded(
       () async {
         await _ensureReady();
         YahwehFlowLog.uploadStart('comprovante');
 
-        final prepared = await _optimizedForUpload(
-          rawBytes: rawBytes,
-          mimeType: mimeType,
-        );
-        final uploadBytes = prepared.bytes;
-        final uploadMime = prepared.mimeType;
         final churchId = ChurchRepository.churchId(tenantId.trim());
 
         FinanceComprovantePersistResult? persisted;
@@ -584,13 +585,14 @@ abstract final class FinanceComprovantePublishService {
           persisted = await _uploadComprovanteStorageCore(
             tenantId: tenantId,
             lancamentoId: docRef.id,
-            rawBytes: uploadBytes,
-            mimeType: uploadMime,
+            rawBytes: rawBytes,
+            mimeType: mimeType,
             fileName: fileName,
             referenceDate: referenceDate,
             previousStoragePath: previousStoragePath,
             previousDownloadUrl: previousDownloadUrl,
             onProgress: onProgress,
+            alreadyCompressed: alreadyCompressed,
           );
         } catch (e) {
           clientError = e;
@@ -599,6 +601,11 @@ abstract final class FinanceComprovantePublishService {
 
         if (persisted == null && kIsWeb) {
           onProgress?.call(0.12);
+          final prepared = await _optimizedForUpload(
+            rawBytes: rawBytes,
+            mimeType: mimeType,
+            alreadyCompressed: alreadyCompressed,
+          );
           final refDate = referenceDate;
           String? yearMonth;
           if (refDate != null) {
@@ -608,8 +615,8 @@ abstract final class FinanceComprovantePublishService {
           final cf = await ChurchFunctionsService.uploadFinanceComprovante(
             churchId: churchId,
             lancamentoId: docRef.id,
-            bytes: uploadBytes,
-            mimeType: uploadMime,
+            bytes: prepared.bytes,
+            mimeType: prepared.mimeType,
             fileName: fileName,
             referenceYearMonth: yearMonth,
           );

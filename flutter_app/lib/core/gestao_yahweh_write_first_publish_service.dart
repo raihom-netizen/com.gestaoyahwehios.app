@@ -4,13 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
-/// Fila offline de comprovante financeiro — Storage em background após lançamento gravado.
+/// Alias fino → [EcoFireResilientPublish.queueFinanceComprovante].
+/// Preferir a API EcoFire / [YahwehCentralEngineService.queueFinanceComprovante] directamente.
 abstract final class GestaoYahwehWriteFirstPublishService {
   GestaoYahwehWriteFirstPublishService._();
 
   static String resolveChurchId(String hint) => ChurchRepository.churchId(hint);
 
-  /// Financeiro — lançamento **já** gravado; comprovante só em fila Storage.
   static Future<void> queueFinanceComprovanteAfterSave({
     required String churchId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -20,6 +20,7 @@ abstract final class GestaoYahwehWriteFirstPublishService {
     DateTime? referenceDate,
     String? previousStoragePath,
     String? previousDownloadUrl,
+    bool alreadyCompressed = true,
   }) async {
     await EcoFireResilientPublish.queueFinanceComprovante(
       churchId: churchId,
@@ -30,6 +31,7 @@ abstract final class GestaoYahwehWriteFirstPublishService {
       referenceDate: referenceDate,
       previousStoragePath: previousStoragePath,
       previousDownloadUrl: previousDownloadUrl,
+      alreadyCompressed: alreadyCompressed,
     );
     EcoFireResilientPublish.scheduleSync(reason: 'finance_comprovante_write_first');
   }

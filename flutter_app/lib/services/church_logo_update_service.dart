@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dar
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 
 /// Logo institucional — path canónico `igrejas/{churchId}/configuracoes/logo_igreja.png`.
 abstract final class ChurchLogoUpdateService {
@@ -66,14 +67,18 @@ abstract final class ChurchLogoUpdateService {
 
     onProgress?.call(0.92);
     await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
+    final cacheRevision = YahwehMediaCacheBust.freshRevisionMs();
     await ChurchBrandService.persistLogoPath(
       churchId: cid,
       storagePath: identityPath,
       downloadUrl: uploaded.downloadUrl,
+      cacheRevision: cacheRevision,
     );
 
     final url = uploaded.downloadUrl;
+    final displayUrl = YahwehMediaCacheBust.apply(url, cacheRevision);
     await CachedNetworkImage.evictFromCache(url);
+    await CachedNetworkImage.evictFromCache(displayUrl);
     AppStorageImageService.instance
         .invalidateStoragePrefix('igrejas/$cid/logo');
     AppStorageImageService.instance
@@ -84,6 +89,10 @@ abstract final class ChurchLogoUpdateService {
     AppStorageImageService.instance.invalidate(
       storagePath: identityPath,
       imageUrl: url,
+    );
+    AppStorageImageService.instance.invalidate(
+      storagePath: identityPath,
+      imageUrl: displayUrl,
     );
 
     final prev = (previousStoragePath ?? '').trim();
@@ -104,9 +113,10 @@ abstract final class ChurchLogoUpdateService {
 
     onProgress?.call(1.0);
     return ChurchLogoPublishResult(
-      downloadUrl: url,
+      downloadUrl: displayUrl,
       storagePath: identityPath,
       pngBytes: png,
+      cacheRevision: cacheRevision,
     );
   }
 
@@ -129,9 +139,11 @@ final class ChurchLogoPublishResult {
     required this.downloadUrl,
     required this.storagePath,
     required this.pngBytes,
+    required this.cacheRevision,
   });
 
   final String downloadUrl;
   final String storagePath;
   final Uint8List pngBytes;
+  final int cacheRevision;
 }

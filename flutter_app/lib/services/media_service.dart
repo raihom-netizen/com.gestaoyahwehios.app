@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart'
+    show kEventoAvisoFeedEncodeMaxEdgePx, kEventoAvisoFeedWebpQuality;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
@@ -18,7 +20,7 @@ enum MediaImageProfile {
   /// Chat: 1280px, JPEG ~80% (~200–400 KB típico).
   chat,
 
-  /// Avisos/eventos mural: WebP Full HD 1920px, quality ~80%.
+  /// Avisos/eventos mural: WebP Full HD 1920px, quality ~85%.
   feed,
 
   /// Miniaturas / previews.
@@ -48,12 +50,14 @@ abstract final class MediaService {
   MediaService._();
 
   static const int chatImageMaxEdge = 1024;
-  static const int feedImageMaxEdge = 1024;
-  static const int feedImageMaxHeight = 1024;
+  /// Feed (avisos/eventos) — alinhado a [kEventoAvisoFeedEncodeMaxEdgePx] (1920).
+  static const int feedImageMaxEdge = kEventoAvisoFeedEncodeMaxEdgePx;
+  static const int feedImageMaxHeight = kEventoAvisoFeedEncodeMaxEdgePx;
   static const int thumbMaxEdge = 480;
 
   static const int chatJpegQuality = kStandardUploadImageQuality;
-  static const int feedWebpQuality = kStandardUploadImageQuality;
+  /// Qualidade feed — alinhada a [kEventoAvisoFeedWebpQuality] (85).
+  static const int feedWebpQuality = kEventoAvisoFeedWebpQuality;
   static const int thumbJpegQuality = 78;
 
   static const int patrimonioImageMaxEdge = kStandardUploadImageMaxEdge;

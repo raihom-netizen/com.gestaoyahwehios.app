@@ -52,6 +52,7 @@ class FirestoreReadResilience {
       _lastDocByKey = {};
 
   /// Documento único (ex.: `igrejas/{id}`) — cache → rede com retry.
+  /// Cache hit: devolve já + refresh em background (cadastro/painel rápidos).
   static Future<DocumentSnapshot<Map<String, dynamic>>> getDocument(
     DocumentReference<Map<String, dynamic>> ref, {
     required String cacheKey,
@@ -74,6 +75,15 @@ class FirestoreReadResilience {
       }
     } catch (_) {}
 
+    if (localSnap != null && localSnap.exists) {
+      _refreshDocumentInBackground(
+        ref,
+        cacheKey: key,
+        attemptTimeout: perAttempt,
+      );
+      return localSnap;
+    }
+
     Object? lastError;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -94,7 +104,7 @@ class FirestoreReadResilience {
           }
         }
         final snap = await ref
-          .get(GetOptions(source: _networkSourceForPlatform()))
+            .get(GetOptions(source: _networkSourceForPlatform()))
             .timeout(perAttempt);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
@@ -112,7 +122,35 @@ class FirestoreReadResilience {
     throw lastError ?? StateError('firestore_document_failed');
   }
 
+  static final Set<String> _bgDocRefreshInFlight = {};
+
+  static void _refreshDocumentInBackground(
+    DocumentReference<Map<String, dynamic>> ref, {
+    required String cacheKey,
+    required Duration attemptTimeout,
+  }) {
+    final key = cacheKey.trim();
+    if (key.isEmpty || _bgDocRefreshInFlight.contains(key)) return;
+    _bgDocRefreshInFlight.add(key);
+    Future<void>(() async {
+      try {
+        final snap = await ref
+            .get(GetOptions(source: _networkSourceForPlatform()))
+            .timeout(attemptTimeout);
+        if (snap.exists) {
+          _lastDocByKey[key] = snap;
+        }
+      } catch (_) {
+      } finally {
+        _bgDocRefreshInFlight.remove(key);
+      }
+    });
+  }
+
   /// [cacheKey] identifica o tenant/coleção para reutilizar o último resultado em falha de rede.
+  ///
+  /// Controle Total / SWR: se o cache local já tem docs, devolve **já** e actualiza
+  /// a rede em background (evita bloquear Agenda/Membros/Eventos na Web).
   static Future<QuerySnapshot<Map<String, dynamic>>> getQuery(
     Query<Map<String, dynamic>> query, {
     required String cacheKey,
@@ -135,6 +173,16 @@ class FirestoreReadResilience {
       }
     } catch (_) {}
 
+    // Cache hit → UI imediata; rede em background (padrão Membros / Controle Total).
+    if (localSnap != null && localSnap.docs.isNotEmpty) {
+      _refreshQueryInBackground(
+        query,
+        cacheKey: key,
+        attemptTimeout: perAttempt,
+      );
+      return localSnap;
+    }
+
     Object? lastError;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -155,7 +203,7 @@ class FirestoreReadResilience {
           }
         }
         final snap = await query
-          .get(GetOptions(source: _networkSourceForPlatform()))
+            .get(GetOptions(source: _networkSourceForPlatform()))
             .timeout(perAttempt);
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;
@@ -171,6 +219,32 @@ class FirestoreReadResilience {
       if (mem != null) return mem;
     }
     throw lastError ?? StateError('firestore_query_failed');
+  }
+
+  static final Set<String> _bgRefreshInFlight = {};
+
+  static void _refreshQueryInBackground(
+    Query<Map<String, dynamic>> query, {
+    required String cacheKey,
+    required Duration attemptTimeout,
+  }) {
+    final key = cacheKey.trim();
+    if (key.isEmpty || _bgRefreshInFlight.contains(key)) return;
+    _bgRefreshInFlight.add(key);
+    Future<void>(() async {
+      try {
+        final snap = await query
+            .get(GetOptions(source: _networkSourceForPlatform()))
+            .timeout(attemptTimeout);
+        if (snap.docs.isNotEmpty) {
+          _lastGoodByKey[key] = snap;
+        }
+      } catch (_) {
+        // Silencioso — UI já tem cache.
+      } finally {
+        _bgRefreshInFlight.remove(key);
+      }
+    });
   }
 
   /// Último snapshot bom em memória (web/mobile) — exibir feed enquanto a rede atualiza.

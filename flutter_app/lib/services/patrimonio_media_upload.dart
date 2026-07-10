@@ -11,7 +11,7 @@ import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/foto_N.jpg`.
 ///
-/// Pipeline único (Controle Total): fachada → Storage → URL → Firestore só link.
+/// Pipeline único (Controle Total): 1 compress no editor → putData → URL → Firestore.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
@@ -23,7 +23,8 @@ abstract final class PatrimonioMediaUpload {
     required int slotIndex,
     required Uint8List rawBytes,
     void Function(double progress)? onProgress,
-    bool skipPrepare = false,
+    /// Bytes já JPEG do [SafeImageBytes.patrimonioFromPicker] — NÃO recomprimir.
+    bool alreadyCompressed = false,
     bool ensureReady = true,
   }) async {
     final cid = churchId.trim();
@@ -53,13 +54,13 @@ abstract final class PatrimonioMediaUpload {
           YahwehMediaModule.patrimonio,
         );
       }
-      // Compressão domínio patrimônio via central; fachada garante gate + timeout.
       final uploaded = await ChurchCentralStorageUpload.uploadPatrimonioPhoto(
         churchId: cid,
         itemDocId: iid,
         slotIndex: slotIndex,
         rawBytes: rawBytes,
         onProgress: onProgress,
+        alreadyCompressed: alreadyCompressed,
       ).timeout(
         uploadTimeout,
         onTimeout: () => throw TimeoutException(
@@ -88,6 +89,7 @@ abstract final class PatrimonioMediaUpload {
     required int startSlot,
     int maxParallel = 4,
     void Function(double progress)? onBatchProgress,
+    bool alreadyCompressed = true,
   }) async {
     if (images.isEmpty) return const [];
     final cid = churchId.trim();
@@ -112,6 +114,12 @@ abstract final class PatrimonioMediaUpload {
             itemDocId: iid,
             slotIndex: slot,
             rawBytes: batch[i],
+            alreadyCompressed: alreadyCompressed,
+            onProgress: (p) {
+              final base = completed / total;
+              final slice = (1 / total) * p;
+              onBatchProgress?.call(base + slice);
+            },
           );
         }),
       );

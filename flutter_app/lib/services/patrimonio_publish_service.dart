@@ -152,16 +152,8 @@ abstract final class PatrimonioPublishService {
       final slots = uploadsBySlot.keys.toList()..sort();
       final total = slots.length;
 
-      await Future.wait(
-        slots.map(
-          (slot) => FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-            tenantId: igrejaId,
-            itemDocId: itemId,
-            slot: slot,
-          ),
-        ),
-      );
-
+      // Controle Total: NÃO apagar slot antes do putData — overwrite no path
+      // canónico; limpeza de legado só após Upload OK.
       onUploadProgress?.call(0.06);
 
       List<PatrimonioGalleryUploadResult> uploaded;
@@ -181,6 +173,8 @@ abstract final class PatrimonioPublishService {
                 itemDocId: itemId,
                 slotIndex: slot,
                 rawBytes: bytes,
+                // Editor já optimizou via SafeImageBytes.patrimonioFromPicker.
+                alreadyCompressed: true,
               );
             }),
           ),
@@ -210,19 +204,20 @@ abstract final class PatrimonioPublishService {
           maxAttempts: 4,
         );
       }
+
+      // Após Storage OK: limpar só artefactos legado (webp/png/galeria_*) do slot.
+      // O path canónico foto_N.jpg acaba de ser sobrescrito — não apagar de novo.
+      FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
+        tenantId: igrejaId,
+        itemDocId: itemId,
+      );
     } else {
       final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot)
           .clamp(0, kMaxPatrimonioPhotosPerItem);
       final batch = newImages.take(maxNew).toList(growable: false);
 
       if (batch.isNotEmpty) {
-        for (var j = 0; j < batch.length; j++) {
-          await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-            tenantId: igrejaId,
-            itemDocId: itemId,
-            slot: startSlot + j,
-          );
-        }
+        // CT: sem delete-before-upload; overwrite no path canónico.
         onUploadProgress?.call(0.06);
 
         final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
@@ -231,6 +226,7 @@ abstract final class PatrimonioPublishService {
           images: batch,
           startSlot: startSlot,
           maxParallel: 4,
+          alreadyCompressed: true,
           onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
         );
 
@@ -252,6 +248,11 @@ abstract final class PatrimonioPublishService {
           photoPaths: uploaded.map((e) => e.storagePath),
           timeout: const Duration(seconds: 12),
           maxAttempts: 4,
+        );
+
+        FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
+          tenantId: igrejaId,
+          itemDocId: itemId,
         );
       }
     }

@@ -131,8 +131,8 @@ int get mediaChatImageMaxHeight => kStandardUploadImageMaxEdge;
 
 int get mediaChatImageQuality => kStandardUploadImageQuality;
 
-/// Chat — vários anexos por envio (como avisos/eventos: até 5 fotos por seleção).
-const int kChatMaxImagesPerPick = 5;
+/// Chat — até 10 fotos por seleção (galeria / encaminhar lote).
+const int kChatMaxImagesPerPick = 10;
 const int kChatMaxVideosPerPick = 5;
 const int kChatMaxDocumentsPerPick = 10;
 const int kChatMaxAudioFilesPerPick = 5;

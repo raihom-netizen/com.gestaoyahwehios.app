@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
@@ -188,8 +189,10 @@ abstract final class ChurchCanonicalMediaContract {
     return ref.isResolvable;
   }
 
-  static String financeComprovanteViewUrl(Map<String, dynamic>? data) =>
-      resolveFinanceComprovante(data).downloadUrl;
+  static String financeComprovanteViewUrl(Map<String, dynamic>? data) {
+    final url = resolveFinanceComprovante(data).downloadUrl;
+    return YahwehMediaCacheBust.applyFromDocRevision(url, data);
+  }
 
   static String financeComprovanteStoragePath(Map<String, dynamic>? data) =>
       resolveFinanceComprovante(data).storagePath;
@@ -245,11 +248,18 @@ abstract final class ChurchCanonicalMediaContract {
     if (refs.isNotEmpty) {
       return dedupeImageRefsByStorageIdentity(
         refs.map(
-          (r) => r.downloadUrl.isNotEmpty ? r.downloadUrl : r.storagePath,
+          (r) => YahwehMediaCacheBust.applyFromDocRevision(
+            r.downloadUrl.isNotEmpty ? r.downloadUrl : r.storagePath,
+            data,
+          ),
         ),
       );
     }
-    return dedupeImageRefsByStorageIdentity(patrimonioImageUrlsLegacy(data));
+    return dedupeImageRefsByStorageIdentity(
+      patrimonioImageUrlsLegacy(data).map(
+        (u) => YahwehMediaCacheBust.applyFromDocRevision(u, data),
+      ),
+    );
   }
 
   static List<String> patrimonioStoragePaths(Map<String, dynamic> data) {
@@ -363,15 +373,20 @@ abstract final class ChurchCanonicalMediaContract {
     required String storagePath,
     required String mimeType,
     required String fileName,
+    int? cacheRevision,
   }) {
     final safeUrl = sanitizeImageUrl(url);
     final path = _normalizePath(storagePath);
+    final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
+    // Path Storage é fixo (overwrite) — bust na URL para Web/viewer verem o ficheiro novo.
+    final displayUrl = YahwehMediaCacheBust.apply(safeUrl, rev);
     return {
-      'comprovanteUrl': safeUrl,
-      'comprovanteLink': safeUrl,
+      'comprovanteUrl': displayUrl,
+      'comprovanteLink': displayUrl,
       'comprovanteStoragePath': path,
       'comprovanteMimeType': mimeType,
       'comprovanteFileName': fileName,
+      'comprovanteCacheRevision': rev,
       'hasComprovante': true,
       'comprovanteUploadState': EntityPublishStatus.published,
       'comprovanteUploadError': FieldValue.delete(),
@@ -411,13 +426,18 @@ abstract final class ChurchCanonicalMediaContract {
   static void patrimonioApplyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
-    List<String> slotPaths,
-  ) {
+    List<String> slotPaths, {
+    int? cacheRevision,
+  }) {
+    final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
+    // Path fixo foto_N.jpg (overwrite) — bust na URL para Web/lista verem o ficheiro novo.
+    payload['fotosCacheRevision'] = rev;
     for (var i = 0; i < patrimonioMaxPhotos; i++) {
       final u = sanitizeImageUrl(i < slotUrls.length ? slotUrls[i] : '');
       final p = _normalizePath(i < slotPaths.length ? slotPaths[i] : '');
       if (u.isNotEmpty) {
-        payload[patrimonioUrlSlotKeys[i]] = u;
+        payload[patrimonioUrlSlotKeys[i]] =
+            YahwehMediaCacheBust.apply(u, rev);
         payload[patrimonioPathSlotKeys[i]] =
             p.isNotEmpty ? p : FieldValue.delete();
       } else {
@@ -459,12 +479,17 @@ abstract final class ChurchCanonicalMediaContract {
   static Map<String, dynamic> marketingClienteCapaWritePatch({
     required String downloadUrl,
     required String storagePath,
+    int? cacheRevision,
   }) {
-    final url = sanitizeImageUrl(downloadUrl.trim());
     final path = _normalizePath(storagePath);
+    final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
+    final safeUrl = sanitizeImageUrl(downloadUrl.trim());
+    // Path fixo capa.jpg — bust para site/painel verem overwrite.
+    final displayUrl = YahwehMediaCacheBust.apply(safeUrl, rev);
     return {
       if (path.isNotEmpty) 'fotoPath': path,
-      if (url.isNotEmpty) 'fotoUrl': url,
+      if (displayUrl.isNotEmpty) 'fotoUrl': displayUrl,
+      'fotoUrlCacheRevision': rev,
     };
   }
 
@@ -497,14 +522,20 @@ abstract final class ChurchCanonicalMediaContract {
     required String downloadUrl,
     required String storagePath,
     required String kind,
+    int? cacheRevision,
   }) {
-    final url = sanitizeImageUrl(downloadUrl.trim());
     final path =
         MarketingStorageLayout.normalizeObjectPath(_normalizePath(storagePath));
+    final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
+    final safeUrl = sanitizeImageUrl(downloadUrl.trim());
+    final displayUrl = kind == 'image'
+        ? YahwehMediaCacheBust.apply(safeUrl, rev)
+        : safeUrl;
     return {
       'path': path,
       'kind': kind,
-      if (url.isNotEmpty) 'downloadUrl': url,
+      if (displayUrl.isNotEmpty) 'downloadUrl': displayUrl,
+      if (kind == 'image') 'cacheRevision': rev,
     };
   }
 
@@ -535,6 +566,7 @@ abstract final class ChurchCanonicalMediaContract {
         'comprovanteStoragePath': FieldValue.delete(),
         'comprovanteMimeType': FieldValue.delete(),
         'comprovanteFileName': FieldValue.delete(),
+        'comprovanteCacheRevision': FieldValue.delete(),
         'comprovanteUploadError': FieldValue.delete(),
         'comprovanteUpdatedAt': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),

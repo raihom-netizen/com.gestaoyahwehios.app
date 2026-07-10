@@ -373,7 +373,7 @@ abstract final class ChurchEventosLoadService {
       readSource: 'empty',
       collectionPath: path,
       softError: lastError is TimeoutException
-          ? 'Tempo esgotado ao carregar eventos.'
+          ? 'Demorou demais a carregar. Verifique a rede e toque em Tentar de novo.'
           : lastError?.toString(),
     );
   }

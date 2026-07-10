@@ -94,6 +94,7 @@ abstract final class YahwehCentralEngineService {
     DateTime? referenceDate,
     String? previousStoragePath,
     String? previousDownloadUrl,
+    bool alreadyCompressed = true,
   }) async {
     await EcoFireResilientPublish.queueFinanceComprovante(
       churchId: churchId,
@@ -104,6 +105,7 @@ abstract final class YahwehCentralEngineService {
       referenceDate: referenceDate,
       previousStoragePath: previousStoragePath,
       previousDownloadUrl: previousDownloadUrl,
+      alreadyCompressed: alreadyCompressed,
     );
     scheduleBackgroundSync(reason: 'finance_comprovante');
   }

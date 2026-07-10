@@ -43,11 +43,11 @@ const int kMemberCropWebpMaxEdgePx = 768;
 /// Qualidade na saída do recorte nativo (sem perda antes do WebP).
 const int kCropperCompressQuality = 100;
 
-/// WebP do feed — equilíbrio nitidez/velocidade de upload (avisos + eventos).
-const int kPremiumMuralFeedWebpQuality = 80;
+/// WebP do feed — nitidez (avisos + eventos); alinhado a [kEventoAvisoFeedWebpQuality].
+const int kPremiumMuralFeedWebpQuality = 85;
 
-/// Qualidade WebP em release mobile (turbo — ficheiros menores, upload mais rápido).
-const int kPremiumMuralFeedWebpQualityTurbo = 74;
+/// Qualidade WebP em release mobile (turbo — ligeiramente menor).
+const int kPremiumMuralFeedWebpQualityTurbo = 80;
 
 int get kEffectiveMuralFeedWebpQuality => kEventoAvisoFeedWebpQuality;
 

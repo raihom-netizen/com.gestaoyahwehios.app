@@ -30,9 +30,9 @@ class ChurchChatAlbumGrid extends StatelessWidget {
   const ChurchChatAlbumGrid({
     super.key,
     required this.items,
-    this.maxWidth = 280,
+    this.maxWidth = 320,
     this.gap = 2,
-    this.maxVisible = 4,
+    this.maxVisible = 6,
   });
 
   final List<ChurchChatAlbumCell> items;

@@ -62,6 +62,7 @@ abstract final class ModuleMediaOutboxService {
     int? referenceDateMs,
     String? previousStoragePath,
     String? previousDownloadUrl,
+    bool alreadyCompressed = false,
   }) async {
     await _register({
       'module': 'finance_comprovante',
@@ -72,6 +73,7 @@ abstract final class ModuleMediaOutboxService {
       'referenceDateMs': referenceDateMs,
       'previousStoragePath': previousStoragePath,
       'previousDownloadUrl': previousDownloadUrl,
+      'alreadyCompressed': alreadyCompressed,
     });
   }
 
@@ -289,6 +291,7 @@ abstract final class ModuleMediaOutboxService {
         refDate = DateTime.fromMillisecondsSinceEpoch(refDateMs.toInt());
       }
       final docRef = ChurchUiCollections.financeiro(tenantId).doc(lancamentoId);
+      final alreadyCompressed = m['alreadyCompressed'] == true;
       await FinanceComprovantePublishService.uploadComprovanteNow(
         tenantId: tenantId,
         docRef: docRef,
@@ -300,6 +303,8 @@ abstract final class ModuleMediaOutboxService {
         referenceDate: refDate,
         previousStoragePath: (m['previousStoragePath'] ?? '').toString(),
         previousDownloadUrl: (m['previousDownloadUrl'] ?? '').toString(),
+        // Bytes vindos do picker já optimizados — nunca recomprimir no drain.
+        alreadyCompressed: alreadyCompressed,
       );
       await clearFinanceComprovante(
         tenantId: tenantId,

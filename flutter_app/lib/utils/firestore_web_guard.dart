@@ -127,15 +127,30 @@ class FirestoreWebGuard {
     } catch (_) {}
   }
 
+  static Future<void>? _panelReadReadyOnce;
+  static DateTime? _panelReadReadyAt;
+  static const Duration _panelReadReadyTtl = Duration(seconds: 45);
+
   /// Painel igreja (web/mobile) — leitura rápida sem desligar a rede.
+  /// Memoizado ~45s para não empilhar o mesmo gate em Agenda/Membros/Eventos.
   static Future<void> ensurePanelReadReady() async {
     if (!kIsWeb) return;
-    try {
-      applyWebFirestoreSettings();
-      await ensureWebDatabaseConnected(refreshAuth: false).timeout(
-        ChurchPanelReadTimeouts.readReadyCap,
-      );
-    } catch (_) {}
+    final at = _panelReadReadyAt;
+    if (at != null &&
+        DateTime.now().difference(at) < _panelReadReadyTtl &&
+        _panelReadReadyOnce != null) {
+      return _panelReadReadyOnce!;
+    }
+    _panelReadReadyOnce = () async {
+      try {
+        applyWebFirestoreSettings();
+        await ensureWebDatabaseConnected(refreshAuth: false).timeout(
+          ChurchPanelReadTimeouts.readReadyCap,
+        );
+        _panelReadReadyAt = DateTime.now();
+      } catch (_) {}
+    }();
+    return _panelReadReadyOnce!;
   }
 
   /// Painel Master web — sessão estável antes de qualquer leitura/gravação.
