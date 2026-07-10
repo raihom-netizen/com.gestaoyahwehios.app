@@ -92,10 +92,32 @@ abstract final class ChurchAvisosLoadService {
     final churchId = _churchId(churchIdHint);
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith('${churchId.trim()}_avisos'));
+    for (final limit in [kPanelCarouselLimit, kModuleListLimit, 20, 60, 80]) {
+      final key = cacheKey(churchId, limit);
+      FirestoreReadResilience.forgetKey(key);
+      FirestoreReadResilience.forgetKey('${key}_plain');
+      FirestoreReadResilience.forgetKey('${key}_plain_retry');
+      FirestoreReadResilience.forgetKey('${key}_legacy_mural_avisos');
+      FirestoreReadResilience.forgetKey('${key}_legacy_mural_avisos_plain');
+    }
     await TenantModuleHiveCache.clearModule(
       churchId,
       TenantModuleKeys.avisos,
     );
+  }
+
+  /// Remove um aviso das caches RAM/Hive sem esperar rede.
+  static void evictDocFromCaches(String churchIdHint, String docId) {
+    final churchId = _churchId(churchIdHint);
+    final id = docId.trim();
+    if (churchId.isEmpty || id.isEmpty) return;
+
+    for (final entry in _ram.entries.toList()) {
+      if (!entry.key.startsWith('${churchId.trim()}_avisos')) continue;
+      final filtered =
+          entry.value.items.where((item) => item.id != id).toList();
+      _ram[entry.key] = (items: filtered, at: DateTime.now());
+    }
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterPublishedSorted(

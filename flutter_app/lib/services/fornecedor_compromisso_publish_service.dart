@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,11 +8,15 @@ import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
+import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 /// Gravação Web-safe de compromissos de fornecedor (Storage → CF → Firestore).
 abstract final class FornecedorCompromissoPublishService {
@@ -51,7 +57,7 @@ abstract final class FornecedorCompromissoPublishService {
     return docRef;
   }
 
-  static Future<void> attachComprovante({
+  static Future<void> attachComprovanteControleTotal({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String churchId,
     required String fornecedorId,
@@ -69,35 +75,140 @@ abstract final class FornecedorCompromissoPublishService {
         refreshAuthToken: true,
       );
     }
-    onProgress?.call(0.08);
-    // Path/ext = resultado real do upload (JPEG → .jpg), nunca mime cru do PNG picker.
-    final uploaded = await FornecedorCompromissoComprovanteService.upload(
-      churchId: cid,
+    onProgress?.call(0.05);
+
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(
+        {
+          'comprovanteUploadState': 'uploading',
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+    ).catchError((_) {});
+
+    try {
+      final uploaded = await FornecedorCompromissoComprovanteService.upload(
+        churchId: cid,
+        fornecedorId: fornecedorId,
+        compromissoId: compromissoId,
+        bytes: bytes,
+        contentType: mimeType,
+        onProgress: (p) => onProgress?.call(0.08 + p * 0.82),
+        alreadyCompressed: alreadyCompressed,
+      );
+      onProgress?.call(0.92);
+      final patch = ChurchCanonicalMediaContract.financeComprovanteWritePatch(
+        url: uploaded.downloadUrl,
+        storagePath: uploaded.storagePath,
+        mimeType: uploaded.contentType,
+        fileName: fileName,
+      );
+      patch['comprovanteUploadState'] = 'ready';
+      patch['comprovantePendingLocal'] = FieldValue.delete();
+      patch['updatedAt'] = FieldValue.serverTimestamp();
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: docRef,
+        data: patch,
+        isNewDoc: false,
+        useUpdate: true,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => docRef.update(patch),
+        ),
+      );
+      onProgress?.call(1.0);
+    } catch (e) {
+      if (!kIsWeb && _shouldQueueComprovanteOffline(e)) {
+        final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
+        final path = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+          tenantId: cid,
+          fornecedorId: fornecedorId,
+          compromissoId: compromissoId,
+          ext: ext,
+        );
+        await _enqueueCompromissoLocalRetry(
+          docRef: docRef,
+          bytes: bytes,
+          mimeType: mimeType,
+          storagePath: path,
+        );
+        throw const FinanceComprovanteQueuedLocally();
+      }
+      rethrow;
+    }
+  }
+
+  static bool _shouldQueueComprovanteOffline(Object e) {
+    final msg = e.toString().toLowerCase();
+    return e is TimeoutException ||
+        msg.contains('network') ||
+        msg.contains('socket') ||
+        msg.contains('unavailable') ||
+        msg.contains('connection') ||
+        msg.contains('offline') ||
+        msg.contains('failed host lookup');
+  }
+
+  static Future<void> _enqueueCompromissoLocalRetry({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Uint8List bytes,
+    required String mimeType,
+    required String storagePath,
+  }) async {
+    if (!kIsWeb && bytes.isNotEmpty) {
+      try {
+        final dir = await getTemporaryDirectory();
+        final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
+        final localPath = p.join(
+          dir.path,
+          'fornecedor_comp_${DateTime.now().millisecondsSinceEpoch}.$ext',
+        );
+        await File(localPath).writeAsBytes(bytes, flush: true);
+        await StorageUploadPersistenceService.enqueueFileJob(
+          storagePath: storagePath,
+          localFilePath: localPath,
+          contentType: mimeType,
+        );
+      } catch (_) {}
+    }
+
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(
+        {
+          'comprovanteUploadState': 'uploading',
+          'comprovantePendingLocal': true,
+          'comprovanteStoragePath': storagePath,
+          'hasComprovante': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+    ).catchError((_) {});
+  }
+
+  /// Legado — delega ao fluxo CT.
+  static Future<void> attachComprovante({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String churchId,
+    required String fornecedorId,
+    required String compromissoId,
+    required Uint8List bytes,
+    required String mimeType,
+    required String fileName,
+    void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
+  }) async {
+    await attachComprovanteControleTotal(
+      docRef: docRef,
+      churchId: churchId,
       fornecedorId: fornecedorId,
       compromissoId: compromissoId,
       bytes: bytes,
-      contentType: mimeType,
-      onProgress: (p) => onProgress?.call(0.08 + p * 0.82),
+      mimeType: mimeType,
+      fileName: fileName,
+      onProgress: onProgress,
       alreadyCompressed: alreadyCompressed,
     );
-    onProgress?.call(0.92);
-    final patch = ChurchCanonicalMediaContract.financeComprovanteWritePatch(
-      url: uploaded.downloadUrl,
-      storagePath: uploaded.storagePath,
-      mimeType: uploaded.contentType,
-      fileName: fileName,
-    );
-    patch['updatedAt'] = FieldValue.serverTimestamp();
-    await AdminFeedFirestoreBridge.upsertDocRef(
-      docRef: docRef,
-      data: patch,
-      isNewDoc: false,
-      useUpdate: true,
-      directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.update(patch),
-      ),
-    );
-    onProgress?.call(1.0);
   }
 
   /// Remove comprovante — Firestore + Storage (`igrejas/{churchId}/fornecedores/…`).

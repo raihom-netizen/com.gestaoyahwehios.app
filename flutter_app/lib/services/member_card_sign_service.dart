@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -103,6 +104,22 @@ abstract final class MemberCardSignService {
             debugPrint('MemberCardSignService write $id: $e\n$st');
           }
         }),
+      );
+    }
+
+    if (ok > 0 && fail == 0) {
+      MembersDirectorySnapshotService.patchMembersSignatureInMemory(
+        tenantId: churchId,
+        memberIds: memberIds,
+        signatureFields: {
+          'carteirinhaAssinadaEm': Timestamp.now(),
+          'carteirinhaAssinadaPor': signatory.memberId,
+          'carteirinhaAssinadaPorNome': signatory.nome,
+          'carteirinhaAssinadaPorCargo': signatory.cargo,
+          if (signatory.assinaturaUrl != null &&
+              signatory.assinaturaUrl!.trim().isNotEmpty)
+            'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
+        },
       );
     }
 

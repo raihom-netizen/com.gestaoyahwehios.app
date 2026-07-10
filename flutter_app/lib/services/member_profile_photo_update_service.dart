@@ -189,6 +189,16 @@ class MemberProfilePhotoUpdateService {
         YahwehFlowLog.membrosSuccess();
         onSuccess?.call(result);
       }().catchError((Object e, StackTrace st) {
+        if (e is MemberProfilePhotoQueuedLocally) {
+          onSuccess?.call(
+            MemberProfilePhotoUpdateResult(
+              downloadUrl: '',
+              storagePath: '',
+              cacheRevision: DateTime.now().millisecondsSinceEpoch,
+            ),
+          );
+          return;
+        }
         YahwehFlowLog.memberPhotoError(e, st);
         ChurchPublishFlowLog.memberPhotoError(e, st);
         unawaited(_markPhotoUploadError(
@@ -245,17 +255,19 @@ class MemberProfilePhotoUpdateService {
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
     void Function(String phaseLabel)? onPhase,
+    void Function(double progress)? onProgress,
   }) async {
     YahwehFlowLog.memberPhotoStart();
     ChurchPublishFlowLog.memberPhotoStart();
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
     try {
-      final r = await MemberProfilePhotoSaveService.save(
+      final r = await MemberProfilePhotoSaveService.saveInternal(
         tenantId: tenantId,
         memberDocId: memberDocId,
         memberData: memberData,
         rawBytes: rawBytes,
         onPhase: onPhase,
+        onProgress: onProgress,
       );
       if (r.storagePath.trim().isEmpty) {
         throw StateError(

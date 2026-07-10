@@ -7,34 +7,33 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/member_profile_media_upload.dart';
-import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
+/// Foto enfileirada localmente — upload automático quando houver rede (padrão CT).
+class MemberProfilePhotoQueuedLocally implements Exception {
+  const MemberProfilePhotoQueuedLocally();
+}
+
 /// Pipeline único — foto perfil membro (padrão Controle Total):
 /// 1 compressão → 1 upload Storage (path fixo, sobrescreve) → 1 merge Firestore (só link).
-///
-/// Path: `igrejas/{churchId}/membros/{folderId}/foto_perfil.jpg` — **uma foto por membro**.
 abstract final class MemberProfilePhotoSaveService {
   MemberProfilePhotoSaveService._();
 
-  /// Timeout curto — caminho quente sem verify bloqueante.
-  static const Duration kPublishTimeout = Duration(seconds: 45);
+  /// Timeout só no putData — sem cap global que trava «A enviar…».
+  static const Duration kUploadTimeout = Duration(seconds: 38);
 
   /// Se o pick já entregou WebP/JPEG leve, não recomprimir de novo.
   static const int _kSkipReencodeMaxBytes = 420 * 1024;
@@ -47,22 +46,65 @@ abstract final class MemberProfilePhotoSaveService {
     void Function(String phaseLabel)? onPhase,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
+  }) =>
+      saveInternal(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        rawBytes: rawBytes,
+        onPhase: onPhase,
+        onProgress: onProgress,
+        requireAuth: requireAuth,
+      );
+
+  /// Só Storage (cadastro público grava Firestore no submit).
+  static Future<({String url, String storagePath})> uploadStorageOnlyControleTotal({
+    required String tenantId,
+    required String memberDocId,
+    required Uint8List rawBytes,
+    bool requireAuth = true,
+    void Function(double progress)? onProgress,
   }) async {
-    return saveInternal(
-      tenantId: tenantId,
-      memberDocId: memberDocId,
-      memberData: memberData,
-      rawBytes: rawBytes,
-      onPhase: onPhase,
-      onProgress: onProgress,
+    final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
+    final docId = memberDocId.trim();
+    if (churchId.isEmpty || docId.isEmpty || rawBytes.isEmpty) {
+      throw StateError('Dados inválidos para enviar foto.');
+    }
+    final storageFolderId = FirebaseStorageService.memberProfileStorageFolderId(
+      docId,
+      null,
+    );
+    final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
+      churchId,
+      storageFolderId,
+    );
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    onProgress?.call(0.12);
+    final fullBytes = await _prepareFullBytes(rawBytes);
+    onProgress?.call(0.18);
+    final mime = _mimeForBytes(fullBytes);
+    final url = await DirectStorageUrlPublish.uploadBytes(
+      storagePath: fullPath,
+      bytes: fullBytes,
+      mimeType: mime,
       requireAuth: requireAuth,
+      onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
     ).timeout(
-      kPublishTimeout,
+      kUploadTimeout,
       onTimeout: () => throw TimeoutException(
-        'O envio da foto demorou demais. Verifique a rede e tente novamente.',
-        kPublishTimeout,
+        'Upload da foto demorou demais. Verifique a rede.',
+        kUploadTimeout,
       ),
     );
+    if (url.trim().isEmpty) {
+      throw StateError('Upload concluiu sem URL.');
+    }
+    FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
+      tenantId: churchId,
+      memberId: storageFolderId,
+    );
+    onProgress?.call(1.0);
+    return (url: sanitizeImageUrl(url), storagePath: fullPath);
   }
 
   static Future<MemberProfilePhotoUpdateResult> saveInternal({
@@ -102,144 +144,170 @@ abstract final class MemberProfilePhotoSaveService {
     void Function(double progress)? onProgress,
     bool requireAuth = true,
   }) async {
-    return FirebaseBootstrapService.runGuarded(
-      () async {
-        onPhase?.call('A preparar…');
-        onProgress?.call(0.05);
-        if (requireAuth) {
-          await ChurchMediaUploadFacade.ensureModuleReady(
-            YahwehMediaModule.membros,
-          );
-        } else {
-          await DirectStorageUrlPublish.ensureReady(requireAuth: false);
-        }
+    onPhase?.call('A preparar…');
+    onProgress?.call(0.05);
 
-        final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
-        final docId = memberDocId.trim();
-        final authUid = (memberData['authUid'] ??
-                memberData['firebaseUid'] ??
-                memberData['uid'] ??
-                '')
-            .toString()
-            .trim();
-        final storageFolderId =
-            FirebaseStorageService.memberProfileStorageFolderId(
-          docId,
-          authUid.isEmpty ? null : authUid,
-        );
-
-        onPhase?.call('A preparar imagem…');
-        onProgress?.call(0.12);
-        final fullBytes = await _prepareFullBytes(rawBytes);
-
-        onPhase?.call('A enviar…');
-        onProgress?.call(0.20);
-        // Path fixo = uma foto por membro (overwrite no Storage).
-        final uploaded = await MemberProfileMediaUpload.uploadProfileFull(
-          churchId: churchId,
-          storageFolderId: storageFolderId,
-          fullBytes: fullBytes,
-          requireAuth: requireAuth,
-          onProgress: (p) => onProgress?.call(0.20 + p * 0.55),
-        );
-        if (uploaded.trim().isEmpty) {
-          throw StateError('Upload da foto concluiu sem URL de download.');
-        }
-
-        final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
-          churchId,
-          storageFolderId,
-        );
-
-        final revision = YahwehMediaCacheBust.freshRevisionMs();
-        final photoUrlRaw = sanitizeImageUrl(uploaded);
-        final photoUrl = photoUrlRaw.isNotEmpty
-            ? YahwehMediaCacheBust.apply(photoUrlRaw, revision)
-            : '';
-
-        final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
-
-        // Firestore: só links/paths (padrão CT). Thumb = mesmo ficheiro.
-        final updates = <String, dynamic>{
-          'photoStoragePath': fullPath,
-          'photoThumbStoragePath': fullPath,
-          'fotoPath': fullPath,
-          'fotoThumbPath': fullPath,
-          if (photoUrl.isNotEmpty) ...{
-            'FOTO_URL_DB': photoUrl,
-            'avatarUrl': photoUrl,
-            'fotoUrl': photoUrl,
-            'FOTO_URL_OU_ID': photoUrl,
-            'photoURL': photoUrl,
-            'photoUrl': photoUrl,
-            'foto_url': photoUrl,
-            'fotoThumbUrl': photoUrl,
-            'photoThumbUrl': photoUrl,
-          },
-          MemberProfilePhotoUpdateService.photoUploadStateField:
-              EntityPublishStatus.published,
-          'photoUploadError': FieldValue.delete(),
-          'fotoUrlCacheRevision': revision,
-          'ATUALIZADO_EM': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'ativo': true,
-        };
-
-        final docRef = ChurchUiCollections.membros(churchId).doc(docId);
-        MembroPublishVerificationService.assertMembroDocPath(docRef);
-
-        onPhase?.call('A gravar…');
-        onProgress?.call(0.82);
-        if (kIsWeb) {
-          await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-        }
-        await AdminFeedFirestoreBridge.upsertDocRef(
-          docRef: docRef,
-          data: updates,
-          isNewDoc: false,
-          directWrite: () => runFirestorePublishWithRecovery(
-            () => docRef.set(updates, SetOptions(merge: true)),
-          ),
-        );
-
-        onProgress?.call(0.95);
-
-        // Pós-processamento em background (não bloqueia UI).
-        unawaited(
-          Future(() async {
-            FirebaseStorageCleanupService
-                .scheduleCleanupAfterMemberProfilePhotoUpload(
-              tenantId: churchId,
-              memberId: storageFolderId,
-            );
-            MemberProfilePhotoUpdateService.invalidateDisplayCaches(
-              previousDownloadUrl: previousUrl,
-              newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
-              storagePath: fullPath,
-              thumbStoragePath: fullPath,
-              tenantId: churchId,
-              memberDocId: docId,
-              authUid: authUid.isEmpty ? null : authUid,
-            );
-            await ModuleMediaOutboxService.clearMemberPhoto(
-              tenantId: churchId,
-              memberDocId: docId,
-            );
-          }),
-        );
-
-        onPhase?.call('Concluído');
-        onProgress?.call(1.0);
-        return MemberProfilePhotoUpdateResult(
-          downloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
-          storagePath: fullPath,
-          cacheRevision: revision,
-          thumbDownloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
-          thumbStoragePath: fullPath,
-        );
-      },
-      debugLabel: 'membro_foto_save',
+    final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
+    final docId = memberDocId.trim();
+    final authUid = (memberData['authUid'] ??
+            memberData['firebaseUid'] ??
+            memberData['uid'] ??
+            '')
+        .toString()
+        .trim();
+    final storageFolderId = FirebaseStorageService.memberProfileStorageFolderId(
+      docId,
+      authUid.isEmpty ? null : authUid,
     );
+    final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
+      churchId,
+      storageFolderId,
+    );
+
+    try {
+      await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+      onPhase?.call('A enviar…');
+      onProgress?.call(0.10);
+
+      final fullBytes = await _prepareFullBytes(rawBytes);
+      onProgress?.call(0.15);
+      final mime = _mimeForBytes(fullBytes);
+
+      final uploadedUrl = await DirectStorageUrlPublish.uploadBytes(
+        storagePath: fullPath,
+        bytes: fullBytes,
+        mimeType: mime,
+        requireAuth: requireAuth,
+        onProgress: (p) => onProgress?.call(0.15 + p * 0.60),
+      ).timeout(
+        kUploadTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Upload da foto demorou demais. Verifique a rede.',
+          kUploadTimeout,
+        ),
+      );
+      if (uploadedUrl.trim().isEmpty) {
+        throw StateError('Upload da foto concluiu sem URL de download.');
+      }
+
+      final revision = YahwehMediaCacheBust.freshRevisionMs();
+      final photoUrlRaw = sanitizeImageUrl(uploadedUrl);
+      final photoUrl = photoUrlRaw.isNotEmpty
+          ? YahwehMediaCacheBust.apply(photoUrlRaw, revision)
+          : '';
+
+      final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
+
+      final updates = <String, dynamic>{
+        'photoStoragePath': fullPath,
+        'photoThumbStoragePath': fullPath,
+        'fotoPath': fullPath,
+        'fotoThumbPath': fullPath,
+        if (photoUrl.isNotEmpty) ...{
+          'FOTO_URL_DB': photoUrl,
+          'avatarUrl': photoUrl,
+          'fotoUrl': photoUrl,
+          'FOTO_URL_OU_ID': photoUrl,
+          'photoURL': photoUrl,
+          'photoUrl': photoUrl,
+          'foto_url': photoUrl,
+          'fotoThumbUrl': photoUrl,
+          'photoThumbUrl': photoUrl,
+        },
+        MemberProfilePhotoUpdateService.photoUploadStateField:
+            EntityPublishStatus.published,
+        'photoUploadError': FieldValue.delete(),
+        'fotoUrlCacheRevision': revision,
+        'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'ativo': true,
+      };
+
+      final docRef = ChurchUiCollections.membros(churchId).doc(docId);
+      MembroPublishVerificationService.assertMembroDocPath(docRef);
+
+      onPhase?.call('A gravar…');
+      onProgress?.call(0.82);
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: docRef,
+        data: updates,
+        isNewDoc: false,
+        directWrite: () => runFirestorePublishWithRecovery(
+          () => docRef.set(updates, SetOptions(merge: true)),
+        ),
+      );
+
+      onProgress?.call(0.95);
+      unawaited(
+        Future(() async {
+          FirebaseStorageCleanupService
+              .scheduleCleanupAfterMemberProfilePhotoUpload(
+            tenantId: churchId,
+            memberId: storageFolderId,
+          );
+          MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+            previousDownloadUrl: previousUrl,
+            newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
+            storagePath: fullPath,
+            thumbStoragePath: fullPath,
+            tenantId: churchId,
+            memberDocId: docId,
+            authUid: authUid.isEmpty ? null : authUid,
+          );
+          await ModuleMediaOutboxService.clearMemberPhoto(
+            tenantId: churchId,
+            memberDocId: docId,
+          );
+        }),
+      );
+
+      onPhase?.call('Concluído');
+      onProgress?.call(1.0);
+      return MemberProfilePhotoUpdateResult(
+        downloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
+        storagePath: fullPath,
+        cacheRevision: revision,
+        thumbDownloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
+        thumbStoragePath: fullPath,
+      );
+    } catch (e) {
+      if (!kIsWeb && _shouldQueueOffline(e)) {
+        final fullBytes = await _prepareFullBytes(rawBytes);
+        await MuralPostPendingMediaCache.put(
+          tenantId: churchId,
+          postId: 'membro_$docId',
+          images: [fullBytes],
+        );
+        await ModuleMediaOutboxService.registerMemberPhoto(
+          tenantId: churchId,
+          memberDocId: docId,
+          memberData: memberData,
+        );
+        final docRef = ChurchUiCollections.membros(churchId).doc(docId);
+        await runFirestorePublishWithRecovery(
+          () => docRef.set(
+            MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+            SetOptions(merge: true),
+          ),
+        ).catchError((_) {});
+        throw const MemberProfilePhotoQueuedLocally();
+      }
+      rethrow;
+    }
+  }
+
+  static bool _shouldQueueOffline(Object e) {
+    final msg = e.toString().toLowerCase();
+    return e is TimeoutException ||
+        msg.contains('network') ||
+        msg.contains('socket') ||
+        msg.contains('unavailable') ||
+        msg.contains('connection') ||
+        msg.contains('offline') ||
+        msg.contains('failed host lookup');
   }
 
   /// Evita compressão dupla quando o pick já entregou WebP/JPEG leve.
@@ -264,4 +332,10 @@ abstract final class MemberProfilePhotoSaveService {
 
   static bool _looksLikeJpeg(Uint8List b) =>
       b.length >= 2 && b[0] == 0xFF && b[1] == 0xD8;
+
+  static String _mimeForBytes(Uint8List b) {
+    if (_looksLikeWebp(b)) return 'image/webp';
+    if (_looksLikeJpeg(b)) return 'image/jpeg';
+    return 'image/jpeg';
+  }
 }

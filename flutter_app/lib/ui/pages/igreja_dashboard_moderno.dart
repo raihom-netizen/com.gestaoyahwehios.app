@@ -47,7 +47,6 @@ import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
-import 'package:gestao_yahweh/ui/widgets/dashboard_finance_hub.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
@@ -1396,21 +1395,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                               },
                             ),
                           if (_dashCanFinance) ...[
-                            SizedBox(
-                              width: isNarrow ? double.infinity : double.infinity,
-                              child: DashboardFinanceHub(
-                                tenantId: _effectiveTenantId,
-                                range: _resolvedDashFinanceRange,
-                                preset: _dashFinancePreset,
-                                role: widget.role,
-                                cpf: widget.cpf,
-                                podeVerFinanceiro: widget.podeVerFinanceiro,
-                                permissions: widget.permissions,
-                                financeRefreshTick: _financeDashTick,
-                                isNarrow: isNarrow,
-                              ),
-                            ),
-                            const SizedBox(height: ThemeCleanPremium.spaceLg),
                             SizedBox(
                               width: isNarrow ? double.infinity : 380,
                               child: _PainelDespesasDashboard(

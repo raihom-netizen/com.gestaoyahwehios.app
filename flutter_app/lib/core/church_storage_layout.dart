@@ -561,6 +561,24 @@ abstract final class ChurchStorageLayout {
     ];
   }
 
+  /// Assinatura digital do membro (certificados / carteirinha) — `getData` direto no SDK.
+  static List<String> memberSignatureObjectPaths(
+    String tenantId,
+    String memberDocId,
+  ) {
+    final r = churchRoot(tenantId);
+    final mid = _safeDocId(memberDocId);
+    if (mid.isEmpty) return const [];
+    return [
+      '$r/membros/${mid}_assinatura.webp',
+      '$r/membros/${mid}_assinatura.png',
+      '$r/membros/${mid}_assinatura.jpg',
+      '$r/membros/$mid/assinatura.webp',
+      '$r/membros/$mid/assinatura.png',
+      '$r/membros/$mid/assinatura.jpg',
+    ];
+  }
+
   /// Logo institucional canónica (carteirinha, certificados, relatórios, site).
   /// Nome fixo para sobrescrever no Storage sem gerar ficheiros órfãos.
   static String churchIdentityLogoPath(String tenantId) =>

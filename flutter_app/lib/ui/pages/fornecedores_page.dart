@@ -46,7 +46,7 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -826,27 +826,20 @@ Future<void> showFornecedorCompromissoEditor(
         data: existing.data(),
       );
     }
-    final pendingComp = comprovanteSnap.pending;
-    if (pendingComp != null) {
-      if (!context.mounted) return;
-      await FinanceComprovanteUi.runWithProgress(
-        context,
-        label: 'A enviar comprovante…',
-        successMessage: 'Comprovante anexado.',
-        action: (onProgress) =>
-            FinanceComprovanteUpdateService.publishFornecedorCompromissoStrict(
-          churchIdHint: churchId,
+      final pendingComp = comprovanteSnap.pending;
+      if (pendingComp != null) {
+        if (!context.mounted) return;
+        await FinanceComprovanteAttachFlow.attachToCompromisso(
+          context: context,
+          tenantId: churchId,
           docRef: docRef,
           fornecedorId: fornecedorId,
-          compromissoId: docRef.id,
-          bytes: pendingComp.bytes,
-          mimeType: pendingComp.mimeType,
-          fileName: pendingComp.fileName,
-          onProgress: onProgress,
-          alreadyCompressed: pendingComp.alreadyOptimized,
-        ),
-      );
-    }
+          docData: existing?.data(),
+          prePicked: pendingComp,
+          showPickSheet: false,
+          suppressSuccessSnackBar: true,
+        );
+      }
 
     if (context.mounted) {
       // Progress UI já confirma o comprovante; aqui só o compromisso.
@@ -1294,6 +1287,24 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     );
   }
 
+  void _openFinanceGrid(
+    String fornecedorId, {
+    String? fornecedorNome,
+    String filtro = 'todos',
+  }) {
+    unawaited(
+      openFornecedorFinanceGrid(
+        context,
+        tenantId: _effectiveTenantId,
+        fornecedorId: fornecedorId,
+        fornecedorNome: fornecedorNome,
+        panelRole: widget.role,
+        filtroInicial: filtro,
+        onChanged: _reloadFornecedoresList,
+      ),
+    );
+  }
+
   Future<void> _openEditor({
     String? docId,
     Map<String, dynamic>? initialData,
@@ -1513,19 +1524,17 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       FornecedoresFinanceModuloTab(
                         tenantId: _effectiveTenantId,
                         panelRole: widget.role,
-                        onOpenFornecedorFinance: (id) =>
-                            _openHub(id, initialTabIndex: 1),
                       ),
                     _FornecedoresAgendaGeralTab(
                       tenantId: _effectiveTenantId,
                       colFornecedores: _col,
-                      onOpenFornecedor: _openHub,
+                      onOpenFornecedor: (id) => _openFinanceGrid(id),
                       canWrite: _canWrite,
                     ),
                     _FornecedoresCompromissosListaTab(
                       tenantId: _effectiveTenantId,
                       colFornecedores: _col,
-                      onOpenFornecedor: _openHub,
+                      onOpenFornecedor: (id) => _openFinanceGrid(id),
                       fornecedorIdFilter: null,
                       showFornecedorLine: true,
                       canWrite: _canWrite,
@@ -1938,6 +1947,19 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                           ),
                         ),
                       ),
+                      if (!_cadastrosSelectionMode && _showFinanceTab)
+                        IconButton(
+                          tooltip: 'Lançamentos',
+                          onPressed: () => _openFinanceGrid(
+                            d.id,
+                            fornecedorNome: nome,
+                          ),
+                          icon: const Icon(
+                            Icons.payments_rounded,
+                            color: Color(0xFF0D9488),
+                            size: 22,
+                          ),
+                        ),
                       if (!_cadastrosSelectionMode && _canWrite) ...[
                         IconButton(
                           tooltip: 'Editar',
@@ -2556,7 +2578,7 @@ class _FornecedoresCompromissosListaTabState
                                               widget.onOpenFornecedor !=
                                                   null)
                                             IconButton(
-                                              tooltip: 'Abrir fornecedor',
+                                              tooltip: 'Ver lançamentos',
                                               onPressed: () => widget
                                                   .onOpenFornecedor!(fid),
                                               icon: Icon(
@@ -4211,8 +4233,10 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
   Future<void> _novaComTipo(String presetTipo) async {
     final doc = await _fornecedorRef.get();
-    if (!doc.exists || !mounted) return;
-    final nome = (doc.data()?['nome'] ?? '').toString();
+    if (!mounted) return;
+    final nome = doc.exists
+        ? (doc.data()?['nome'] ?? '').toString()
+        : widget.fornecedorId;
     final ok = await showFinanceLancamentoEditorForTenant(
       context,
       tenantId: _tenantId,
@@ -4396,6 +4420,60 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               body: const ChurchPanelLoadingBody(),
             );
           }
+          final nomeFallback = (widget.initialData?['nome'] ??
+                  ChurchFornecedoresLoadService.peekDocData(
+                    _tenantId,
+                    widget.fornecedorId,
+                  )?['nome'] ??
+                  widget.fornecedorId)
+              .toString();
+          if (_showFinanceTab) {
+            return Scaffold(
+              backgroundColor: ThemeCleanPremium.surfaceVariant,
+              appBar: AppBar(
+                title: Text('Lançamentos · $nomeFallback'),
+              ),
+              body: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  MaterialBanner(
+                    backgroundColor: Colors.orange.shade50,
+                    content: const Text(
+                      'Cadastro removido — exibindo só lançamentos vinculados.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.maybePop(context),
+                        child: const Text('Voltar'),
+                      ),
+                      TextButton(
+                        onPressed: () => openFornecedorFinanceGrid(
+                          context,
+                          tenantId: _tenantId,
+                          fornecedorId: widget.fornecedorId,
+                          fornecedorNome: nomeFallback,
+                          panelRole: widget.role,
+                        ),
+                        child: const Text('Grade'),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: FornecedorFinanceHubPanel(
+                      tenantId: _tenantId,
+                      fornecedorId: widget.fornecedorId,
+                      panelRole: widget.role,
+                      onNovaDespesa: _novaDespesa,
+                      onNovaReceita: _novaReceita,
+                      onEditar: _editarLancamento,
+                      onExcluir: _excluirLancamento,
+                      onRecibo: _emitirRecibo,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
           return Scaffold(
             appBar: AppBar(title: const Text('Fornecedor')),
             body: ChurchPanelResilientLoadBanner(
@@ -4403,7 +4481,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               isSyncing: snap.connectionState == ConnectionState.waiting,
               errorTitle: 'Fornecedor não encontrado',
               error:
-                  'Não foi possível carregar o cadastro. Verifique a conexão ou tente novamente.',
+                  'O cadastro foi removido. Abra os lançamentos na aba Financeiro do módulo.',
               onRetry: () => setState(() {}),
             ),
           );

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
@@ -159,7 +160,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     });
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload({bool forceRefresh = false}) async {
     if (!mounted) return;
     final hadLocal = _items.isNotEmpty;
     setState(() {
@@ -174,6 +175,8 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       final list = await ChurchAvisosLoadService.loadActive(
         churchIdHint: widget.tenantId,
         limit: ChurchAvisosLoadService.kModuleListLimit,
+        forceRefresh: forceRefresh,
+        forceServer: forceRefresh,
       );
       if (!mounted) return;
       final ui = PanelResilientLoad.afterFetch(
@@ -237,11 +240,11 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
         listener = () {
           if (GlobalUploadProgress.instance.state.value != null) return;
           GlobalUploadProgress.instance.state.removeListener(listener);
-          unawaited(_reload());
+          unawaited(_reload(forceRefresh: true));
         };
         GlobalUploadProgress.instance.state.addListener(listener);
       } else {
-        await _reload();
+        await _reload(forceRefresh: true);
       }
     }
   }
@@ -269,12 +272,13 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       await ChurchAvisosService.deleteOne(
         churchIdHint: widget.tenantId,
         docId: item.id,
+        data: item.toStorageCleanupPayload(),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Aviso excluído.'),
         );
-        unawaited(_reload());
+        await _reload(forceRefresh: true);
       }
     } catch (e) {
       if (mounted) {
@@ -284,7 +288,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
-        unawaited(_reload());
+        await _reload(forceRefresh: true);
       }
     }
   }
@@ -295,6 +299,10 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
     final ok = await _showDeleteConfirmDialog(count: count);
     if (ok != true) return;
     final ids = Set<String>.from(_selected);
+    final dataById = <String, Map<String, dynamic>>{
+      for (final item in _items.where((i) => ids.contains(i.id)))
+        item.id: item.toStorageCleanupPayload(),
+    };
     setState(() {
       _loading = true;
       _selectionMode = false;
@@ -305,12 +313,13 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       final n = await ChurchAvisosService.deleteMany(
         churchIdHint: widget.tenantId,
         docIds: ids,
+        dataById: dataById,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('$n aviso(s) excluído(s).'),
         );
-        unawaited(_reload());
+        await _reload(forceRefresh: true);
       }
     } catch (e) {
       if (mounted) {
@@ -320,7 +329,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
-        unawaited(_reload());
+        await _reload(forceRefresh: true);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -1756,13 +1765,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       return;
     }
 
-    if (!await YahwehModuleMediaGate.prepareForPublishUpload(
-      context: context,
-      module: YahwehMediaModule.avisos,
-      logLabel: 'avisos_editor_publish',
-      withPhotos: _photos.isNotEmpty,
-    )) {
-      return;
+    if (_photos.isNotEmpty) {
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     }
 
     final isEdit = _isEdit;

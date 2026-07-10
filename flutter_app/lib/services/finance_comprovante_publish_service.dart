@@ -1,4 +1,5 @@
 import 'dart:async' show TimeoutException, unawaited;
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,9 +7,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
+import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -29,6 +30,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isFirebaseStorageHttpUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 /// Financeiro — comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
 /// → URL HTTPS → Firestore (`comprovanteUrl`, `hasComprovante`).
@@ -55,6 +58,11 @@ class FinanceComprovantePersistResult {
       );
 }
 
+/// Comprovante enfileirado localmente — UI trata como sucesso (Controle Total).
+class FinanceComprovanteQueuedLocally implements Exception {
+  const FinanceComprovanteQueuedLocally();
+}
+
 abstract final class FinanceComprovantePublishService {
   FinanceComprovantePublishService._();
 
@@ -75,9 +83,7 @@ abstract final class FinanceComprovantePublishService {
       );
 
   static Future<void> _ensureReady() async {
-    await ChurchMediaUploadFacade.ensureModuleReady(
-      YahwehMediaModule.financeiro,
-    );
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
   }
 
   /// Compressão em isolate antes do Storage (imagens apenas).
@@ -290,7 +296,8 @@ abstract final class FinanceComprovantePublishService {
     }
   }
 
-  static const Duration kComprovantePublishTimeout = Duration(seconds: 90);
+  static const Duration kComprovantePublishTimeout = Duration(seconds: 55);
+  static const Duration kComprovanteUploadTimeout = Duration(seconds: 60);
 
   static Future<void> _mergeComprovantePatch({
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -483,8 +490,11 @@ abstract final class FinanceComprovantePublishService {
     );
 
     onProgress?.call(0.08);
-    await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
-      churchId,
+    // Placeholder opcional — não bloquear upload (CT: put directo).
+    unawaited(
+      FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
+        churchId,
+      ).catchError((_) {}),
     );
 
     onProgress?.call(0.12);
@@ -512,17 +522,21 @@ abstract final class FinanceComprovantePublishService {
       logLabel: 'finance_comprovante',
       onProgress: (p) => onProgress?.call(0.15 + p * 0.75),
     ).timeout(
-      const Duration(seconds: 45),
+      kComprovanteUploadTimeout,
       onTimeout: () => throw TimeoutException(
         'Upload do comprovante demorou demais. Verifique a rede.',
+        kComprovanteUploadTimeout,
       ),
     );
 
-    onProgress?.call(0.92);
-    await ChurchStorageMetadataVerify.assertExists(
-      path,
-      maxAttempts: 4,
-      timeout: const Duration(seconds: 12),
+    onProgress?.call(0.90);
+    // putData OK = objeto existe; verificação pesada só em background.
+    unawaited(
+      ChurchStorageMetadataVerify.assertExists(
+        path,
+        maxAttempts: 2,
+        timeout: const Duration(seconds: 6),
+      ).catchError((_) {}),
     );
 
     // Apagar só o artefacto anterior distinto do path novo (nunca o ficheiro acabado de subir).
@@ -554,13 +568,8 @@ abstract final class FinanceComprovantePublishService {
     );
   }
 
-  /// Upload Storage → validar → gravar URL no Firestore (síncrono, sem falso sucesso).
-  ///
-  /// Web = mobile: `putData` via [ChurchCentralStorageUpload] (padrão CT ocorrências).
-  /// CF `gyUploadFinanceComprovante` só como fallback se o cliente falhar na Web.
-  ///
-  /// Com [alreadyCompressed] (picker já otimizou JPEG) — NÃO recomprimir.
-  static Future<String> uploadComprovanteNow({
+  /// Upload Storage → Firestore — padrão Controle Total (sem verify bloqueante).
+  static Future<String> uploadComprovanteControleTotal({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
     required Uint8List rawBytes,
@@ -572,35 +581,72 @@ abstract final class FinanceComprovantePublishService {
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
   }) async {
-    return FirebaseBootstrapService.runGuarded(
-      () async {
-        await _ensureReady();
-        YahwehFlowLog.uploadStart('comprovante');
+    await _ensureReady();
+    YahwehFlowLog.uploadStart('comprovante_ct');
+    final churchId = ChurchRepository.churchId(tenantId.trim());
 
-        final churchId = ChurchRepository.churchId(tenantId.trim());
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(
+        {
+          comprovanteUploadStateField: EntityPublishStatus.uploading,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+    ).catchError((_) {});
 
-        FinanceComprovantePersistResult? persisted;
-        Object? clientError;
+    try {
+      final persisted = await _uploadComprovanteStorageCore(
+        tenantId: tenantId,
+        lancamentoId: docRef.id,
+        rawBytes: rawBytes,
+        mimeType: mimeType,
+        fileName: fileName,
+        referenceDate: referenceDate,
+        previousStoragePath: previousStoragePath,
+        previousDownloadUrl: previousDownloadUrl,
+        onProgress: onProgress,
+        alreadyCompressed: alreadyCompressed,
+      );
+
+      await _mergeComprovantePatch(
+        docRef: docRef,
+        patch: persisted.toFirestorePatch(),
+      );
+
+      unawaited(
+        verifyComprovantePersisted(
+          docRef: docRef,
+          storagePath: persisted.storagePath,
+        ).catchError((_) {}),
+      );
+
+      YahwehFlowLog.financeiroUploadOk();
+      YahwehFlowLog.financeiroSuccess();
+      onProgress?.call(1.0);
+      return persisted.url;
+    } catch (e) {
+      if (!kIsWeb && _shouldQueueComprovanteOffline(e)) {
+        final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
+        final path = comprovantePathFor(
+          tenantId: churchId,
+          lancamentoId: docRef.id,
+          referenceDate: referenceDate,
+          ext: ext,
+        );
+        await _enqueueComprovanteLocalRetry(
+          tenantId: tenantId,
+          docRef: docRef,
+          bytes: rawBytes,
+          mimeType: mimeType,
+          storagePath: path,
+        );
+        throw const FinanceComprovanteQueuedLocally();
+      }
+
+      if (kIsWeb) {
+        onProgress?.call(0.12);
         try {
-          persisted = await _uploadComprovanteStorageCore(
-            tenantId: tenantId,
-            lancamentoId: docRef.id,
-            rawBytes: rawBytes,
-            mimeType: mimeType,
-            fileName: fileName,
-            referenceDate: referenceDate,
-            previousStoragePath: previousStoragePath,
-            previousDownloadUrl: previousDownloadUrl,
-            onProgress: onProgress,
-            alreadyCompressed: alreadyCompressed,
-          );
-        } catch (e) {
-          clientError = e;
-          if (!kIsWeb) rethrow;
-        }
-
-        if (persisted == null && kIsWeb) {
-          onProgress?.call(0.12);
           final prepared = await _optimizedForUpload(
             rawBytes: rawBytes,
             mimeType: mimeType,
@@ -620,49 +666,104 @@ abstract final class FinanceComprovantePublishService {
             fileName: fileName,
             referenceYearMonth: yearMonth,
           );
-          if (!cf.ok || cf.comprovanteUrl.trim().isEmpty) {
-            throw clientError ??
-                StateError('Falha ao enviar comprovante (cliente e servidor).');
+          if (cf.ok && cf.comprovanteUrl.trim().isNotEmpty) {
+            final persisted = FinanceComprovantePersistResult(
+              url: sanitizeImageUrl(cf.comprovanteUrl),
+              storagePath: cf.storagePath,
+              mimeType: cf.mimeType,
+              fileName: cf.fileName,
+            );
+            await _mergeComprovantePatch(
+              docRef: docRef,
+              patch: persisted.toFirestorePatch(),
+            );
+            onProgress?.call(1.0);
+            return persisted.url;
           }
-          persisted = FinanceComprovantePersistResult(
-            url: sanitizeImageUrl(cf.comprovanteUrl),
-            storagePath: cf.storagePath,
-            mimeType: cf.mimeType,
-            fileName: cf.fileName,
-          );
-        }
-
-        if (persisted == null) {
-          throw clientError ??
-              StateError('Falha ao enviar comprovante para o Storage.');
-        }
-
-        await _mergeComprovantePatch(
-          docRef: docRef,
-          patch: persisted.toFirestorePatch(),
-        );
-
-        onProgress?.call(0.96);
-        await verifyComprovantePersisted(
-          docRef: docRef,
-          storagePath: persisted.storagePath,
-        );
-
-        YahwehFlowLog.financeiroUploadOk();
-        YahwehFlowLog.financeiroSuccess();
-        onProgress?.call(1.0);
-        return persisted.url;
-      },
-      debugLabel: 'finance_comprovante_upload',
-      requireAuth: true,
-    ).timeout(
-      kComprovantePublishTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Envio do comprovante demorou demais. Verifique a rede e tente de novo.',
-        kComprovantePublishTimeout,
-      ),
-    );
+        } catch (_) {}
+      }
+      rethrow;
+    }
   }
+
+  static bool _shouldQueueComprovanteOffline(Object e) {
+    final msg = e.toString().toLowerCase();
+    return e is TimeoutException ||
+        msg.contains('network') ||
+        msg.contains('socket') ||
+        msg.contains('unavailable') ||
+        msg.contains('connection') ||
+        msg.contains('offline') ||
+        msg.contains('failed host lookup');
+  }
+
+  static Future<void> _enqueueComprovanteLocalRetry({
+    required String tenantId,
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Uint8List bytes,
+    required String mimeType,
+    required String storagePath,
+  }) async {
+    if (!kIsWeb && bytes.isNotEmpty) {
+      try {
+        final dir = await getTemporaryDirectory();
+        final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
+        final localPath = p.join(
+          dir.path,
+          'comprovante_${DateTime.now().millisecondsSinceEpoch}.$ext',
+        );
+        await File(localPath).writeAsBytes(bytes, flush: true);
+        await StorageUploadPersistenceService.enqueueFileJob(
+          storagePath: storagePath,
+          localFilePath: localPath,
+          contentType: mimeType,
+        );
+      } catch (_) {}
+    }
+
+    await runFirestorePublishWithRecovery(
+      () => docRef.set(
+        {
+          comprovanteUploadStateField: EntityPublishStatus.uploading,
+          'comprovantePendingLocal': true,
+          'comprovanteStoragePath': storagePath,
+          'hasComprovante': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+    ).catchError((_) {});
+  }
+
+  /// Upload Storage → validar → gravar URL no Firestore (legado — delega ao CT).
+  static Future<String> uploadComprovanteNow({
+    required String tenantId,
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Uint8List rawBytes,
+    required String mimeType,
+    String? fileName,
+    DateTime? referenceDate,
+    String? previousStoragePath,
+    String? previousDownloadUrl,
+    void Function(double progress)? onProgress,
+    bool alreadyCompressed = false,
+  }) =>
+      FirebaseBootstrapService.runGuarded(
+        () => uploadComprovanteControleTotal(
+          tenantId: tenantId,
+          docRef: docRef,
+          rawBytes: rawBytes,
+          mimeType: mimeType,
+          fileName: fileName,
+          referenceDate: referenceDate,
+          previousStoragePath: previousStoragePath,
+          previousDownloadUrl: previousDownloadUrl,
+          onProgress: onProgress,
+          alreadyCompressed: alreadyCompressed,
+        ),
+        debugLabel: 'finance_comprovante_upload',
+        requireAuth: true,
+      );
 
   static Future<void> removeComprovante({
     required String tenantId,

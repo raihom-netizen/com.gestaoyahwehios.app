@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/member_card_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
 import 'package:gestao_yahweh/services/member_card_sign_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
@@ -257,18 +258,26 @@ class _MemberCardPageState extends State<MemberCardPage>
   void _applySignLocally(List<String> ids, MemberCardSignatory signatory) {
     if (ids.isEmpty) return;
     final idSet = ids.map((e) => e.trim()).toSet();
+    final signedAt = DateTime.now().toIso8601String();
+    final signaturePatch = <String, dynamic>{
+      'carteirinhaAssinadaEm': signedAt,
+      'carteirinhaAssinadaPor': signatory.memberId,
+      'carteirinhaAssinadaPorNome': signatory.nome,
+      'carteirinhaAssinadaPorCargo': signatory.cargo,
+      if (signatory.assinaturaUrl != null &&
+          signatory.assinaturaUrl!.trim().isNotEmpty)
+        'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
+    };
+    MembersDirectorySnapshotService.patchMembersSignatureInMemory(
+      tenantId: _churchIdResolved,
+      memberIds: idSet,
+      signatureFields: signaturePatch,
+    );
     setState(() {
       _members = _members.map((m) {
         if (!idSet.contains(m.id)) return m;
         final d = Map<String, dynamic>.from(m.data);
-        d['carteirinhaAssinadaPor'] = signatory.memberId;
-        d['carteirinhaAssinadaPorNome'] = signatory.nome;
-        d['carteirinhaAssinadaPorCargo'] = signatory.cargo;
-        if (signatory.assinaturaUrl != null &&
-            signatory.assinaturaUrl!.trim().isNotEmpty) {
-          d['carteirinhaAssinaturaUrl'] = signatory.assinaturaUrl!.trim();
-        }
-        d['carteirinhaAssinadaEm'] = DateTime.now().toIso8601String();
+        d.addAll(signaturePatch);
         return _MemberRow(
           id: m.id,
           name: m.name,
@@ -346,16 +355,45 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   List<_MemberRow> _mapEntries(List<MemberCardListEntry> entries) {
-    return entries
-        .map(
-          (e) => _MemberRow(
-            id: e.id,
-            name: e.name,
-            data: e.data,
-            photoUrl: e.photoUrl,
-          ),
-        )
-        .toList();
+    return _preserveSignedOverlay(
+      entries
+          .map(
+            (e) => _MemberRow(
+              id: e.id,
+              name: e.name,
+              data: e.data,
+              photoUrl: e.photoUrl,
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  /// Evita regressão «Pendente» após assinar quando o reload usa cache leve.
+  List<_MemberRow> _preserveSignedOverlay(List<_MemberRow> fresh) {
+    if (_members.isEmpty) return fresh;
+    final prior = {for (final m in _members) m.id: m};
+    return fresh.map((m) {
+      final old = prior[m.id];
+      if (old == null || !old.isSigned || m.isSigned) return m;
+      final d = Map<String, dynamic>.from(m.data);
+      for (final key in const [
+        'carteirinhaAssinadaEm',
+        'carteirinhaAssinadaPor',
+        'carteirinhaAssinadaPorNome',
+        'carteirinhaAssinadaPorCargo',
+        'carteirinhaAssinaturaUrl',
+      ]) {
+        final v = old.data[key];
+        if (v != null) d[key] = v;
+      }
+      return _MemberRow(
+        id: m.id,
+        name: m.name,
+        data: d,
+        photoUrl: m.photoUrl,
+      );
+    }).toList();
   }
 
   List<_MemberRow> get _filtered {
@@ -820,7 +858,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         ThemeCleanPremium.feedbackSnackBar(msg),
       );
       if (r.ok > 0) {
-        unawaited(_reloadMembers(forceRefresh: false));
+        unawaited(_reloadMembers(forceRefresh: true));
         if (_previewMember != null) {
           unawaited(_loadSingleCard(
             memberId: _previewMember!.id,

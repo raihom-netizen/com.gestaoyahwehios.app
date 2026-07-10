@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart' show YahwehMediaModule;
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
@@ -143,8 +143,11 @@ abstract final class ChurchMediaUploadFacade {
     void Function(UploadTask task)? onUploadTaskCreated,
     Duration timeout = kDefaultTimeout,
     int maxBytes = kStorageRulesMaxFeedImageBytes,
+    bool skipEnsureReady = false,
   }) async {
-    await ensureReady();
+    if (!skipEnsureReady) {
+      await ensureReady();
+    }
     try {
       return await ChurchCentralStorageUpload.uploadImageAtPath(
         storagePath: storagePath,
@@ -205,6 +208,7 @@ abstract final class ChurchMediaUploadFacade {
                 ? null
                 : (p) => onItemProgress(i, p),
             timeout: timeoutPerItem,
+            skipEnsureReady: true,
           );
           results[i] = ChurchMediaUploadBatchResult(index: i, result: uploaded);
         } catch (e) {
@@ -227,13 +231,13 @@ abstract final class ChurchMediaUploadFacade {
     return null;
   }
 
-  /// Gate Firebase + Storage + Firestore antes de qualquer módulo.
+  /// Gate único Controle Total — só Storage + Auth (Firestore **depois** do upload).
   static Future<void> ensureReady({
     YahwehMediaModule? module,
     bool withPhotos = true,
+    bool requireAuth = true,
   }) async {
-    await DirectStorageUrlPublish.ensureReady();
-    await YahwehModuleMediaGate.assertReadyForUploadAction(withPhotos: withPhotos);
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 
   /// Atalho por módulo (Eventos, Avisos, Chat, Património, Financeiro, Cadastro).

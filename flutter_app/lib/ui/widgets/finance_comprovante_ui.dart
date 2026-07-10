@@ -2,9 +2,10 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
-import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Upload de comprovante — barra global estilo WhatsApp (não bloqueia o ecrã).
+/// Upload de comprovante — barra global (Controle Total), sem bloquear o ecrã.
 abstract final class FinanceComprovanteUi {
   FinanceComprovanteUi._();
 
@@ -14,22 +15,29 @@ abstract final class FinanceComprovanteUi {
     required Future<T> Function(void Function(double progress)) action,
     VoidCallback? closeEditor,
     String? successMessage,
-  }) {
-    return EcofirePublishProgressUi.runInBackgroundNonBlocking<T>(
-      context: context,
-      uploadLabel: label,
-      saveLabel: 'A gravar comprovante…',
-      distributeLabel: 'A finalizar…',
-      successMessage: successMessage ?? 'Comprovante enviado.',
-      closeEditor: closeEditor ?? () {},
-      action: (report) async {
-        await DirectStorageUrlPublish.ensureReady();
-        return action(report);
-      },
-    );
+  }) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    closeEditor?.call();
+    GlobalUploadProgress.instance.start(label);
+
+    void reportProgress(double p) {
+      GlobalUploadProgress.instance.update(p);
+    }
+
+    try {
+      await DirectStorageUrlPublish.ensureReady();
+      final result = await action(reportProgress);
+      if (successMessage != null && successMessage.isNotEmpty) {
+        messenger?.showSnackBar(
+          ThemeCleanPremium.successSnackBar(successMessage),
+        );
+      }
+      return result;
+    } finally {
+      GlobalUploadProgress.instance.end();
+    }
   }
 
-  /// Fire-and-forget após fechar o formulário financeiro.
   static void schedule<T>({
     required BuildContext context,
     required String label,

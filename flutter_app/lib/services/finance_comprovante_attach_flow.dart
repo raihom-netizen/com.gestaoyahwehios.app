@@ -1,0 +1,207 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
+import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+
+/// Fluxo único de anexo de comprovante — padrão Controle Total.
+///
+/// Pick → Storage `putData` → Firestore → sucesso imediato.
+/// Falha de rede (mobile): fila local + sync em background.
+abstract final class FinanceComprovanteAttachFlow {
+  FinanceComprovanteAttachFlow._();
+
+  static Future<bool> attachToLancamento({
+    required BuildContext context,
+    required String tenantId,
+    required DocumentReference<Map<String, dynamic>> docRef,
+    Map<String, dynamic>? docData,
+    FinanceComprovanteAttachment? prePicked,
+    bool showPickSheet = true,
+    bool suppressSuccessSnackBar = false,
+  }) async {
+    final data = docData ?? {};
+    final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(data);
+
+    final picked = prePicked ??
+        (showPickSheet
+            ? await FinanceComprovanteAttachService.showPickSheet(
+                context,
+                title: jaTem ? 'Trocar comprovante' : 'Anexar comprovante',
+              )
+            : null);
+    if (picked == null) return false;
+    if (!context.mounted) return false;
+
+    final label =
+        jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
+    GlobalUploadProgress.instance.start(label);
+
+    void report(double p) => GlobalUploadProgress.instance.update(p);
+
+    try {
+      report(0.05);
+      final refDate =
+          FinanceComprovantePublishService.referenceDateFromMap(data);
+      final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
+
+      await FinanceComprovantePublishService.uploadComprovanteControleTotal(
+        tenantId: tenantId,
+        docRef: docRef,
+        rawBytes: picked.bytes,
+        mimeType: mime,
+        fileName: picked.fileName,
+        referenceDate: refDate,
+        previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
+        previousDownloadUrl:
+            (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+                .toString(),
+        onProgress: report,
+        alreadyCompressed: picked.alreadyOptimized,
+      );
+
+      report(1.0);
+      if (context.mounted && !suppressSuccessSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',
+          ),
+        );
+      }
+      unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+      return true;
+    } on FinanceComprovanteQueuedLocally {
+      report(1.0);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Comprovante guardado no aparelho; envio automático quando houver internet.',
+          ),
+        );
+      }
+      unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+      return true;
+    } catch (e) {
+      await FinanceComprovantePublishService.markComprovanteUploadFailed(
+        docRef: docRef,
+        error: e,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            formatFirebaseErrorForUser(e),
+            onRetry: () => unawaited(
+              attachToLancamento(
+                context: context,
+                tenantId: tenantId,
+                docRef: docRef,
+                docData: docData,
+                prePicked: picked,
+                showPickSheet: false,
+              ),
+            ),
+          ),
+        );
+      }
+      return false;
+    } finally {
+      GlobalUploadProgress.instance.end();
+    }
+  }
+
+  /// Compromisso de fornecedor — mesmo fluxo CT (pick → Storage → Firestore).
+  static Future<bool> attachToCompromisso({
+    required BuildContext context,
+    required String tenantId,
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String fornecedorId,
+    Map<String, dynamic>? docData,
+    FinanceComprovanteAttachment? prePicked,
+    bool showPickSheet = true,
+    bool suppressSuccessSnackBar = false,
+  }) async {
+    final data = docData ?? {};
+    final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(data);
+
+    final picked = prePicked ??
+        (showPickSheet
+            ? await FinanceComprovanteAttachService.showPickSheet(
+                context,
+                title: jaTem ? 'Trocar comprovante' : 'Anexar comprovante',
+              )
+            : null);
+    if (picked == null) return false;
+    if (!context.mounted) return false;
+
+    final label =
+        jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
+    GlobalUploadProgress.instance.start(label);
+
+    void report(double p) => GlobalUploadProgress.instance.update(p);
+
+    try {
+      report(0.05);
+      final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
+
+      await FornecedorCompromissoPublishService.attachComprovanteControleTotal(
+        docRef: docRef,
+        churchId: tenantId,
+        fornecedorId: fornecedorId,
+        compromissoId: docRef.id,
+        bytes: picked.bytes,
+        mimeType: mime,
+        fileName: picked.fileName,
+        onProgress: report,
+        alreadyCompressed: picked.alreadyOptimized,
+      );
+
+      report(1.0);
+      if (context.mounted && !suppressSuccessSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',
+          ),
+        );
+      }
+      return true;
+    } on FinanceComprovanteQueuedLocally {
+      report(1.0);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Comprovante guardado no aparelho; envio automático quando houver internet.',
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            formatFirebaseErrorForUser(e),
+            onRetry: () => unawaited(
+              attachToCompromisso(
+                context: context,
+                tenantId: tenantId,
+                docRef: docRef,
+                fornecedorId: fornecedorId,
+                docData: docData,
+                prePicked: picked,
+                showPickSheet: false,
+              ),
+            ),
+          ),
+        );
+      }
+      return false;
+    } finally {
+      GlobalUploadProgress.instance.end();
+    }
+  }
+}

@@ -94,7 +94,11 @@ abstract final class ChurchCentralStorageUpload {
     try {
       final ({Uint8List bytes, String mime}) processed;
       if (alreadyCompressed && !compressForFeed) {
-        processed = (bytes: rawBytes, mime: 'image/jpeg');
+        if (rawBytes.length <= 420 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
+          processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
+        } else {
+          processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+        }
       } else if (compressForFeed) {
         processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
       } else {
@@ -143,6 +147,29 @@ abstract final class ChurchCentralStorageUpload {
       );
       rethrow;
     }
+  }
+
+  static bool _looksLikeWebpOrJpeg(Uint8List b) =>
+      _looksLikeWebp(b) || _looksLikeJpeg(b);
+
+  static bool _looksLikeWebp(Uint8List b) =>
+      b.length >= 12 &&
+      b[0] == 0x52 &&
+      b[1] == 0x49 &&
+      b[2] == 0x46 &&
+      b[3] == 0x46 &&
+      b[8] == 0x57 &&
+      b[9] == 0x45 &&
+      b[10] == 0x42 &&
+      b[11] == 0x50;
+
+  static bool _looksLikeJpeg(Uint8List b) =>
+      b.length >= 2 && b[0] == 0xFF && b[1] == 0xD8;
+
+  static String _mimeForBytes(Uint8List b) {
+    if (_looksLikeWebp(b)) return 'image/webp';
+    if (_looksLikeJpeg(b)) return 'image/jpeg';
+    return 'image/jpeg';
   }
 
   /// Aviso — `igrejas/{id}/avisos/{postId}/capa_aviso.jpg` (+ galeria).

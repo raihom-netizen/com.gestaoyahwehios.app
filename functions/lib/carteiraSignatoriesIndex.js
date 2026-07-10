@@ -118,11 +118,13 @@ exports.refreshCarteiraSignatoriesIndex = functions
         if (!nome)
             return;
         const url = String(d.assinaturaUrl ?? d.assinatura_url ?? "").trim();
+        const storagePath = String(d.assinaturaStoragePath ?? "").trim();
         byId.set(doc.id, {
             memberId: doc.id,
             nome,
             cargo: cargoLabel(d),
             assinaturaUrl: url || null,
+            assinaturaStoragePath: storagePath || null,
         });
     };
     await Promise.all(ROLE_KEYS.map(async (role) => {

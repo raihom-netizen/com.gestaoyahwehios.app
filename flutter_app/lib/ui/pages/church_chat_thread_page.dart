@@ -2131,8 +2131,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void _enqueuePending(ChurchChatOutboundPending pending) {
     if (!mounted) return;
     setState(() => _pendingOutbound.insert(0, pending));
-    _startOptimisticMediaPipeline(pending);
-    Future<void>.delayed(const Duration(seconds: 95), () {
+    if (pending.kind == 'image') {
+      _startOptimisticMediaPipeline(pending);
+    } else if (pending.kind == 'audio') {
+      _setPendingProgress(pending.localId, 0.06);
+    }
+    Future<void>.delayed(const Duration(seconds: 200), () {
       if (!mounted) return;
       final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
       if (i < 0 || _pendingOutbound[i].failed) return;

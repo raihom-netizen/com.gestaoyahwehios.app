@@ -558,6 +558,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
               cargo: o.cargo,
               assinaturaUrlHint:
                   o.assinaturaUrl.isNotEmpty ? o.assinaturaUrl : null,
+              assinaturaStoragePathHint: o.assinaturaStoragePath.isNotEmpty
+                  ? o.assinaturaStoragePath
+                  : null,
             ),
         ],
         useDigitalSignature: useDigital,
@@ -834,6 +837,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
         cpfRaw: cpf,
         assinaturaUrl:
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
+        assinaturaStoragePath:
+            (d['assinaturaStoragePath'] ?? '').toString().trim(),
       );
     }
 
@@ -871,6 +876,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
         cpfRaw: cpfSlot,
         assinaturaUrl:
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim(),
+        assinaturaStoragePath:
+            (d['assinaturaStoragePath'] ?? '').toString().trim(),
       ));
       seenIds.add(id);
     }
@@ -2077,6 +2084,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             cargoOptions: o.cargoOptions,
             cpfRaw: o.cpfRaw,
             assinaturaUrl: o.assinaturaUrl,
+            assinaturaStoragePath: o.assinaturaStoragePath,
           ),
         );
       }
@@ -2656,6 +2664,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
               cpfDigits: s.cpfRaw,
               assinaturaUrlHint:
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+              assinaturaStoragePathHint: s.assinaturaStoragePath.isNotEmpty
+                  ? s.assinaturaStoragePath
+                  : null,
             ),
         ];
         final firstT = tpl(selectedDocs.first.id);
@@ -2833,6 +2844,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
             cpfDigits: s.cpfRaw,
             assinaturaUrlHint:
                 s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+            assinaturaStoragePathHint: s.assinaturaStoragePath.isNotEmpty
+                ? s.assinaturaStoragePath
+                : null,
           ),
       ];
 
@@ -5116,6 +5130,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   String _previewLogoResolveSig = '';
   Future<String?>? _previewTemplateBgFuture;
   String _previewTemplateBgSig = '';
+  CertPdfResolvedShared? _preResolvedPdfShared;
+  String _preResolvedWarmSig = '';
+  Future<CertPdfResolvedShared?>? _preResolveInflight;
 
   Color get _cor => widget.corOverride ?? widget.template.cor;
   Color get _corTexto => widget.corTextoOverride ?? const Color(0xFF1E1E1E);
@@ -5336,6 +5353,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   void _scheduleEditorWarmCertificatePdfAssets() {
+    final sig = _editorPdfWarmSignature();
+    if (_preResolvedWarmSig == sig && _preResolvedPdfShared != null) return;
     final useDigital = _signatureMode == 'digital';
     unawaited(
       warmCertificatePdfAssets(
@@ -5352,6 +5371,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               cargo: s.cargo,
               assinaturaUrlHint:
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+              assinaturaStoragePathHint: s.assinaturaStoragePath.isNotEmpty
+                  ? s.assinaturaStoragePath
+                  : null,
             ),
         ],
         useDigitalSignature: useDigital,
@@ -5359,6 +5381,98 @@ class _CertEditorPageState extends State<_CertEditorPage> {
             _includeInstitutionalPastorSignature,
       ),
     );
+    _preResolveInflight = _preResolveCertificatePdfAssets(sig);
+  }
+
+  String _editorPdfWarmSignature() {
+    final useDigital = _signatureMode == 'digital';
+    final sigs = _normalizeUiSignatoriesForPdfGlobal(
+      _effectiveSignatories,
+      useDigitalSignature: useDigital,
+    );
+    return [
+      widget.tenantId.trim(),
+      _visualTemplateId,
+      _signatureMode,
+      '$_includeInstitutionalPastorSignature',
+      widget.logoUrl,
+      widget.logoFetchCandidates.join('\u241f'),
+      for (final s in sigs)
+        '${s.memberId}|${s.assinaturaStoragePath}|${s.assinaturaUrl}',
+    ].join('\u241e');
+  }
+
+  Future<CertPdfResolvedShared?> _preResolveCertificatePdfAssets(
+    String warmSig,
+  ) async {
+    try {
+      final useDigital = _signatureMode == 'digital';
+      final sigs = _normalizeUiSignatoriesForPdfGlobal(
+        _effectiveSignatories,
+        useDigitalSignature: useDigital,
+      );
+      final params = CertPdfPipelineParams(
+        tenantId: widget.tenantId,
+        logoFetchCandidates: widget.logoFetchCandidates,
+        logoUrlFallback: widget.logoUrl,
+        titulo: widget.tituloCtrl.text,
+        subtitulo: widget.subtituloCtrl.text.trim(),
+        texto: widget.textoCtrl.text,
+        nomeMembro: _pdfNoivoNome(),
+        nomeMembroLinha2: _isCasamento ? _pdfNoivaNome() : '',
+        nomeIgreja: widget.nomeIgreja,
+        local: widget.localCtrl.text,
+        layoutId: _certPdfLayoutId,
+        fontStyleId: _fontStyleId,
+        colorPrimaryArgb: _cor.toARGB32(),
+        colorTextArgb: _corTexto.toARGB32(),
+        pastorManual: widget.pastorCtrl.text,
+        cargoManual: widget.cargoCtrl.text,
+        useDigitalSignature: useDigital,
+        visualTemplateId: _visualTemplateId,
+        includeInstitutionalPastorSignature:
+            _includeInstitutionalPastorSignature,
+        signatoriesForPdf: [
+          for (final s in sigs)
+            CertPdfPipelineSignatory(
+              memberId: s.memberId,
+              nome: s.nome,
+              cargo: s.cargo,
+              cpfDigits: s.cpfRaw,
+              assinaturaUrlHint:
+                  s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+              assinaturaStoragePathHint: s.assinaturaStoragePath.isNotEmpty
+                  ? s.assinaturaStoragePath
+                  : null,
+            ),
+        ],
+      );
+      final resolved = await resolveCertificatePdfShared(params);
+      if (!mounted) return resolved;
+      _preResolvedPdfShared = resolved;
+      _preResolvedWarmSig = warmSig;
+      return resolved;
+    } catch (e, st) {
+      debugPrint('CertEditor preResolve assets: $e\n$st');
+      return null;
+    }
+  }
+
+  Future<CertPdfResolvedShared?> _ensurePreResolvedForGenerate(
+    String warmSig,
+    void Function(String message, double progress01)? onProgress,
+  ) async {
+    if (_preResolvedWarmSig == warmSig && _preResolvedPdfShared != null) {
+      return _preResolvedPdfShared;
+    }
+    final inflight = _preResolveInflight;
+    if (inflight != null) {
+      onProgress?.call('A usar imagens já preparadas…', 0.12);
+      final r = await inflight;
+      if (r != null && _preResolvedWarmSig == warmSig) return r;
+    }
+    onProgress?.call('Preparando logo e assinaturas…', 0.1);
+    return _preResolveCertificatePdfAssets(warmSig);
   }
 
   @override
@@ -5417,6 +5531,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
             cargoOptions: o.cargoOptions,
             cpfRaw: o.cpfRaw,
             assinaturaUrl: o.assinaturaUrl,
+            assinaturaStoragePath: o.assinaturaStoragePath,
           ),
         )
         .toList();
@@ -5693,6 +5808,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                             _visualTemplateId = vt.id;
                             _refreshTemplateBgFuture();
                           });
+                          _scheduleEditorWarmCertificatePdfAssets();
                         },
                         child: Ink(
                           width: 112,
@@ -5790,6 +5906,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 onChanged: (v) {
                   if (v == null) return;
                   setState(() => _signatureMode = v);
+                  _scheduleEditorWarmCertificatePdfAssets();
                 },
               ),
               const SizedBox(height: 6),
@@ -6116,36 +6233,47 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     );
     try {
       final op = ChurchRepository.churchId(widget.tenantId.trim());
-      await           ChurchUiCollections.config(op)
-          .doc('certificados')
-          .set({
-        'defaultSignatoryMemberIds': _selectedSignatoryIds,
-        'defaultSignaturesCount': _selectedSignatoryIds.length,
-        'certSignatorySlots': [
-          for (var i = 0; i < _kCertSignatorySlotCount; i++)
-            <String, dynamic>{
-              'memberId': i < _selectedSignatoryIds.length
-                  ? _selectedSignatoryIds[i]
-                  : '',
-              'cargoExibicao': () {
-                if (i >= _selectedSignatoryIds.length) {
-                  return _kDefaultCertSlotCargos[i];
-                }
-                final id = _selectedSignatoryIds[i];
-                final c = (_selectedCargoByMemberId[id] ?? '').trim();
-                return c.isEmpty ? _kDefaultCertSlotCargos[i] : c;
-              }(),
-            },
-        ],
-        'certLayoutId': _certPdfLayoutId,
-        'defaultFontStyleId': _fontStyleId,
-        'defaultSignatureMode': _signatureMode,
-        'defaultVisualTemplateId': _visualTemplateId,
-        'includeInstitutionalPastorSignature':
-            _includeInstitutionalPastorSignature,
-      }, SetOptions(merge: true));
+      unawaited(
+        ChurchUiCollections.config(op).doc('certificados').set({
+          'defaultSignatoryMemberIds': _selectedSignatoryIds,
+          'defaultSignaturesCount': _selectedSignatoryIds.length,
+          'certSignatorySlots': [
+            for (var i = 0; i < _kCertSignatorySlotCount; i++)
+              <String, dynamic>{
+                'memberId': i < _selectedSignatoryIds.length
+                    ? _selectedSignatoryIds[i]
+                    : '',
+                'cargoExibicao': () {
+                  if (i >= _selectedSignatoryIds.length) {
+                    return _kDefaultCertSlotCargos[i];
+                  }
+                  final id = _selectedSignatoryIds[i];
+                  final c = (_selectedCargoByMemberId[id] ?? '').trim();
+                  return c.isEmpty ? _kDefaultCertSlotCargos[i] : c;
+                }(),
+              },
+          ],
+          'certLayoutId': _certPdfLayoutId,
+          'defaultFontStyleId': _fontStyleId,
+          'defaultSignatureMode': _signatureMode,
+          'defaultVisualTemplateId': _visualTemplateId,
+          'includeInstitutionalPastorSignature':
+              _includeInstitutionalPastorSignature,
+        }, SetOptions(merge: true)).catchError((Object e, StackTrace st) {
+          debugPrint('CertEditor save cert config: $e\n$st');
+        }),
+      );
+      final warmSig = _editorPdfWarmSignature();
+      final preResolved = await _ensurePreResolvedForGenerate(
+        warmSig,
+        (m, p) {
+          phase.value = m;
+          pct.value = p;
+        },
+      );
       final built = await _buildCertPdf(
         PdfPageFormat.a4,
+        preResolvedShared: preResolved,
         onProgress: (m, p) {
           phase.value = m;
           pct.value = p;
@@ -6593,6 +6721,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 
   Future<({List<int> bytes, String protocolId})> _buildCertPdf(
     PdfPageFormat format, {
+    CertPdfResolvedShared? preResolvedShared,
     void Function(String message, double progress01)? onProgress,
   }) async {
     final useDigitalSignature = _signatureMode == 'digital';
@@ -6681,8 +6810,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
 
     // Pipeline local Gala Luxo — respeita modelo visual (Clássico/Pergaminho/Moderno).
-    // A CF `gerarCertificadoPdf` ignora `visualTemplateId` (PDF básico).
-    onProgress?.call('Montando PDF premium…', 0.2);
+    onProgress?.call('Montando PDF premium…', preResolvedShared != null ? 0.72 : 0.2);
 
     final bytes = await runCertificatePdfPipeline(
       CertPdfPipelineParams(
@@ -6722,10 +6850,14 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               cpfDigits: s.cpfRaw,
               assinaturaUrlHint:
                   s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+              assinaturaStoragePathHint: s.assinaturaStoragePath.isNotEmpty
+                  ? s.assinaturaStoragePath
+                  : null,
             ),
         ],
       ),
       onProgress: onProgress,
+      preResolvedShared: preResolvedShared,
     );
     unawaited(
       CertificateEmitidoService.registerEmissao(
@@ -8253,6 +8385,8 @@ class _SignatoryOption {
   final String cpfRaw;
   /// URL da assinatura (evita leitura extra no Firestore ao gerar o PDF).
   final String assinaturaUrl;
+  /// Path Storage canónico — download direto via SDK (mais rápido que URL).
+  final String assinaturaStoragePath;
   const _SignatoryOption({
     required this.memberId,
     required this.nome,
@@ -8260,6 +8394,7 @@ class _SignatoryOption {
     this.cargoOptions = const [],
     this.cpfRaw = '',
     this.assinaturaUrl = '',
+    this.assinaturaStoragePath = '',
   });
 }
 

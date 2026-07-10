@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
@@ -61,14 +62,7 @@ abstract final class ChurchCanonicalMediaPublish {
     if (rawBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outro ficheiro.');
     }
-    final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-      module: gateModule,
-      logLabel: logLabel,
-      requireAuth: requireAuth,
-    );
-    if (!ok) {
-      throw StateError('Firebase indisponível para enviar mídia.');
-    }
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
 
     onProgress?.call(0.05);
     late final Uint8List uploadBytes;
@@ -121,15 +115,7 @@ abstract final class ChurchCanonicalMediaPublish {
     if (bytes.isEmpty) {
       throw StateError('Ficheiro vazio — selecione outro.');
     }
-    final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-      module: gateModule,
-      logLabel: logLabel,
-      requireAuth: requireAuth,
-      withPhotos: false,
-    );
-    if (!ok) {
-      throw StateError('Firebase indisponível para enviar mídia.');
-    }
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
 
     final url = await EcoFireStorageUpload.putData(
       storagePath: storagePath,

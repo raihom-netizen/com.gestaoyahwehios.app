@@ -56,6 +56,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -8467,29 +8468,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     try {
-      var publishReady = await YahwehModuleMediaGate.prepareForPublishUpload(
-        context: context,
-        module: YahwehMediaModule.eventos,
-        logLabel: 'eventos_manager_save',
-      );
-      if (!publishReady) {
-        await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
-          StateError('core/no-app'),
-        );
-        await ensureFirebaseReadyForPublishUpload();
-        await EventoCreatePublishService.ensureReady(
-          logLabel: 'eventos_manager_save_retry',
-        );
-        publishReady = await YahwehModuleMediaGate.prepareForPublishUpload(
-          context: context,
-          module: YahwehMediaModule.eventos,
-          logLabel: 'eventos_manager_save_retry',
-        );
-      }
-      if (!publishReady) {
-        if (mounted) setState(() => _saving = false);
-        return;
-      }
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);

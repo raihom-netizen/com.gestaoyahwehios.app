@@ -28,6 +28,11 @@ class MemberDirectoryEntry {
     this.createdAt,
     this.updatedAt,
     this.dataNascimento,
+    this.carteirinhaAssinadaEm,
+    this.carteirinhaAssinadaPor,
+    this.carteirinhaAssinadaPorNome,
+    this.carteirinhaAssinadaPorCargo,
+    this.carteirinhaAssinaturaUrl,
   });
 
   final String memberDocId;
@@ -47,6 +52,12 @@ class MemberDirectoryEntry {
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
   final dynamic dataNascimento;
+  /// Timestamp Firestore ou ISO local — estado da assinatura da carteirinha.
+  final dynamic carteirinhaAssinadaEm;
+  final String? carteirinhaAssinadaPor;
+  final String? carteirinhaAssinadaPorNome;
+  final String? carteirinhaAssinadaPorCargo;
+  final String? carteirinhaAssinaturaUrl;
 
   factory MemberDirectoryEntry.fromMap(Map<String, dynamic> raw) {
     int n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
@@ -92,7 +103,17 @@ class MemberDirectoryEntry {
       createdAt: ts(raw['createdAt']),
       updatedAt: ts(raw['updatedAt']),
       dataNascimento: raw['dataNascimento'],
+      carteirinhaAssinadaEm: raw['carteirinhaAssinadaEm'],
+      carteirinhaAssinadaPor: _pickOptStr(raw['carteirinhaAssinadaPor']),
+      carteirinhaAssinadaPorNome: _pickOptStr(raw['carteirinhaAssinadaPorNome']),
+      carteirinhaAssinadaPorCargo: _pickOptStr(raw['carteirinhaAssinadaPorCargo']),
+      carteirinhaAssinaturaUrl: _pickOptStr(raw['carteirinhaAssinaturaUrl']),
     );
+  }
+
+  static String? _pickOptStr(dynamic v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? null : s;
   }
 
   /// Mapa compatível com filtros / [FotoMembroWidget] da lista de membros.
@@ -128,6 +149,20 @@ class MemberDirectoryEntry {
       if (createdAt != null) 'createdAt': createdAt,
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (dataNascimento != null) 'DATA_NASCIMENTO': dataNascimento,
+      if (carteirinhaAssinadaEm != null)
+        'carteirinhaAssinadaEm': carteirinhaAssinadaEm,
+      if (carteirinhaAssinadaPor != null &&
+          carteirinhaAssinadaPor!.trim().isNotEmpty)
+        'carteirinhaAssinadaPor': carteirinhaAssinadaPor,
+      if (carteirinhaAssinadaPorNome != null &&
+          carteirinhaAssinadaPorNome!.trim().isNotEmpty)
+        'carteirinhaAssinadaPorNome': carteirinhaAssinadaPorNome,
+      if (carteirinhaAssinadaPorCargo != null &&
+          carteirinhaAssinadaPorCargo!.trim().isNotEmpty)
+        'carteirinhaAssinadaPorCargo': carteirinhaAssinadaPorCargo,
+      if (carteirinhaAssinaturaUrl != null &&
+          carteirinhaAssinaturaUrl!.trim().isNotEmpty)
+        'carteirinhaAssinaturaUrl': carteirinhaAssinaturaUrl,
     };
   }
 
@@ -171,6 +206,30 @@ class MemberDirectoryEntry {
       fallback: funcoes,
     );
 
+    final assinadaEm = fields.containsKey('carteirinhaAssinadaEm')
+        ? fields['carteirinhaAssinadaEm']
+        : carteirinhaAssinadaEm;
+    final assinadaPor = FirestoreMapFields.pickString(
+      fields,
+      const ['carteirinhaAssinadaPor'],
+      fallback: carteirinhaAssinadaPor ?? '',
+    );
+    final assinadaPorNome = FirestoreMapFields.pickString(
+      fields,
+      const ['carteirinhaAssinadaPorNome'],
+      fallback: carteirinhaAssinadaPorNome ?? '',
+    );
+    final assinadaPorCargo = FirestoreMapFields.pickString(
+      fields,
+      const ['carteirinhaAssinadaPorCargo'],
+      fallback: carteirinhaAssinadaPorCargo ?? '',
+    );
+    final assinaturaUrl = FirestoreMapFields.pickString(
+      fields,
+      const ['carteirinhaAssinaturaUrl'],
+      fallback: carteirinhaAssinaturaUrl ?? '',
+    );
+
     return MemberDirectoryEntry(
       memberDocId: memberDocId,
       displayName: name,
@@ -193,6 +252,17 @@ class MemberDirectoryEntry {
       createdAt: createdAt,
       updatedAt: Timestamp.now(),
       dataNascimento: dn,
+      carteirinhaAssinadaEm: assinadaEm,
+      carteirinhaAssinadaPor:
+          assinadaPor.isEmpty ? carteirinhaAssinadaPor : assinadaPor,
+      carteirinhaAssinadaPorNome: assinadaPorNome.isEmpty
+          ? carteirinhaAssinadaPorNome
+          : assinadaPorNome,
+      carteirinhaAssinadaPorCargo: assinadaPorCargo.isEmpty
+          ? carteirinhaAssinadaPorCargo
+          : assinadaPorCargo,
+      carteirinhaAssinaturaUrl:
+          assinaturaUrl.isEmpty ? carteirinhaAssinaturaUrl : assinaturaUrl,
     );
   }
 
@@ -302,6 +372,35 @@ class MembersDirectorySnapshotService {
     final tid = tenantId.trim();
     if (tid.isEmpty || !snap.hasEntries) return;
     _memoryByTenant[tid] = snap;
+  }
+
+  /// Atualiza assinatura da carteirinha no cache RAM (Cartão membro / Membros).
+  static void patchMembersSignatureInMemory({
+    required String tenantId,
+    required Iterable<String> memberIds,
+    required Map<String, dynamic> signatureFields,
+  }) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || signatureFields.isEmpty) return;
+    final snap = peekMemory(tid);
+    if (snap == null || !snap.hasEntries) return;
+    final idSet = memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (idSet.isEmpty) return;
+    var touched = false;
+    final entries = snap.entries.map((e) {
+      if (!idSet.contains(e.memberDocId)) return e;
+      touched = true;
+      return e.mergeFirestoreFields(signatureFields);
+    }).toList();
+    if (!touched) return;
+    rememberInMemory(
+      tid,
+      MembersDirectorySnapshot(
+        totalCount: snap.totalCount,
+        entries: entries,
+        summary: snap.summary,
+      ),
+    );
   }
 
   static void invalidateMemory(String tenantId) {

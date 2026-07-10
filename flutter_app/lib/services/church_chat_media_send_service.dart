@@ -21,11 +21,9 @@ import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -36,13 +34,12 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchChatMediaSendService {
   ChurchChatMediaSendService._();
 
-  static const Duration kSendTimeout = Duration(seconds: 90);
-  static const Duration kPrepareTimeout = Duration(seconds: 25);
-  static const Duration kStorageImageTimeout = Duration(seconds: 90);
-  static const Duration kStorageThumbTimeout = Duration(seconds: 20);
+  static const Duration kPrepareTimeout = Duration(seconds: 18);
+  static const Duration kStorageImageTimeout = Duration(seconds: 55);
+  static const Duration kStorageThumbTimeout = Duration(seconds: 12);
   static const Duration kStorageVideoTimeout = Duration(seconds: 180);
-  static const Duration kStorageAudioTimeout = Duration(seconds: 120);
-  static const Duration kStorageDocumentTimeout = Duration(seconds: 150);
+  static const Duration kStorageAudioTimeout = Duration(seconds: 90);
+  static const Duration kStorageDocumentTimeout = Duration(seconds: 120);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,
@@ -85,16 +82,11 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     } catch (e) {
       if (isFirebaseNoAppError(e)) {
-        await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
-        try {
-          await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.chat);
-        } catch (e2) {
-          onError?.call(ChurchChatService.formatInstantSendError(e2));
-          rethrow;
-        }
+        await EcoFireDirectFirebase.ensureDefaultApp();
+        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       } else {
         onError?.call(ChurchChatService.formatInstantSendError(e));
         rethrow;
@@ -111,13 +103,7 @@ abstract final class ChurchChatMediaSendService {
         replyTo: replyTo,
         onProgress: onProgress,
         onReplyCleared: onReplyCleared,
-      )).timeout(
-        kSendTimeout,
-        onTimeout: () => throw TimeoutException(
-          'O envio demorou demais. Verifique a rede e toque em «Tentar de novo».',
-          kSendTimeout,
-        ),
-      );
+      ));
       onSuccess?.call();
     } catch (e) {
       // Só fila silenciosa se estiver REALMENTE offline.
@@ -245,23 +231,12 @@ abstract final class ChurchChatMediaSendService {
 
     reportProgress(0.08);
 
-    var storageAlreadyUploaded = false;
-    try {
-      await firebaseDefaultStorage
-          .ref(storagePath)
-          .getMetadata()
-          .timeout(const Duration(seconds: 4));
-      storageAlreadyUploaded = true;
-      reportProgress(0.88);
-    } catch (_) {}
-
     String? thumbStoragePath;
     String? mediaUrl;
     String? thumbUrl;
     int? fileSize;
 
-    if (!storageAlreadyUploaded) {
-      if (pending.kind == 'image') {
+    if (pending.kind == 'image') {
         reportProgress(0.12);
         final prepared = await _prepareImageSafe(
           pending: pending,
@@ -278,7 +253,13 @@ abstract final class ChurchChatMediaSendService {
           bytes: prepared.fullBytes,
           contentType: prepared.fullMime,
           onProgress: (t) => _mapProgress(reportProgress, 0.2, 0.78, t),
-        ).timeout(kStorageImageTimeout);
+        ).timeout(
+          kStorageImageTimeout,
+          onTimeout: () => throw TimeoutException(
+            'O envio demorou demais. Verifique a rede e toque em «Tentar de novo».',
+            kStorageImageTimeout,
+          ),
+        );
         reportProgress(0.82);
 
         // Thumb não bloqueia envio — timeout curto; Firestore segue com imagem principal.
@@ -380,14 +361,20 @@ abstract final class ChurchChatMediaSendService {
             bytes: u8,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-          ).timeout(kStorageAudioTimeout);
+          ).timeout(kStorageAudioTimeout, onTimeout: () => throw TimeoutException(
+            'O envio do áudio demorou demais. Verifique a rede e toque em «Tentar de novo».',
+            kStorageAudioTimeout,
+          ));
         } else if (uploadPath.isNotEmpty) {
           mediaUrl = await ChurchChatMediaStorage.putFile(
             storagePath: storagePath,
             localPath: uploadPath,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
-          ).timeout(kStorageAudioTimeout);
+          ).timeout(kStorageAudioTimeout, onTimeout: () => throw TimeoutException(
+            'O envio do áudio demorou demais. Verifique a rede e toque em «Tentar de novo».',
+            kStorageAudioTimeout,
+          ));
           try {
             fileSize = await File(uploadPath).length();
           } catch (_) {}
@@ -420,9 +407,8 @@ abstract final class ChurchChatMediaSendService {
       } else {
         throw StateError('Sem dados para enviar.');
       }
-    }
 
-    if (storageAlreadyUploaded && (mediaUrl == null || mediaUrl.isEmpty)) {
+    if ((mediaUrl == null || mediaUrl.isEmpty) && storagePath.isNotEmpty) {
       try {
         mediaUrl = await DirectStorageUrlPublish.resolveUrl(storagePath);
       } catch (_) {}
@@ -534,10 +520,8 @@ abstract final class ChurchChatMediaSendService {
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
-          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
-            last ?? StateError('core/no-app'),
-          );
-          await ensureFirebaseReadyForChatSend();
+          await EcoFireDirectFirebase.ensureDefaultApp();
+          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
           await Future<void>.delayed(
             Duration(milliseconds: 280 * attempt),
           );
@@ -583,6 +567,24 @@ abstract final class ChurchChatMediaSendService {
         fullFileName: cached.fullFileName,
         thumbBytes: cached.thumbBytes,
       );
+    }
+    // Telegram/CT: se ainda não comprimiu, envia JPEG leve do path sem bloquear 25s.
+    if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
+      try {
+        final quick = await SafeImageBytes.fromPath(
+          localPath,
+          maxEdge: MediaOptimizationLimits.chatMaxEdge,
+          quality: MediaOptimizationLimits.chatQuality,
+        ).timeout(const Duration(seconds: 12));
+        if (quick.isNotEmpty) {
+          return PreparedChatImage(
+            fullBytes: quick,
+            fullMime: 'image/jpeg',
+            fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
+            thumbBytes: null,
+          );
+        }
+      } catch (_) {}
     }
     try {
       return await ChurchChatMediaPrepare.prepareImage(

@@ -110,7 +110,17 @@ class BlindMemberDoc {
         createdAt: createdAt,
         updatedAt: updatedAt,
         dataNascimento: dataNascimento,
+        carteirinhaAssinadaEm: raw['carteirinhaAssinadaEm'],
+        carteirinhaAssinadaPor: _optStr(raw['carteirinhaAssinadaPor']),
+        carteirinhaAssinadaPorNome: _optStr(raw['carteirinhaAssinadaPorNome']),
+        carteirinhaAssinadaPorCargo: _optStr(raw['carteirinhaAssinadaPorCargo']),
+        carteirinhaAssinaturaUrl: _optStr(raw['carteirinhaAssinaturaUrl']),
       );
+
+  static String? _optStr(dynamic v) {
+    final s = (v ?? '').toString().trim();
+    return s.isEmpty ? null : s;
+  }
 
   static BlindMemberDoc fromFirestore({
     required String id,

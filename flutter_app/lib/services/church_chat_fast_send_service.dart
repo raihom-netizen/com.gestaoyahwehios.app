@@ -1,6 +1,6 @@
 import 'dart:async' show unawaited;
 
-import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
@@ -23,9 +23,8 @@ abstract final class ChurchChatFastSendService {
         now.difference(_lastWarm!) < const Duration(seconds: 20)) {
       return Future<void>.value();
     }
-    _warmInFlight ??= EcoFireResilientPublish.prepareForPublish(
-      logLabel: 'chat_warm',
-    ).whenComplete(() {
+    _warmInFlight ??= DirectStorageUrlPublish.ensureReady(requireAuth: true)
+        .whenComplete(() {
       _lastWarm = DateTime.now();
       _warmInFlight = null;
     });

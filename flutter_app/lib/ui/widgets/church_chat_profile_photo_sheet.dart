@@ -5,11 +5,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -226,14 +227,8 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       _busy = true;
       _phaseLabel = 'A preparar…';
     });
+    GlobalUploadProgress.instance.start('A enviar foto de perfil…');
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'membro_foto_editor',
-      );
-      if (kIsWeb) {
-        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-      }
-      await DirectStorageUrlPublish.ensureReady();
       Future<MemberProfilePhotoUpdateResult> publish() =>
           MemberProfilePhotoUpdateService.uploadAndPatchMember(
             tenantId: widget.tenantId,
@@ -242,7 +237,9 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
             rawBytes: bytes,
             onPhase: (label) {
               if (mounted) setState(() => _phaseLabel = label);
+              GlobalUploadProgress.instance.updateLabel(label);
             },
+            onProgress: (p) => GlobalUploadProgress.instance.update(p),
           );
       final result = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
@@ -255,6 +252,14 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         ThemeCleanPremium.successSnackBar('Foto de perfil actualizada!'),
       );
       Navigator.pop(context, result);
+    } on MemberProfilePhotoQueuedLocally {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Foto guardada no aparelho; envio automático quando houver internet.',
+        ),
+      );
+      Navigator.pop(context);
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'membro_foto_editor_save'));
       if (!mounted) return;
@@ -262,6 +267,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
         ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
       );
     } finally {
+      GlobalUploadProgress.instance.end();
       if (mounted) {
         setState(() {
           _busy = false;

@@ -1,26 +1,23 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 
-/// Upload de fotos de evento — `igrejas/{churchId}/eventos/{postId}/…`.
-///
-/// Pipeline único (Controle Total): fachada → Storage → URL → Firestore só link.
+/// Upload de fotos de evento — padrão Controle Total (upload direto Storage).
 abstract final class EventoMediaUpload {
   EventoMediaUpload._();
 
-  static const Duration uploadTimeout = Duration(seconds: 60);
+  static const Duration uploadTimeout = Duration(seconds: 55);
   static const int maxParallelSlots = kMaxEventFeedPhotosPerPost;
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
-    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.eventos);
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 
   /// Capa de template — `igrejas/{id}/eventos/templates/{templateId}.jpg`.
@@ -38,7 +35,6 @@ abstract final class EventoMediaUpload {
     if (compressedBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outra foto.');
     }
-    await ensureUploadReady();
     final path = ChurchStorageLayout.eventTemplateCoverPath(cid, tid);
     final uploaded = await ChurchMediaUploadFacade.uploadMidia(
       bytes: compressedBytes,
@@ -59,39 +55,18 @@ abstract final class EventoMediaUpload {
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
-    final cid = churchId.trim();
-    final pid = postId.trim();
-    if (cid.isEmpty || pid.isEmpty) {
-      throw ArgumentError('churchId e postId são obrigatórios.');
-    }
-    if (rawBytes.isEmpty) {
-      throw StateError('Imagem vazia — selecione outra foto.');
-    }
-
-    EcoFireFlow.log('EVENTO_PHOTO slot $pid#$slotIndex');
-    await ensureUploadReady();
-
-    final uploaded = await ChurchCentralStorageUpload.uploadEventoPhoto(
-      churchId: cid,
-      postId: pid,
-      slotIndex: slotIndex,
-      rawBytes: rawBytes,
+    final slots = await uploadPhotoBatch(
+      churchId: churchId,
+      postId: postId,
+      startSlotIndex: slotIndex,
+      bytesList: [rawBytes],
       alreadyCompressed: alreadyCompressed,
       onProgress: onProgress,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
-      ),
     );
-
-    EcoFireFlow.log('EVENTO_PHOTO OK ${uploaded.storagePath}');
-    return EcoFireFeedPhotoSlot(
-      fullUrl: uploaded.downloadUrl,
-      thumbUrl: uploaded.downloadUrl,
-      fullPath: uploaded.storagePath,
-      thumbPath: uploaded.storagePath,
-    );
+    if (slots.isEmpty) {
+      throw StateError('Upload da foto do evento falhou.');
+    }
+    return slots.first;
   }
 
   static Future<List<EcoFireFeedPhotoSlot>> uploadPhotoBatch({
@@ -99,33 +74,56 @@ abstract final class EventoMediaUpload {
     required String postId,
     required int startSlotIndex,
     required List<Uint8List> bytesList,
-    bool alreadyCompressed = true,
+    bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
   }) async {
     if (bytesList.isEmpty) return const [];
 
-    final slots = List<EcoFireFeedPhotoSlot?>.filled(bytesList.length, null);
-    var completed = 0;
+    await ensureUploadReady();
 
-    Future<void> uploadOne(int i) async {
-      slots[i] = await uploadPhotoSlot(
-        churchId: churchId,
-        postId: postId,
-        slotIndex: startSlotIndex + i,
-        rawBytes: bytesList[i],
-        alreadyCompressed: alreadyCompressed,
+    var nextSlot = startSlotIndex;
+    final batchItems = <ChurchMediaUploadBatchItem>[];
+    for (final raw in bytesList) {
+      batchItems.add(
+        ChurchMediaUploadBatchItem(
+          bytes: raw,
+          storagePath: ChurchStorageLayout.eventPostPhotoPath(
+            churchId,
+            postId,
+            nextSlot,
+          ),
+          logLabel: 'evento_photo',
+          alreadyCompressed: alreadyCompressed,
+        ),
       );
-      completed++;
-      onProgress?.call(completed / bytesList.length);
+      nextSlot++;
     }
 
-    for (var start = 0; start < bytesList.length; start += maxParallelSlots) {
-      final end = (start + maxParallelSlots).clamp(0, bytesList.length);
-      await Future.wait([
-        for (var i = start; i < end; i++) uploadOne(i),
-      ]);
-    }
+    final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
+      items: batchItems,
+      timeoutPerItem: uploadTimeout,
+      onBatchProgress: (done, total) {
+        if (total <= 0) return;
+        onProgress?.call(done / total);
+      },
+    );
+    final batchErr = ChurchMediaUploadFacade.firstBatchError(batch);
+    if (batchErr != null) throw batchErr;
 
-    return slots.whereType<EcoFireFeedPhotoSlot>().toList();
+    final slots = <EcoFireFeedPhotoSlot>[];
+    for (final item in batch) {
+      final uploaded = item.result;
+      if (uploaded == null) continue;
+      EcoFireFlow.log('EVENTO_PHOTO OK ${uploaded.storagePath}');
+      slots.add(
+        EcoFireFeedPhotoSlot(
+          fullUrl: uploaded.downloadUrl,
+          thumbUrl: uploaded.downloadUrl,
+          fullPath: uploaded.storagePath,
+          thumbPath: uploaded.storagePath,
+        ),
+      );
+    }
+    return slots;
   }
 }

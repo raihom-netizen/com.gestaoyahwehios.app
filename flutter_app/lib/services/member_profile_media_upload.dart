@@ -5,8 +5,6 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 
 /// Upload foto perfil membro — `igrejas/{churchId}/membros/{folderId}/foto_perfil.jpg`.
 ///
@@ -17,11 +15,7 @@ abstract final class MemberProfileMediaUpload {
   static const Duration uploadTimeout = Duration(seconds: 60);
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
-    if (requireAuth) {
-      await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.membros);
-    } else {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: false);
-    }
+    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 
   static Future<String> uploadProfileBytes({

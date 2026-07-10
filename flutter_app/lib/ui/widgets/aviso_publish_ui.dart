@@ -3,8 +3,9 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatUploadErrorForUser, isFirebaseNoAppError;
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Progresso bloqueante — avisos, eventos, património, etc. (padrão Ecofire).
@@ -42,7 +43,7 @@ abstract final class EcofirePublishProgressUi {
     }
 
     try {
-      await YahwehModuleMediaGate.assertReadyForUploadAction();
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       final result = await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),
@@ -88,8 +89,8 @@ abstract final class EcofirePublishProgressUi {
       return await action(reportProgress);
     } catch (e) {
       if (!isFirebaseNoAppError(e)) rethrow;
-      await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
-      await YahwehModuleMediaGate.assertReadyForUploadAction();
+      await EcoFireDirectFirebase.ensureDefaultApp();
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       return action(reportProgress);
     }
   }
@@ -120,7 +121,7 @@ abstract final class EcofirePublishProgressUi {
     }
 
     try {
-      await YahwehModuleMediaGate.assertReadyForUploadAction();
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),

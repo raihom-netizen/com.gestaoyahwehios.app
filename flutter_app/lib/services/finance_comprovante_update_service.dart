@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
@@ -57,17 +58,21 @@ abstract final class FinanceComprovanteUpdateService {
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
   }) {
-    return FinanceComprovantePublishService.uploadComprovanteNow(
-      tenantId: resolveChurchId(churchIdHint),
-      docRef: docRef,
-      rawBytes: bytes,
-      mimeType: mimeType,
-      fileName: fileName,
-      referenceDate: referenceDate,
-      previousStoragePath: previousStoragePath,
-      previousDownloadUrl: previousDownloadUrl,
-      onProgress: onProgress,
-      alreadyCompressed: alreadyCompressed,
+    return FirebaseBootstrapService.runGuarded(
+      () => FinanceComprovantePublishService.uploadComprovanteControleTotal(
+        tenantId: resolveChurchId(churchIdHint),
+        docRef: docRef,
+        rawBytes: bytes,
+        mimeType: mimeType,
+        fileName: fileName,
+        referenceDate: referenceDate,
+        previousStoragePath: previousStoragePath,
+        previousDownloadUrl: previousDownloadUrl,
+        onProgress: onProgress,
+        alreadyCompressed: alreadyCompressed,
+      ),
+      debugLabel: 'finance_comprovante_strict',
+      requireAuth: true,
     );
   }
 

@@ -373,6 +373,7 @@ class _MembersPageState extends State<MembersPage> {
         memberData: memberData,
         rawBytes: bytes,
         onPhase: (phase) => GlobalUploadProgress.instance.updateLabel(phase),
+        onProgress: (p) => GlobalUploadProgress.instance.update(p),
       );
       if (!mounted) return;
       _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);

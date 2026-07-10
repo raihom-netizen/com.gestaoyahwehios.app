@@ -5,8 +5,7 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/foto_N.jpg`.
@@ -50,9 +49,7 @@ abstract final class PatrimonioMediaUpload {
 
     try {
       if (ensureReady) {
-        await ChurchMediaUploadFacade.ensureModuleReady(
-          YahwehMediaModule.patrimonio,
-        );
+        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       }
       final uploaded = await ChurchCentralStorageUpload.uploadPatrimonioPhoto(
         churchId: cid,
@@ -98,6 +95,8 @@ abstract final class PatrimonioMediaUpload {
       throw ArgumentError('churchId e itemDocId são obrigatórios.');
     }
 
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+
     final results = <PatrimonioGalleryUploadResult>[];
     var completed = 0;
     final total = images.length;
@@ -115,6 +114,7 @@ abstract final class PatrimonioMediaUpload {
             slotIndex: slot,
             rawBytes: batch[i],
             alreadyCompressed: alreadyCompressed,
+            ensureReady: false,
             onProgress: (p) {
               final base = completed / total;
               final slice = (1 / total) * p;

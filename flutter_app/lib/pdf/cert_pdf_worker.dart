@@ -36,6 +36,8 @@ class CertPdfPipelineSignatory {
   final String cpfDigits;
   /// Quando preenchido (ex.: lista de membros já carregada), evita leitura extra no Firestore.
   final String? assinaturaUrlHint;
+  /// Path Storage (`igrejas/{id}/membros/...`) — mais rápido que URL HTTP.
+  final String? assinaturaStoragePathHint;
 
   const CertPdfPipelineSignatory({
     required this.memberId,
@@ -43,6 +45,7 @@ class CertPdfPipelineSignatory {
     required this.cargo,
     this.cpfDigits = '',
     this.assinaturaUrlHint,
+    this.assinaturaStoragePathHint,
   });
 }
 
@@ -390,6 +393,7 @@ Future<void> warmCertificatePdfAssets({
           tenantId: tid,
           memberId: s.memberId,
           assinaturaUrlHint: s.assinaturaUrlHint,
+          assinaturaStoragePathHint: s.assinaturaStoragePathHint,
         ).then((_) {}),
       );
     }
@@ -560,13 +564,50 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
   required String tenantId,
   required String memberId,
   String? assinaturaUrlHint,
+  String? assinaturaStoragePathHint,
 }) async {
   final cacheKey =
-      '$tenantId|$memberId|${sanitizeImageUrl(assinaturaUrlHint ?? '').trim()}';
+      '$tenantId|$memberId|${sanitizeImageUrl(assinaturaUrlHint ?? '').trim()}|${(assinaturaStoragePathHint ?? '').trim()}';
   if (_signatureBytesCache.containsKey(cacheKey)) {
     return _signatureBytesCache[cacheKey];
   }
+
+  Future<Uint8List?> bytesFromStoragePath(String rawPath) async {
+    final path = normalizeFirebaseStorageObjectPath(
+      rawPath.trim().replaceFirst(RegExp(r'^/+'), ''),
+    );
+    if (path.isEmpty) return null;
+    try {
+      final b = await firebaseDefaultStorage
+          .ref(path)
+          .getData(512 * 1024)
+          .timeout(const Duration(seconds: 4), onTimeout: () => null);
+      if (b != null && b.length > 32) return Uint8List.fromList(b);
+    } catch (_) {}
+    return null;
+  }
+
   try {
+    final pathHint = (assinaturaStoragePathHint ?? '').trim();
+    if (pathHint.isNotEmpty) {
+      final fromHint = await bytesFromStoragePath(pathHint);
+      if (fromHint != null) {
+        _signatureBytesCache[cacheKey] = fromHint;
+        return fromHint;
+      }
+    }
+
+    for (final p in ChurchStorageLayout.memberSignatureObjectPaths(
+      tenantId,
+      memberId,
+    )) {
+      final fromCanon = await bytesFromStoragePath(p);
+      if (fromCanon != null) {
+        _signatureBytesCache[cacheKey] = fromCanon;
+        return fromCanon;
+      }
+    }
+
     String raw;
     if (assinaturaUrlHint != null && assinaturaUrlHint.trim().isNotEmpty) {
       raw = assinaturaUrlHint.trim();
@@ -588,6 +629,18 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
               '')
           .toString()
           .trim();
+      if (raw.isEmpty) {
+        final sp = (membroSnap?.data()?['assinaturaStoragePath'] ?? '')
+            .toString()
+            .trim();
+        if (sp.isNotEmpty) {
+          final fromDocPath = await bytesFromStoragePath(sp);
+          if (fromDocPath != null) {
+            _signatureBytesCache[cacheKey] = fromDocPath;
+            return fromDocPath;
+          }
+        }
+      }
     }
     if (raw.isEmpty) {
       _signatureBytesCache[cacheKey] = null;
@@ -814,6 +867,13 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
           ? [p.logoUrlFallback]
           : <String>[]);
 
+  final allFontsCached = _fontMontserratCache != null &&
+      _fontGreatVibesCache != null &&
+      _fontUnifrakturCache != null &&
+      _fontCinzelDecorativeCache != null &&
+      _fontPinyonScriptCache != null &&
+      _fontLibreBaskervilleCache != null;
+
   Future<Uint8List?> fetchFirstLogoBytes() async {
     Uint8List? useIfRealLogo(Uint8List? b) {
       if (b == null || b.length <= 32) return null;
@@ -896,8 +956,9 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
               tenantId: p.tenantId,
               memberId: s.memberId,
               assinaturaUrlHint: s.assinaturaUrlHint,
+              assinaturaStoragePathHint: s.assinaturaStoragePathHint,
             ).timeout(
-              const Duration(seconds: 12),
+              const Duration(seconds: 8),
               onTimeout: () => null,
             ),
           )
@@ -911,23 +972,26 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
 
   report('Processando certificado 1 de 1 — baixando imagens em paralelo…', 0.14);
 
-  final packed = await Future.wait<Object?>([
-    fontsFuture.then((_) => null),
+  final packedFutures = <Future<Object?>>[
     logoFuture,
     bgFuture,
     instSigFuture,
     sigPackFuture,
-  ]).timeout(
-    const Duration(minutes: 3),
+  ];
+  if (!allFontsCached) {
+    packedFutures.insert(0, fontsFuture.then((_) => null));
+  }
+  final packed = await Future.wait<Object?>(packedFutures).timeout(
+    const Duration(seconds: 45),
     onTimeout: () => throw TimeoutException(
-      'O carregamento de fontes, logo ou assinaturas excedeu o tempo limite. '
-      'Verifique a rede e tente novamente. Se persistir, desative VPN ou troque de Wi‑Fi.',
+      'O carregamento de logo ou assinaturas excedeu o tempo limite. '
+      'Verifique a rede e tente novamente.',
     ),
   );
-  final logoRaw = packed[1] as Uint8List?;
-  final bgRaw = packed[2] as Uint8List?;
-  final instSigRaw = packed[3] as Uint8List?;
-  final sigRaw = packed[4] as List<Uint8List?>;
+  final logoRaw = packed[allFontsCached ? 0 : 1] as Uint8List?;
+  final bgRaw = packed[allFontsCached ? 1 : 2] as Uint8List?;
+  final instSigRaw = packed[allFontsCached ? 2 : 3] as Uint8List?;
+  final sigRaw = packed[allFontsCached ? 3 : 4] as List<Uint8List?>;
 
   report('Processando certificado 1 de 1 — otimizando fotos…', 0.38);
 

@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -27,10 +26,7 @@ abstract final class ChatStrictPublishService {
     bool skipServerRecheck = false,
   }) async {
     if (!skipStorageVerify) {
-      await EcoFirePublishBootstrap.ensureHard(
-        logLabel: 'chat_media_finalize',
-        strict: true,
-      );
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     } else {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded().catchError((_) {});

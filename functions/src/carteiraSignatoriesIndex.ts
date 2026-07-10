@@ -84,11 +84,13 @@ export const refreshCarteiraSignatoriesIndex = functions
       const nome = String(d.NOME_COMPLETO ?? d.nome ?? "").trim();
       if (!nome) return;
       const url = String(d.assinaturaUrl ?? d.assinatura_url ?? "").trim();
+      const storagePath = String(d.assinaturaStoragePath ?? "").trim();
       byId.set(doc.id, {
         memberId: doc.id,
         nome,
         cargo: cargoLabel(d),
         assinaturaUrl: url || null,
+        assinaturaStoragePath: storagePath || null,
       });
     };
 

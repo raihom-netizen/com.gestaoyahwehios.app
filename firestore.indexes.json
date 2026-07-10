@@ -850,6 +850,13 @@
     },
     {
       "collectionGroup": "membros",
+      "fieldPath": "certificadoSignatario",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
       "fieldPath": "nome",
       "indexes": [
         { "queryScope": "COLLECTION", "order": "ASCENDING" }

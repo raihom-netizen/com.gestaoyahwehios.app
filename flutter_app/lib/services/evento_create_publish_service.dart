@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 
 /// Fachada do editor de eventos → [EventoPublishService] (fluxo Ecofire).
@@ -8,10 +9,7 @@ abstract final class EventoCreatePublishService {
   EventoCreatePublishService._();
 
   static Future<void> ensureReady({String logLabel = 'evento_create'}) async {
-    await EventoPublishService.prepareFullPipeline(
-      logLabel: logLabel,
-      withMedia: false,
-    );
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
   }
 
   static Future<String> publish({

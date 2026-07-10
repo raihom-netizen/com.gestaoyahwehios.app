@@ -10,12 +10,13 @@ import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
-import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
@@ -143,11 +144,8 @@ abstract final class ChurchFeedLinearPublishService {
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
 
-    await ChurchMediaUploadFacade.ensureModuleReady(
-      isEvento ? YahwehMediaModule.eventos : YahwehMediaModule.avisos,
-      withPhotos: hasNewPhotos || hasVideo,
-    );
-    _report(onUploadProgress, 0.18);
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    _report(onUploadProgress, 0.12);
 
     if (isEvento) {
       ChurchPublishFlowLog.eventoStart();
@@ -172,44 +170,83 @@ abstract final class ChurchFeedLinearPublishService {
       );
       _report(onUploadProgress, 0.20);
       if (isEvento) {
-        final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-          tenantId: churchId,
-          postType: postType,
-          postId: docId,
-          startSlotIndex: startSlotIndex,
-          bytesList: newImagesBytes,
-          localPaths: newImagePaths,
-          alreadyCompressed: newImagesBytes?.isNotEmpty ?? false,
-          onProgress: (batchP) {
-            _report(onUploadProgress, 0.20 + batchP * 0.52);
-          },
-        );
-        for (final slot in slots) {
-          uploadedPaths.add(slot.fullPath);
-          alignedThumbPaths.add(slot.thumbPath);
-          final direct = sanitizeImageUrl(slot.fullUrl);
-          if (isValidImageUrl(direct)) {
-            existingUrls = dedupeImageRefsByStorageIdentity([
-              ...existingUrls,
-              direct,
-            ]);
-          } else {
-            final url = await EcoFireFeedPublishService.refsToPlayableUrls(
-              [slot.fullPath],
+        final images = newImagesBytes ?? const <Uint8List>[];
+        final imagePaths = newImagePaths
+                ?.map((p) => p.trim())
+                .where((p) => p.isNotEmpty)
+                .toList() ??
+            const <String>[];
+        final allBytes = <Uint8List>[...images];
+        if (imagePaths.isNotEmpty) {
+          if (kIsWeb) {
+            throw StateError(
+              'As fotos do evento na web devem ser enviadas em memória (bytes).',
             );
-            if (url.isNotEmpty) {
-              existingUrls = dedupeImageRefsByStorageIdentity([
-                ...existingUrls,
-                ...url,
-              ]);
-            }
           }
-          final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
-          if (isValidImageUrl(thumbDirect)) {
-            alignedThumbUrls.add(thumbDirect);
+          for (final localPath in imagePaths) {
+            final file = File(localPath);
+            if (!await file.exists()) {
+              throw StateError('Foto do evento não encontrada no aparelho.');
+            }
+            final bytes = await file.readAsBytes();
+            if (bytes.isEmpty) {
+              throw StateError('Foto do evento vazia — selecione outra imagem.');
+            }
+            allBytes.add(bytes);
           }
         }
-        uploadedCount = slots.length;
+        if (allBytes.isEmpty) {
+          throw StateError('Inclua pelo menos uma foto no evento.');
+        }
+
+        var nextSlot = startSlotIndex;
+        final batchItems = <ChurchMediaUploadBatchItem>[];
+        for (final raw in allBytes) {
+          batchItems.add(
+            ChurchMediaUploadBatchItem(
+              bytes: raw,
+              storagePath: ChurchStorageLayout.eventPostPhotoPath(
+                churchId,
+                docId,
+                nextSlot,
+              ),
+              logLabel: 'evento_photo',
+              alreadyCompressed: false,
+            ),
+          );
+          nextSlot++;
+        }
+
+        final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
+          items: batchItems,
+          timeoutPerItem: const Duration(seconds: 55),
+          onItemProgress: (index, p) {
+            final span = 0.54 / batchItems.length;
+            _report(onUploadProgress, 0.20 + span * index + p * span);
+          },
+          onBatchProgress: (done, total) {
+            if (total <= 0) return;
+            _report(onUploadProgress, 0.20 + 0.54 * (done / total));
+          },
+        );
+        final batchErr = ChurchMediaUploadFacade.firstBatchError(batch);
+        if (batchErr != null) throw batchErr;
+
+        for (final item in batch) {
+          final uploaded = item.result;
+          if (uploaded == null) continue;
+          uploadedPaths.add(uploaded.storagePath);
+          alignedThumbPaths.add(uploaded.storagePath);
+          final url = sanitizeImageUrl(uploaded.downloadUrl);
+          if (isValidImageUrl(url)) {
+            existingUrls = dedupeImageRefsByStorageIdentity([
+              ...existingUrls,
+              url,
+            ]);
+            alignedThumbUrls.add(url);
+          }
+        }
+        uploadedCount = uploadedPaths.length;
       } else {
         final images = newImagesBytes ?? const <Uint8List>[];
         final imagePaths = newImagePaths
@@ -220,25 +257,7 @@ abstract final class ChurchFeedLinearPublishService {
         if (images.isEmpty && imagePaths.isEmpty) {
           throw StateError('Inclua pelo menos uma foto no aviso.');
         }
-        var nextSlot = startSlotIndex;
-        for (var i = 0; i < images.length; i++) {
-          final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
-            churchId: churchId,
-            postId: docId,
-            slotIndex: nextSlot,
-            rawBytes: images[i],
-            alreadyCompressed: true,
-          );
-          nextSlot++;
-          uploadedPaths.add(uploaded.storagePath);
-          final url = sanitizeImageUrl(uploaded.downloadUrl);
-          if (isValidImageUrl(url)) {
-            existingUrls = dedupeImageRefsByStorageIdentity([
-              ...existingUrls,
-              url,
-            ]);
-          }
-        }
+        final allBytes = <Uint8List>[...images];
         if (imagePaths.isNotEmpty) {
           if (kIsWeb) {
             throw StateError(
@@ -254,22 +273,53 @@ abstract final class ChurchFeedLinearPublishService {
             if (bytes.isEmpty) {
               throw StateError('Foto do aviso vazia — selecione outra imagem.');
             }
-            final uploaded = await ChurchCentralStorageUpload.uploadAvisoPhoto(
-              churchId: churchId,
-              postId: docId,
-              slotIndex: nextSlot,
-              rawBytes: bytes,
+            allBytes.add(bytes);
+          }
+        }
+
+        var nextSlot = startSlotIndex;
+        final batchItems = <ChurchMediaUploadBatchItem>[];
+        for (final raw in allBytes) {
+          batchItems.add(
+            ChurchMediaUploadBatchItem(
+              bytes: raw,
+              storagePath: ChurchStorageLayout.avisoPostPhotoPath(
+                churchId,
+                docId,
+                nextSlot,
+              ),
+              logLabel: 'aviso_photo',
               alreadyCompressed: false,
-            );
-            nextSlot++;
-            uploadedPaths.add(uploaded.storagePath);
-            final url = sanitizeImageUrl(uploaded.downloadUrl);
-            if (isValidImageUrl(url)) {
-              existingUrls = dedupeImageRefsByStorageIdentity([
-                ...existingUrls,
-                url,
-              ]);
-            }
+            ),
+          );
+          nextSlot++;
+        }
+
+        final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
+          items: batchItems,
+          timeoutPerItem: const Duration(seconds: 50),
+          onItemProgress: (index, p) {
+            final span = 0.54 / batchItems.length;
+            _report(onUploadProgress, 0.20 + span * index + p * span);
+          },
+          onBatchProgress: (done, total) {
+            if (total <= 0) return;
+            _report(onUploadProgress, 0.20 + 0.54 * (done / total));
+          },
+        );
+        final batchErr = ChurchMediaUploadFacade.firstBatchError(batch);
+        if (batchErr != null) throw batchErr;
+
+        for (final item in batch) {
+          final uploaded = item.result;
+          if (uploaded == null) continue;
+          uploadedPaths.add(uploaded.storagePath);
+          final url = sanitizeImageUrl(uploaded.downloadUrl);
+          if (isValidImageUrl(url)) {
+            existingUrls = dedupeImageRefsByStorageIdentity([
+              ...existingUrls,
+              url,
+            ]);
           }
         }
         uploadedCount = uploadedPaths.length;

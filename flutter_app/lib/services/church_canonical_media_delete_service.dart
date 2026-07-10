@@ -24,7 +24,7 @@ abstract final class ChurchCanonicalMediaDeleteService {
     Map<String, dynamic>? data,
   }) {
     unawaited(
-      _purgeFeedPostMedia(
+      purgeFeedPostDeleted(
         tenantId: tenantId,
         postId: postId,
         isEvento: isEvento,
@@ -32,6 +32,20 @@ abstract final class ChurchCanonicalMediaDeleteService {
       ),
     );
   }
+
+  /// Limpeza Storage após exclusão Firestore — aguardar em deletes críticos.
+  static Future<void> purgeFeedPostDeleted({
+    required String tenantId,
+    required String postId,
+    required bool isEvento,
+    Map<String, dynamic>? data,
+  }) =>
+      _purgeFeedPostMedia(
+        tenantId: tenantId,
+        postId: postId,
+        isEvento: isEvento,
+        data: data,
+      );
 
   static Future<void> _purgeFeedPostMedia({
     required String tenantId,

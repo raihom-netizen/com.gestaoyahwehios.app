@@ -3,14 +3,13 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-  show isFirebaseNoAppError;
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
@@ -35,23 +34,17 @@ abstract final class EventoPublishService {
       );
 
   static Future<void> ensureReady({String logLabel = 'evento_prepare'}) async {
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: logLabel,
-      strict: true,
-    );
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
   }
 
-  /// Bootstrap EcoFire — Firebase + Storage + Auth (sem warm duplicado).
+  /// Gate único — Storage + Auth (padrão Controle Total).
   static Future<void> prepareFullPipeline({
     String logLabel = 'evento_prepare',
     bool withMedia = true,
     void Function(double progress)? onProgress,
   }) async {
     onProgress?.call(0.06);
-    await EcoFirePublishBootstrap.ensureHard(
-      logLabel: withMedia ? '${logLabel}_media' : logLabel,
-      strict: true,
-    );
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     onProgress?.call(0.12);
   }
 
@@ -81,11 +74,7 @@ abstract final class EventoPublishService {
         (newImagePaths?.isNotEmpty ?? false);
     final localVideo = (localVideoPath ?? '').trim();
 
-    await prepareFullPipeline(
-      logLabel: 'evento_publish_${docRef.id}',
-      withMedia: hasNewPhotos || localVideo.isNotEmpty || hasVideo,
-    );
-    await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.eventos);
+    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
 
     if (isNewDoc && !hasNewPhotos && existingUrls.isEmpty && !hasVideo) {
       throw StateError('Adicione pelo menos uma foto ou um vídeo ao evento.');
@@ -151,14 +140,8 @@ abstract final class EventoPublishService {
         final retryable =
             isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e);
         if (attempt == 0 && retryable) {
-          await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
-          await prepareFullPipeline(
-            logLabel: 'evento_publish_retry_${docRef.id}',
-            withMedia: hasNewPhotos || localVideo.isNotEmpty || hasVideo,
-          );
-          await ChurchMediaUploadFacade.ensureModuleReady(
-            YahwehMediaModule.eventos,
-          );
+          await EcoFireDirectFirebase.ensureDefaultApp();
+          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
           continue;
         }
         if (EcoFireResilientPublish.shouldQueueSilently(e)) {

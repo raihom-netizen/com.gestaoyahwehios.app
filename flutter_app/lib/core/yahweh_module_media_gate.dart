@@ -320,28 +320,12 @@ abstract final class YahwehModuleMediaGate {
 
 
 
-  /// Garante Firebase/Storage antes do `put` (evita core/no-app no meio do upload).
-
+  /// Garante Firebase/Storage antes do `put` (padrão CT — sem Firestore pré-upload).
   static Future<void> assertReadyForUploadAction({
-
     bool requireAuth = true,
-
     bool withPhotos = true,
-
   }) async {
-
     await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
-
-    if (requireAuth) {
-
-      await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
-
-    } else if (kIsWeb) {
-
-      await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
-
-    }
-
   }
 
   static Future<bool> prepareForPublishUpload({
@@ -360,30 +344,19 @@ abstract final class YahwehModuleMediaGate {
 
     Object? last;
 
-    for (var attempt = 0; attempt < 5; attempt++) {
-
+    for (var attempt = 0; attempt < 2; attempt++) {
       try {
-
         if (attempt > 0) {
-
           await recoverNoAppAfterPublishError(
-
             last ?? StateError('core/no-app'),
-
             requireAuth: requireAuth,
-
           );
-
-          await Future<void>.delayed(Duration(milliseconds: 240 * (attempt + 1)));
-
+          await Future<void>.delayed(Duration(milliseconds: 200 * (attempt + 1)));
         }
-
-        await ensureFirebaseReadyForPublishUpload();
-
-        await DirectStorageUrlPublish.ensureReady(
-          requireAuth: requireAuth,
-        );
-
+        await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
+        }
         return true;
 
       } catch (e) {
@@ -391,7 +364,7 @@ abstract final class YahwehModuleMediaGate {
         last = e;
 
         if (
-          attempt < 4 &&
+          attempt < 1 &&
           (isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e))
         ) {
 

@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
@@ -8935,20 +8936,15 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       }
       final pendingComp = comprovanteSnap.pending;
       if (pendingComp != null) {
-        await FinanceComprovanteUpdateService.publishFinanceLancamentoStrict(
-          churchIdHint: tenantId,
+        if (!context.mounted) return true;
+        await FinanceComprovanteAttachFlow.attachToLancamento(
+          context: context,
+          tenantId: tenantId,
           docRef: existingDoc.reference,
-          bytes: pendingComp.bytes,
-          mimeType:
-              pendingComp.isPdf ? 'application/pdf' : pendingComp.mimeType,
-          fileName: pendingComp.fileName,
-          referenceDate: FinanceComprovantePublishService.referenceDateFromMap(
-            {...?data, ...patch},
-          ),
-          previousStoragePath:
-              (data?['comprovanteStoragePath'] ?? '').toString(),
-          previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
-          alreadyCompressed: pendingComp.alreadyOptimized,
+          docData: {...?data, ...patch},
+          prePicked: pendingComp,
+          showPickSheet: false,
+          suppressSuccessSnackBar: true,
         );
       }
       if (context.mounted) {
@@ -8972,16 +8968,15 @@ Future<bool> showFinanceLancamentoEditorForTenant(
 
       final pendingAdd = comprovanteSnap.pending;
       if (pendingAdd != null) {
-        await FinanceComprovanteUpdateService.publishFinanceLancamentoStrict(
-          churchIdHint: tenantId,
+        if (!context.mounted) return true;
+        await FinanceComprovanteAttachFlow.attachToLancamento(
+          context: context,
+          tenantId: tenantId,
           docRef: preRef,
-          bytes: pendingAdd.bytes,
-          mimeType:
-              pendingAdd.isPdf ? 'application/pdf' : pendingAdd.mimeType,
-          fileName: pendingAdd.fileName,
-          referenceDate:
-              FinanceComprovantePublishService.referenceDateFromMap(result),
-          alreadyCompressed: pendingAdd.alreadyOptimized,
+          docData: result,
+          prePicked: pendingAdd,
+          showPickSheet: false,
+          suppressSuccessSnackBar: true,
         );
       }
       if (context.mounted) {
@@ -9080,75 +9075,12 @@ Future<void> uploadFinanceComprovanteForLancamento(
   required String tenantId,
   required DocumentSnapshot<Map<String, dynamic>> doc,
 }) async {
-  final docData = doc.data() ?? {};
-  final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(docData);
-
-  final picked = await FinanceComprovanteAttachService.showPickSheet(
-    context,
-    title: jaTem ? 'Trocar comprovante' : 'Anexar comprovante',
+  await FinanceComprovanteAttachFlow.attachToLancamento(
+    context: context,
+    tenantId: tenantId,
+    docRef: doc.reference,
+    docData: doc.data(),
   );
-  if (picked == null) return;
-
-  if (!context.mounted) return;
-
-  try {
-    await _ensureFinanceWriteReady(context: context);
-    final data = doc.data() ?? {};
-    final refDate =
-        FinanceComprovantePublishService.referenceDateFromMap(data);
-    final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
-
-    if (!context.mounted) return;
-
-    await FinanceComprovanteUi.runWithProgress(
-      context,
-      label: jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…',
-      action: (onProgress) => FinanceComprovanteUpdateService
-          .publishFinanceLancamentoStrict(
-        churchIdHint: tenantId,
-        docRef: doc.reference,
-        bytes: picked.bytes,
-        mimeType: mime,
-        fileName: picked.fileName,
-        referenceDate: refDate,
-        previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
-        previousDownloadUrl:
-            (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
-        onProgress: onProgress,
-        alreadyCompressed: picked.alreadyOptimized,
-      ),
-    );
-
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar(
-        jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',
-      ),
-    );
-    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-  } catch (e) {
-    if (_financeTreatSilentSuccess(context, e, tenantId: tenantId)) {
-      return;
-    }
-    await FinanceComprovantePublishService.markComprovanteUploadFailed(
-      docRef: doc.reference,
-      error: e,
-    );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.errorSnackBarWithRetry(
-          formatFirebaseErrorForUser(e),
-          onRetry: () => unawaited(
-            uploadFinanceComprovanteForLancamento(
-              context,
-              tenantId: tenantId,
-              doc: doc,
-            ),
-          ),
-        ),
-      );
-    }
-  }
 }
 
 void showFinanceLancamentoDetailsBottomSheet(
