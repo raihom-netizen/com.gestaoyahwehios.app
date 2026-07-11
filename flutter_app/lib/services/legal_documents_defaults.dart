@@ -111,14 +111,18 @@ abstract final class LegalDocumentsDefaults {
       LegalSectionEntry(
         title: '1. Informações que coletamos',
         body:
-            'Conforme os módulos utilizados pela igreja, podemos tratar: nome, e-mail, telefone, '
+            'Conforme os módulos utilizados pela igreja, podemos tratar: nome, **endereço de e-mail** '
+            '(conta de login, cadastro pastoral e comunicações), telefone, '
             'CPF (quando informado), endereço, foto de perfil, dados de cadastro pastoral e '
             'administrativo, departamentos, cargos, escalas, agenda, avisos, eventos, mensagens '
             'de chat, pedidos de oração, lançamentos financeiros, patrimônio, fornecedores, '
             'documentos emitidos (certificados, carteirinha, cartas), preferências e configurações '
             'da conta.\n\n'
             'O login pode ocorrer por CPF/e-mail e senha, Google ou Apple (Sign in with Apple), '
-            'conforme disponível na versão e plataforma.\n\n'
+            'conforme disponível na versão e plataforma. O **e-mail da conta** é transmitido de '
+            'forma segura (HTTPS/TLS) para servidores Google Cloud (Firebase Authentication e '
+            'Firestore), conforme exigido para autenticação e gestão da igreja — e deve constar '
+            'na ficha «Segurança dos dados» da Google Play Store.\n\n'
             'Também tratamos dados técnicos necessários ao funcionamento: tokens de notificação '
             '(push), logs de segurança, identificadores de sessão, endereço IP, tipo de dispositivo '
             'e dados de uso do app para diagnóstico e melhoria do serviço.\n\n'

@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+
 /// Eventos em [noticias] com `type == evento`: o **Feed** e o mural público devem mostrar só
 /// **eventos especiais** (cultos de campanha, datas comemorativas, etc.).
 ///
@@ -30,5 +32,17 @@ bool noticiaDocEhEventoSpecialFeed(QueryDocumentSnapshot<Map<String, dynamic>> d
 
 /// Para o mural (aba Eventos): mesma regra — só eventos especiais.
 bool noticiaDocIncluirNoMuralEventos(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  return noticiaDocEhEventoSpecialFeed(doc);
+}
+
+/// Painel inicial / destaque — inclui docs da subcoleção `eventos` (sem exigir legado `noticias`).
+bool eventoDocApareceNoFeedPainel(
+  QueryDocumentSnapshot<Map<String, dynamic>> doc,
+) {
+  if (noticiaEventoEhRotinaOuGeradoAutomatico(doc.data(), doc.id)) {
+    return false;
+  }
+  final seg = ChurchTenantPostsCollections.segmentFromPostRef(doc.reference);
+  if (seg == ChurchTenantPostsCollections.eventos) return true;
   return noticiaDocEhEventoSpecialFeed(doc);
 }

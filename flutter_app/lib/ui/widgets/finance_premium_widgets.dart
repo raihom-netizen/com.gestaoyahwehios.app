@@ -1,6 +1,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// KPI hero — estilo Controle Total (gradiente suave, tipografia forte).
@@ -648,6 +649,408 @@ class FinancePremiumLancamentoTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Logo circular do banco — PNG oficial ou iniciais (banco de marcas BR).
+class FinanceBankMiniLogo extends StatelessWidget {
+  const FinanceBankMiniLogo({
+    super.key,
+    required this.bancoCodigo,
+    required this.bancoNome,
+    this.size = 28,
+    this.fontSize = 11,
+    this.lightOnDark = false,
+  });
+
+  final String bancoCodigo;
+  final String bancoNome;
+  final double size;
+  final double fontSize;
+  final bool lightOnDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final branding = brasilBancoBrandingFor(
+      codigo: bancoCodigo,
+      nome: bancoNome,
+    );
+    final color = Color(branding.colorHex);
+    final bg = lightOnDark
+        ? Colors.white.withValues(alpha: 0.92)
+        : color.withValues(alpha: 0.16);
+    final initials = branding.initials.trim().isNotEmpty
+        ? branding.initials.trim()
+        : (bancoNome.trim().isEmpty
+            ? 'BK'
+            : bancoNome.trim().substring(0, 1).toUpperCase());
+    final logoPath = (branding.miniLogoAssetPath ?? '').trim();
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: lightOnDark
+              ? Colors.white.withValues(alpha: 0.35)
+              : color.withValues(alpha: 0.42),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+          letterSpacing: -0.1,
+          color: color,
+        ),
+      ),
+    );
+    if (logoPath.isEmpty) return fallback;
+    return ClipOval(
+      child: Image.asset(
+        logoPath,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
+  }
+}
+
+/// Cartão de conta/banco — gradiente da marca (estilo Controle Total).
+class FinanceBankBrandCard extends StatelessWidget {
+  const FinanceBankBrandCard({
+    super.key,
+    required this.nome,
+    required this.bancoNome,
+    required this.tipoContaLabel,
+    required this.bancoCodigo,
+    required this.saldoAtual,
+    this.receitasMes = 0,
+    this.despesasMes = 0,
+    this.isCreditCard = false,
+    this.compact = false,
+    this.onTap,
+    this.onTransfer,
+  });
+
+  final String nome;
+  final String bancoNome;
+  final String tipoContaLabel;
+  final String bancoCodigo;
+  final double saldoAtual;
+  final double receitasMes;
+  final double despesasMes;
+  final bool isCreditCard;
+  final bool compact;
+  final VoidCallback? onTap;
+  final VoidCallback? onTransfer;
+
+  static final _nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+
+  @override
+  Widget build(BuildContext context) {
+    final branding = brasilBancoBrandingFor(
+      codigo: bancoCodigo,
+      nome: bancoNome,
+    );
+    final brand = Color(branding.colorHex);
+    final deep = Color.lerp(brand, const Color(0xFF0F172A), isCreditCard ? 0.55 : 0.42)!;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Container(
+          height: compact ? 148 : null,
+          constraints: BoxConstraints(minHeight: compact ? 148 : 188),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [brand, deep],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: brand.withValues(alpha: 0.35),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Stack(
+              children: [
+                Positioned(
+                  right: -24,
+                  top: -24,
+                  child: Container(
+                    width: 110,
+                    height: 110,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: -18,
+                  bottom: -30,
+                  child: Container(
+                    width: 90,
+                    height: 90,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    compact ? 14 : 16,
+                    compact ? 12 : 16,
+                    compact ? 14 : 16,
+                    compact ? 12 : 14,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FinanceBankMiniLogo(
+                            bancoCodigo: bancoCodigo,
+                            bancoNome: bancoNome,
+                            size: compact ? 34 : 40,
+                            fontSize: compact ? 11 : 12,
+                            lightOnDark: true,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  bancoNome.toUpperCase(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.82),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  nome,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
+                                    letterSpacing: -0.35,
+                                    height: 1.15,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (isCreditCard)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.credit_card_rounded,
+                                      color: Colors.white, size: 14),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'CRÉDITO',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        tipoContaLabel,
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.75),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Saldo atual',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.72),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  _nf.format(saldoAtual),
+                                  style: TextStyle(
+                                    color: saldoAtual >= 0
+                                        ? const Color(0xFF86EFAC)
+                                        : const Color(0xFFFCA5A5),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: compact ? 18 : 22,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (!compact &&
+                              (receitasMes > 0 || despesasMes > 0)) ...[
+                            _fluxoPill('↑', _nf.format(receitasMes),
+                                const Color(0xFF86EFAC)),
+                            const SizedBox(width: 6),
+                            _fluxoPill('↓', _nf.format(despesasMes),
+                                const Color(0xFFFCA5A5)),
+                          ],
+                        ],
+                      ),
+                      if (onTransfer != null) ...[
+                        const SizedBox(height: 10),
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: onTransfer,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.38),
+                                ),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 9,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.swap_horiz_rounded,
+                                        color: Colors.white, size: 18),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      'Transferir entre contas',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _fluxoPill(String arrow, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '$arrow $value',
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+/// Grade responsiva de cartões de conta (1 ou 2 colunas).
+class FinanceContasBrandGrid extends StatelessWidget {
+  const FinanceContasBrandGrid({
+    super.key,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.minCardHeight = 188,
+  });
+
+  final int itemCount;
+  final Widget Function(BuildContext context, int index) itemBuilder;
+  final double minCardHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final wide = c.maxWidth >= 680;
+        final cross = wide ? 2 : 1;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cross,
+            mainAxisExtent: minCardHeight,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+          ),
+          itemCount: itemCount,
+          itemBuilder: itemBuilder,
+        );
+      },
     );
   }
 }

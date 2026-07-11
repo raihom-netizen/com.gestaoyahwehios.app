@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_member_pastoral_contact_card.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
@@ -202,19 +203,14 @@ class _ChurchPanelLeadershipCardSectionState
                     ),
                   ),
                 ),
-              _LeadershipGalleryStrip(
-                accent: _accent,
-                children: [
-                  for (final entry in list)
-                    ChurchPanelLeaderAttentionCard(
-                      entry: entry,
-                      tenantId: widget.tenantId,
-                      role: widget.role,
-                      viewerCpfDigits: widget.viewerCpfDigits,
-                      accent: _accent,
-                    ),
-                ],
-              ),
+              for (final entry in list)
+                ChurchPanelLeaderAttentionCard(
+                  entry: entry,
+                  tenantId: widget.tenantId,
+                  role: widget.role,
+                  viewerCpfDigits: widget.viewerCpfDigits,
+                  accent: _accent,
+                ),
             ],
           ),
         );
@@ -265,55 +261,6 @@ class _LeadershipPanelShell extends StatelessWidget {
       borderTint: accent,
       padding: const EdgeInsets.all(12),
       child: child,
-    );
-  }
-}
-
-/// Galeria compacta — faixa horizontal em mobile; wrap em telas largas.
-class _LeadershipGalleryStrip extends StatelessWidget {
-  const _LeadershipGalleryStrip({
-    required this.accent,
-    required this.children,
-  });
-
-  final Color accent;
-  final List<Widget> children;
-
-  static const double _cardWidth = 152;
-  static const double _stripHeight = 196;
-
-  @override
-  Widget build(BuildContext context) {
-    if (children.isEmpty) return const SizedBox.shrink();
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 640;
-        if (wide) {
-          return Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            alignment: WrapAlignment.start,
-            children: [
-              for (final child in children)
-                SizedBox(width: _cardWidth, child: child),
-            ],
-          );
-        }
-        return SizedBox(
-          height: _stripHeight,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: children.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (_, i) => SizedBox(
-              width: _cardWidth,
-              child: children[i],
-            ),
-          ),
-        );
-      },
     );
   }
 }
@@ -452,128 +399,16 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
     final data = entry.memberData;
     final nome = _fullName(data);
     final subtitle = entry.subtitleLine.trim();
-    final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
-    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
-    final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
-    final cpf = (data['CPF'] ?? data['cpf'] ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\D'), '');
-    final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
-    const photoSize = 48.0;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            const Color(0xFFF8FAFC),
-            accent.withValues(alpha: 0.05),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FotoMembroWidget(
-              imageUrl: foto,
-              memberData: data,
-              tenantId: tenantId,
-              memberId: entry.memberDocId,
-              cpfDigits: cpf.length == 11 ? cpf : null,
-              authUid: MemberProfilePhotoResolver.authUidFromData(
-                data,
-                memberDocId: entry.memberDocId,
-              ),
-              size: photoSize,
-              memCacheWidth: 112,
-              memCacheHeight: 112,
-              preferListThumbnail: true,
-              backgroundColor:
-                  avatarColor ?? accent.withValues(alpha: 0.12),
-              fallbackChild: CircleAvatar(
-                radius: photoSize / 2,
-                backgroundColor:
-                    avatarColor ?? accent.withValues(alpha: 0.15),
-                child: Text(
-                  initial,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                    color: accent,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              nome,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 13,
-                letterSpacing: -0.2,
-                height: 1.2,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            if (subtitle.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  height: 1.25,
-                  color: Colors.grey.shade600,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: YahwehSuperPremiumActionButton.chat(
-                    compact: true,
-                    onPressed: () => ChurchMemberContactChat.tapYahwehChat(
-                      context: context,
-                      tenantId: tenantId,
-                      memberRole: role,
-                      viewerCpfDigits: viewerCpfDigits,
-                      memberData: data,
-                      displayName: nome,
-                      memberDocId: entry.memberDocId,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: YahwehSuperPremiumActionButton.whatsapp(
-                    compact: true,
-                    onPressed: () => ChurchMemberContactChat.tapWhatsApp(
-                      context: context,
-                      memberData: data,
-                      tenantId: tenantId,
-                      memberDocId: entry.memberDocId,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return ChurchMemberPastoralContactCard(
+      displayName: nome,
+      subtitle: subtitle.isEmpty ? 'Liderança ministerial' : subtitle,
+      memberData: data,
+      tenantId: tenantId,
+      memberDocId: entry.memberDocId,
+      memberRole: role,
+      viewerCpfDigits: viewerCpfDigits,
+      accent: accent,
     );
   }
 }

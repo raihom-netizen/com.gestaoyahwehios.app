@@ -59,6 +59,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_resumo_charts_section.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
+import 'package:gestao_yahweh/services/finance_account_migrate_service.dart';
 import 'package:gestao_yahweh/ui/pages/finance_bulk_assign_page.dart';
 import 'package:gestao_yahweh/ui/pages/finance_smart_input_page.dart';
 import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
@@ -72,6 +73,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
+import 'package:gestao_yahweh/services/finance_church_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
@@ -162,6 +164,9 @@ String _financeTipoContaLabel(String? raw) {
       return 'Poupança';
     case 'caixa':
       return 'Caixa / numerário';
+    case 'cartao_credito':
+    case 'cartao':
+      return 'Cartão de crédito';
     default:
       return 'Conta corrente';
   }
@@ -257,19 +262,29 @@ Widget _financeBankMiniLogo({
   );
 }
 
+Future<void> _seedFinanceCategoriasReceitaFirestore(
+  CollectionReference<Map<String, dynamic>> col,
+) async {
+  try {
+    final probe = await col.limit(1).get();
+    if (probe.docs.isNotEmpty) return;
+    for (final nome in _categoriasReceitaPadrao) {
+      await col.add(
+          {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
+    }
+  } catch (_) {}
+}
+
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
     if (op.isEmpty) return List<String>.from(_categoriasReceitaPadrao);
     final col = ChurchUiCollections.churchDoc(op)
         .collection('categorias_receitas');
-    var snap = await col.orderBy('nome').get();
+    final snap = await col.orderBy('nome').get();
     if (snap.docs.isEmpty) {
-      for (final nome in _categoriasReceitaPadrao) {
-        await col.add(
-            {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
-      }
-      snap = await col.orderBy('nome').get();
+      unawaited(_seedFinanceCategoriasReceitaFirestore(col));
+      return List<String>.from(_categoriasReceitaPadrao);
     }
     final nomes = snap.docs
         .map((d) => (d.data()['nome'] ?? '').toString())
@@ -282,24 +297,39 @@ Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
   }
 }
 
+List<({String id, String nome})> _financeContasFromRamDocs(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+) =>
+    docs
+        .where((d) => d.data()['ativo'] != false)
+        .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
+        .where((e) => e.nome.isNotEmpty)
+        .toList();
+
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
     if (op.isEmpty) return const [];
+    final ram = ChurchFinanceLoadService.peekContasRam(op);
+    if (ram != null && ram.isNotEmpty) {
+      return _financeContasFromRamDocs(ram);
+    }
     final snap = await ChurchUiCollections.churchDoc(op)
         .collection('contas')
         .orderBy('nome')
         .get();
-    return snap.docs
-        .where((d) => d.data()['ativo'] != false)
-        .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
-        .where((e) => e.nome.isNotEmpty)
-        .toList();
+    return _financeContasFromRamDocs(snap.docs);
   } catch (_) {
     return const [];
   }
 }
+
+Future<T> _financeEditorBootstrapTimeout<T>(
+  Future<T> future,
+  T fallback,
+) =>
+    future.timeout(const Duration(seconds: 4), onTimeout: () => fallback);
 
 class _FinancePdfSignerSelection {
   final String leftName;
@@ -1096,6 +1126,7 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _warmFinanceData(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
+    unawaited(FinanceChurchBootstrapService.ensureForChurch(tid));
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -2028,50 +2059,47 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
-              ],
-              for (final c in contasAtivas) ...[
-                Builder(
-                  builder: (context) {
+                FinanceContasBrandGrid(
+                  itemCount: contasAtivas.length,
+                  minCardHeight: 210,
+                  itemBuilder: (context, i) {
+                    final c = contasAtivas[i];
                     final id = c.id;
                     final contaData = c.data();
                     final nome = _financeContaDisplayName(contaData);
                     final bancoNome = _financeContaBancoNome(contaData);
                     final tipoConta =
                         _financeTipoContaLabel(contaData['tipoConta']?.toString());
-                    final contaAccent = _financeContaBancoColor(contaData);
                     final t = totais[id] ??
                         const _TotaisContaMesResumo(receitas: 0, despesas: 0);
                     final saldoAtual = saldoAtualPorConta[id] ?? t.saldo;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: FinancePremiumAccountCard(
-                        nome: nome,
-                        saldoAtual: saldoAtual,
-                        receitasMes: t.receitas,
-                        despesasMes: t.despesas,
-                        bancoSubtitle: '$bancoNome · $tipoConta',
-                        accent: contaAccent,
-                        leading: _financeBankMiniLogo(
-                          bancoCodigo:
-                              (contaData['bancoCodigo'] ?? '').toString(),
-                          bancoNome: bancoNome,
-                          size: 30,
-                          fontSize: 11,
-                        ),
-                        onTap: () => openExtrato(
-                          contaId: id,
-                          title: '$nome · $mesLabel',
-                        ),
-                        onTransfer: () async {
-                          final ok = await showFinanceLancamentoEditorForTenant(
-                            context,
-                            tenantId: tenantId,
-                            panelRole: role,
-                            presetNovoTipo: 'transferencia',
-                          );
-                          if (ok) onFinanceChanged();
-                        },
+                    final tipoRaw =
+                        (contaData['tipoConta'] ?? '').toString().toLowerCase();
+                    final isCartao = tipoRaw == 'cartao_credito' ||
+                        tipoRaw == 'cartao';
+                    return FinanceBankBrandCard(
+                      nome: nome,
+                      bancoNome: bancoNome,
+                      tipoContaLabel: tipoConta,
+                      bancoCodigo: (contaData['bancoCodigo'] ?? '').toString(),
+                      saldoAtual: saldoAtual,
+                      receitasMes: t.receitas,
+                      despesasMes: t.despesas,
+                      isCreditCard: isCartao,
+                      onTap: () => openExtrato(
+                        contaId: id,
+                        title: '$nome · $mesLabel',
                       ),
+                      onTransfer: () async {
+                        final ok = await showFinanceLancamentoEditorForTenant(
+                          context,
+                          tenantId: tenantId,
+                          panelRole: role,
+                          presetNovoTipo: 'transferencia',
+                          presetContaOrigemId: id,
+                        );
+                        if (ok) onFinanceChanged();
+                      },
                     );
                   },
                 ),
@@ -2409,9 +2437,22 @@ class _ResumoTabState extends State<_ResumoTab> {
       setState(() {
         final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
         final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-        _seedFinanceDocs = fs.docs;
-        _seedContasDocs = cs.docs;
-        _combinedFuture = Future.value(fresh);
+        final freshFinance = fs.docs;
+        _seedFinanceDocs = freshFinance.isNotEmpty
+            ? freshFinance
+            : (_seedFinanceDocs?.isNotEmpty == true
+                ? _seedFinanceDocs!
+                : freshFinance);
+        _seedContasDocs = cs.docs.isNotEmpty
+            ? cs.docs
+            : (_seedContasDocs?.isNotEmpty == true
+                ? _seedContasDocs!
+                : cs.docs);
+        _combinedFuture = Future.value(<dynamic>[
+          MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
+          MergedFirestoreQuerySnapshot(_seedContasDocs!),
+          fresh[2],
+        ]);
         _fetching = false;
         _showingStaleCache = false;
         _loadHint = null;
@@ -2885,12 +2926,37 @@ class _ResumoTabState extends State<_ResumoTab> {
                   },
                 );
                 final cardSaldo = _TotalizadorCard(
-                    label: 'Saldo',
-                    valor: saldo,
-                    icon: Icons.account_balance_rounded,
-                    color: saldo >= 0
-                        ? _financeSaldoPositivo
-                        : _financeSaldoNegativo);
+                  label: 'Saldo',
+                  valor: saldo,
+                  icon: Icons.account_balance_rounded,
+                  color: saldo >= 0
+                      ? _financeSaldoPositivo
+                      : _financeSaldoNegativo,
+                  onTap: () async {
+                    await Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => _MovimentacoesContaPage(
+                          financeCol: widget.financeCol,
+                          tenantId: widget.tenantId,
+                          role: widget.role,
+                          contaId: null,
+                          title: 'Extrato · Saldo',
+                          extratoMes: null,
+                          onEdit: (ctx, doc) async {
+                            await showFinanceLancamentoEditorForTenant(
+                              ctx,
+                              tenantId: widget.tenantId,
+                              existingDoc: doc,
+                              panelRole: widget.role,
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                    if (mounted) _refresh();
+                  },
+                );
                 final cards = [cardReceitas, cardDespesas, cardSaldo];
                 if (narrow) {
                   return Column(children: [
@@ -3376,14 +3442,15 @@ Widget _financeExtratoPremiumChip({
 
 bool _financeLancamentoEnvolveConta(Map<String, dynamic> data, String contaId) {
   if (contaId.isEmpty) return false;
-  final origem = (data['contaOrigemId'] ?? '').toString();
-  final destino = (data['contaDestinoId'] ?? '').toString();
-  final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
+  final origem = (data['contaOrigemId'] ?? '').toString().trim();
+  final destino = financeContaDestinoReceitaId(data);
+  final tipo = financeInferTipo(data);
   if (tipo == 'transferencia') {
-    return origem == contaId || destino == contaId;
+    final destinoTransf = (data['contaDestinoId'] ?? '').toString().trim();
+    return origem == contaId || destinoTransf == contaId;
   }
   if (tipo.contains('entrada') || tipo.contains('receita')) {
-    return financeContaDestinoReceitaId(data) == contaId;
+    return destino == contaId;
   }
   if (tipo.contains('saida') ||
       tipo.contains('saída') ||
@@ -3447,38 +3514,50 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   }
 
   void _reloadMovimentacoesFuture({bool reset = true}) {
-    _fetching = true;
     if (reset) {
       _movHasMore = true;
       _seedMovimentacoesFromRam();
     }
-    _future = ChurchTenantResilientReads.financeRecentPage(
-      widget.tenantId,
-      limit: _movPageSize,
-    ).timeout(PanelResilientLoad.queryCap).then((snap) {
-      if (mounted && snap.docs.isNotEmpty) {
+    final hadLocal = _seedDocs?.isNotEmpty ?? false;
+    _fetching = !hadLocal;
+    final initialLimit =
+        widget.contaId != null ? YahwehPerformanceV4.defaultPageSize * 4 : _movPageSize;
+    _future = Future.value(
+      MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
+    );
+
+    unawaited(
+      ChurchTenantResilientReads.financeRecentPage(
+        widget.tenantId,
+        limit: initialLimit,
+      ).timeout(PanelResilientLoad.queryCap).then((snap) {
+        if (!mounted) return;
         setState(() {
-          _seedDocs = snap.docs;
-          _movHasMore = snap.docs.length >= _movPageSize;
+          if (snap.docs.isNotEmpty) {
+            _seedDocs = snap.docs;
+            _movHasMore = snap.docs.length >= initialLimit;
+          } else if (_seedDocs == null || _seedDocs!.isEmpty) {
+            _movHasMore = false;
+          }
           _fetching = false;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
+          );
         });
-      } else if (mounted) {
-        setState(() {
-          _movHasMore = false;
-          _fetching = false;
-        });
-      }
-      return snap;
-    }).catchError((e) {
-      if (mounted) {
+      }).catchError((e) {
+        if (!mounted) return;
         final ui = PanelResilientLoad.afterError(
           hadLocalData: (_seedDocs?.isNotEmpty ?? false),
           error: e,
         );
-        setState(() => _fetching = ui.fetching);
-      }
-      throw e;
-    });
+        setState(() {
+          _fetching = ui.fetching;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
+          );
+        });
+      }),
+    );
   }
 
   @override
@@ -3577,7 +3656,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
           var docs = rawDocs;
           docs = docs.where((d) {
             final data = d.data();
-            final t = _financeLancamentoInstant(data);
+            final t = financeLancamentoDate(data) ?? _financeLancamentoInstant(data);
             if (t.isBefore(inicio) || t.isAfter(fim)) {
               return false;
             }
@@ -3595,7 +3674,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
               }
             }
             if (_filtroMovimento != 'todos') {
-              final typ = (data['type'] ?? '').toString().toLowerCase();
+              final typ = financeInferTipo(data);
               if (_filtroMovimento == 'transferencia' && typ != 'transferencia') {
                 return false;
               }
@@ -4047,6 +4126,8 @@ class _ListaLancamentosPorTipoPageState
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
   bool _fetching = false;
+  /// Filtro dízimo / oferta (somente receitas).
+  String _filtroDoacao = 'todos';
 
   void _seedFromRam() {
     final churchId = ChurchRepository.churchId(widget.tenantId);
@@ -4138,9 +4219,22 @@ class _ListaLancamentosPorTipoPageState
           var docs = rawDocs;
           docs = docs.where((d) {
             final t = (d.data()['type'] ?? '').toString().toLowerCase();
-            if (widget.tipo == 'entrada')
-              return t.contains('entrada') || t.contains('receita');
-            return t.contains('saida') || t.contains('despesa');
+            if (widget.tipo == 'entrada') {
+              if (!t.contains('entrada') && !t.contains('receita')) {
+                return false;
+              }
+            } else {
+              if (!t.contains('saida') && !t.contains('despesa')) {
+                return false;
+              }
+            }
+            if (widget.tipo == 'entrada' && _filtroDoacao != 'todos') {
+              if (!_financeIsDonationLancamento(d.data())) return false;
+              final lbl = _financeDonationKindLabel(d.data());
+              if (_filtroDoacao == 'dizimo' && lbl != 'Dízimo') return false;
+              if (_filtroDoacao == 'oferta' && lbl != 'Oferta') return false;
+            }
+            return true;
           }).toList();
 
           if (docs.isEmpty) {
@@ -4181,6 +4275,39 @@ class _ListaLancamentosPorTipoPageState
                     errorTitle: 'Não foi possível carregar os lançamentos',
                     error: loadError,
                     onRetry: _refresh,
+                  ),
+                ),
+              if (widget.tipo == 'entrada')
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceLg,
+                    ThemeCleanPremium.spaceSm,
+                    ThemeCleanPremium.spaceLg,
+                    0,
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _FilterChipPeriod(
+                          label: 'Todas receitas',
+                          selected: _filtroDoacao == 'todos',
+                          onTap: () => setState(() => _filtroDoacao = 'todos'),
+                        ),
+                        const SizedBox(width: 8),
+                        _FilterChipPeriod(
+                          label: 'Dízimos',
+                          selected: _filtroDoacao == 'dizimo',
+                          onTap: () => setState(() => _filtroDoacao = 'dizimo'),
+                        ),
+                        const SizedBox(width: 8),
+                        _FilterChipPeriod(
+                          label: 'Ofertas',
+                          selected: _filtroDoacao == 'oferta',
+                          onTap: () => setState(() => _filtroDoacao = 'oferta'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               Padding(
@@ -5088,8 +5215,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                           _refresh();
                           widget.onFinanceChanged?.call();
                         },
-                        icon: const Icon(Icons.link_rounded, size: 18),
-                        label: const Text('Vincular em massa'),
+                        icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                        label: const Text('Migrar lançamentos'),
                       ),
                     ],
                   ),
@@ -5289,12 +5416,44 @@ class _LancamentosTabState extends State<_LancamentosTab> {
 
   Future<void> _editarLancamento(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
-    final ok = await showFinanceLancamentoEditorForTenant(context,
-        tenantId: widget.tenantId,
-        existingDoc: doc,
-        panelRole: widget.role);
-    if (ok && mounted) {
-      widget.onFinanceChanged?.call();
+    if (!mounted) return;
+    var loadingOpen = false;
+    try {
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        useRootNavigator: true,
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 14),
+                    Text('A abrir editor…'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      loadingOpen = true;
+      final ok = await showFinanceLancamentoEditorForTenant(context,
+          tenantId: widget.tenantId,
+          existingDoc: doc,
+          panelRole: widget.role);
+      if (ok && mounted) {
+        widget.onFinanceChanged?.call();
+      }
+    } finally {
+      if (loadingOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
     }
   }
 
@@ -5605,6 +5764,19 @@ class _LancamentoCard extends StatelessWidget {
                       ),
                     if (!isTransfer &&
                         isEntrada &&
+                        isDonation &&
+                        donationLabel.isNotEmpty)
+                      FinancePremiumStatusPill(
+                        label: donationLabel,
+                        icon: donationLabel == 'Dízimo'
+                            ? Icons.volunteer_activism_rounded
+                            : Icons.favorite_rounded,
+                        colors: donationLabel == 'Dízimo'
+                            ? const [Color(0xFF2563EB), Color(0xFF60A5FA)]
+                            : const [Color(0xFF7C3AED), Color(0xFFA78BFA)],
+                      ),
+                    if (!isTransfer &&
+                        isEntrada &&
                         data['recebimentoConfirmado'] == false)
                       const FinancePremiumStatusPill(
                         label: 'Pendente',
@@ -5622,7 +5794,10 @@ class _LancamentoCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Align(
+                Listener(
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: (_) {},
+                  child: Align(
                   alignment: Alignment.centerRight,
                   child: Wrap(
                     spacing: 6,
@@ -5716,6 +5891,7 @@ class _LancamentoCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
                 ),
               ],
             ),
@@ -7157,8 +7333,12 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
         if (!mounted) return;
         _webLoadCap?.cancel();
         setState(() {
-          _seedContasDocs = fresh.docs;
-          _future = Future.value(fresh);
+          _seedContasDocs = fresh.docs.isNotEmpty
+              ? fresh.docs
+              : (_seedContasDocs?.isNotEmpty == true
+                  ? _seedContasDocs!
+                  : fresh.docs);
+          _future = Future.value(MergedFirestoreQuerySnapshot(_seedContasDocs!));
           _fetching = false;
           _showingStaleCache = false;
           _loadHint = null;
@@ -7221,7 +7401,8 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
         }
         final showResilienceBanner =
             loadError != null || _fetching || _showingStaleCache;
-        final docs = snap.data?.docs ?? _seedContasDocs ?? [];
+        final docsRaw = snap.data?.docs ?? _seedContasDocs ?? [];
+        final docs = dedupeContasDocuments(docsRaw);
         return Column(
           children: [
             if (showResilienceBanner)
@@ -7294,156 +7475,155 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
               )
             else
               Expanded(
-                child: ListView.builder(
+                child: ListView(
                   padding: EdgeInsets.fromLTRB(
                       ThemeCleanPremium.spaceLg,
                       ThemeCleanPremium.spaceSm,
                       ThemeCleanPremium.spaceLg,
                       100),
-                  itemCount: docs.length,
-                  itemBuilder: (context, i) {
-                    final d = docs[i];
-                    final data = d.data();
-                    final nome = _financeContaDisplayName(data);
-                    final ativo = data['ativo'] != false;
-                    final sub = _contaSubtitle(data);
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: const Color(0xFFF1F5F9)),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: ThemeCleanPremium.spaceLg,
-                            vertical: 12),
-                        onTap: () async {
-                          await Navigator.push<void>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => _MovimentacoesContaPage(
-                                financeCol: _financeCol,
-                                tenantId: widget.tenantId,
-                                role: widget.role,
-                                contaId: d.id,
-                                title: nome.isNotEmpty ? nome : 'Conta',
-                                extratoMes: null,
-                                onEdit: (ctx, doc) =>
-                                    widget.onEditLancamento(ctx, doc),
-                              ),
-                            ),
-                          );
-                          if (mounted) _refresh();
-                        },
-                        leading: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: _financeContaBancoColor(data)
-                                .withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                          ),
-                          child: Icon(Icons.account_balance_rounded,
-                              color: _financeContaBancoColor(data), size: 22),
-                        ),
-                        title: Row(
+                  children: [
+                    FinanceContasBrandGrid(
+                      itemCount: docs.length,
+                      minCardHeight: 168,
+                      itemBuilder: (context, i) {
+                        final d = docs[i];
+                        final data = d.data();
+                        final nome = _financeContaDisplayName(data);
+                        final bancoNome = _financeContaBancoNome(data);
+                        final tipoConta =
+                            _financeTipoContaLabel(data['tipoConta']?.toString());
+                        final tipoRaw =
+                            (data['tipoConta'] ?? '').toString().toLowerCase();
+                        final isCartao = tipoRaw == 'cartao_credito' ||
+                            tipoRaw == 'cartao';
+                        final saldo = financeParseValorBr(
+                            data['saldo'] ?? data['saldoAtual'] ?? 0);
+                        return Stack(
+                          clipBehavior: Clip.none,
                           children: [
-                            Expanded(
-                              child: Text(nome,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700)),
+                            FinanceBankBrandCard(
+                              nome: nome,
+                              bancoNome: bancoNome,
+                              tipoContaLabel: tipoConta,
+                              bancoCodigo:
+                                  (data['bancoCodigo'] ?? '').toString(),
+                              saldoAtual: saldo,
+                              isCreditCard: isCartao,
+                              compact: true,
+                              onTap: () async {
+                                await Navigator.push<void>(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => _MovimentacoesContaPage(
+                                      financeCol: _financeCol,
+                                      tenantId: widget.tenantId,
+                                      role: widget.role,
+                                      contaId: d.id,
+                                      title: nome.isNotEmpty ? nome : 'Conta',
+                                      extratoMes: null,
+                                      onEdit: (ctx, doc) =>
+                                          widget.onEditLancamento(ctx, doc),
+                                    ),
+                                  ),
+                                );
+                                if (mounted) _refresh();
+                              },
+                              onTransfer: () async {
+                                final ok =
+                                    await showFinanceLancamentoEditorForTenant(
+                                  context,
+                                  tenantId: widget.tenantId,
+                                  panelRole: widget.role,
+                                  presetNovoTipo: 'transferencia',
+                                  presetContaOrigemId: d.id,
+                                );
+                                if (ok && mounted) _refresh();
+                              },
                             ),
-                            if (data['contaPrincipal'] == true)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Chip(
-                                  visualDensity: VisualDensity.compact,
-                                  label: const Text('Principal',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  backgroundColor: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12),
-                                  side: BorderSide(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.35)),
+                            Positioned(
+                              top: 6,
+                              right: 6,
+                              child: Material(
+                                color: Colors.black.withValues(alpha: 0.22),
+                                shape: const CircleBorder(),
+                                child: PopupMenuButton<String>(
+                                  icon: const Icon(Icons.more_vert_rounded,
+                                      color: Colors.white, size: 20),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12)),
+                                  onSelected: (v) async {
+                                    if (v == 'edit') {
+                                      _showEditConta(context, _col, d,
+                                          onSaved: _refresh);
+                                    }
+                                    if (v == 'migrate') {
+                                      await Navigator.push<void>(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => FinanceBulkAssignPage(
+                                            tenantId: widget.tenantId,
+                                            role: widget.role,
+                                            initialSourceAccountId: d.id,
+                                          ),
+                                        ),
+                                      );
+                                      if (mounted) _refresh();
+                                    }
+                                    if (v == 'toggle') {
+                                      final ativo = data['ativo'] != false;
+                                      await d.reference
+                                          .update({'ativo': !ativo});
+                                      if (mounted) _refresh();
+                                    }
+                                    if (v == 'delete') {
+                                      await _confirmarExcluirConta(
+                                          context, d.reference, nome,
+                                          onDeleted: _refresh);
+                                    }
+                                  },
+                                  itemBuilder: (_) => const [
+                                    PopupMenuItem(
+                                        value: 'edit',
+                                        child: Row(children: [
+                                          Icon(Icons.edit_rounded, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Editar')
+                                        ])),
+                                    PopupMenuItem(
+                                        value: 'migrate',
+                                        child: Row(children: [
+                                          Icon(Icons.swap_horiz_rounded,
+                                              size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Migrar lançamentos')
+                                        ])),
+                                    PopupMenuItem(
+                                        value: 'toggle',
+                                        child: Row(children: [
+                                          Icon(Icons.pause_rounded, size: 18),
+                                          SizedBox(width: 8),
+                                          Text('Ativar/Desativar')
+                                        ])),
+                                    PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(children: [
+                                          Icon(Icons.delete_outline_rounded,
+                                              size: 18,
+                                              color: Color(0xFFDC2626)),
+                                          SizedBox(width: 8),
+                                          Text('Excluir',
+                                              style: TextStyle(
+                                                  color: Color(0xFFDC2626)))
+                                        ])),
+                                  ],
                                 ),
                               ),
+                            ),
                           ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (sub.isNotEmpty)
-                              Text(sub,
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700)),
-                            if (!ativo)
-                              Text('Inativa',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.orange.shade800)),
-                          ],
-                        ),
-                        isThreeLine: sub.isNotEmpty || !ativo,
-                        trailing: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert_rounded),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          onSelected: (v) async {
-                            if (v == 'edit')
-                              _showEditConta(context, _col, d,
-                                  onSaved: _refresh);
-                            if (v == 'toggle') {
-                              await d.reference.update({'ativo': !ativo});
-                              if (mounted) _refresh();
-                            }
-                            if (v == 'delete')
-                              await _confirmarExcluirConta(
-                                  context, d.reference, nome,
-                                  onDeleted: _refresh);
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(children: [
-                                  Icon(Icons.edit_rounded, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Editar')
-                                ])),
-                            PopupMenuItem(
-                                value: 'toggle',
-                                child: Row(children: [
-                                  Icon(
-                                      ativo
-                                          ? Icons.pause_rounded
-                                          : Icons.check_circle_rounded,
-                                      size: 18),
-                                  SizedBox(width: 8),
-                                  Text(ativo ? 'Desativar' : 'Ativar')
-                                ])),
-                            const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(children: [
-                                  Icon(Icons.delete_outline_rounded,
-                                      size: 18, color: Color(0xFFDC2626)),
-                                  SizedBox(width: 8),
-                                  Text('Excluir',
-                                      style:
-                                          TextStyle(color: Color(0xFFDC2626)))
-                                ])),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -7495,7 +7675,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
     }
 
     String tipoConta = (d?['tipoConta'] ?? 'corrente').toString().toLowerCase();
-    if (!['corrente', 'poupanca', 'caixa'].contains(tipoConta)) {
+    if (!['corrente', 'poupanca', 'caixa', 'cartao_credito'].contains(tipoConta)) {
       tipoConta = 'corrente';
     }
 
@@ -7695,6 +7875,34 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
       'contaPrincipal': contaPrincipal,
       'updatedAt': FieldValue.serverTimestamp(),
     };
+
+    final dupId = await findDuplicateContaId(
+      col: col,
+      payload: payload,
+      excludeDocId: existing?.id,
+    );
+    if (dupId != null && context.mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Conta semelhante'),
+          content: const Text(
+            'Já existe uma conta com o mesmo banco, agência ou nome. '
+            'Evite duplicar — use «Migrar lançamentos» se quiser unificar. '
+            'Deseja cadastrar mesmo assim?',
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Cadastrar')),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
 
     late final DocumentReference<Map<String, dynamic>> savedRef;
     if (existing == null) {
@@ -8044,12 +8252,15 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
 
 /// Membros ativos — cache `_panel_cache/members_directory` (rápido; evita scan 3000).
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
-    String tenantId) async {
+  String tenantId, {
+  bool allowCallableWarm = true,
+}) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
     var snap = await MembersDirectorySnapshotService.readOnce(op);
-    if (!snap.hasEntries) {
-      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(op);
+    if (!snap.hasEntries && allowCallableWarm) {
+      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(op)
+          .timeout(const Duration(seconds: 3), onTimeout: () => snap);
     }
     final out = <({String id, String nome})>[];
     for (final e in snap.entries) {
@@ -8096,19 +8307,26 @@ Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
 String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
   final fn = (data['fornecedorNome'] ?? '').toString().trim();
   final mnCadastro = (data['membroNome'] ?? '').toString().trim();
+  final membroId = (data['membroId'] ?? '').toString().trim();
   final donor = (data['donorName'] ?? '').toString().trim();
   final origem = (data['origem'] ?? '').toString().toLowerCase();
-  final fromMp =
-      origem.contains('mercado_pago') || (data['mpPaymentId'] ?? '').toString().isNotEmpty;
+  final fromMp = origem.contains('mercado_pago') ||
+      (data['mpPaymentId'] ?? '').toString().isNotEmpty;
 
-  if (fn.isEmpty && mnCadastro.isEmpty && donor.isEmpty) return null;
+  if (fn.isEmpty && mnCadastro.isEmpty && donor.isEmpty && membroId.isEmpty) {
+    return null;
+  }
   if (fn.isNotEmpty && (mnCadastro.isNotEmpty || donor.isNotEmpty)) {
     final m = mnCadastro.isNotEmpty ? mnCadastro : donor;
     return 'Fornecedor · $fn · Membro · $m';
   }
   if (fn.isNotEmpty) return 'Fornecedor · $fn';
-  if (mnCadastro.isNotEmpty) return 'Membro · $mnCadastro';
-  if (donor.isNotEmpty && fromMp) return 'Doador · $donor';
+  if (membroId.isNotEmpty || mnCadastro.isNotEmpty) {
+    final nome = mnCadastro.isNotEmpty ? mnCadastro : donor;
+    if (nome.isNotEmpty) return 'Membro · $nome';
+  }
+  if (donor.isNotEmpty && fromMp) return 'Doador externo · $donor';
+  if (donor.isNotEmpty) return 'Doador · $donor';
   return null;
 }
 
@@ -8157,6 +8375,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   String? panelRole,
   /// Só para **novo** lançamento: `entrada`, `saida` ou `transferencia`.
   String? presetNovoTipo,
+  /// Conta de origem pré-selecionada (transferência a partir de um cartão).
+  String? presetContaOrigemId,
 }) async {
   final effectiveTenantId =
       ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
@@ -8170,7 +8390,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   final isEdit = existingDoc != null;
   final data = existingDoc?.data();
 
-  String tipo = isEdit ? (data?['type'] ?? 'entrada').toString() : 'entrada';
+  String tipo = isEdit ? financeInferTipo(data ?? const {}) : 'entrada';
   if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia') {
     tipo = 'entrada';
   }
@@ -8180,6 +8400,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       tipo = p;
     }
   }
+  final presetOrigem = (presetContaOrigemId ?? '').trim();
   final amtInicial =
       isEdit ? _parseValor(data?['amount'] ?? data?['valor']) : 0.0;
   final valorCtrl = TextEditingController(
@@ -8195,7 +8416,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       ? ((data?['contaOrigemId'] ?? '').toString().isEmpty
           ? null
           : (data?['contaOrigemId']).toString())
-      : null;
+      : (presetOrigem.isNotEmpty ? presetOrigem : null);
   String? contaDestinoId;
   if (isEdit && data != null) {
     final id = financeContaDestinoReceitaId(data);
@@ -8214,13 +8435,41 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   List<({String id, String nome})> membrosOpts;
   FinanceTenantSettings settings;
   try {
-    catsReceita = await _financeCategoriasReceitaTenant(effectiveTenantId);
-    catsDespesa = await getCategoriasDespesaForTenant(effectiveTenantId);
-    contas = await _financeContasAtivasTenant(effectiveTenantId);
-    fornecedoresOpts =
-        await _fornecedoresParaFinanceDropdown(effectiveTenantId);
-    membrosOpts = await _membrosParaFinanceDropdown(effectiveTenantId);
-    settings = await FinanceTenantSettings.load(effectiveTenantId);
+    final bootstrap = await Future.wait([
+      _financeEditorBootstrapTimeout(
+        _financeCategoriasReceitaTenant(effectiveTenantId),
+        List<String>.from(_categoriasReceitaPadrao),
+      ),
+      _financeEditorBootstrapTimeout(
+        getCategoriasDespesaForTenant(effectiveTenantId),
+        List<String>.from(kCategoriasDespesaPadrao),
+      ),
+      _financeEditorBootstrapTimeout(
+        _financeContasAtivasTenant(effectiveTenantId),
+        const <({String id, String nome})>[],
+      ),
+      _financeEditorBootstrapTimeout(
+        _fornecedoresParaFinanceDropdown(effectiveTenantId),
+        const <({String id, String nome})>[],
+      ),
+      _financeEditorBootstrapTimeout(
+        _membrosParaFinanceDropdown(
+          effectiveTenantId,
+          allowCallableWarm: !isEdit,
+        ),
+        const <({String id, String nome})>[],
+      ),
+      _financeEditorBootstrapTimeout(
+        FinanceTenantSettings.load(effectiveTenantId),
+        const FinanceTenantSettings(),
+      ),
+    ]);
+    catsReceita = bootstrap[0] as List<String>;
+    catsDespesa = bootstrap[1] as List<String>;
+    contas = bootstrap[2] as List<({String id, String nome})>;
+    fornecedoresOpts = bootstrap[3] as List<({String id, String nome})>;
+    membrosOpts = bootstrap[4] as List<({String id, String nome})>;
+    settings = bootstrap[5] as FinanceTenantSettings;
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8361,8 +8610,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
               pagamentoConfirmado = true;
             }
             if (t == 'transferencia' || prev == 'transferencia') {
-              coId = null;
-              cdId = null;
+              if (prev != 'transferencia') {
+                coId = null;
+                cdId = null;
+              }
             } else if (prev == 'entrada' && t == 'saida') {
               coId = cdId;
               cdId = null;

@@ -133,7 +133,8 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show
         noticiaEventoEhRotinaOuGeradoAutomatico,
-        noticiaDocEhEventoSpecialFeed;
+        noticiaDocEhEventoSpecialFeed,
+        eventoDocApareceNoFeedPainel;
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -2177,6 +2178,7 @@ class _AniversariantesBirthdayIndexedLoader extends StatefulWidget {
     required this.engagement,
     required this.onRetry,
     required this.builder,
+    this.optimisticChild,
   });
 
   final String tenantId;
@@ -2184,6 +2186,7 @@ class _AniversariantesBirthdayIndexedLoader extends StatefulWidget {
   final Future<void> Function() onRetry;
   final Widget Function(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs)
       builder;
+  final Widget? optimisticChild;
 
   @override
   State<_AniversariantesBirthdayIndexedLoader> createState() =>
@@ -2249,6 +2252,8 @@ class _AniversariantesBirthdayIndexedLoaderState
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting &&
                 !snap.hasData) {
+              final optimistic = widget.optimisticChild;
+              if (optimistic != null) return optimistic;
               return Padding(
                 padding: const EdgeInsets.all(4),
                 child: YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(
@@ -2277,10 +2282,10 @@ class _AniversariantesBirthdayIndexedLoaderState
 
 /// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (chat / WhatsApp).
 class _AniversariantesCard extends StatelessWidget {
-  /// Raio do círculo interno da foto (anel +3.5px — visual ~93px).
-  static const double kAvatarRadius = 43;
-  static const double kRowHeight = 232;
-  static const double kColWidth = 116;
+  /// Raio do círculo interno da foto (anel +3.5px).
+  static const double kAvatarRadius = 38;
+  static const double kRowHeight = 208;
+  static const double kColWidth = 100;
 
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final PanelDashboardSnapshot panelCache;
@@ -2309,54 +2314,34 @@ class _AniversariantesCard extends StatelessWidget {
   }
 
   Widget _buildShell(BuildContext context) {
-    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-      if (panelCache.hasBirthdayData) {
-        return _premiumContainer(child: _buildContentFromCache(context));
-      }
-      return _premiumContainer(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const ChurchWisdomBirthdayPanelHeader(),
-            const SizedBox(height: 14),
-            YahwehPremiumFeedShimmer.segmentedBarSkeleton(height: 50),
-            const SizedBox(height: 16),
-            YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(
-              listHeight: kRowHeight,
-              avatarRingRadius: kAvatarRadius,
-            ),
-          ],
-        ),
-      );
-    }
-    if (snap.hasError) {
-      return _premiumContainer(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: _DashboardPanelLoadError(
-            message:
-                'Não foi possível carregar aniversariantes. Verifique a conexão ou toque abaixo para recarregar.',
-            onRetry: onRetry,
-          ),
-        ),
-      );
-    }
-    if (!snap.hasData) {
-      if (panelCache.hasBirthdayData) {
-        return _premiumContainer(child: _buildContentFromCache(context));
-      }
-      return const SizedBox.shrink();
-    }
-    if (panelCache.hasBirthdayData) {
-      return _premiumContainer(child: _buildContentFromCache(context));
-    }
     return _premiumContainer(
-      child: _AniversariantesBirthdayIndexedLoader(
-        tenantId: tenantId,
-        engagement: engagement,
-        onRetry: onRetry,
-        builder: (docs) => _buildContentFromDocs(context, docs),
-      ),
+      child: _aniversariantesIndexedContent(context),
+    );
+  }
+
+  bool _cacheHasTabData(int tab) {
+    if (tab == 0) return panelCache.birthdaysToday.isNotEmpty;
+    if (tab == 1) return panelCache.birthdaysWeek.isNotEmpty;
+    return panelCache.birthdaysMonth.isNotEmpty;
+  }
+
+  Widget? _optimisticCacheChild(BuildContext context) {
+    if (!_cacheHasTabData(engagement.birthdayFilterTab)) return null;
+    return _buildContentFromCache(context);
+  }
+
+  Widget _aniversariantesIndexedContent(BuildContext context) {
+    return _AniversariantesBirthdayIndexedLoader(
+      tenantId: tenantId,
+      engagement: engagement,
+      onRetry: onRetry,
+      optimisticChild: _optimisticCacheChild(context),
+      builder: (docs) {
+        if (docs.isEmpty && panelCache.hasBirthdayData) {
+          return _buildContentFromCache(context);
+        }
+        return _buildContentFromDocs(context, docs);
+      },
     );
   }
 
@@ -2653,22 +2638,13 @@ class _AniversariantesCard extends StatelessWidget {
 
     final now = DateTime.now();
     final hojeMd = (now.month, now.day);
-    final semanaSet = _anivWeekMdSet(now);
 
     final hoje = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    final semanaExcHoje = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    final mesAtual = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (final d in docs) {
       final dt = birthDateFromMemberData(d.data());
       if (dt == null) continue;
-      final key = (dt.month, dt.day);
-      if (key == hojeMd) {
+      if ((dt.month, dt.day) == hojeMd) {
         hoje.add(d);
-      } else if (semanaSet.contains(key)) {
-        semanaExcHoje.add(d);
-      }
-      if (dt.month == now.month) {
-        mesAtual.add(d);
       }
     }
     int ordMd(QueryDocumentSnapshot<Map<String, dynamic>> a,
@@ -2679,22 +2655,14 @@ class _AniversariantesCard extends StatelessWidget {
       return (da.day + da.month * 32).compareTo(db.day + db.month * 32);
     }
 
-    semanaExcHoje.sort(ordMd);
-    mesAtual.sort(ordMd);
-
     final tab = engagement.birthdayFilterTab;
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> lista;
-    String emptyMsg;
-    if (tab == 0) {
-      lista = hoje;
-      emptyMsg = 'Nenhum aniversariante hoje.';
-    } else if (tab == 1) {
-      lista = [...hoje, ...semanaExcHoje];
-      emptyMsg = 'Nenhum aniversariante nesta semana.';
-    } else {
-      lista = mesAtual;
-      emptyMsg = 'Nenhum aniversariante neste mês.';
-    }
+    final lista = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
+      ..sort(ordMd);
+    final emptyMsg = tab == 0
+        ? 'Nenhum aniversariante hoje.'
+        : tab == 1
+            ? 'Nenhum aniversariante nesta semana.'
+            : 'Nenhum aniversariante neste mês.';
 
     final cachePx = _anivMemCachePx(context, kAvatarRadius * 2);
 
@@ -5527,7 +5495,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
           final cachedDocs = (snap.data?.docs ?? [])
               .where(
                 (d) =>
-                    noticiaDocEhEventoSpecialFeed(d) &&
+                    eventoDocApareceNoFeedPainel(d) &&
                     !noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now),
               )
               .where((d) {
@@ -5588,7 +5556,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
         final docs = (snap.data?.docs ?? [])
             .where(
               (d) =>
-                  noticiaDocEhEventoSpecialFeed(d) &&
+                  eventoDocApareceNoFeedPainel(d) &&
                   !noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now),
             )
             .where((d) {
@@ -5640,8 +5608,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
 }
 
 /// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
-/// Valor maior para evitar miniatura "achatada" no web.
-const double _kPainelDestaqueThumbSide = 220;
+const double _kPainelDestaqueThumbSide = 160;
 
 /// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
 /// Reduzido para ativar mais cedo no dashboard com sidebar.
@@ -7357,15 +7324,12 @@ Future<void> _painelDestaqueToggleLike(
         name = 'Membro';
       }
     }
-    await NoticiaSocialService.toggleCurtida(
-      tenantId: tenantId,
-      postId: doc.id,
+    await NoticiaSocialService.toggleCurtidaOnPost(
+      postRef: doc.reference,
       uid: uid,
       memberName: name.isEmpty ? 'Membro' : name,
       photoUrl: photo,
       currentlyLiked: liked,
-      parentCollection:
-          ChurchTenantPostsCollections.segmentFromPostRef(doc.reference),
     );
   } catch (e, st) {
     debugPrint('Dashboard _painelDestaqueToggleLike: $e\n$st');
@@ -7679,6 +7643,9 @@ class _DestaqueCardState extends State<_DestaqueCard> {
     final fromAvisosCol = ChurchTenantPostsCollections.segmentFromPostRef(
             widget.doc.reference) ==
         ChurchTenantPostsCollections.avisos;
+    final fromEventosCol = ChurchTenantPostsCollections.segmentFromPostRef(
+            widget.doc.reference) ==
+        ChurchTenantPostsCollections.eventos;
     final galleryRefs = yahwehPostGalleryRefs(data);
     var galleryPhotos = _painelDestaqueGalleryPhotos(data);
     if (galleryPhotos.isEmpty) {
@@ -7754,7 +7721,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
     final timeStr = dt != null
         ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
         : '';
-    final isEvento = !fromAvisosCol && type == 'evento';
+    final isEvento = fromEventosCol || (!fromAvisosCol && type == 'evento');
 
     String? gsForStable;
     var pathForStable = storagePathPrimary;
@@ -8047,7 +8014,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                         data,
                         nPhotosForAr: denomPhotos,
                         carouselIndex: showCarousel ? _carouselPage : 0,
-                      ).clamp(170.0, 320.0),
+                      ).clamp(kIsWeb ? 120.0 : 150.0, kIsWeb ? 220.0 : 280.0),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(12),
                         child: carouselOrImage,
@@ -8289,7 +8256,82 @@ class _PainelDestaqueSocialBar extends StatefulWidget {
 }
 
 class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
+  late Map<String, dynamic> _data;
+  List<MuralCommentItem> _commentPreview = const [];
+  bool _likeBusy = false;
+
   String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = Map<String, dynamic>.from(widget.doc.data());
+    unawaited(_loadCommentPreview());
+  }
+
+  Future<void> _loadCommentPreview() async {
+    try {
+      final list = await NoticiaSocialService.fetchComments(
+        widget.doc.reference,
+        limit: 3,
+      );
+      if (!mounted) return;
+      setState(() => _commentPreview = list);
+    } catch (e, st) {
+      debugPrint('Dashboard social bar comment preview: $e\n$st');
+    }
+  }
+
+  Map<String, dynamic> _patchLikeOptimistic(
+    Map<String, dynamic> data,
+    String uid,
+    bool nowLiked,
+  ) {
+    final d = Map<String, dynamic>.from(data);
+    final likes = NoticiaSocialService.mergedLikeUids(d);
+    if (nowLiked) {
+      if (!likes.contains(uid)) likes.add(uid);
+    } else {
+      likes.remove(uid);
+    }
+    d['likes'] = likes;
+    d['likedBy'] = likes;
+    final prev = d['likesCount'];
+    var count = prev is num ? prev.toInt() : likes.length;
+    if (nowLiked) {
+      count = count + 1;
+    } else if (count > 0) {
+      count = count - 1;
+    }
+    d['likesCount'] = count;
+    return d;
+  }
+
+  Map<String, dynamic> _patchRsvpOptimistic(
+    Map<String, dynamic> data,
+    String uid,
+    bool nowConfirmed,
+  ) {
+    final d = Map<String, dynamic>.from(data);
+    final rsvp = List<String>.from(
+      ((d['rsvp'] as List?) ?? []).map((e) => e.toString()),
+    );
+    if (nowConfirmed) {
+      if (!rsvp.contains(uid)) rsvp.add(uid);
+    } else {
+      rsvp.remove(uid);
+    }
+    d['rsvp'] = rsvp;
+    final prev = d['rsvpCount'];
+    var count = prev is num ? prev.toInt() : rsvp.length;
+    if (nowConfirmed) {
+      count = count + 1;
+    } else if (count > 0) {
+      count = count - 1;
+    }
+    d['rsvpCount'] = count;
+    return d;
+  }
 
   Future<({String name, String photo})> _memberDisplay() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -8324,39 +8366,45 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     return (name: name.isEmpty ? 'Membro' : name, photo: photo);
   }
 
-  Future<void> _toggleLike(Map<String, dynamic> data) async {
-    if (_myUid == null) return;
-    final merged = NoticiaSocialService.mergedLikeUids(data);
+  Future<void> _toggleLike() async {
+    if (_myUid == null || _likeBusy) return;
+    final merged = NoticiaSocialService.mergedLikeUids(_data);
     final liked = merged.contains(_myUid!);
+    final snapshot = Map<String, dynamic>.from(_data);
+    setState(() {
+      _likeBusy = true;
+      _data = _patchLikeOptimistic(_data, _myUid!, !liked);
+    });
     try {
       final m = await _memberDisplay();
-      await NoticiaSocialService.toggleCurtida(
-        tenantId: widget.tenantId,
-        postId: widget.doc.id,
+      await NoticiaSocialService.toggleCurtidaOnPost(
+        postRef: widget.doc.reference,
         uid: _myUid!,
         memberName: m.name,
         photoUrl: m.photo,
         currentlyLiked: liked,
-        parentCollection:
-            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
-      if (mounted) setState(() {});
     } catch (e, st) {
       debugPrint('Dashboard _PainelDestaqueSocialBar._toggleLike: $e\n$st');
       if (mounted) {
+        setState(() => _data = snapshot);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
         );
       }
+    } finally {
+      if (mounted) setState(() => _likeBusy = false);
     }
   }
 
-  Future<void> _toggleRsvp(Map<String, dynamic> data) async {
+  Future<void> _toggleRsvp() async {
     if (_myUid == null) return;
     final rsvpList = List<String>.from(
-      ((data['rsvp'] as List?) ?? []).map((e) => e.toString()),
+      ((_data['rsvp'] as List?) ?? []).map((e) => e.toString()),
     );
     final rsvp = rsvpList.contains(_myUid!);
+    final snapshot = Map<String, dynamic>.from(_data);
+    setState(() => _data = _patchRsvpOptimistic(_data, _myUid!, !rsvp));
     try {
       final m = await _memberDisplay();
       await NoticiaSocialService.toggleConfirmacaoPresenca(
@@ -8369,10 +8417,10 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
         parentCollection:
             ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
-      if (mounted) setState(() {});
     } catch (e, st) {
       debugPrint('Dashboard _PainelDestaqueSocialBar._toggleRsvp: $e\n$st');
       if (mounted) {
+        setState(() => _data = snapshot);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
             'Não foi possível atualizar a confirmação.',
@@ -8382,14 +8430,22 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     }
   }
 
-  void _openComments() {
+  Future<void> _openComments() async {
     final canDelete = !AppPermissions.isRestrictedMember(widget.role);
-    showNoticiaCommentsBottomSheet(
+    await showNoticiaCommentsBottomSheet(
       context,
       commentsRef: widget.doc.reference.collection('comentarios'),
       tenantId: widget.tenantId,
       canDelete: canDelete,
     );
+    if (!mounted) return;
+    await _loadCommentPreview();
+    try {
+      final snap = await widget.doc.reference.get();
+      if (mounted && snap.exists && snap.data() != null) {
+        setState(() => _data = Map<String, dynamic>.from(snap.data()!));
+      }
+    } catch (_) {}
   }
 
   Future<void> _openShareSheet(
@@ -8448,282 +8504,244 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     final minTouch = ThemeCleanPremium.isMobile(context)
         ? ThemeCleanPremium.minTouchTarget
         : 44.0;
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: widget.doc.reference.watchSafe(),
-      builder: (context, snap) {
-        final data = snap.data?.data() ?? widget.doc.data();
-        final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
-        final liked = _myUid != null && mergedLikes.contains(_myUid!);
-        final likeCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
-        final rsvpUids = List<String>.from(
-          ((data['rsvp'] as List?) ?? []).map((e) => e.toString()),
-        );
-        final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
-        final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
-        final tsStartAt = data['startAt'];
-        final DateTime? eventDt =
-            tsStartAt is Timestamp ? tsStartAt.toDate() : null;
-        final isFuture =
-            widget.isEvento && eventDt != null && eventDt.isAfter(DateTime.now());
+    final data = _data;
+    final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
+    final liked = _myUid != null && mergedLikes.contains(_myUid!);
+    final likeCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
+    final rsvpUids = List<String>.from(
+      ((data['rsvp'] as List?) ?? []).map((e) => e.toString()),
+    );
+    final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
+    final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
+    final tsStartAt = data['startAt'];
+    final DateTime? eventDt =
+        tsStartAt is Timestamp ? tsStartAt.toDate() : null;
+    final isFuture =
+        widget.isEvento && eventDt != null && eventDt.isAfter(DateTime.now());
+    final nField = (data['commentsCount'] is num)
+        ? (data['commentsCount'] as num).toInt()
+        : 0;
+    final commentTotal =
+        nField > 0 ? nField : _commentPreview.length;
+    final previews = _commentPreview.take(2).toList();
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Divider(height: 1, color: Colors.grey.shade200),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Wrap(
-                      spacing: 2,
-                      runSpacing: 0,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        IconButton(
-                          onPressed: () => _toggleLike(data),
-                          icon: Icon(
-                            liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                            color: liked
-                                ? const Color(0xFFE11D48)
-                                : Colors.grey.shade800,
-                            size: 24,
-                          ),
-                          style: IconButton.styleFrom(
-                            minimumSize: Size(minTouch, minTouch),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _openComments,
-                          icon: Icon(
-                            Icons.chat_bubble_outline_rounded,
-                            color: Colors.grey.shade800,
-                            size: 22,
-                          ),
-                          style: IconButton.styleFrom(
-                            minimumSize: Size(minTouch, minTouch),
-                          ),
-                        ),
-                        if (kIsWeb && !ThemeCleanPremium.isMobile(context))
-                          TextButton.icon(
-                            onPressed: () => _openShareSheet(context, data),
-                            icon: Icon(
-                              Icons.share_rounded,
-                              color: ThemeCleanPremium.primary,
-                              size: 22,
-                            ),
-                            label: const Text(
-                              'Compartilhar',
-                              style: TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            style: TextButton.styleFrom(
-                              foregroundColor: ThemeCleanPremium.primary,
-                              minimumSize: Size(minTouch, minTouch),
-                              padding: const EdgeInsets.symmetric(horizontal: 10),
-                            ),
-                          )
-                        else
-                          IconButton(
-                            onPressed: () => _openShareSheet(context, data),
-                            tooltip: 'Compartilhar',
-                            icon: Icon(
-                              Icons.share_rounded,
-                              color: ThemeCleanPremium.primary,
-                              size: 22,
-                            ),
-                            style: IconButton.styleFrom(
-                              minimumSize: Size(minTouch, minTouch),
-                            ),
-                          ),
-                        YahwehNoticiaWhatsAppOneTapButton(
-                          churchName: widget.nomeIgreja,
-                          churchSlug: widget.churchSlug,
-                          tenantId: widget.tenantId,
-                          noticiaId: widget.doc.id,
-                          postData: data,
-                          noticiaKindOverride:
-                              widget.isEvento ? 'evento' : 'aviso',
-                        ),
-                      ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Divider(height: 1, color: Colors.grey.shade200),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Wrap(
+                  spacing: 2,
+                  runSpacing: 0,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    IconButton(
+                      onPressed: _likeBusy ? null : () => unawaited(_toggleLike()),
+                      icon: Icon(
+                        liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                        color: liked
+                            ? const Color(0xFFE11D48)
+                            : Colors.grey.shade800,
+                        size: 24,
+                      ),
+                      style: IconButton.styleFrom(
+                        minimumSize: Size(minTouch, minTouch),
+                      ),
                     ),
-                  ),
-                  if (isFuture)
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _toggleRsvp(data),
+                    IconButton(
+                      onPressed: () => unawaited(_openComments()),
+                      icon: Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        color: Colors.grey.shade800,
+                        size: 22,
+                      ),
+                      style: IconButton.styleFrom(
+                        minimumSize: Size(minTouch, minTouch),
+                      ),
+                    ),
+                    if (kIsWeb && !ThemeCleanPremium.isMobile(context))
+                      TextButton.icon(
+                        onPressed: () => _openShareSheet(context, data),
+                        icon: Icon(
+                          Icons.share_rounded,
+                          color: ThemeCleanPremium.primary,
+                          size: 22,
+                        ),
+                        label: const Text(
+                          'Compartilhar',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        style: TextButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.primary,
+                          minimumSize: Size(minTouch, minTouch),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                        ),
+                      )
+                    else
+                      IconButton(
+                        onPressed: () => _openShareSheet(context, data),
+                        tooltip: 'Compartilhar',
+                        icon: Icon(
+                          Icons.share_rounded,
+                          color: ThemeCleanPremium.primary,
+                          size: 22,
+                        ),
+                        style: IconButton.styleFrom(
+                          minimumSize: Size(minTouch, minTouch),
+                        ),
+                      ),
+                    YahwehNoticiaWhatsAppOneTapButton(
+                      churchName: widget.nomeIgreja,
+                      churchSlug: widget.churchSlug,
+                      tenantId: widget.tenantId,
+                      noticiaId: widget.doc.id,
+                      postData: data,
+                      noticiaKindOverride:
+                          widget.isEvento ? 'evento' : 'aviso',
+                    ),
+                  ],
+                ),
+              ),
+              if (isFuture)
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => unawaited(_toggleRsvp()),
+                    borderRadius: BorderRadius.circular(20),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: rsvp
+                            ? ThemeCleanPremium.success
+                            : ThemeCleanPremium.success.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(20),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
+                        border: Border.all(
+                          color: ThemeCleanPremium.success.withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            rsvp
+                                ? Icons.check_circle_rounded
+                                : Icons.add_circle_outline_rounded,
+                            size: 16,
                             color: rsvp
-                                ? ThemeCleanPremium.success
-                                : ThemeCleanPremium.success.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: ThemeCleanPremium.success.withOpacity(0.3),
+                                ? Colors.white
+                                : ThemeCleanPremium.success,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            rsvp ? 'Confirmado' : 'Participar',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: rsvp
+                                  ? Colors.white
+                                  : ThemeCleanPremium.success,
                             ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                rsvp
-                                    ? Icons.check_circle_rounded
-                                    : Icons.add_circle_outline_rounded,
-                                size: 16,
-                                color: rsvp
-                                    ? Colors.white
-                                    : ThemeCleanPremium.success,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                rsvp ? 'Confirmado' : 'Participar',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: rsvp
-                                      ? Colors.white
-                                      : ThemeCleanPremium.success,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ],
                       ),
                     ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (likeCount > 0)
-                    Text(
-                      '$likeCount curtida${likeCount > 1 ? 's' : ''}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
-                    ),
-                  if (rsvpCount > 0 && isFuture)
-                    Text(
-                      '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presença',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: ThemeCleanPremium.success,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: widget.doc.reference
-                        .collection('comentarios')
-                        .limit(40)
-                        .watchSafe(),
-                    builder: (context, cs) {
-                      if (cs.hasError || !cs.hasData) {
-                        return const SizedBox.shrink();
-                      }
-                      final raw = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(cs.data!.docs);
-                      raw.sort((a, b) {
-                        final ta = a.data()['createdAt'];
-                        final tb = b.data()['createdAt'];
-                        if (ta is Timestamp && tb is Timestamp) {
-                          return tb.compareTo(ta);
-                        }
-                        return 0;
-                      });
-                      final cDocs = raw;
-                      final nField = (data['commentsCount'] is num)
-                          ? (data['commentsCount'] as num).toInt()
-                          : 0;
-                      final hasManyUnknown = nField <= 0 && cDocs.length >= 40;
-                      final total = nField > 0
-                          ? nField
-                          : (hasManyUnknown ? cDocs.length : cDocs.length);
-                      if (total == 0 && cDocs.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-                      final previews = cDocs.take(2).toList();
-                      final countTitle = hasManyUnknown
-                          ? 'Comentários'
-                          : '$total comentário${total > 1 ? 's' : ''}';
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              countTitle,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                            ...previews.map((cd) {
-                              final m = cd.data();
-                              final who =
-                                  (m['authorName'] ?? 'Membro').toString();
-                              final tx =
-                                  (m['text'] ?? m['texto'] ?? '').toString();
-                              final line = tx.length > 120
-                                  ? '${tx.substring(0, 117)}…'
-                                  : tx;
-                              if (line.isEmpty) return const SizedBox.shrink();
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text.rich(
-                                  TextSpan(
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      height: 1.35,
-                                      color: Colors.grey.shade800,
-                                    ),
-                                    children: [
-                                      TextSpan(
-                                        text: '$who ',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      TextSpan(text: line),
-                                    ],
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              );
-                            }),
-                            if (total > previews.length)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  'Toque no ícone de comentários para ver todos',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      );
-                    },
                   ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (likeCount > 0)
+                Text(
+                  '$likeCount curtida${likeCount > 1 ? 's' : ''}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+              if (rsvpCount > 0 && isFuture)
+                Text(
+                  '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presença',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ThemeCleanPremium.success,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              if (commentTotal > 0 || previews.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$commentTotal comentário${commentTotal > 1 ? 's' : ''}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      ...previews.map((c) {
+                        final line = c.text.length > 120
+                            ? '${c.text.substring(0, 117)}…'
+                            : c.text;
+                        if (line.isEmpty) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text.rich(
+                            TextSpan(
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.35,
+                                color: Colors.grey.shade800,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: '${c.authorName} ',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                TextSpan(text: line),
+                              ],
+                            ),
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }),
+                      if (commentTotal > previews.length)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Toque no ícone de comentários para ver todos',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

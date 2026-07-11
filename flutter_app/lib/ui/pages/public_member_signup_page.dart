@@ -43,6 +43,7 @@ import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.da
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_public_site_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -626,6 +627,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     if (age <= 50) return '36-50';
     return '51+';
   }
+
+  String? _reqName(String? v) => memberNameValidationMessage(v);
 
   String? _req(String? v) {
     if (v == null || v.trim().isEmpty) return 'Campo obrigatorio';
@@ -1501,7 +1504,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           label: 'Nome completo',
                           icon: Icons.person_rounded,
                           required: true),
-                      validator: _req,
+                      validator: _reqName,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(

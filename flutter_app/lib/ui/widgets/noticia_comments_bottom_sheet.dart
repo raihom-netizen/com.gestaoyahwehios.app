@@ -1,21 +1,25 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show SafeCircleAvatarImage;
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show SafeCircleAvatarImage;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Comentários de um post em `igrejas/{tenant}/noticias/{id}/comentarios`.
-void showNoticiaCommentsBottomSheet(
+/// Comentários de um post — cache-first, sem `watchSafe` (evita INTERNAL ASSERTION web).
+Future<void> showNoticiaCommentsBottomSheet(
   BuildContext context, {
   required CollectionReference<Map<String, dynamic>> commentsRef,
   required String tenantId,
   bool canDelete = false,
 }) {
-  showModalBottomSheet<void>(
+  final postRef = commentsRef.parent;
+  if (postRef == null) return Future.value();
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -23,6 +27,7 @@ void showNoticiaCommentsBottomSheet(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (ctx) => NoticiaCommentsSheet(
+      postRef: postRef,
       commentsRef: commentsRef,
       tenantId: tenantId,
       canDelete: canDelete,
@@ -31,12 +36,14 @@ void showNoticiaCommentsBottomSheet(
 }
 
 class NoticiaCommentsSheet extends StatefulWidget {
+  final DocumentReference<Map<String, dynamic>> postRef;
   final CollectionReference<Map<String, dynamic>> commentsRef;
   final String tenantId;
   final bool canDelete;
 
   const NoticiaCommentsSheet({
     super.key,
+    required this.postRef,
     required this.commentsRef,
     required this.tenantId,
     this.canDelete = false,
@@ -48,87 +55,196 @@ class NoticiaCommentsSheet extends StatefulWidget {
 
 class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
   final _ctrl = TextEditingController();
+  List<MuralCommentItem> _items = const [];
+  bool _loading = true;
   bool _sending = false;
+  String? _loadError;
 
-  Future<void> _send() async {
-    final texto = _ctrl.text.trim();
-    if (texto.isEmpty) return;
-    setState(() => _sending = true);
-    try {
-      final user = firebaseDefaultAuth.currentUser;
-      String authorName = user?.displayName ?? '';
-      String authorPhoto = user?.photoURL ?? '';
-      if (authorName.isEmpty && user != null) {
-        try {
-          if (kIsWeb) {
-            await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
-              debugPrint(
-                'CommentsSheet _send ensurePanelReadReady: $e\n$st',
-              );
-            });
-          }
-          Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
-              firebaseDefaultFirestore.collection('users').doc(user.uid).get();
-          final uDoc = kIsWeb
-              ? await FirestoreWebGuard.runWithWebRecovery(
-                  readUser,
-                  maxAttempts: 4,
-                ).timeout(ChurchPanelReadTimeouts.queryCap)
-              : await readUser().timeout(ChurchPanelReadTimeouts.queryCap);
-          authorName =
-              (uDoc.data()?['nome'] ?? uDoc.data()?['name'] ?? 'Membro')
-                  .toString();
-          authorPhoto =
-              (uDoc.data()?['fotoUrl'] ?? uDoc.data()?['photoUrl'] ?? '')
-                  .toString();
-        } catch (e, st) {
-          debugPrint('CommentsSheet _send load user: $e\n$st');
-          authorName = 'Membro';
-        }
-      }
-      await widget.commentsRef.add({
-        'text': texto,
-        'texto': texto,
-        'authorUid': user?.uid ?? '',
-        'authorName': authorName,
-        'authorPhoto': authorPhoto,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      try {
-        final postRef = widget.commentsRef.parent;
-        if (postRef != null) {
-          await postRef.set(
-            {'commentsCount': FieldValue.increment(1)},
-            SetOptions(merge: true),
-          );
-        }
-      } catch (e, st) {
-        debugPrint('CommentsSheet _send increment commentsCount: $e\n$st');
-      }
-      _ctrl.clear();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Comentário enviado!'),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao enviar: $e'),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_reload());
   }
 
   @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _reload() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = _items.isEmpty;
+      _loadError = null;
+    });
+    try {
+      final list = await NoticiaSocialService.fetchComments(
+        widget.postRef,
+        limit: 120,
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = list;
+        _loading = false;
+      });
+    } catch (e, st) {
+      debugPrint('NoticiaCommentsSheet _reload: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = 'Não foi possível carregar comentários.';
+      });
+    }
+  }
+
+  Future<({String name, String photo, String uid})> _author() async {
+    final user = firebaseDefaultAuth.currentUser;
+    if (user == null) {
+      return (name: 'Membro', photo: '', uid: '');
+    }
+    var authorName = user.displayName?.trim() ?? '';
+    var authorPhoto = user.photoURL?.trim() ?? '';
+    if (authorName.isEmpty) {
+      try {
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
+            firebaseDefaultFirestore.collection('users').doc(user.uid).get();
+        final uDoc = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readUser,
+                maxAttempts: 4,
+              ).timeout(const Duration(seconds: 12))
+            : await readUser().timeout(const Duration(seconds: 10));
+        final d = uDoc.data() ?? {};
+        authorName = (d['nome'] ?? d['name'] ?? 'Membro').toString();
+        authorPhoto =
+            (d['fotoUrl'] ?? d['photoUrl'] ?? authorPhoto).toString();
+      } catch (_) {
+        authorName = 'Membro';
+      }
+    }
+    return (
+      name: authorName.isEmpty ? 'Membro' : authorName,
+      photo: authorPhoto,
+      uid: user.uid,
+    );
+  }
+
+  Future<void> _send() async {
+    final texto = _ctrl.text.trim();
+    if (texto.isEmpty || _sending) return;
+    final author = await _author();
+    if (author.uid.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('Entre na conta para comentar.'),
+        );
+      }
+      return;
+    }
+    final optimistic = MuralCommentItem(
+      id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      authorName: author.name,
+      text: texto,
+      createdAt: Timestamp.now(),
+      pending: true,
+    );
+    setState(() {
+      _sending = true;
+      _items = [optimistic, ..._items];
+    });
+    _ctrl.clear();
+    try {
+      await NoticiaSocialService.addComment(
+        postRef: widget.postRef,
+        uid: author.uid,
+        authorName: author.name,
+        text: texto,
+        authorPhoto: author.photo,
+      );
+      if (!mounted) return;
+      await _reload();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Comentário enviado!'),
+      );
+    } catch (e, st) {
+      debugPrint('NoticiaCommentsSheet _send: $e\n$st');
+      if (!mounted) return;
+      setState(() {
+        _items = _items.where((e) => e.id != optimistic.id).toList();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar('Não foi possível comentar agora.'),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _deleteComment(MuralCommentItem item) async {
+    if (item.id.startsWith('local_')) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir comentário'),
+        content: const Text('Deseja excluir este comentário?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      Future<void> run() async {
+        await widget.commentsRef.doc(item.id).delete();
+        await widget.postRef.set(
+          {'commentsCount': FieldValue.increment(-1)},
+          SetOptions(merge: true),
+        );
+      }
+
+      if (kIsWeb) {
+        await FirestoreWebGuard.runChatWriteWithRecovery(run, maxAttempts: 5);
+      } else {
+        await run();
+      }
+      if (!mounted) return;
+      setState(() {
+        _items = _items.where((e) => e.id != item.id).toList();
+      });
+    } catch (e, st) {
+      debugPrint('NoticiaCommentsSheet _deleteComment: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Não foi possível excluir o comentário.',
+          ),
+        );
+      }
+    }
+  }
+
+  String _timeAgo(Timestamp? ts) {
+    if (ts == null) return '';
+    final diff = DateTime.now().difference(ts.toDate());
+    if (diff.inDays > 0) return '${diff.inDays}d';
+    if (diff.inHours > 0) return '${diff.inHours}h';
+    if (diff.inMinutes > 0) return '${diff.inMinutes}min';
+    return 'agora';
   }
 
   @override
@@ -151,228 +267,26 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              'Comentários',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 4, 0),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Comentários',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Atualizar',
+                  onPressed: _loading ? null : _reload,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
             ),
           ),
           Divider(height: 1, color: Colors.grey.shade200),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: widget.commentsRef
-                  .orderBy('createdAt', descending: true)
-                  .limit(120)
-                  .watchSafe(),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.error_outline_rounded,
-                              size: 48, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Erro ao carregar comentários.',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${snap.error}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-                if (snap.connectionState == ConnectionState.waiting &&
-                    !snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final docs = snap.data?.docs ?? [];
-                final sorted =
-                    List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-                        docs);
-                sorted.sort((a, b) {
-                  final ta = a.data()['createdAt'];
-                  final tb = b.data()['createdAt'];
-                  if (ta is Timestamp && tb is Timestamp) {
-                    return tb.compareTo(ta);
-                  }
-                  return 0;
-                });
-                if (sorted.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.chat_bubble_outline_rounded,
-                            size: 48, color: Colors.grey.shade300),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Nenhum comentário ainda.',
-                          style: TextStyle(color: Colors.grey.shade500),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Digite abaixo e envie para ser o primeiro!',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-                return ListView.builder(
-                  controller: scrollCtrl,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: sorted.length,
-                  itemBuilder: (_, i) {
-                    final doc = sorted[i];
-                    final c = doc.data();
-                    final name = (c['authorName'] ?? 'Membro').toString();
-                    final photo = (c['authorPhoto'] ?? '').toString();
-                    final text = (c['text'] ?? c['texto'] ?? '').toString();
-                    final ts = c['createdAt'];
-                    String timeAgo = '';
-                    if (ts is Timestamp) {
-                      final diff = DateTime.now().difference(ts.toDate());
-                      if (diff.inDays > 0) {
-                        timeAgo = '${diff.inDays}d';
-                      } else if (diff.inHours > 0) {
-                        timeAgo = '${diff.inHours}h';
-                      } else if (diff.inMinutes > 0) {
-                        timeAgo = '${diff.inMinutes}min';
-                      } else {
-                        timeAgo = 'agora';
-                      }
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SafeCircleAvatarImage(
-                            imageUrl: photo.isNotEmpty &&
-                                    (photo.startsWith('http://') ||
-                                        photo.startsWith('https://'))
-                                ? photo
-                                : null,
-                            radius: 16,
-                            fallbackIcon: Icons.person_rounded,
-                            fallbackColor: Colors.grey.shade600,
-                            backgroundColor: Colors.grey.shade300,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                RichText(
-                                  text: TextSpan(
-                                    style: const TextStyle(
-                                      color: Colors.black87,
-                                      fontSize: 13,
-                                    ),
-                                    children: [
-                                      TextSpan(
-                                        text: name,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      TextSpan(text: '  $text'),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  timeAgo,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (widget.canDelete)
-                            IconButton(
-                              icon: const Icon(
-                                Icons.delete_outline_rounded,
-                                size: 20,
-                                color: Colors.red,
-                              ),
-                              onPressed: () async {
-                                final ok = await showDialog<bool>(
-                                  context: context,
-                                  builder: (ctx) => AlertDialog(
-                                    title: const Text('Excluir comentário'),
-                                    content: const Text(
-                                        'Deseja excluir este comentário?'),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, false),
-                                        child: const Text('Cancelar'),
-                                      ),
-                                      FilledButton(
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor:
-                                              ThemeCleanPremium.error,
-                                        ),
-                                        onPressed: () =>
-                                            Navigator.pop(ctx, true),
-                                        child: const Text('Excluir'),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                                if (ok == true) {
-                                  await doc.reference.delete();
-                                  try {
-                                    final postRef = widget.commentsRef.parent;
-                                    if (postRef != null) {
-                                      await postRef.set(
-                                        {
-                                          'commentsCount':
-                                              FieldValue.increment(-1),
-                                        },
-                                        SetOptions(merge: true),
-                                      );
-                                    }
-                                  } catch (e, st) {
-                                    debugPrint(
-                                      'CommentsSheet delete decrement commentsCount: $e\n$st',
-                                    );
-                                  }
-                                }
-                              },
-                              tooltip: 'Excluir comentário',
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
+          Expanded(child: _buildList(scrollCtrl)),
           Divider(height: 1, color: Colors.grey.shade200),
           SafeArea(
             child: Padding(
@@ -453,6 +367,120 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildList(ScrollController scrollCtrl) {
+    if (_loading && _items.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null && _items.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded,
+                  size: 48, color: Colors.grey.shade400),
+              const SizedBox(height: 12),
+              Text(
+                _loadError!,
+                style: TextStyle(fontSize: 15, color: Colors.grey.shade700),
+                textAlign: TextAlign.center,
+              ),
+              TextButton(onPressed: _reload, child: const Text('Tentar de novo')),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.chat_bubble_outline_rounded,
+                size: 48, color: Colors.grey.shade300),
+            const SizedBox(height: 12),
+            Text(
+              'Nenhum comentário ainda.',
+              style: TextStyle(color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Digite abaixo e envie para ser o primeiro!',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade400),
+            ),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: scrollCtrl,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: _items.length,
+      itemBuilder: (_, i) {
+        final c = _items[i];
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SafeCircleAvatarImage(
+                imageUrl: null,
+                radius: 16,
+                fallbackIcon: Icons.person_rounded,
+                fallbackColor: Colors.grey.shade600,
+                backgroundColor: Colors.grey.shade300,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontSize: 13,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: c.authorName,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          TextSpan(text: '  ${c.text}'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      c.pending ? 'A enviar…' : _timeAgo(c.createdAt),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade500,
+                        fontStyle:
+                            c.pending ? FontStyle.italic : FontStyle.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (widget.canDelete && !c.pending)
+                IconButton(
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    size: 20,
+                    color: Colors.red,
+                  ),
+                  onPressed: () => _deleteComment(c),
+                  tooltip: 'Excluir comentário',
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -537,6 +537,12 @@ abstract final class ChurchChatMediaSendService {
           thumbUrl: thumbUrl,
           fileSize: fileSize,
           replyTo: replyTo,
+        ).timeout(
+          const Duration(seconds: 22),
+          onTimeout: () => throw TimeoutException(
+            'Gravação demorou demais. Verifique a rede e tente novamente.',
+            const Duration(seconds: 22),
+          ),
         );
       } catch (e) {
         last = e;

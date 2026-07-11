@@ -2239,6 +2239,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final fid = p.firestoreMessageId?.trim() ?? '';
       if (fid.isNotEmpty && ids.contains(fid)) {
         toRemove.add(p.localId);
+        continue;
+      }
+      final sp = p.storagePath?.trim() ?? '';
+      if (sp.isEmpty) continue;
+      for (final d in docs) {
+        if (ChurchChatMessageFields.storagePath(d.data()).trim() == sp) {
+          toRemove.add(p.localId);
+          break;
+        }
       }
     }
     if (toRemove.isEmpty) return;
@@ -2318,7 +2327,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (p.failed) return p.errorMessage ?? 'Falha no envio';
     final clamped = progress.clamp(0.0, 1.0);
     if (clamped >= 1) return 'Enviado';
-    if (clamped >= 0.82) return 'A confirmar envio...';
+    if (clamped >= 0.9) return 'A finalizar…';
+    if (clamped >= 0.82) return 'Quase pronto…';
     final pct = (clamped * 100).round().clamp(0, 100);
     if (mediaLabel != null) {
       return 'A enviar $mediaLabel... $pct%';
@@ -2479,7 +2489,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         },
         onSuccess: () {
           if (pending.offlineQueued) {
-            // Offline real: bolha some, outbox reenvia depois — avisar.
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -2490,31 +2499,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   duration: Duration(seconds: 4),
                 ),
               );
-              if (pending.albumIndex == 0) {
-                setState(() => _replyDraft = null);
-              }
             }
-            _removePending(pending.localId);
-            return;
-          }
-          if (pending.firestoreMessageId == null ||
-              pending.firestoreMessageId!.isEmpty) {
-            final i = _pendingOutbound.indexWhere(
-              (p) => p.localId == pending.localId,
-            );
-            if (i >= 0) {
-              _pendingOutbound[i].failed = true;
-              _pendingOutbound[i].errorMessage =
-                  'Upload concluído, mas a mensagem não confirmou no chat. Toque em «Tentar de novo».';
-              if (mounted) setState(() {});
-            }
-            return;
           }
           if (mounted && pending.albumIndex == 0) {
             setState(() => _replyDraft = null);
           }
           _removePending(pending.localId);
-          // Web: snapshots podem estar desligados — forçar leitura para a bolha aparecer.
           unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
         },
         onError: (msg) {
@@ -5163,21 +5153,13 @@ class _MessageBody extends StatelessWidget {
                                 (dpr * w * 0.75).round().clamp(120, 540),
                             borderRadius: BorderRadius.circular(16),
                             onTap: () async {
-                              final sp =
-                                  ChurchChatMessageFields.storagePath(data);
-                              final resolved =
-                                  await ChurchChatMediaResolver
-                                      .resolveDownloadUrl(
-                                storagePath: sp,
+                              await churchChatOpenReceivedMediaPreview(
+                                context,
+                                type: 'image',
+                                data: data,
                                 tenantId: tenantId,
                                 messageId: messageId,
                               );
-                              final zoomUrl = resolved ??
-                                  ChurchChatMessageFields.mediaUrl(data);
-                              if (zoomUrl.isNotEmpty && context.mounted) {
-                                await churchChatOpenImageZoom(
-                                    context, zoomUrl);
-                              }
                             },
                           ),
                         ),
@@ -5274,36 +5256,48 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'video') {
+      final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
+      final uploadProgress = (data['uploadProgress'] is num)
+          ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
+          : null;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.videocam_off_outlined,
-                  size: 20,
-                  color: ThemeCleanPremium.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Vídeo não disponível no chat.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: ThemeCleanPremium.onSurfaceVariant,
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              ChurchChatStorageVideoBubble(
+                data: data,
+                tenantId: tenantId,
+                messageId: messageId,
+                mine: mine,
+              ),
+              if (uploadInProgress &&
+                  ChurchChatMessageFields.storagePath(data).isEmpty)
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: Center(
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(
+                          value: uploadProgress != null &&
+                                  uploadProgress > 0 &&
+                                  uploadProgress < 1
+                              ? uploadProgress
+                              : null,
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              ],
-            ),
+            ],
           ),
         ],
       );

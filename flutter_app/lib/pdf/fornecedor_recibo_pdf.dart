@@ -20,6 +20,7 @@ Future<Uint8List> buildFornecedorReciboPdf({
   DateTime? dataPagamento,
   String textoLegalExtra = '',
   bool showDigitalSignature = false,
+  bool reserveManualSignatureSpace = false,
   Uint8List? churchSignatureImageBytes,
   String churchSignerName = '',
   String churchSignerRole = '',
@@ -36,6 +37,20 @@ Future<Uint8List> buildFornecedorReciboPdf({
       showDigitalSignature &&
       churchSignatureImageBytes != null &&
       churchSignatureImageBytes.length > 24;
+  final manualSpace = reserveManualSignatureSpace ||
+      (!showDigitalSignature && !hasChurchStamp && !hasChurchSig);
+  final churchSigTop = hasChurchStamp
+      ? 6.0
+      : hasChurchSig
+          ? 6.0
+          : manualSpace
+              ? 42.0
+              : 24.0;
+  final fornSigTop = hasChurchStamp || hasChurchSig
+      ? 34.0
+      : manualSpace
+          ? 52.0
+          : 52.0;
 
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   pdf.addPage(
@@ -141,7 +156,7 @@ Future<Uint8List> buildFornecedorReciboPdf({
                   crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                   children: [
                     pw.Text('Data: $dataStr', style: const pw.TextStyle(fontSize: 9.5)),
-                    pw.SizedBox(height: hasChurchStamp || hasChurchSig ? 6 : 24),
+                    pw.SizedBox(height: churchSigTop),
                     if (hasChurchStamp)
                       pdfDigitalCertificateStampBlock(
                         churchDigitalStamp,
@@ -181,7 +196,7 @@ Future<Uint8List> buildFornecedorReciboPdf({
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                   children: [
-                    pw.SizedBox(height: hasChurchStamp || hasChurchSig ? 34 : 52),
+                    pw.SizedBox(height: fornSigTop),
                     pw.Container(
                       decoration: const pw.BoxDecoration(
                         border: pw.Border(bottom: pw.BorderSide(width: 0.7)),

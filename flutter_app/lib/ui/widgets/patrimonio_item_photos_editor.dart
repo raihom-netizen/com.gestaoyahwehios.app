@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_photos_update_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
@@ -83,6 +84,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   late final List<String> _slotPaths;
   late final List<Uint8List?> _slotPending;
   late final List<String> _slotPendingNames;
+  late final PageController _carouselController;
+  int _carouselIndex = 0;
   bool _mediaPicking = false;
   int _preparingPhotoCount = 0;
 
@@ -92,6 +95,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   @override
   void initState() {
     super.initState();
+    _carouselController = PageController();
     _slotUrls = List<String>.filled(PatrimonioItemPhotosEditor.maxPhotos, '');
     _slotPaths = List<String>.filled(PatrimonioItemPhotosEditor.maxPhotos, '');
     _slotPending = List<Uint8List?>.filled(
@@ -110,6 +114,37 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     );
     unawaited(
       FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
+    );
+    final cached = PatrimonioPendingPhotosCache.peek(
+      widget.churchId,
+      widget.itemId,
+    );
+    if (cached != null) {
+      for (final e in cached.entries) {
+        if (e.key >= 0 && e.key < PatrimonioItemPhotosEditor.maxPhotos) {
+          _slotPending[e.key] = e.value;
+          _slotPendingNames[e.key] = 'foto_${e.key + 1}.jpg';
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _carouselController.dispose();
+    super.dispose();
+  }
+
+  void _syncPendingCache() {
+    final uploads = <int, Uint8List>{};
+    for (var i = 0; i < PatrimonioItemPhotosEditor.maxPhotos; i++) {
+      final p = _slotPending[i];
+      if (p != null && p.isNotEmpty) uploads[i] = p;
+    }
+    PatrimonioPendingPhotosCache.set(
+      widget.churchId,
+      widget.itemId,
+      uploads,
     );
   }
 
@@ -148,11 +183,14 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   }
 
   void _notifyChanged() {
+    _syncPendingCache();
     widget.onChanged?.call();
     if (mounted) setState(() {});
   }
 
   Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
+    // Web: reparo + get() no initState conflita com listeners → INTERNAL ASSERTION.
+    if (kIsWeb) return;
     if (_slotUrls.any((u) => u.isNotEmpty)) return;
     final state = (data['photoUploadState'] ?? '').toString().trim();
     if (state != 'uploading' && state != 'pending_sync') return;
@@ -220,29 +258,56 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       _slotPendingNames[idx] = '';
     });
     _notifyChanged();
-    unawaited(_persistSlotClear(idx));
+    // Controle Total: remoção só persiste ao Guardar/Salvar (evita write Firestore
+    // imediato na web com listeners activos → INTERNAL ASSERTION).
   }
 
-  Future<void> _persistSlotClear(int idx) async {
-    final tenantId = widget.churchId.trim();
-    final itemId = widget.itemId.trim();
-    if (tenantId.isEmpty || itemId.isEmpty || widget.docRef == null) return;
+  Future<void> pickForSlot(int slot) async {
+    if (!widget.canChangePhotos) {
+      _showSemPermissaoSnack();
+      return;
+    }
+    if (_mediaPicking) return;
+    if (slot < 0 || slot >= PatrimonioItemPhotosEditor.maxPhotos) return;
+    setState(() => _mediaPicking = true);
     try {
-      await PatrimonioPhotosUpdateService.clearSlotNow(
-        churchIdHint: tenantId,
-        itemId: itemId,
-        slot: idx,
-        indexedSlotUrls: List<String>.from(_slotUrls),
-        indexedSlotPaths: List<String>.from(_slotPaths),
-        corePayload: Map<String, dynamic>.from(widget.initialData),
-      );
+      final picked = await MediaHandlerService.instance
+          .pickAndProcessFromGallery(
+            module: YahwehMediaModule.patrimonio,
+            context: context,
+          )
+          .timeout(
+            const Duration(seconds: 90),
+            onTimeout: () => throw TimeoutException(
+              'Seleção de foto demorou demais.',
+            ),
+          );
+      if (picked == null || !mounted) return;
+      final bytes = await SafeImageBytes.patrimonioFromPicker(picked)
+          .timeout(const Duration(seconds: 25));
+      if (bytes.isEmpty || !mounted) return;
+      setState(() {
+        _slotUrls[slot] = '';
+        _slotPaths[slot] = '';
+        _slotPending[slot] = bytes;
+        _slotPendingNames[slot] =
+            picked.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg';
+      });
+      _notifyChanged();
+      if (mounted) {
+        ImmediateMediaAttachFeedback.showArquivoAnexado(
+          context,
+          _slotPendingNames[slot],
+        );
+      }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível remover a foto: $e',
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
     }
   }
 
@@ -296,51 +361,50 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
       }
       if (list.isEmpty || !mounted) return;
-      final novosBytes = <Uint8List>[];
-      final novosNomes = <String>[];
+      var anexadas = 0;
+      String? ultimoNome;
       for (var i = 0; i < list.length; i++) {
-        if (_fotoCountAtual + novosBytes.length >=
-            PatrimonioItemPhotosEditor.maxPhotos) {
-          break;
-        }
+        if (_atingiuLimiteFotos) break;
         if (mounted) setState(() => _preparingPhotoCount = i + 1);
         try {
           final bytes = await SafeImageBytes.patrimonioFromPicker(list[i])
               .timeout(const Duration(seconds: 25));
-          novosBytes.add(bytes);
-          novosNomes.add(
-            list[i].name.isNotEmpty
-                ? list[i].name
-                : 'foto_${novosBytes.length}.jpg',
-          );
+          if (!mounted) return;
+          final slot = _firstEmptyPhotoSlot();
+          if (slot == null) break;
+          final nome = list[i].name.isNotEmpty
+              ? list[i].name
+              : 'foto_${slot + 1}.jpg';
+          setState(() {
+            _slotPending[slot] = bytes;
+            _slotPendingNames[slot] = nome;
+            _preparingPhotoCount = 0;
+          });
+          ultimoNome = nome;
+          anexadas++;
+          if (kIsWeb) {
+            await Future<void>.delayed(const Duration(milliseconds: 16));
+          }
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Foto ignorada: $e')),
+              SnackBar(
+                content: Text(
+                  'Foto ignorada: ${formatFirebaseErrorForUser(e)}',
+                ),
+              ),
             );
           }
         }
       }
-      if (novosBytes.isEmpty || !mounted) return;
-      setState(() {
-        for (var i = 0; i < novosBytes.length; i++) {
-          final slot = _firstEmptyPhotoSlot();
-          if (slot == null) break;
-          _slotPending[slot] = novosBytes[i];
-          _slotPendingNames[slot] = i < novosNomes.length
-              ? novosNomes[i]
-              : 'foto_${slot + 1}.jpg';
-        }
-      });
+      if (anexadas == 0 || !mounted) return;
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
           context,
-          novosNomes.length == 1
-              ? novosNomes.first
-              : '${novosNomes.length} fotos',
+          anexadas == 1 ? (ultimoNome ?? 'foto') : '$anexadas fotos',
         );
       }
-      if (list.length > novosBytes.length) _showLimiteFotosSnack();
+      if (list.length > anexadas) _showLimiteFotosSnack();
       widget.onChanged?.call();
     } catch (e) {
       if (mounted) {
@@ -522,171 +586,104 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     ]);
   }
 
-  static String _formatBytes(int n) {
-    if (n < 1000) return '$n bytes';
-    if (n < 1024 * 1024) return '${(n / 1024).toStringAsFixed(1)} KB';
-    return '${(n / (1024 * 1024)).toStringAsFixed(1)} MB';
+  bool _slotHasContent(int slot) =>
+      (_slotPending[slot]?.isNotEmpty ?? false) || _slotUrls[slot].isNotEmpty;
+
+  Future<void> _openSlot(int slot) async {
+    if (_slotHasContent(slot)) {
+      await replacePhotoAtSlot(slot);
+    } else if (widget.canChangePhotos &&
+        !_mediaPicking &&
+        !_atingiuLimiteFotos) {
+      await pickForSlot(slot);
+      if (mounted) {
+        await _carouselController.animateToPage(
+          slot,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    }
+  }
+
+  Widget _buildSlotPreview(int slot, Color cor, int memCarousel) {
+    final pending = _slotPending[slot];
+    if (pending != null && pending.isNotEmpty) {
+      return Image.memory(
+        pending,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        gaplessPlayback: true,
+        filterQuality: FilterQuality.medium,
+      );
+    }
+    if (_slotUrls[slot].isNotEmpty) {
+      return FotoPatrimonioWidget(
+        key: ValueKey('pat_carousel_${slot}_${_slotUrls[slot]}'),
+        storagePath: _slotPaths[slot].isNotEmpty
+            ? _slotPaths[slot]
+            : ChurchStorageLayout.patrimonioPhotoPath(
+                widget.churchId,
+                widget.itemId,
+                slot,
+              ),
+        candidateUrls: [_slotUrls[slot]],
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        memCacheWidth: memCarousel,
+        memCacheHeight: memCarousel,
+        placeholder: Container(
+          color: cor.withValues(alpha: 0.1),
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.2, color: cor),
+          ),
+        ),
+        errorWidget: Container(
+          color: cor.withValues(alpha: 0.08),
+          alignment: Alignment.center,
+          child: Icon(Icons.broken_image_outlined,
+              color: cor.withValues(alpha: 0.45), size: 40),
+        ),
+      );
+    }
+    return Container(
+      color: cor.withValues(alpha: 0.06),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add_photo_alternate_outlined,
+              size: 42, color: cor.withValues(alpha: 0.45)),
+          const SizedBox(height: 8),
+          Text(
+            'Slot ${slot + 1}',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final cor = widget.accentColor ?? ThemeCleanPremium.primary;
     final dprForm = MediaQuery.devicePixelRatioOf(context);
-    final memThumb = (52 * dprForm).round().clamp(88, 280);
+    final memThumb = (72 * dprForm).round().clamp(120, 360);
+    final memCarousel = (220 * dprForm).round().clamp(280, 720);
     final canChange = widget.canChangePhotos;
     final canRemove = widget.canRemovePhotos;
     final max = PatrimonioItemPhotosEditor.maxPhotos;
-
-    Widget rowTile({
-      required Widget thumb,
-      required String title,
-      required String subtitle,
-      required int slot,
-      required bool hasContent,
-    }) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            thumb,
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (canChange && hasContent)
-              IconButton(
-                tooltip: 'Trocar foto',
-                onPressed: _mediaPicking ? null : () => unawaited(replacePhotoAtSlot(slot)),
-                icon: Icon(
-                  Icons.swap_horiz_rounded,
-                  color: ThemeCleanPremium.primary,
-                ),
-              ),
-            if (canRemove && hasContent)
-              IconButton(
-                tooltip: 'Remover',
-                onPressed: () => clearPhotoSlot(slot),
-                icon: Icon(
-                  Icons.delete_outline_rounded,
-                  color: Colors.red.shade400,
-                ),
-              ),
-          ],
-        ),
-      );
-    }
-
-    final linhas = <Widget>[];
-    for (var slot = 0; slot < max; slot++) {
-      final pending = _slotPending[slot];
-      if (pending != null) {
-        final nome = _slotPendingNames[slot].isNotEmpty
-            ? _slotPendingNames[slot]
-            : 'Nova imagem ${slot + 1}';
-        linhas.add(
-          rowTile(
-            slot: slot,
-            hasContent: true,
-            thumb: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 52,
-                height: 52,
-                child: Image.memory(
-                  pending,
-                  fit: BoxFit.cover,
-                  gaplessPlayback: true,
-                ),
-              ),
-            ),
-            title: nome,
-            subtitle:
-                '${_formatBytes(pending.length)} · será enviado ao salvar',
-          ),
-        );
-        continue;
-      }
-      if (_slotUrls[slot].isEmpty) continue;
-      linhas.add(
-        rowTile(
-          slot: slot,
-          hasContent: true,
-          thumb: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: SizedBox(
-              width: 52,
-              height: 52,
-              child: FotoPatrimonioWidget(
-                key: ValueKey('pat_editor_$slot${_slotUrls[slot]}'),
-                storagePath: _slotPaths[slot].isNotEmpty
-                    ? _slotPaths[slot]
-                    : ChurchStorageLayout.patrimonioPhotoPath(
-                        widget.churchId,
-                        widget.itemId,
-                        slot,
-                      ),
-                candidateUrls: [_slotUrls[slot]],
-                fit: BoxFit.cover,
-                width: 52,
-                height: 52,
-                memCacheWidth: memThumb,
-                memCacheHeight: memThumb,
-                placeholder: Container(
-                  color: cor.withValues(alpha: 0.12),
-                  child: Center(
-                    child: SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: cor,
-                      ),
-                    ),
-                  ),
-                ),
-                errorWidget: Container(
-                  color: cor.withValues(alpha: 0.1),
-                  child: Icon(
-                    Icons.image_not_supported_outlined,
-                    color: cor.withValues(alpha: 0.5),
-                    size: 26,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          title: 'Foto ${slot + 1}',
-          subtitle: 'image/jpeg · inventário',
-        ),
-      );
-    }
-
-    final hasPhotos = _fotoCountAtual > 0;
     final atLimit = _atingiuLimiteFotos;
 
-    Widget actionButtons({required bool narrow}) {
+    Widget actionButtons() {
       if (!canChange) {
         return Text(
           'Sem permissão para adicionar ou alterar fotos.',
@@ -733,98 +730,225 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
             border: Border.all(
               color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
             ),
           ),
-          child: LayoutBuilder(
-            builder: (context, c) {
-              final narrow = c.maxWidth < 420;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.folder_open_rounded,
-                        color: ThemeCleanPremium.primary,
-                        size: 28,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Arquivos ($_fotoCountAtual/$max)',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Até $max fotos por bem. Toque em Guardar para enviar.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.35,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  actionButtons(narrow: narrow),
-                  if (_preparingPhotoCount > 0) ...[
-                    const SizedBox(height: 10),
-                    Row(
+                  Icon(Icons.photo_library_rounded,
+                      color: ThemeCleanPremium.primary, size: 26),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: cor,
+                        Text(
+                          'Galeria ($_fotoCountAtual/$max)',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            letterSpacing: -0.2,
                           ),
                         ),
-                        const SizedBox(width: 10),
                         Text(
-                          'A preparar foto $_preparingPhotoCount…',
+                          '5 slots fixos — deslize ou toque na miniatura.',
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 12.5,
                             color: Colors.grey.shade700,
                           ),
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ],
-              );
-            },
+              ),
+              const SizedBox(height: 12),
+              actionButtons(),
+              if (_preparingPhotoCount > 0) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cor,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'A preparar foto $_preparingPhotoCount…',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
           ),
         ),
-        if (linhas.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          ...linhas,
-        ] else if (!canChange) ...[
-          const SizedBox(height: 8),
-          Text(
-            hasPhotos ? '' : 'Nenhuma foto neste bem.',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+        const SizedBox(height: 14),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: const Color(0xFFE8EEF4)),
           ),
-        ] else ...[
-          const SizedBox(height: 8),
-          Text(
-            'Nenhuma foto ainda — use Galeria ou Câmera.',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            children: [
+              SizedBox(
+                height: 220,
+                child: PageView.builder(
+                  controller: _carouselController,
+                  itemCount: max,
+                  onPageChanged: (i) => setState(() => _carouselIndex = i),
+                  itemBuilder: (_, slot) => GestureDetector(
+                    onTap: canChange && !_mediaPicking
+                        ? () => unawaited(_openSlot(slot))
+                        : null,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _buildSlotPreview(slot, cor, memCarousel),
+                        if (_slotPending[slot] != null)
+                          Positioned(
+                            left: 10,
+                            top: 10,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.55),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                child: Text(
+                                  'Pendente',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (canRemove && _slotHasContent(slot))
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: Material(
+                              color: Colors.white.withValues(alpha: 0.92),
+                              shape: const CircleBorder(),
+                              child: IconButton(
+                                tooltip: 'Remover foto ${slot + 1}',
+                                icon: Icon(Icons.delete_outline_rounded,
+                                    color: Colors.red.shade400),
+                                onPressed: () => clearPhotoSlot(slot),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Anterior',
+                      onPressed: _carouselIndex > 0
+                          ? () => _carouselController.previousPage(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                              )
+                          : null,
+                      icon: const Icon(Icons.chevron_left_rounded),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (var slot = 0; slot < max; slot++)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: GestureDetector(
+                                  onTap: () => _carouselController.animateToPage(
+                                    slot,
+                                    duration: const Duration(milliseconds: 260),
+                                    curve: Curves.easeOutCubic,
+                                  ),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    width: 64,
+                                    height: 64,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: _carouselIndex == slot
+                                            ? cor
+                                            : const Color(0xFFE2E8F0),
+                                        width: _carouselIndex == slot ? 2.5 : 1,
+                                      ),
+                                      boxShadow: _carouselIndex == slot
+                                          ? [
+                                              BoxShadow(
+                                                color:
+                                                    cor.withValues(alpha: 0.25),
+                                                blurRadius: 8,
+                                                offset: const Offset(0, 3),
+                                              ),
+                                            ]
+                                          : null,
+                                    ),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: _buildSlotPreview(
+                                        slot, cor, memThumb),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Seguinte',
+                      onPressed: _carouselIndex < max - 1
+                          ? () => _carouselController.nextPage(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                              )
+                          : null,
+                      icon: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _slotPending.any((b) => b != null && b.isNotEmpty)
+              ? 'Fotos novas serão enviadas ao tocar em Salvar (mantêm-se visíveis aqui).'
+              : 'Toque num slot vazio para adicionar ou numa foto para trocar.',
+          style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+        ),
       ],
     );
   }

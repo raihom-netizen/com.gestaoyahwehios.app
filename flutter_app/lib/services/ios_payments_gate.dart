@@ -8,34 +8,20 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/ios_license_reader_blocked_view.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Gate Apple Guideline 3.1.1 — app iOS como **espelho** da licença no Firestore.
+/// Paridade de checkout — **Web = Android = iOS** (mesmos preços e UI de planos/doação).
 ///
-/// **iOS nativo** (`exibir_pagamento_ios` = false, default):
-///   - Sem checkout Mercado Pago, preços, PIX/cartão ou botões de assinar.
-///   - **Sem** links externos para site de vendas / `/atualizar-plano`.
-///   - Licença vencida → ecrã neutro; gestor regulariza no **painel web** (Safari/PC).
-///
-/// **Android / Web / Desktop:** checkout e «Alterar plano» → fluxo web Mercado Pago
-/// (PIX + cartão até 6x) conforme produto.
-///
-/// Remote Config `exibir_pagamento_ios`: só alterar para `true` se a Apple autorizar
-/// IAP ou novo modelo — default conservador = `false`.
+/// No iOS nativo o Mercado Pago abre no **Safari** ([preferExternalMercadoPagoCheckout])
+/// em vez de WebView embutido; preços, cards e módulo Doação são idênticos ao painel web.
 class IosPaymentsGate {
   IosPaymentsGate._();
 
+  /// Legado Remote Config — ignorado para exibição de preços (paridade fixa).
   static const String remoteConfigKey = 'exibir_pagamento_ios';
 
-  /// Default conservador: nao exibe pagamento em iOS ate o Remote Config ser
-  /// lido. Garante que a primeira sessao apos o app abrir no iOS ja respeite
-  /// a regra (zero risco de mostrar checkout durante revisao da Apple).
-  static const bool _defaultIosShowPayments = false;
-
   static bool _initialized = false;
-  static bool _flagShowPayments = _defaultIosShowPayments;
 
   /// Apple Guideline 3.1.1: cadastro de nova igreja/organizacao so na web.
   /// No app iOS nativo permanece apenas login; gestor altera plano no Safari.
@@ -75,29 +61,21 @@ class IosPaymentsGate {
   /// Android e Web devem abrir o checkout no próprio fluxo do app/site.
   static bool get preferExternalMercadoPagoCheckout => isIosNative;
 
-  /// `true` se o app pode exibir UI de checkout / cobranca / planos com preco.
-  /// Sempre `true` fora do iOS. Em iOS depende do Remote Config.
-  static bool get paymentsAllowed {
-    if (!isIosNative) return true;
-    return _flagShowPayments;
-  }
+  /// Sempre `true` — preços e checkout visíveis em Web, Android e iOS.
+  static bool get paymentsAllowed => true;
 
-  /// Atalho semantico: esta em iOS com a flag desligada (modo Reader/SaaS).
-  static bool get shouldHidePayments => !paymentsAllowed;
+  /// Legado — sempre `false` (modo Reader desativado).
+  static bool get shouldHidePayments => false;
 
-  /// Sem menu «Alterar plano», checkout nem links de vendas no binário iOS.
-  static bool get hideInAppPlanPurchaseUi => shouldHidePayments;
+  /// Menu «Adquirir plano» e checkout interno em todas as plataformas.
+  static bool get hideInAppPlanPurchaseUi => false;
 
-  /// Inicializa Remote Config com defaults e busca a flag.
-  /// Nunca propaga excecao — em qualquer falha mantem o default conservador
-  /// ([_defaultIosShowPayments] = false em iOS).
+  /// Warm-up Remote Config (outras flags futuras). Preços iOS não dependem do RC.
   static Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
 
-    if (!isIosNative) {
-      return;
-    }
+    if (!isIosNative) return;
 
     try {
       final rc = FirebaseRemoteConfig.instance;
@@ -108,22 +86,15 @@ class IosPaymentsGate {
         ),
       );
       await rc.setDefaults(const <String, dynamic>{
-        remoteConfigKey: _defaultIosShowPayments,
+        remoteConfigKey: true,
       });
       try {
-        await rc
-            .fetchAndActivate()
-            .timeout(const Duration(seconds: 8));
+        await rc.fetchAndActivate().timeout(const Duration(seconds: 8));
       } on TimeoutException {
-        // segue com defaults
-      }
-      try {
-        _flagShowPayments = rc.getBool(remoteConfigKey);
-      } catch (_) {
-        _flagShowPayments = _defaultIosShowPayments;
+        // segue com defaults locais
       }
     } catch (_) {
-      _flagShowPayments = _defaultIosShowPayments;
+      // paridade de preços não depende do RC
     }
   }
 
@@ -153,31 +124,18 @@ class IosPaymentsGate {
   }) =>
       churchAtualizarPlanoExpressUri(utmMedium: utmMedium, email: email);
 
-  /// iOS: ecrã informativo neutro (sem pagamento). Android: abre web MP. Web: [RenewPlanPage].
+  /// Abre [RenewPlanPage] — mesma rota em Web, Android e iOS.
   static void navigateToUpgradePlans(BuildContext context) {
     if (!context.mounted) return;
-    if (shouldHidePayments && !kIsWeb) {
-      Navigator.of(context).push(
-        ThemeCleanPremium.fadeSlideRoute(
-          const IosLicenseReaderBlockedView(
-            variant: IosLicenseBlockedVariant.planManagement,
-          ),
-        ),
-      );
-      return;
-    }
     Navigator.of(context).push(
       ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage()),
     );
   }
 
-  /// Abre `/atualizar-plano` no navegador — **Android/Web**; bloqueado no iOS Reader.
+  /// Abre `/atualizar-plano` no navegador externo (atalho opcional).
   static Future<bool> openUpgradePlansExternally({
     String source = 'android_app',
   }) async {
-    if (isIosNative && shouldHidePayments) {
-      return false;
-    }
     final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
     final uri = churchWebLoginThenAtualizarPlanoUri(
       utmMedium: source,

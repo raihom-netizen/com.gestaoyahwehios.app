@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -263,6 +264,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     if (age <= 50) return '36-50';
     return '51+';
   }
+
+  String? _reqName(String? v) => memberNameValidationMessage(v);
 
   String? _req(String? v) {
     if (v == null || v.trim().isEmpty) return 'Campo obrigatório';
@@ -642,7 +645,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                         label: 'Nome completo',
                         icon: Icons.person_rounded,
                       ),
-                      validator: _req,
+                      validator: _reqName,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(

@@ -6,8 +6,11 @@ import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_video_message_bubble.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show firebaseStorageMediaUrlLooksLike, isValidImageUrl, sanitizeImageUrl;
+    show FreshFirebaseStorageImage, firebaseStorageMediaUrlLooksLike,
+        isValidImageUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart' show showPdfActions;
 
 /// Cache RAM curto para miniaturas do chat (evita re-download ao scroll).
@@ -56,6 +59,7 @@ class ChurchChatStorageMediaImage extends StatefulWidget {
 
 class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImage> {
   Uint8List? _bytes;
+  String? _networkUrl;
   bool _loading = true;
   bool _failed = false;
 
@@ -119,6 +123,7 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
         _loading = true;
         _failed = false;
         _bytes = null;
+        _networkUrl = null;
       });
     }
 
@@ -127,6 +132,9 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
       data = await ChurchChatMediaResolver.downloadBytes(
         storagePath: path,
         maxBytes: 4 * 1024 * 1024,
+      ).timeout(
+        const Duration(seconds: 14),
+        onTimeout: () => null,
       );
     }
 
@@ -136,7 +144,23 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
         data = await ChurchChatMediaResolver.downloadBytes(
           storagePath: legacyUrl,
           maxBytes: 4 * 1024 * 1024,
+        ).timeout(
+          const Duration(seconds: 14),
+          onTimeout: () => null,
         );
+      }
+    }
+
+    String? resolvedUrl;
+    if (data == null || data.length < 32) {
+      resolvedUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
+        storagePath: path.isNotEmpty ? path : legacyUrl,
+        tenantId: widget.tenantId,
+        messageId: widget.messageId,
+        fastPreview: true,
+      );
+      if ((resolvedUrl == null || resolvedUrl.isEmpty) && legacyUrl.isNotEmpty) {
+        resolvedUrl = sanitizeImageUrl(legacyUrl);
       }
     }
 
@@ -145,6 +169,20 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
       _chatThumbRamPut(cacheKey, data);
       setState(() {
         _bytes = data;
+        _networkUrl = null;
+        _loading = false;
+        _failed = false;
+      });
+      return;
+    }
+
+    if (resolvedUrl != null &&
+        resolvedUrl.isNotEmpty &&
+        (isValidImageUrl(resolvedUrl) ||
+            firebaseStorageMediaUrlLooksLike(resolvedUrl))) {
+      setState(() {
+        _bytes = null;
+        _networkUrl = resolvedUrl;
         _loading = false;
         _failed = false;
       });
@@ -153,6 +191,7 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
 
     setState(() {
       _bytes = null;
+      _networkUrl = null;
       _loading = false;
       _failed = true;
     });
@@ -226,6 +265,17 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
         gaplessPlayback: true,
         cacheWidth: widget.memCacheWidth,
         cacheHeight: widget.memCacheHeight,
+      );
+    } else if (_networkUrl != null && _networkUrl!.isNotEmpty) {
+      child = FreshFirebaseStorageImage(
+        imageUrl: _networkUrl!,
+        width: widget.width,
+        height: widget.height,
+        fit: widget.fit,
+        memCacheWidth: widget.memCacheWidth,
+        memCacheHeight: widget.memCacheHeight,
+        placeholder: _placeholder(),
+        errorWidget: _errorBody(),
       );
     } else if (_failed) {
       child = _errorBody();
@@ -466,6 +516,151 @@ class _ChurchChatDocumentBubbleState extends State<ChurchChatDocumentBubble> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Vídeo recebido — resolve URL do Storage e abre teatro ao toque.
+class ChurchChatStorageVideoBubble extends StatefulWidget {
+  const ChurchChatStorageVideoBubble({
+    super.key,
+    required this.data,
+    this.tenantId,
+    this.messageId,
+    this.mine = false,
+  });
+
+  final Map<String, dynamic> data;
+  final String? tenantId;
+  final String? messageId;
+  final bool mine;
+
+  @override
+  State<ChurchChatStorageVideoBubble> createState() =>
+      _ChurchChatStorageVideoBubbleState();
+}
+
+class _ChurchChatStorageVideoBubbleState
+    extends State<ChurchChatStorageVideoBubble> {
+  String? _videoUrl;
+  String? _thumbUrl;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(covariant ChurchChatStorageVideoBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (ChurchChatMessageFields.storagePath(oldWidget.data) !=
+            ChurchChatMessageFields.storagePath(widget.data) ||
+        ChurchChatMessageFields.mediaUrl(oldWidget.data) !=
+            ChurchChatMessageFields.mediaUrl(widget.data)) {
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _failed = false;
+        _videoUrl = null;
+        _thumbUrl = null;
+      });
+    }
+    final sp = ChurchChatMessageFields.storagePath(widget.data);
+    final legacy = ChurchChatMessageFields.mediaUrl(widget.data);
+    final thumbSp = ChurchChatMessageFields.thumbStoragePath(widget.data);
+    final thumbLegacy = ChurchChatMessageFields.thumbnailUrl(widget.data);
+
+    final videoUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
+          storagePath: sp.isNotEmpty ? sp : legacy,
+          tenantId: widget.tenantId,
+          messageId: widget.messageId,
+        ) ??
+        (legacy.isNotEmpty ? legacy : null);
+    String? thumbUrl;
+    if (thumbSp.isNotEmpty || thumbLegacy.isNotEmpty) {
+      thumbUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
+            storagePath: thumbSp.isNotEmpty ? thumbSp : thumbLegacy,
+            tenantId: widget.tenantId,
+            messageId: widget.messageId,
+            fastPreview: true,
+          ) ??
+          (thumbLegacy.isNotEmpty ? thumbLegacy : null);
+    }
+
+    if (!mounted) return;
+    if (videoUrl == null || videoUrl.trim().isEmpty) {
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+      return;
+    }
+    setState(() {
+      _videoUrl = videoUrl.trim();
+      _thumbUrl = thumbUrl?.trim();
+      _loading = false;
+      _failed = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return SizedBox(
+        width: 260,
+        height: 146,
+        child: Center(
+          child: SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+            ),
+          ),
+        ),
+      );
+    }
+    if (_failed || _videoUrl == null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Material(
+          color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.6),
+          child: InkWell(
+            onTap: () => unawaited(_load()),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh_rounded, size: 20),
+                  SizedBox(width: 8),
+                  Text('Toque para carregar o vídeo'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return ChurchChatVideoMessageBubble(
+      videoUrl: _videoUrl!,
+      thumbnailUrl: _thumbUrl,
+      fileName: ChurchChatMessageFields.fileName(widget.data),
+      mine: widget.mine,
+      onDownload: (url, {String fileName = ''}) => churchChatShareDownloadVideo(
+        context,
+        url,
+        fileName: fileName,
       ),
     );
   }

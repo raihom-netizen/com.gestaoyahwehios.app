@@ -875,6 +875,12 @@ class FinancePremiumContaTipoToggle extends StatelessWidget {
           icon: Icons.payments_rounded,
           colors: [Color(0xFF059669), Color(0xFF34D399)],
         ),
+        (
+          value: 'cartao_credito',
+          label: 'Cartão',
+          icon: Icons.credit_score_rounded,
+          colors: [Color(0xFFDB2777), Color(0xFFF472B6)],
+        ),
       ],
     );
   }

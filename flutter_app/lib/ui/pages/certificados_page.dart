@@ -47,6 +47,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_digital_signature_stamp_preview.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
@@ -70,7 +71,14 @@ import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/member_department_multi_filter_field.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
+import 'package:gestao_yahweh/services/member_nameless_purge_service.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/utils/cert_digital_signature_format.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart'
+    show churchTaxIdDigitsFromMap;
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/cert_zip_opener.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart'
@@ -347,6 +355,10 @@ class CertificadosPage extends StatefulWidget {
 
 class _CertificadosPageState extends State<CertificadosPage> {
   String _searchQuery = '';
+  String _genderFilter = 'todos';
+  String _ageFilter = 'todas';
+  final Set<String> _selectedDeptIds = {};
+  List<({String id, String name})> _departments = [];
   late final SearchInputDebounce _searchDebounce = SearchInputDebounce(
     onDebounced: (v) {
       if (!mounted) return;
@@ -375,8 +387,116 @@ class _CertificadosPageState extends State<CertificadosPage> {
             : widget.tenantId.trim(),
       );
 
+  Future<void> _loadDepartments() async {
+    try {
+      final churchId = _effectiveTenantId;
+      if (churchId.isEmpty) return;
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await ChurchRepository.departamentos
+          .list(churchIdHint: churchId, limit: 80)
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      final depts = <({String id, String name})>[];
+      for (final d in snap.items) {
+        final data = d.data();
+        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
+        if (nome.isEmpty) continue;
+        depts.add((id: d.id, name: nome));
+      }
+      depts.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      setState(() => _departments = depts);
+    } catch (_) {}
+  }
+
+  bool _memberDocPassesFilters(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final data = d.data();
+    if (!memberDataHasValidName(data)) return false;
+    if (_searchQuery.isNotEmpty) {
+      final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? '')
+          .toString()
+          .toLowerCase();
+      final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
+      if (!nome.contains(_searchQuery) && !cpf.contains(_searchQuery)) {
+        return false;
+      }
+    }
+    if (!memberMatchesGenderFilter(data, _genderFilter)) return false;
+    if (!memberMatchesAgeBand(data, _ageFilter)) return false;
+    if (!memberMatchesDepartmentsFilter(
+      data,
+      _selectedDeptIds,
+      knownDepts: _departments,
+    )) {
+      return false;
+    }
+    return true;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterAndSortMembers(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  ) {
+    final named = allDocs.where((d) => memberDataHasValidName(d.data())).toList();
+    return named.where(_memberDocPassesFilters).toList()
+      ..sort((a, b) {
+        final na = memberDisplayNameFromData(a.data()).toLowerCase();
+        final nb = memberDisplayNameFromData(b.data()).toLowerCase();
+        return na.compareTo(nb);
+      });
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _onlyNamedMembers(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      docs.where((d) => memberDataHasValidName(d.data())).toList();
+
+  Future<void> _purgeNamelessMembersIfManager() async {
+    if (!AppPermissions.canDeleteAnyChurchRecords(widget.role)) return;
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty || MemberNamelessPurgeService.alreadyPurgedThisSession(tid)) {
+      return;
+    }
+    final removed = await MemberNamelessPurgeService.purgeNamelessMembersOnce(
+      seedTenantId: tid,
+    );
+    if (!mounted || removed <= 0) return;
+    _refreshMembers();
+  }
+
+  static bool _isCompleteMemberSeed(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String churchId,
+  ) =>
+      ChurchCertificadosLoadService.isRosterCompleteForTenant(
+        docs: docs,
+        churchId: churchId,
+      );
+
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
       ChurchUiCollections.config(_effectiveTenantId).doc('certificados');
+
+  Widget _certFilterChip(
+    String label,
+    String value,
+    Color color,
+    String groupValue,
+    ValueChanged<String> onPick,
+  ) {
+    final sel = groupValue == value;
+    return FilterChip(
+      label: Text(label),
+      selected: sel,
+      onSelected: (_) => setState(() => onPick(value)),
+      selectedColor: color.withValues(alpha: 0.18),
+      checkmarkColor: color,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w700,
+        color: sel ? color : Colors.grey.shade700,
+      ),
+      side: BorderSide(color: color.withValues(alpha: sel ? 0.6 : 0.25)),
+    );
+  }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchAllMemberDocs() async {
@@ -421,7 +541,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     try {
       final dir = await MembersDirectorySnapshotService.readOnce(churchId)
           .timeout(const Duration(seconds: 5));
-      if (!dir.hasEntries || !mounted) return;
+      if (!dir.isCompleteForStats) return;
       final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
         churchId,
         dir,
@@ -448,11 +568,28 @@ class _CertificadosPageState extends State<CertificadosPage> {
       setState(() => _membersSyncing = true);
     }
     try {
-      final result = await ChurchCertificadosLoadService.load(
+      var result = await ChurchCertificadosLoadService.load(
         seedTenantId: tid,
         forceRefresh: false,
       );
       if (!mounted) return;
+      if (result.docs.isEmpty) {
+        setState(() => _membersSyncing = false);
+        return;
+      }
+      final expected =
+          await ChurchCertificadosLoadService.expectedMemberTotal(tid);
+      final incomplete = ChurchCertificadosLoadService.isRosterIncomplete(
+        loadedCount: result.docs.length,
+        expectedTotal: expected,
+      );
+      if (incomplete) {
+        result = await ChurchCertificadosLoadService.load(
+          seedTenantId: tid,
+          forceRefresh: true,
+        );
+        if (!mounted) return;
+      }
       if (result.docs.isEmpty) {
         setState(() => _membersSyncing = false);
         return;
@@ -503,16 +640,30 @@ class _CertificadosPageState extends State<CertificadosPage> {
     _operationalTenantId = ChurchPanelTenant.forFirestore(widget.tenantId.trim());
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded());
     final hint = _effectiveTenantId;
-    final ram = ChurchCertificadosLoadService.peekRam(hint) ??
-        (hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null) ??
-        (hint.isNotEmpty ? ChurchMembersLoadService.peekRamAny(hint) : null);
-    if (ram != null && ram.isNotEmpty) {
-      _seedMemberDocs = List.from(ram);
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? seedRam;
+    final certRam = ChurchCertificadosLoadService.peekRam(hint);
+    if (certRam != null &&
+        certRam.isNotEmpty &&
+        _isCompleteMemberSeed(certRam, hint)) {
+      seedRam = certRam;
+    } else {
+      final pageCache =
+          hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null;
+      if (pageCache != null &&
+          pageCache.isNotEmpty &&
+          _isCompleteMemberSeed(pageCache, hint)) {
+        seedRam = pageCache;
+      }
+    }
+    if (seedRam != null && seedRam.isNotEmpty) {
+      _seedMemberDocs = List.from(seedRam);
       _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
     } else {
       _membersFuture = Future.value(_CertMembersListSnapshot(const []));
     }
     unawaited(_openCertificadosFast());
+    unawaited(_loadDepartments());
+    unawaited(_purgeNamelessMembersIfManager());
     _loadTenant();
     _loadCertConfig();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -655,6 +806,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   String get _nomeIgreja =>
       (_tenantData?['name'] ?? _tenantData?['nome'] ?? 'Igreja').toString();
+
+  String get _churchTaxIdDigitsForStamp =>
+      churchTaxIdDigitsFromMap(_tenantData);
 
   /// Path canónico da logo (`logoPath`) — URL via [ChurchBrandService.getLogoUrl].
   String get _logoUrl {
@@ -978,7 +1132,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             _seedMemberDocs.isEmpty) {
           return const ChurchPanelLoadingBody();
         }
-        final allDocs = snap.data?.docs ?? _seedMemberDocs;
+        final allDocs = _onlyNamedMembers(snap.data?.docs ?? _seedMemberDocs);
         if (allDocs.isEmpty) {
           final softErr = (_membersLoadSoftError ?? '').trim();
           if (softErr.isNotEmpty) {
@@ -1012,24 +1166,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           );
         }
 
-        final docs = allDocs.where((d) {
-          if (_searchQuery.isEmpty) return true;
-          final data = d.data();
-          final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? '')
-              .toString()
-              .toLowerCase();
-          final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-          return nome.contains(_searchQuery) || cpf.contains(_searchQuery);
-        }).toList()
-          ..sort((a, b) {
-            final na = (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '')
-                .toString()
-                .toLowerCase();
-            final nb = (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '')
-                .toString()
-                .toLowerCase();
-            return na.compareTo(nb);
-          });
+        final docs = _filterAndSortMembers(allDocs);
         final signatoryOptionsAll = _buildSignatoryOptions(allDocs);
         final totalTemplates = _templates.length;
         final customTemplates = _templates.where((t) {
@@ -1283,24 +1420,6 @@ class _CertificadosPageState extends State<CertificadosPage> {
                   pageEdge.left,
                   ThemeCleanPremium.spaceSm,
                   pageEdge.right,
-                  ThemeCleanPremium.spaceSm,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: _CertificadosInsightsPanel(
-                    totalMembros: allDocs.length,
-                    membrosFiltrados: docs.length,
-                    signatariosElegiveis: signatoryOptionsAll.length,
-                    totalTemplates: totalTemplates,
-                    templatesCustomizados: customTemplates,
-                    modelDistribution: modelDistribution,
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  pageEdge.left,
-                  ThemeCleanPremium.spaceSm,
-                  pageEdge.right,
                   4,
                 ),
                 sliver: SliverToBoxAdapter(
@@ -1325,6 +1444,79 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       ),
                     ),
                     onChanged: _searchDebounce.schedule,
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  pageEdge.left,
+                  4,
+                  pageEdge.right,
+                  4,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _certFilterChip('Todos', 'todos', const Color(0xFF6366F1),
+                              _genderFilter, (v) => _genderFilter = v),
+                          _certFilterChip('Homens', 'masculino', const Color(0xFF0EA5E9),
+                              _genderFilter, (v) => _genderFilter = v),
+                          _certFilterChip('Mulheres', 'feminino', const Color(0xFFEC4899),
+                              _genderFilter, (v) => _genderFilter = v),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _certFilterChip('Todas idades', 'todas', const Color(0xFF64748B),
+                              _ageFilter, (v) => _ageFilter = v),
+                          _certFilterChip('Crianças', 'criancas', const Color(0xFFF59E0B),
+                              _ageFilter, (v) => _ageFilter = v),
+                          _certFilterChip('Adolescentes', 'adolescentes', const Color(0xFF8B5CF6),
+                              _ageFilter, (v) => _ageFilter = v),
+                          _certFilterChip('Adultos', 'adultos', const Color(0xFF10B981),
+                              _ageFilter, (v) => _ageFilter = v),
+                          _certFilterChip('Idosos', 'idosos', const Color(0xFF78716C),
+                              _ageFilter, (v) => _ageFilter = v),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      MemberDepartmentMultiFilterField(
+                        departments: _departments,
+                        selectedIds: _selectedDeptIds,
+                        borderRadius: ThemeCleanPremium.radiusSm,
+                        onChanged: (picked) => setState(() {
+                          _selectedDeptIds
+                            ..clear()
+                            ..addAll(picked);
+                        }),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(
+                  pageEdge.left,
+                  ThemeCleanPremium.spaceSm,
+                  pageEdge.right,
+                  ThemeCleanPremium.spaceSm,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: _CertificadosInsightsPanel(
+                    totalMembros: allDocs.length,
+                    membrosFiltrados: docs.length,
+                    signatariosElegiveis: signatoryOptionsAll.length,
+                    totalTemplates: totalTemplates,
+                    templatesCustomizados: customTemplates,
+                    modelDistribution: modelDistribution,
                   ),
                 ),
               ),
@@ -1477,10 +1669,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     delegate: SliverChildBuilderDelegate(
                       (context, i) {
                         final data = docs[i].data();
-                        final nome = (data['NOME_COMPLETO'] ??
-                                data['nome'] ??
-                                'Sem nome')
-                            .toString();
+                        final nome = memberDisplayNameFromData(data);
                         final cpf =
                             (data['CPF'] ?? data['cpf'] ?? '').toString();
                         final cpfDigits = cpf.replaceAll(RegExp(r'\D'), '');
@@ -2020,6 +2209,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           nomeMembroLinha2: (d['nomeMembroLinha2'] ?? '').toString(),
           cpfFormatado: (d['cpfFormatado'] ?? '').toString(),
           nomeIgreja: (d['nomeIgreja'] ?? _nomeIgreja).toString(),
+          churchTaxIdDigits: _churchTaxIdDigitsForStamp,
           local: (d['local'] ?? '').toString(),
           issuedDate: (d['issuedDateStr'] ?? '').toString(),
           layoutId: (d['layoutId'] ?? _certPdfLayoutId).toString(),
@@ -2128,6 +2318,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
       context,
       templateByMember.values.first,
       selectedDocs,
+      templateByMember: templateByMember,
+      allDocs: allDocs,
+      signatoryOptionsAll: signatoryOptionsAll,
     );
   }
 
@@ -2373,8 +2566,11 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Future<void> _runCloudCertBatch(
     BuildContext context,
     _CertTemplate template,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> selectedDocs,
-  ) async {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> selectedDocs, {
+    Map<String, _CertTemplate>? templateByMember,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? allDocs,
+    List<_SignatoryOption>? signatoryOptionsAll,
+  }) async {
     final nav = Navigator.of(context, rootNavigator: true);
     final phase = ValueNotifier<String>('Enviando pedido à nuvem…');
     final cloudTotal = selectedDocs.length;
@@ -2447,8 +2643,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
       },
     );
     try {
-      final callable = FirebaseFunctions.instance
-          .httpsCallable('processarCertificadosLote');
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable(
+        'processarCertificadosLote',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 180)),
+      );
       final res = await callable.call<Map<String, dynamic>>({
         'igrejaId': _effectiveTenantId,
         'tenantId': _effectiveTenantId,
@@ -2482,6 +2683,27 @@ class _CertificadosPageState extends State<CertificadosPage> {
       });
     } catch (e) {
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nuvem indisponível ($e). Gerando localmente…'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      if (templateByMember != null &&
+          allDocs != null &&
+          signatoryOptionsAll != null &&
+          mounted &&
+          context.mounted) {
+        await _runLocalCertBatch(
+          context,
+          templateByMember,
+          selectedDocs,
+          allDocs,
+          signatoryOptionsAll,
+          singlePdf: true,
+        );
+      } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro na nuvem: $e')),
         );
@@ -2686,6 +2908,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           nomeMembro: firstNome,
           cpfFormatado: _formatCpf(firstCpf),
           nomeIgreja: _nomeIgreja,
+          churchTaxIdDigits: _churchTaxIdDigitsForStamp,
           local: localTxt,
           issuedDate: dataHoje,
           layoutId: layoutLote,
@@ -2871,6 +3094,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           nomeMembro: firstRow.nome,
           cpfFormatado: _formatCpf(firstRow.cpf),
           nomeIgreja: _nomeIgreja,
+          churchTaxIdDigits: _churchTaxIdDigitsForStamp,
           local: localTxtZip,
           issuedDate: dataHojeZip,
           layoutId: layoutLoteZip,
@@ -2931,6 +3155,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             nomeMembro: row.nome,
             cpfFormatado: _formatCpf(row.cpf),
             nomeIgreja: _nomeIgreja,
+            churchTaxIdDigits: _churchTaxIdDigitsForStamp,
             local: localTxtZip,
             issuedDate: dataHojeZip,
             layoutId: layRow,
@@ -4997,7 +5222,9 @@ class _CertificatePdfProgressShell extends StatelessWidget {
                             ),
                             const SizedBox(height: 10),
                             Text(
-                              'Rede otimizada: fontes, logo, fundo e assinaturas em paralelo.',
+                              showDigitalSigningLine
+                                  ? 'Selo digital (igual Cartas): sem download de imagem — logo e fundo em paralelo.'
+                                  : 'Rede otimizada: fontes, logo, fundo e assinaturas em paralelo.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 11,
@@ -5136,6 +5363,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 
   Color get _cor => widget.corOverride ?? widget.template.cor;
   Color get _corTexto => widget.corTextoOverride ?? const Color(0xFF1E1E1E);
+
+  String get _churchTaxIdDigitsForStamp =>
+      churchTaxIdDigitsFromMap(widget.tenantData);
 
   TextStyle _previewNomeMembroStyle() {
     switch (_fontStyleId) {
@@ -5421,6 +5651,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         nomeMembro: _pdfNoivoNome(),
         nomeMembroLinha2: _isCasamento ? _pdfNoivaNome() : '',
         nomeIgreja: widget.nomeIgreja,
+        churchTaxIdDigits: _churchTaxIdDigitsForStamp,
         local: widget.localCtrl.text,
         layoutId: _certPdfLayoutId,
         fontStyleId: _fontStyleId,
@@ -5471,7 +5702,12 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       final r = await inflight;
       if (r != null && _preResolvedWarmSig == warmSig) return r;
     }
-    onProgress?.call('Preparando logo e assinaturas…', 0.1);
+    onProgress?.call(
+      _signatureMode == 'digital'
+          ? 'Preparando logo e selo digital…'
+          : 'Preparando logo e assinaturas…',
+      0.1,
+    );
     return _preResolveCertificatePdfAssets(warmSig);
   }
 
@@ -5913,7 +6149,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               Text(
                 _signatureMode == 'manual'
                     ? 'O PDF sai com linhas e nomes para assinatura manual no papel.'
-                    : 'Rodapé com carimbo em duas colunas (nome e CPF em destaque, texto «Assinado de forma digital…», data/hora e fuso) e marca d’água suave com o logo da igreja — no lugar do bloco clássico com imagem manuscrita e linha.',
+                    : 'Selo «Assinado de forma digital por…» em duas colunas (igreja + CPF e data/hora), igual Cartas e Transferências — geração rápida sem baixar imagem do Storage.',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -6067,7 +6303,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                     ),
                   ),
                 Text(
-                  'Marque uma ou mais pessoas. É preciso ter assinatura cadastrada em Membros → Editar (imagem) para aparecer no PDF.',
+                  'Marque uma ou mais pessoas. No modo digital o selo usa nome e CPF do cadastro (como em Cartas). No modo manual, a imagem de assinatura em Membros → Editar aparece no PDF quando existir.',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -6622,13 +6858,101 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     );
   }
 
-  /// Pré-visualização: todas as assinaturas selecionadas (alinhado ao PDF).
+  /// Pré-visualização: selo digital (Cartas) ou linha manual — alinhado ao PDF.
   Widget _buildGalaLuxoPreviewSignaturesStrip() {
+    final useDigital = _signatureMode == 'digital';
     final sigs = _normalizeUiSignatoriesForPdfGlobal(
       _effectiveSignatories,
-      useDigitalSignature: _signatureMode == 'digital',
+      useDigitalSignature: useDigital,
     );
     final lineColor = const Color(0xFF5C3D1E);
+
+    Widget manualColumn(String nome, String cargo) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(height: 1.2, width: 220, color: lineColor),
+          const SizedBox(height: 5),
+          Text(
+            nome,
+            style: GoogleFonts.libreBaskerville(
+              fontSize: 8.5,
+              fontWeight: FontWeight.w700,
+              color: lineColor,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (cargo.trim().isNotEmpty)
+            Text(
+              cargo,
+              style: GoogleFonts.libreBaskerville(
+                fontSize: 7.5,
+                color: const Color(0xFF8B6914),
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+        ],
+      );
+    }
+
+    if (useDigital) {
+      if (sigs.isEmpty) {
+        return ChurchDigitalSignatureStampPreview(
+          signerName: widget.pastorCtrl.text.trim(),
+          churchName: widget.nomeIgreja,
+          churchTaxIdDigits: _churchTaxIdDigitsForStamp,
+          churchData: widget.tenantData,
+          cargo: widget.cargoCtrl.text.trim(),
+          lineColor: lineColor,
+          nameColor: lineColor,
+          compact: true,
+          maxWidth: 248,
+          lineWidth: 220,
+        );
+      }
+      if (sigs.length == 1) {
+        final s = sigs.first;
+        return ChurchDigitalSignatureStampPreview(
+          signerName: s.nome,
+          signerCpfDigits: s.cpfRaw,
+          churchName: widget.nomeIgreja,
+          churchTaxIdDigits: _churchTaxIdDigitsForStamp,
+          churchData: widget.tenantData,
+          cargo: s.cargo,
+          lineColor: lineColor,
+          nameColor: lineColor,
+          compact: true,
+          maxWidth: 248,
+          lineWidth: 220,
+        );
+      }
+      return Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 14,
+        runSpacing: 12,
+        children: [
+          for (final s in sigs)
+            ChurchDigitalSignatureStampPreview(
+              signerName: s.nome,
+              signerCpfDigits: s.cpfRaw,
+              churchName: widget.nomeIgreja,
+              churchTaxIdDigits: _churchTaxIdDigitsForStamp,
+              churchData: widget.tenantData,
+              cargo: s.cargo,
+              lineColor: lineColor,
+              nameColor: lineColor,
+              compact: true,
+              maxWidth: 248,
+              lineWidth: 220,
+            ),
+        ],
+      );
+    }
+
     final nomeStyle = GoogleFonts.libreBaskerville(
       fontSize: 8.5,
       fontWeight: FontWeight.w700,
@@ -6639,26 +6963,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       color: const Color(0xFF8B6914),
     );
     if (sigs.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(height: 1, width: 100, color: lineColor),
-          const SizedBox(height: 4),
-          Text(
-            widget.pastorCtrl.text.trim(),
-            style: nomeStyle,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            widget.cargoCtrl.text.trim(),
-            style: cargoStyle,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+      return manualColumn(
+        widget.pastorCtrl.text.trim(),
+        widget.cargoCtrl.text.trim(),
       );
     }
     if (sigs.length == 1) {
@@ -6666,22 +6973,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(height: 1, width: 100, color: lineColor),
-          const SizedBox(height: 4),
-          Text(
-            s.nome,
-            style: nomeStyle,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            s.cargo,
-            style: cargoStyle,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          Container(height: 1.2, width: 220, color: lineColor),
+          const SizedBox(height: 5),
+          Text(s.nome, style: nomeStyle, textAlign: TextAlign.center, maxLines: 3),
+          Text(s.cargo, style: cargoStyle, textAlign: TextAlign.center, maxLines: 2),
         ],
       );
     }
@@ -6692,28 +6987,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       children: [
         for (final s in sigs)
           SizedBox(
-            width: 112,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(height: 1, width: 96, color: lineColor),
-                const SizedBox(height: 4),
-                Text(
-                  s.nome,
-                  style: nomeStyle,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  s.cargo,
-                  style: cargoStyle,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+            width: 200,
+            child: manualColumn(s.nome, s.cargo),
           ),
       ],
     );
@@ -6830,6 +7105,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         nomeMembroLinha2: _isCasamento ? noiva : '',
         cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
         nomeIgreja: widget.nomeIgreja,
+        churchTaxIdDigits: _churchTaxIdDigitsForStamp,
         local: widget.localCtrl.text,
         issuedDate: issuedDate,
         layoutId: _certPdfLayoutId,

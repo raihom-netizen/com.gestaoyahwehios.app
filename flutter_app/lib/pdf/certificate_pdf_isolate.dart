@@ -33,6 +33,7 @@ Map<String, dynamic> certificatePdfInputToMap(CertificatePdfInput input) {
     'useLuxuryPdfFonts': input.useLuxuryPdfFonts,
     'useDigitalSignatureStamp': input.useDigitalSignatureStamp,
     'digitalSignatureDadosLine': input.digitalSignatureDadosLine,
+    'churchTaxIdDigits': input.churchTaxIdDigits,
     'fontCinzelDecorativeBytes': input.fontCinzelDecorativeBytes,
     'fontPinyonScriptBytes': input.fontPinyonScriptBytes,
     'fontLibreBaskervilleBytes': input.fontLibreBaskervilleBytes,
@@ -90,6 +91,7 @@ CertificatePdfInput _certificatePdfInputFromMap(Map<String, dynamic> m) {
         : false,
     digitalSignatureDadosLine:
         (m['digitalSignatureDadosLine'] as String?) ?? '',
+    churchTaxIdDigits: (m['churchTaxIdDigits'] as String?) ?? '',
     fontCinzelDecorativeBytes: m['fontCinzelDecorativeBytes'] is Uint8List
         ? m['fontCinzelDecorativeBytes'] as Uint8List
         : null,

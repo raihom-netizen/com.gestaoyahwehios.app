@@ -23,7 +23,7 @@ void _appendGalaLuxoCertificatePage(
           : null,
   ];
 
-  const signatoryBlockWidth = 140.0;
+  const signatoryBlockWidth = 268.0;
 
   pw.Widget buildSignatoryBlock(int i, PdfColor accent, PdfColor accentClaro) {
     if (i >= input.signatories.length) return pw.SizedBox();
@@ -58,7 +58,7 @@ void _appendGalaLuxoCertificatePage(
         ),
       );
     }
-    final lineW = 198.0;
+    final lineW = 220.0;
     final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
     return pw.Center(
       child: pw.ConstrainedBox(

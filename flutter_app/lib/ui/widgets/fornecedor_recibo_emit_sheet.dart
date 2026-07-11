@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
-/// Resultado — assinante da igreja + selo digital opcional.
+/// Resultado — assinante da igreja + modo (padrão Cartas).
 typedef FornecedorReciboEmitConfig = ({
   ChurchSignatoryEntry? signer,
-  bool useDigital,
+  ChurchDocumentSignatureMode signatureMode,
 });
+
+extension FornecedorReciboEmitConfigX on FornecedorReciboEmitConfig {
+  bool get useDigital => signatureMode.isDigital;
+}
 
 /// Tela premium — emitir recibo PDF (somente liderança assina).
 Future<FornecedorReciboEmitConfig?> showFornecedorReciboEmitSheet(
@@ -58,7 +65,10 @@ class _FornecedorReciboEmitPageState extends State<_FornecedorReciboEmitPage> {
   final _search = TextEditingController();
   String _q = '';
   String? _selectedId;
-  var _useDigital = true;
+  ChurchDocumentSignatureMode _signatureMode =
+      ChurchDocumentSignatureMode.digital;
+  String _churchName = '';
+  Map<String, dynamic> _churchData = const {};
 
   static const _headerGradient = LinearGradient(
     begin: Alignment.topLeft,
@@ -70,6 +80,22 @@ class _FornecedorReciboEmitPageState extends State<_FornecedorReciboEmitPage> {
   void initState() {
     super.initState();
     _search.addListener(() => setState(() => _q = _search.text.trim().toLowerCase()));
+    _loadChurchProfile();
+  }
+
+  Future<void> _loadChurchProfile() async {
+    try {
+      final snap = await ChurchRepository.churchDoc(widget.tenantId).get();
+      final data = snap.data() ?? {};
+      if (!mounted) return;
+      setState(() {
+        _churchData = data;
+        _churchName = churchTaxIdChurchNameFromMap(data);
+        if (_churchName.isEmpty) {
+          _churchName = widget.tenantId.trim();
+        }
+      });
+    } catch (_) {}
   }
 
   @override
@@ -285,7 +311,17 @@ class _FornecedorReciboEmitPageState extends State<_FornecedorReciboEmitPage> {
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) {
                           if (i == _filtered.length) {
-                            return _digitalSwitchCard();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 4, bottom: 8),
+                              child: ChurchDocumentSignaturePanel(
+                                mode: _signatureMode,
+                                onModeChanged: (v) =>
+                                    setState(() => _signatureMode = v),
+                                signer: _selected,
+                                churchName: _churchName,
+                                churchData: _churchData,
+                              ),
+                            );
                           }
                           final e = _filtered[i];
                           final sel = e.memberId == _selectedId;
@@ -392,12 +428,17 @@ class _FornecedorReciboEmitPageState extends State<_FornecedorReciboEmitPage> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(
-                    context,
-                    (signer: _selected, useDigital: _useDigital),
-                  );
-                },
+                onPressed: _selected == null
+                    ? null
+                    : () {
+                        Navigator.pop(
+                          context,
+                          (
+                            signer: _selected,
+                            signatureMode: _signatureMode,
+                          ),
+                        );
+                      },
                 icon: const Icon(Icons.receipt_long_rounded),
                 label: const Text('Gerar recibo PDF'),
                 style: FilledButton.styleFrom(
@@ -437,31 +478,6 @@ class _FornecedorReciboEmitPageState extends State<_FornecedorReciboEmitPage> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _digitalSwitchCard() {
-    return Container(
-      margin: const EdgeInsets.only(top: 4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: SwitchListTile.adaptive(
-        value: _useDigital,
-        onChanged: (v) => setState(() => _useDigital = v),
-        activeThumbColor: const Color(0xFF0D9488),
-        title: Text(
-          'Assinatura digital da igreja',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 14),
-        ),
-        subtitle: Text(
-          'Desative para assinar manualmente no papel.',
-          style: GoogleFonts.inter(fontSize: 12, color: Colors.grey.shade600),
         ),
       ),
     );

@@ -158,28 +158,37 @@ abstract final class PatrimonioPublishService {
 
       List<PatrimonioGalleryUploadResult> uploaded;
       try {
-        uploaded = await FirebaseBootstrapService.runGuarded(
-          () => Future.wait(
-            slots.map((slot) async {
-              final bytes = uploadsBySlot[slot];
-              if (bytes == null || bytes.isEmpty) {
-                throw StateError('Foto do slot $slot está vazia.');
-              }
-              if (slot < 0 || slot >= PatrimonioPhotoFields.maxPhotos) {
-                throw StateError('Slot de foto inválido ($slot).');
-              }
-              return PatrimonioMediaUpload.uploadGalleryPhoto(
-                churchId: igrejaId,
-                itemDocId: itemId,
-                slotIndex: slot,
-                rawBytes: bytes,
-                // Editor já optimizou via SafeImageBytes.patrimonioFromPicker.
-                alreadyCompressed: true,
-              );
-            }),
-          ),
-          debugLabel: 'patrimonio_publish_slots',
-        );
+        Future<PatrimonioGalleryUploadResult> uploadSlot(int slot) async {
+          final bytes = uploadsBySlot[slot];
+          if (bytes == null || bytes.isEmpty) {
+            throw StateError('Foto do slot $slot está vazia.');
+          }
+          if (slot < 0 || slot >= PatrimonioPhotoFields.maxPhotos) {
+            throw StateError('Slot de foto inválido ($slot).');
+          }
+          return PatrimonioMediaUpload.uploadGalleryPhoto(
+            churchId: igrejaId,
+            itemDocId: itemId,
+            slotIndex: slot,
+            rawBytes: bytes,
+            alreadyCompressed: true,
+          );
+        }
+
+        if (kIsWeb) {
+          // Web: uploads em série — paralelo + Firestore write causa INTERNAL ASSERTION.
+          uploaded = <PatrimonioGalleryUploadResult>[];
+          for (var i = 0; i < slots.length; i++) {
+            final slot = slots[i];
+            uploaded.add(await uploadSlot(slot));
+            onUploadProgress?.call(0.06 + ((i + 1) / total) * 0.78);
+          }
+        } else {
+          uploaded = await FirebaseBootstrapService.runGuarded(
+            () => Future.wait(slots.map(uploadSlot)),
+            debugLabel: 'patrimonio_publish_slots',
+          );
+        }
       } catch (e, st) {
         if (CrashlyticsService.shouldReport(e)) {
           unawaited(
@@ -257,20 +266,16 @@ abstract final class PatrimonioPublishService {
       }
     }
 
-    // Remove slots vazios no Storage acima da contagem final.
-    var finalCount = 0;
-    for (var i = PatrimonioPhotoFields.maxPhotos - 1; i >= 0; i--) {
-      if (slotUrls[i].isNotEmpty) {
-        finalCount = i + 1;
-        break;
+    // Remove Storage de qualquer slot vazio (inclui remoções no meio da galeria).
+    for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
+      if (slotUrls[slot].trim().isEmpty) {
+        slotPaths[slot] = '';
+        await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+          tenantId: igrejaId,
+          itemDocId: itemId,
+          slot: slot,
+        );
       }
-    }
-    for (var slot = finalCount; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
-      await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-        tenantId: igrejaId,
-        itemDocId: itemId,
-        slot: slot,
-      );
     }
 
     await FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleriaInItemFolder(

@@ -22,7 +22,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
 import 'package:intl/intl.dart';
 import '../../widgets/app_shell.dart';
-import '../../widgets/ios_payment_unavailable_view.dart';
 import '../../widgets/mp_checkout_embed.dart';
 import '../../widgets/primary_button.dart';
 import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
@@ -997,15 +996,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Apple Guideline 3.1.1 — em iOS com `exibir_pagamento_ios=false` o app se
-    // comporta como Reader/SaaS: sem precos, sem botoes de cobranca direta.
-    // No modo expresso (vindo do site público) a flag não se aplica — esse
-    // fluxo só roda na web, onde o pagamento é permitido.
     if (!widget.expressMode && !_canPurchaseLicense) {
       return _buildLicensePaymentForbidden(context);
-    }
-    if (!widget.expressMode && IosPaymentsGate.shouldHidePayments) {
-      return IosPaymentUnavailableView(embedded: widget.embeddedInShell);
     }
 
     final cs = Theme.of(context).colorScheme;

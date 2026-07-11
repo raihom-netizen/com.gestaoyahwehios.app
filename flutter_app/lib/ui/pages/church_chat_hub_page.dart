@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/church_chat_display_name.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -1596,12 +1597,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   /// Evita mostrar UID Firebase como «nome» na lista (comum na web sem cache).
-  static bool _looksLikeFirebaseUid(String raw) {
-    final s = raw.trim();
-    if (s.length < 20 || s.length > 128) return false;
-    if (s.contains('@') || s.contains(' ')) return false;
-    return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(s);
-  }
+  static bool _looksLikeFirebaseUid(String raw) =>
+      ChurchChatDisplayName.looksLikeFirebaseUid(raw);
 
   String? _titleFromThreadForPeer(Map<String, dynamic> data, String peer) {
     final titles = data['titlesByUid'];
@@ -1659,9 +1656,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       if (tid != null) {
         unawaited(_refreshPeerProfilesForAuthUids(tid, {peer}));
       }
-      return 'Membro';
+      return ChurchChatDisplayName.fallbackMember;
     }
-    return peer.isNotEmpty ? peer : 'Conversa';
+    return ChurchChatDisplayName.fallbackMember;
   }
 
   String _deptDisplayTitle(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -1707,16 +1704,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   String _memberDisplayName(ChurchChatMemberRef ref) {
-    final data = ref.data;
-    final nome = (data['NOME_COMPLETO'] ??
-            data['nome'] ??
-            data['name'] ??
-            data['displayName'] ??
-            '')
+    final auth = (ref.data['authUid'] ?? ref.data['firebaseUid'] ?? '')
         .toString()
         .trim();
-    if (nome.isNotEmpty && !_looksLikeFirebaseUid(nome)) return nome;
-    return '';
+    return ChurchChatDisplayName.fromMemberData(
+      ref.data,
+      authUid: auth.isNotEmpty ? auth : ref.authUid,
+      memberDocId: ref.memberId,
+    );
   }
 
   /// Primeiro nome na lista (estilo WhatsApp).
@@ -3508,10 +3503,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       final locName = loc.displayName.trim();
       if (locName.isNotEmpty && !_looksLikeFirebaseUid(locName)) {
         fullTitle = locName;
-      } else if (_looksLikeFirebaseUid(peer)) {
-        fullTitle = 'Membro';
       } else {
-        fullTitle = peer;
+        fullTitle = ChurchChatDisplayName.fallbackMember;
       }
     }
     final rowTitle = _firstNameForChatRow(fullTitle);
@@ -4757,10 +4750,11 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       final auth = _authUidFromMemberData(row.docId, d);
       if (auth == null || auth == widget.myUid) continue;
       if (_prefs.isBlockedPeer(auth)) continue;
-      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '')
-          .toString()
-          .trim();
-      final label = nome.isEmpty ? auth : nome;
+      final label = ChurchChatDisplayName.fromMemberData(
+        d,
+        authUid: auth,
+        memberDocId: row.docId,
+      );
       if (q.isNotEmpty) {
         if (!label.toLowerCase().contains(q) &&
             !auth.toLowerCase().contains(q)) {
@@ -4851,9 +4845,11 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                     final row = rows[i];
                     final d = row.data;
                     final auth = _authUidFromMemberData(row.docId, d) ?? '';
-                    final nome =
-                        (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
-                    final label = nome.isEmpty ? auth : nome;
+                    final label = ChurchChatDisplayName.fromMemberData(
+                      d,
+                      authUid: auth,
+                      memberDocId: row.docId,
+                    );
                     final on = _presenceOnlineByUid[auth] ?? false;
                     final photoUrl = imageUrlFromMap(d);
                     return Material(
@@ -5627,9 +5623,11 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                         final d = doc.data();
                         final auth =
                             (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
-                        final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
-                            .toString()
-                            .trim();
+                        final nome = ChurchChatDisplayName.fromMemberData(
+                          d,
+                          authUid: auth,
+                          memberDocId: doc.id,
+                        );
                         final letter = nome.isNotEmpty
                             ? nome[0].toUpperCase()
                             : '?';
@@ -5736,7 +5734,7 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                                                   CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  nome.isEmpty ? auth : nome,
+                                                  nome,
                                                   maxLines: 2,
                                                   overflow:
                                                       TextOverflow.ellipsis,

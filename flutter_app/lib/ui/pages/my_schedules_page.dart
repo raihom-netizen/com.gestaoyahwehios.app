@@ -797,9 +797,6 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   static const Color _wisdomAccent = Color(0xFF3B82F6);
 
-  String get _escalasFirestorePath =>
-      ChurchPanelTenant.firestoreRootPath(_churchId);
-
   @override
   void initState() {
     super.initState();
@@ -1719,12 +1716,12 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Firestore: $_escalasFirestorePath/escalas · '
-                      'escala_trocas',
+                      'Veja suas escalas, confirme presença e solicite trocas.',
                       style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade600,
-                        height: 1.3,
+                        fontSize: 13,
+                        color: Colors.grey.shade700,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],

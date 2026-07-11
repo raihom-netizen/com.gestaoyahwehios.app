@@ -251,6 +251,9 @@ class CertificatePdfInput {
   /// Ex.: `Dados: 2026.03.09 14:29:13 -03'00'` (preenchido na emissão).
   final String digitalSignatureDadosLine;
 
+  /// CNPJ/CPF da igreja — coluna esquerda do selo (igual Cartas).
+  final String churchTaxIdDigits;
+
   const CertificatePdfInput({
     required this.titulo,
     this.subtitulo = '',
@@ -281,6 +284,7 @@ class CertificatePdfInput {
     this.fontLibreBaskervilleBytes,
     this.useDigitalSignatureStamp = false,
     this.digitalSignatureDadosLine = '',
+    this.churchTaxIdDigits = '',
   });
 }
 
@@ -508,8 +512,10 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
   required double maxWidth,
   bool compact = false,
 }) {
-  final lineW = math.min(198.0, maxWidth * 0.92);
-  final imgW = math.min(compact ? 96.0 : 112.0, maxWidth * 0.92);
+  const maxSigBlockPt = 248.0;
+  const lineWPt = 220.0;
+  final lineW = math.min(lineWPt, maxWidth.clamp(200.0, maxSigBlockPt));
+  final imgW = math.min(compact ? 112.0 : 128.0, maxWidth * 0.92);
   final imgH = compact ? 20.0 : 22.0;
   final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
 
@@ -524,10 +530,11 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
             signerName: s.nome,
             signerCpfDigits: s.cpfDigits,
             churchName: input.nomeIgreja,
+            churchTaxIdDigits: input.churchTaxIdDigits,
             dadosLine: input.digitalSignatureDadosLine,
             compact: compact,
           ),
-          maxWidth: lineW * 1.2,
+          maxWidth: maxSigBlockPt,
         ),
       ),
       pw.SizedBox(height: compact ? 5.0 : 7.0),
@@ -641,7 +648,7 @@ double _certPdfGalaSignaturesBottom(CertificatePdfInput input) {
   if (l > 48) b += 5;
   if (l > 72) b += 6;
   if (input.useDigitalSignatureStamp) {
-    b += 6;
+    b += 10;
     for (final s in input.signatories) {
       final n =
           _certPdfDigitalStampRightColumnLines(s.nome, s.cpfDigits).length;
@@ -933,7 +940,7 @@ Future<Uint8List> buildCertificatePdfBytes(CertificatePdfInput input) async {
         ),
       );
     }
-    final lineW = 198.0;
+    final lineW = 220.0;
     final frame = PdfColor(accent.red, accent.green, accent.blue, 0.72);
     return pw.Center(
       child: pw.ConstrainedBox(

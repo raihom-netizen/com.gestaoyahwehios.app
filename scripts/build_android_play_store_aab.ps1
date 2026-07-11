@@ -285,6 +285,12 @@ $global:LASTEXITCODE = 0
 & $BumpBuildScript -Increment 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+$DataSafetyScript = Join-Path $RepoRoot "scripts\play_store_data_safety_preflight.ps1"
+if (Test-Path $DataSafetyScript) {
+    Write-Host '`n=== Google Play - Seguranca dos dados (pre-voo) ===' -ForegroundColor Cyan
+    & $DataSafetyScript
+}
+
 $newVerLine = Select-String -Path (Join-Path $FlutterApp "pubspec.yaml") -Pattern "^version:\s*" | Select-Object -First 1
 if ($newVerLine) {
     $newVer = ($newVerLine.Line -replace '^version:\s*', '').Trim()
@@ -315,7 +321,7 @@ Assert-AabMainActivityPresent -AabPath $OutAab
 
 Write-Host "`n=== validacao Advertising ID (Play Console) ===" -ForegroundColor Cyan
 Assert-ReleaseManifestHasAdIdPermission -FlutterAppPath $FlutterApp
-Write-Host "Se a Play ainda acusar erro: Politica do app > ID de publicidade > confirme 'Sim' e carregue ESTE AAB (remova artefactos antigos da versao)." -ForegroundColor DarkGray
+Write-Host 'Se a Play ainda acusar erro: Politica do app - ID de publicidade - confirme Sim e carregue ESTE AAB.' -ForegroundColor DarkGray
 
 Write-Host "`n=== validacao 16K page size no AAB ===" -ForegroundColor Cyan
 Assert-Aab16kCompatibility -AabPath $OutAab -FlutterAppPath $FlutterApp
@@ -335,6 +341,11 @@ if ($ver -match '\+(\d+)\s*$') {
     Write-Host "Google Play (evitar erros ao guardar/lancar):" -ForegroundColor Yellow
     Write-Host "  Este AAB tem versionCode=$vc - tem de ser MAIOR que o maior ja usado (Producao / testes)." -ForegroundColor Gray
     Write-Host "  Carregue ESTE .aab em Artefactos antes de gravar (evita: nao adiciona nem remove pacotes)." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "SEGURANCA DOS DADOS (obrigatorio se ainda nao fez nesta versao):" -ForegroundColor Yellow
+    Write-Host '  Play Console: Politica do app - Seguranca dos dados - declarar E-MAIL (coletado+compartilhado).' -ForegroundColor Gray
+    Write-Host "  Guia: docs\PLAY_STORE_SEGURANCA_DADOS_EMAIL.md" -ForegroundColor Gray
+    Write-Host "  Pre-voo: .\scripts\play_store_data_safety_preflight.ps1 -Strict" -ForegroundColor Gray
 }
 
 if ($CopyTo -and $CopyTo.Trim().Length -gt 0) {

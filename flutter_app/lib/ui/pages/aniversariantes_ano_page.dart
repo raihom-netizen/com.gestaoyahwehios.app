@@ -2,17 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_birthday_year_load_service.dart';
-import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_member_pastoral_contact_card.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_birthday_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
-import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
-import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
-import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -177,8 +173,16 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
                 )
               : _error != null
                   ? _ErrorBody(message: _error!, onRetry: _load)
-                  : RefreshIndicator(
-                      onRefresh: _load,
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: ThemeCleanPremium.isMobile(context)
+                            ? double.infinity
+                            : 1040,
+                      ),
                       child: ListView(
                         physics: const AlwaysScrollableScrollPhysics(
                           parent: BouncingScrollPhysics(),
@@ -219,6 +223,8 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
                         ],
                       ),
                     ),
+                  ),
+                ),
         ),
       ),
     );
@@ -465,10 +471,6 @@ class _DayBirthdayBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final narrow = MediaQuery.sizeOf(context).width <
-        ThemeCleanPremium.breakpointMobile;
-    final crossCount = narrow ? 1 : 2;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -510,26 +512,62 @@ class _DayBirthdayBlock extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        GridView.builder(
+        _BirthdayYearPersonGrid(
+          entries: entries,
+          accent: monthGradient.first,
+          tenantId: tenantId,
+          memberRole: memberRole,
+          viewerCpfDigits: viewerCpfDigits,
+        ),
+      ],
+    );
+  }
+}
+
+class _BirthdayYearPersonGrid extends StatelessWidget {
+  const _BirthdayYearPersonGrid({
+    required this.entries,
+    required this.accent,
+    required this.tenantId,
+    required this.memberRole,
+    required this.viewerCpfDigits,
+  });
+
+  final List<ChurchBirthdayYearEntry> entries;
+  final Color accent;
+  final String tenantId;
+  final String memberRole;
+  final String viewerCpfDigits;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final cols = w >= 900 ? 3 : (w >= 520 ? 2 : 1);
+        const gap = 10.0;
+        return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossCount,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: narrow ? 2.35 : 1.05,
+            crossAxisCount: cols,
+            mainAxisSpacing: gap,
+            crossAxisSpacing: gap,
+            childAspectRatio: cols == 1 ? 2.65 : (cols == 2 ? 1.28 : 1.05),
           ),
           itemCount: entries.length,
-          itemBuilder: (context, i) => _BirthdayPersonTile(
-            entry: entries[i],
-            accent: monthGradient.first,
-            tenantId: tenantId,
-            memberRole: memberRole,
-            viewerCpfDigits: viewerCpfDigits,
-            compact: narrow,
-          ),
-        ),
-      ],
+          itemBuilder: (context, index) {
+            return _BirthdayPersonTile(
+              entry: entries[index],
+              accent: accent,
+              tenantId: tenantId,
+              memberRole: memberRole,
+              viewerCpfDigits: viewerCpfDigits,
+              compact: true,
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -541,7 +579,7 @@ class _BirthdayPersonTile extends StatelessWidget {
     required this.tenantId,
     required this.memberRole,
     required this.viewerCpfDigits,
-    required this.compact,
+    this.compact = false,
   });
 
   final ChurchBirthdayYearEntry entry;
@@ -551,201 +589,25 @@ class _BirthdayPersonTile extends StatelessWidget {
   final String viewerCpfDigits;
   final bool compact;
 
-  String _phoneDigits(Map<String, dynamic> data) {
-    for (final k in ['TELEFONES', 'telefone', 'phone', 'celular', 'whatsapp']) {
-      final v = (data[k] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-      if (v.length >= 10) return v;
-    }
-    return '';
-  }
-
-  String? _authUid(Map<String, dynamic> data) {
-    for (final k in ['authUid', 'uid', 'userId', 'firebaseUid']) {
-      final v = (data[k] ?? '').toString().trim();
-      if (v.length >= 8) return v;
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final data = entry.memberData;
     final nome = entry.displayName.isEmpty ? 'Membro' : entry.displayName;
     final primeiro = entry.firstName;
-    final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
-    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
-    final avatarColor =
-        avatarColorForMember(data, hasPhoto: hasFoto) ?? accent;
-    final cpf = (data['CPF'] ?? data['cpf'] ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\D'), '');
-    final fone = _phoneDigits(data);
     final age = ageFromMemberData(data);
-    final avatarSize = compact ? 48.0 : 56.0;
-    final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context))
-        .round()
-        .clamp(96, 240);
+    final subtitle = age != null ? '$age anos · Parabenize!' : 'Aniversariante';
 
-    final avatar = Container(
-      padding: const EdgeInsets.all(2.5),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(colors: [accent, accent.withValues(alpha: 0.55)]),
-      ),
-      child: FotoMembroWidget(
-        imageUrl: foto,
-        memberData: data,
-        tenantId: tenantId,
-        memberId: entry.memberDocId,
-        cpfDigits: cpf.length == 11 ? cpf : null,
-        authUid: MemberProfilePhotoResolver.authUidFromData(
-          data,
-          memberDocId: entry.memberDocId,
-        ),
-        size: avatarSize,
-        memCacheWidth: memPx,
-        memCacheHeight: memPx,
-        preferListThumbnail: true,
-        backgroundColor: avatarColor.withValues(alpha: 0.15),
-      ),
-    );
-
-    return YahwehWisdomSectionCard(
-      borderTint: accent,
-      padding: const EdgeInsets.all(12),
-      child: compact
-          ? Row(
-              children: [
-                avatar,
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        nome,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
-                      if (age != null)
-                        Text(
-                          '$age anos',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: YahwehSuperPremiumActionButton.chat(
-                              compact: true,
-                              onPressed: () =>
-                                  ChurchBirthdayParabenizar.openChatUnawaited(
-                                context: context,
-                                tenantId: tenantId,
-                                memberRole: memberRole,
-                                memberCpfDigits: viewerCpfDigits,
-                                memberData: data,
-                                displayName: nome,
-                                primeiroNome: primeiro,
-                                memberDocId: entry.memberDocId,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: YahwehSuperPremiumActionButton.whatsapp(
-                              compact: true,
-                              label: 'WhatsApp',
-                              onPressed: () =>
-                                  ChurchMemberContactChat.tapWhatsApp(
-                                context: context,
-                                memberData: data,
-                                tenantId: tenantId,
-                                memberDocId: entry.memberDocId,
-                                message: ChurchBirthdayParabenizar.messageFor(
-                                  primeiro,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                avatar,
-                const SizedBox(height: 10),
-                Text(
-                  nome,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
-                    height: 1.2,
-                  ),
-                ),
-                if (age != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    '$age anos',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: YahwehSuperPremiumActionButton.chat(
-                              compact: true,
-                              onPressed: () =>
-                            ChurchBirthdayParabenizar.openChatUnawaited(
-                          context: context,
-                          tenantId: tenantId,
-                          memberRole: memberRole,
-                          memberCpfDigits: viewerCpfDigits,
-                          memberData: data,
-                          displayName: nome,
-                          primeiroNome: primeiro,
-                          memberDocId: entry.memberDocId,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: YahwehSuperPremiumActionButton.whatsapp(
-                        compact: true,
-                        label: 'WhatsApp',
-                        onPressed: () => ChurchMemberContactChat.tapWhatsApp(
-                          context: context,
-                          memberData: data,
-                          tenantId: tenantId,
-                          memberDocId: entry.memberDocId,
-                          message: ChurchBirthdayParabenizar.messageFor(primeiro),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+    return ChurchMemberPastoralContactCard(
+      displayName: nome,
+      subtitle: subtitle,
+      memberData: data,
+      tenantId: tenantId,
+      memberDocId: entry.memberDocId,
+      memberRole: memberRole,
+      viewerCpfDigits: viewerCpfDigits,
+      accent: accent,
+      compact: compact,
+      whatsappMessage: ChurchBirthdayParabenizar.messageFor(primeiro),
     );
   }
 }

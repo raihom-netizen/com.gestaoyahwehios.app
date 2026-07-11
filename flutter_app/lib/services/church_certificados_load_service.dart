@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
-import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
+import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -119,6 +121,64 @@ abstract final class ChurchCertificadosLoadService {
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
+  /// Total canónico — `_dashboard_cache/main` ou `members_directory.totalCount`.
+  static Future<int> expectedMemberTotal(String churchId) async {
+    final id = churchId.trim();
+    if (id.isEmpty) return 0;
+
+    final dirMem = MembersDirectorySnapshotService.peekMemory(id);
+    if (dirMem != null && dirMem.totalCount > 0) {
+      return dirMem.totalCount;
+    }
+
+    try {
+      final dash = await ChurchDashboardCacheService.load(churchIdHint: id)
+          .timeout(const Duration(seconds: 6));
+      if (dash != null && dash.totalMembros > 0) {
+        return dash.totalMembros;
+      }
+    } catch (_) {}
+
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(id)
+          .timeout(const Duration(seconds: 8));
+      if (dir.totalCount > 0) return dir.totalCount;
+      if (dir.isCompleteForStats && dir.entries.isNotEmpty) {
+        return dir.entries.length;
+      }
+    } catch (_) {}
+
+    return 0;
+  }
+
+  /// Lista incompleta (ex.: 20 do cache da lista paginada vs 61 no painel).
+  static bool isRosterIncomplete({
+    required int loadedCount,
+    required int expectedTotal,
+  }) {
+    if (loadedCount <= 0) return true;
+    if (expectedTotal > 0) return loadedCount < expectedTotal;
+    // Sem total conhecido: suspeita de página parcial típica (20/30).
+    return loadedCount <= YahwehPerformanceV4.defaultPageSize;
+  }
+
+  static bool isRosterCompleteForTenant({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required String churchId,
+    int? expectedTotal,
+  }) {
+    if (docs.isEmpty || churchId.trim().isEmpty) return false;
+    final expected = expectedTotal ?? 0;
+    if (expected > 0) {
+      return docs.length >= expected;
+    }
+    final dir = MembersDirectorySnapshotService.peekMemory(churchId.trim());
+    if (dir != null && dir.totalCount > 0) {
+      return docs.length >= dir.totalCount;
+    }
+    return !isRosterIncomplete(loadedCount: docs.length, expectedTotal: 0);
+  }
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByNome(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
@@ -140,18 +200,14 @@ abstract final class ChurchCertificadosLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) =>
       docs
-          .where((d) {
-            final blind =
-                BlindMemberDoc.fromFirestore(id: d.id, data: d.data());
-            return blind.displayName.trim().isNotEmpty;
-          })
+          .where((d) => memberDataHasValidName(d.data()))
           .toList();
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _fromDirectory(
     MembersDirectorySnapshot dir,
   ) {
     return dir.entries
-        .where((e) => e.displayName.trim().isNotEmpty)
+        .where((e) => isRealMemberDisplayName(e.displayName))
         .map(
           (e) => ChurchCertificadosMemberDoc(
             id: e.memberDocId,
@@ -163,15 +219,31 @@ abstract final class ChurchCertificadosLoadService {
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadMembrosCollection(
-    String churchId,
-  ) async {
+    String churchId, {
+    bool forceServer = false,
+  }) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
     final cacheKey = '${churchId}_certificados_membros_$kAllMembersLimit';
+    final col = ChurchUiCollections.membros(churchId).limit(kAllMembersLimit);
+
+    if (forceServer) {
+      Future<QuerySnapshot<Map<String, dynamic>>> readServer() => col.get(
+            const GetOptions(source: Source.server),
+          );
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(
+              readServer,
+              maxAttempts: 4,
+            ).timeout(ChurchPanelReadTimeouts.queryCap)
+          : await readServer().timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isNotEmpty) return snap.docs;
+    }
+
     Future<QuerySnapshot<Map<String, dynamic>>> read() =>
         FirestoreReadResilience.getQuery(
-          ChurchUiCollections.membros(churchId).limit(kAllMembersLimit),
+          col,
           cacheKey: cacheKey,
           maxAttempts: kIsWeb ? 4 : 3,
           attemptTimeout: kIsWeb
@@ -207,6 +279,47 @@ abstract final class ChurchCertificadosLoadService {
     return legacySnap.docs;
   }
 
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadFullRoster(
+    String churchId, {
+    bool forceRefresh = false,
+  }) async {
+    final expected = await expectedMemberTotal(churchId);
+
+    var docs = await _loadMembrosCollection(
+      churchId,
+      forceServer: forceRefresh,
+    );
+    if (isRosterIncomplete(loadedCount: docs.length, expectedTotal: expected)) {
+      final fromServer = await _loadMembrosCollection(
+        churchId,
+        forceServer: true,
+      );
+      if (fromServer.length > docs.length) {
+        docs = fromServer;
+      }
+    }
+
+    if (isRosterIncomplete(loadedCount: docs.length, expectedTotal: expected)) {
+      try {
+        final snap = await IgrejaDirectFirestoreReads.listSubcollection(
+          churchId,
+          'membros',
+          moduleLabel: 'Certificados',
+          limit: kAllMembersLimit,
+          cacheKey: '${churchId}_certificados_membros_srv_$kAllMembersLimit',
+        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        if (snap.docs.length > docs.length) {
+          docs = snap.docs;
+        }
+      } catch (e, st) {
+        debugPrint('ChurchCertificadosLoadService full roster direct: $e\n$st');
+      }
+    }
+
+    return docs;
+  }
+
   static Future<ChurchCertificadosLoadResult> load({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -225,9 +338,16 @@ abstract final class ChurchCertificadosLoadService {
       _ram.remove(churchId);
     }
 
+    final expectedTotal = await expectedMemberTotal(churchId);
+
     if (!forceRefresh) {
       final ram = peekRam(churchId);
-      if (ram != null && ram.isNotEmpty) {
+      if (ram != null &&
+          ram.isNotEmpty &&
+          !isRosterIncomplete(
+            loadedCount: ram.length,
+            expectedTotal: expectedTotal,
+          )) {
         return ChurchCertificadosLoadResult(
           churchId: churchId,
           docs: ram,
@@ -238,16 +358,24 @@ abstract final class ChurchCertificadosLoadService {
 
     Object? lastError;
 
-    // Lista completa — directory `_panel_cache` pode ter menos entries que totalCount.
+    // Lista completa — nunca aceitar directory parcial (20) quando totalCount = 61.
     try {
-      final docs = await _loadMembrosCollection(churchId);
+      final docs = await _loadFullRoster(
+        churchId,
+        forceRefresh: forceRefresh,
+      );
       if (docs.isNotEmpty) {
         final sorted = _sortByNome(_rollMembersForCertificados(docs));
-        putRam(churchId, sorted);
+        if (!isRosterIncomplete(
+          loadedCount: sorted.length,
+          expectedTotal: expectedTotal,
+        )) {
+          putRam(churchId, sorted);
+        }
         return ChurchCertificadosLoadResult(
           churchId: churchId,
           docs: sorted,
-          readSource: 'membros_collection',
+          readSource: forceRefresh ? 'membros_collection_force' : 'membros_collection',
         );
       }
     } catch (e, st) {
@@ -260,8 +388,13 @@ abstract final class ChurchCertificadosLoadService {
         seedTenantId: churchId,
         limit: kAllMembersLimit,
         forceRefresh: forceRefresh,
+        forceServer: forceRefresh,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
-      if (membersResult.docs.isNotEmpty) {
+      if (membersResult.docs.isNotEmpty &&
+          !isRosterIncomplete(
+            loadedCount: membersResult.docs.length,
+            expectedTotal: expectedTotal,
+          )) {
         final docs = _sortByNome(_rollMembersForCertificados(membersResult.docs));
         putRam(churchId, docs);
         return ChurchCertificadosLoadResult(
@@ -272,24 +405,6 @@ abstract final class ChurchCertificadosLoadService {
               : 'members_load_service',
           softError: docs.isEmpty ? membersResult.softError : null,
         );
-      }
-      if (membersResult.directoryEntries.isNotEmpty) {
-        final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
-          churchId,
-          MembersDirectorySnapshot(
-            totalCount: membersResult.directoryEntries.length,
-            entries: membersResult.directoryEntries,
-          ),
-        );
-        final docs = _sortByNome(_rollMembersForCertificados(merged.docs));
-        if (docs.isNotEmpty) {
-          putRam(churchId, docs);
-          return ChurchCertificadosLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: 'members_load_directory_entries',
-          );
-        }
       }
     } catch (e, st) {
       lastError ??= e;

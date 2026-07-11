@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_chat_display_name.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -36,12 +37,14 @@ class ChurchChatForwardSheet extends StatelessWidget {
         [];
     final peer = peers.firstWhere((p) => p != myUid, orElse: () => '');
     final titles = data['titlesByUid'];
+    String? fromThread;
     if (titles is Map && peer.isNotEmpty && titles[peer] != null) {
-      final t = titles[peer].toString().trim();
-      if (t.isNotEmpty) return t;
+      fromThread = ChurchChatDisplayName.sanitize(titles[peer].toString());
     }
-    if (peer.isNotEmpty) return peer;
-    return threadId;
+    return ChurchChatDisplayName.peerTitle(
+      peerUid: peer,
+      fromThreadTitle: fromThread,
+    );
   }
 
   @override

@@ -1,21 +1,32 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/church_feed_photo_slide.dart';
+import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
+    show
+        churchMuralCarouselClipHeight,
+        churchPublicFeedInstagramColumnWidth,
+        kChurchPublicSiteMobileFrameWidth;
+import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 
-/// Carrossel premium de avisos — painel e site público.
+/// Carrossel premium de avisos — painel e site público (proporção Instagram).
 class ChurchAvisosCarousel extends StatefulWidget {
   const ChurchAvisosCarousel({
     super.key,
     required this.churchIdHint,
     this.onManageTap,
     this.compact = false,
+    this.forPublicSite = false,
   });
 
   final String churchIdHint;
   final VoidCallback? onManageTap;
   final bool compact;
+  final bool forPublicSite;
 
   @override
   State<ChurchAvisosCarousel> createState() => _ChurchAvisosCarouselState();
@@ -24,11 +35,33 @@ class ChurchAvisosCarousel extends StatefulWidget {
 class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
   final PageController _pageCtrl = PageController();
   int _page = 0;
+  final Map<String, int> _photoPageByAviso = {};
 
   @override
   void dispose() {
     _pageCtrl.dispose();
     super.dispose();
+  }
+
+  double _mediaHeight(BuildContext context, Map<String, dynamic> postData, int nPhotos) {
+    final mq = MediaQuery.sizeOf(context);
+    final cardW = widget.forPublicSite
+        ? churchPublicFeedInstagramColumnWidth(
+            (mq.width - 32).clamp(260.0, kChurchPublicSiteMobileFrameWidth),
+          )
+        : mq.width > 900
+            ? 420.0
+            : (mq.width - (widget.compact ? 56 : 48)).clamp(260.0, mq.width);
+    final ar = postFeedCarouselAspectRatioForIndex(
+      postData,
+      0,
+      nPhotos > 0 ? nPhotos : 1,
+    );
+    final ideal = churchMuralCarouselClipHeight(context, cardW, ar);
+    if (widget.forPublicSite) return ideal.clamp(110.0, 200.0);
+    if (widget.compact) return ideal.clamp(140.0, 220.0);
+    if (kIsWeb) return ideal.clamp(160.0, 280.0);
+    return ideal.clamp(180.0, 280.0);
   }
 
   @override
@@ -44,13 +77,8 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
         if (items.isEmpty) return const SizedBox.shrink();
 
         return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(
-              color: const Color(0xFF6366F1).withValues(alpha: 0.12),
-            ),
+          decoration: YahwehWisdomVisualKit.wisdomSectionCard(
+            borderTint: const Color(0xFF6366F1),
           ),
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
           child: Column(
@@ -90,34 +118,87 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
               ),
               const SizedBox(height: 12),
               SizedBox(
-                height: widget.compact ? 200 : 240,
+                height: _mediaHeight(
+                  context,
+                  items[_page.clamp(0, items.length - 1)].rawData,
+                  items[_page.clamp(0, items.length - 1)].mediaRefs().length,
+                ),
                 child: PageView.builder(
                   controller: _pageCtrl,
                   itemCount: items.length,
                   onPageChanged: (i) => setState(() => _page = i),
                   itemBuilder: (context, index) {
                     final aviso = items[index];
-                    final urls = aviso.imageUrls;
+                    final refs = aviso.mediaRefs();
+                    if (refs.isEmpty) return const SizedBox.shrink();
+                    final photoIdx = _photoPageByAviso[aviso.id] ?? 0;
+                    final mediaH = _mediaHeight(context, aviso.rawData, refs.length);
+                    final dpr = MediaQuery.devicePixelRatioOf(context);
+                    final memW = (MediaQuery.sizeOf(context).width * dpr)
+                        .round()
+                        .clamp(400, 1200);
+
+                    Widget photoAt(int pi) {
+                      return ChurchFeedPhotoSlide(
+                        mediaRef: refs[pi],
+                        postData: aviso.rawData,
+                        docId: aviso.id,
+                        churchId: widget.churchIdHint,
+                        width: double.infinity,
+                        height: mediaH,
+                        fit: BoxFit.contain,
+                        memCacheWidth: memW,
+                        skipFreshDisplayUrl: false,
+                      );
+                    }
+
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Expanded(
                           child: ClipRRect(
-                            borderRadius:
-                                BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                            child: urls.length <= 1
-                                ? SafeNetworkImage(
-                                    imageUrl: urls.first,
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                  )
-                                : PageView.builder(
-                                    itemCount: urls.length,
-                                    itemBuilder: (_, pi) => SafeNetworkImage(
-                                      imageUrl: urls[pi],
-                                      fit: BoxFit.cover,
-                                      width: double.infinity,
-                                    ),
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd,
+                            ),
+                            child: refs.length <= 1
+                                ? photoAt(0)
+                                : Stack(
+                                    alignment: Alignment.bottomCenter,
+                                    children: [
+                                      PageView.builder(
+                                        key: ValueKey('aviso_photos_${aviso.id}'),
+                                        itemCount: refs.length,
+                                        onPageChanged: (pi) => setState(
+                                          () => _photoPageByAviso[aviso.id] = pi,
+                                        ),
+                                        itemBuilder: (_, pi) => photoAt(pi),
+                                      ),
+                                      if (refs.length > 1)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 8),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: List.generate(
+                                              refs.length,
+                                              (pi) => Container(
+                                                width: photoIdx == pi ? 18 : 7,
+                                                height: 7,
+                                                margin: const EdgeInsets.symmetric(
+                                                  horizontal: 3,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: photoIdx == pi
+                                                      ? Colors.white
+                                                      : Colors.white54,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                           ),
                         ),

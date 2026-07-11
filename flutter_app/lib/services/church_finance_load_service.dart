@@ -474,6 +474,19 @@ abstract final class ChurchFinanceLoadService {
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
+      final existingBeforeWrite = _peekRam(ramMap, ramKey);
+      if (docs.isEmpty &&
+          existingBeforeWrite != null &&
+          existingBeforeWrite.isNotEmpty) {
+        return ChurchFinanceLoadResult(
+          churchId: churchId,
+          docs: existingBeforeWrite,
+          readSource: 'ram_preserve_empty_network',
+          collectionPath: firestorePath(churchId),
+          fromCache: true,
+          softError: 'Rede devolveu lista vazia — mantidos dados locais.',
+        );
+      }
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
       return ChurchFinanceLoadResult(
@@ -501,6 +514,19 @@ abstract final class ChurchFinanceLoadService {
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
+      final existingBeforeWrite = _peekRam(ramMap, ramKey);
+      if (docs.isEmpty &&
+          existingBeforeWrite != null &&
+          existingBeforeWrite.isNotEmpty) {
+        return ChurchFinanceLoadResult(
+          churchId: churchId,
+          docs: existingBeforeWrite,
+          readSource: 'ram_preserve_empty_retry',
+          collectionPath: firestorePath(churchId),
+          fromCache: true,
+          softError: 'Rede devolveu lista vazia — mantidos dados locais.',
+        );
+      }
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
       return ChurchFinanceLoadResult(
@@ -664,6 +690,12 @@ abstract final class ChurchFinanceLoadService {
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
+      final existing = _peekRam(ramMap, ramKey);
+      if (docs.isEmpty &&
+          existing != null &&
+          existing.isNotEmpty) {
+        return;
+      }
       _putRam(ramMap, ramKey, docs);
       await _persistHive(churchId, hiveModule, docs);
     } catch (_) {}
@@ -675,6 +707,10 @@ abstract final class ChurchFinanceLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
     try {
+      if (docs.isEmpty) {
+        final existing = await TenantModuleHiveCache.readDocs(churchId, hiveModule);
+        if (existing.isNotEmpty) return;
+      }
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
         hiveModule,

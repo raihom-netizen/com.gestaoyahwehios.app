@@ -141,7 +141,13 @@ class ChatAudioService {
     if (kIsWeb) {
       final blobPath = outPath ?? expected ?? '';
       if (blobPath.isNotEmpty) {
-        _webBytes = await readRecordingBlob(blobPath);
+        for (var attempt = 0; attempt < 6; attempt++) {
+          if (attempt > 0) {
+            await Future<void>.delayed(Duration(milliseconds: 80 * attempt));
+          }
+          _webBytes = await readRecordingBlob(blobPath);
+          if (_webBytes != null && _webBytes!.isNotEmpty) break;
+        }
         if ((_webBytes == null || _webBytes!.isEmpty) &&
             (blobPath.startsWith('blob:') || blobPath.startsWith('http'))) {
           try {

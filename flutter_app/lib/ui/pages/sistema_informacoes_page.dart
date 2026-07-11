@@ -2,10 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_info_footer_shortcuts.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-
+import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,11 +17,13 @@ import 'package:google_fonts/google_fonts.dart';
 class SistemaInformacoesPage extends StatefulWidget {
   final String tenantId;
   final bool embeddedInShell;
+  final ValueChanged<int>? onNavigateToShellModule;
 
   const SistemaInformacoesPage({
     super.key,
     required this.tenantId,
     this.embeddedInShell = false,
+    this.onNavigateToShellModule,
   });
 
   @override
@@ -27,86 +32,61 @@ class SistemaInformacoesPage extends StatefulWidget {
 
 class _SistemaModuloResumo {
   const _SistemaModuloResumo({
-    required this.title,
+    required this.shellIndex,
     required this.description,
-    required this.icon,
-    required this.accent,
-    this.moduleAssetKey,
+    this.titleOverride,
   });
 
-  final String title;
+  final int shellIndex;
   final String description;
-  final IconData icon;
-  final Color accent;
-  final String? moduleAssetKey;
+  final String? titleOverride;
+
+  ChurchShellNavEntry get entry => kChurchShellNavEntries[shellIndex];
+  String get title => titleOverride ?? entry.label;
 }
 
 const _kSistemaModulosResumo = <_SistemaModuloResumo>[
   _SistemaModuloResumo(
-    title: 'Membros',
+    shellIndex: ChurchShellIndices.membros,
     description: 'Cadastro completo, carteirinha digital com QR Code',
-    icon: Icons.people_rounded,
-    accent: Color(0xFF0D9488),
-    moduleAssetKey: 'membro',
   ),
   _SistemaModuloResumo(
-    title: 'Departamentos',
+    shellIndex: ChurchShellIndices.departamentos,
     description: 'Organização por áreas e lideranças',
-    icon: Icons.groups_rounded,
-    accent: Color(0xFF7C3AED),
   ),
   _SistemaModuloResumo(
-    title: 'Escalas',
+    shellIndex: ChurchShellIndices.escalaGeral,
     description: 'Minha escala e escala geral de ministérios',
-    icon: Icons.edit_calendar_rounded,
-    accent: Color(0xFFEA580C),
-    moduleAssetKey: 'escalas',
   ),
   _SistemaModuloResumo(
-    title: 'Financeiro',
+    shellIndex: ChurchShellIndices.financeiro,
     description: 'Receitas, despesas, contas e gráficos',
-    icon: Icons.account_balance_wallet_rounded,
-    accent: Color(0xFF16A34A),
-    moduleAssetKey: 'financeiro',
   ),
   _SistemaModuloResumo(
-    title: 'Patrimônio',
+    shellIndex: ChurchShellIndices.patrimonio,
     description: 'Controle de bens e equipamentos da igreja',
-    icon: Icons.inventory_2_rounded,
-    accent: Color(0xFFD97706),
   ),
   _SistemaModuloResumo(
-    title: 'Avisos',
+    shellIndex: ChurchShellIndices.muralAvisos,
     description: 'Mural e comunicados oficiais',
-    icon: Icons.view_quilt_rounded,
-    accent: Color(0xFF0284C7),
-    moduleAssetKey: 'avisos',
   ),
   _SistemaModuloResumo(
-    title: 'Eventos',
+    shellIndex: ChurchShellIndices.muralEventos,
     description: 'Cultos, programação e feed público',
-    icon: Icons.celebration_rounded,
-    accent: Color(0xFFDB2777),
-    moduleAssetKey: 'eventos',
   ),
   _SistemaModuloResumo(
-    title: 'YahwehChat',
+    shellIndex: ChurchShellIndices.chatIgreja,
     description: 'Conversas internas, grupos e mídia em tempo real',
-    icon: Icons.forum_rounded,
-    accent: Color(0xFF4F46E5),
-    moduleAssetKey: 'chat',
   ),
   _SistemaModuloResumo(
-    title: 'Notificações',
+    shellIndex: ChurchShellIndices.configuracoes,
+    titleOverride: 'Notificações',
     description: 'Comunicados, lembretes e alertas do painel',
-    icon: Icons.notifications_active_rounded,
-    accent: Color(0xFFCA8A04),
   ),
   _SistemaModuloResumo(
-    title: 'Assinaturas',
+    shellIndex: ChurchShellIndices.doacao,
+    titleOverride: 'Assinaturas',
     description: 'Planos, PIX e cartão via Mercado Pago',
-    icon: Icons.payment_rounded,
-    accent: Color(0xFFB8941F),
   ),
 ];
 
@@ -189,10 +169,11 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          churchWisdomModuleIconLeading(
-                            icon: Icons.info_outline_rounded,
-                            accent: YahwehWisdomVisualKit.navyMid,
+                          ChurchShellNavIcon3D(
+                            icon: kChurchShellNavEntries[ChurchShellIndices.informacoes].icon,
+                            accent: kChurchShellNavEntries[ChurchShellIndices.informacoes].accent,
                             size: 52,
+                            iconSize: 28,
                           ),
                           const SizedBox(width: 14),
                           Expanded(
@@ -231,7 +212,7 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Principais áreas do painel — ícones coloridos no padrão WisdomApp.',
+                        'Principais áreas do painel — ícones 3D iguais ao menu lateral.',
                         style: GoogleFonts.poppins(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -270,6 +251,11 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 20),
+                      if (widget.onNavigateToShellModule != null)
+                        ChurchInfoFooterShortcuts(
+                          onNavigate: widget.onNavigateToShellModule!,
+                        ),
                       const SizedBox(height: 20),
                       Center(
                         child: Column(
@@ -399,16 +385,20 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
   }
 
   Widget _buildModuloCard(_SistemaModuloResumo m) {
+    final entry = m.entry;
     return ChurchWisdomModuleListCard(
       title: m.title,
       subtitle: m.description,
-      accent: m.accent,
+      accent: entry.accent,
       dense: true,
-      leading: churchWisdomModuleIconLeading(
-        icon: m.icon,
-        accent: m.accent,
-        moduleAssetKey: m.moduleAssetKey,
+      onTap: widget.onNavigateToShellModule != null
+          ? () => widget.onNavigateToShellModule!(m.shellIndex)
+          : null,
+      leading: ChurchShellNavIcon3D(
+        icon: entry.icon,
+        accent: entry.accent,
         size: 46,
+        iconSize: 24,
       ),
     );
   }

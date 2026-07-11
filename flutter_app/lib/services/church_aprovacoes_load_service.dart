@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -174,7 +175,7 @@ abstract final class ChurchAprovacoesLoadService {
     );
   }
 
-  /// Instantâneo RAM / memória — abertura sem skeleton quando possível.
+  /// Instantâneo RAM / memória / módulo Membros — abertura sem skeleton quando possível.
   static ChurchAprovacoesPendentesResult? peekInstant(String seedTenantId) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return null;
@@ -198,7 +199,34 @@ abstract final class ChurchAprovacoesLoadService {
         fromCache: true,
       );
     }
+    final membrosRam = ChurchMembersLoadService.peekRamAny(churchId);
+    if (membrosRam != null) {
+      return _ok(
+        churchId: churchId,
+        allDocs: membrosRam,
+        readSource: 'membros_ram',
+        fromCache: true,
+      );
+    }
     return null;
+  }
+
+  /// Aquecimento silencioso (dashboard / troca de aba) — não bloqueia UI.
+  static Future<void> warmPendentes(String seedTenantId) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    try {
+      await loadPendentes(seedTenantId: churchId, forceRefresh: false);
+    } catch (_) {}
+  }
+
+  /// Só caches locais — retorna mesmo com 0 pendentes (sucesso).
+  static Future<ChurchAprovacoesPendentesResult?> tryLocalCachesOnly(
+    String seedTenantId,
+  ) async {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    return _tryLocalCaches(churchId);
   }
 
   /// Cache local (RAM → Hive → mem Firestore) — **0 pendentes também é válido**.
@@ -222,6 +250,16 @@ abstract final class ChurchAprovacoesLoadService {
         churchId: churchId,
         allDocs: mem.docs,
         readSource: 'firestore_mem',
+        fromCache: true,
+      );
+    }
+
+    final membrosRam = ChurchMembersLoadService.peekRamAny(churchId);
+    if (membrosRam != null) {
+      return _ok(
+        churchId: churchId,
+        allDocs: membrosRam,
+        readSource: 'membros_ram',
         fromCache: true,
       );
     }

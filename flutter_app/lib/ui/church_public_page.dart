@@ -51,7 +51,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         memCacheExtentForLogicalSize,
         preloadNetworkImages;
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
-    show noticiaDocEhEventoSpecialFeed;
+    show eventoDocApareceNoFeedPainel;
 import 'package:gestao_yahweh/app_version.dart'
     show appVersion, appVersionLabel;
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart'
@@ -64,8 +64,10 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
         ChurchPublicFeedItemWidth,
         ChurchPublicPremiumScheduleEventCard,
         ChurchPublicPremiumSection,
+        ChurchPublicSiteMobileFrame,
         churchPublicCoverMemCache,
-        churchPublicFeedMediaMaxHeight;
+        churchPublicFeedMediaMaxHeight,
+        churchPublicSiteMobileFrameSideInset;
 import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
@@ -196,10 +198,9 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
 
       for (final d in notDocs) {
         final m = d.data();
-        if ((m['type'] ?? '').toString() != 'evento') continue;
         if (m['publicSite'] == false) continue;
         if (!_churchPublicDocStillActive(m, now)) continue;
-        if (!noticiaDocEhEventoSpecialFeed(d)) continue;
+        if (!eventoDocApareceNoFeedPainel(d)) continue;
         merged.add(d);
       }
       for (final d in aviDocs) {
@@ -421,8 +422,9 @@ class _ChurchPublicMuralStreamSliverState
       );
       if (!_liveFallbackScheduled) {
         _liveFallbackScheduled = true;
-        Future.delayed(const Duration(seconds: 5), () {
-          if (!mounted || _cachedRows.isNotEmpty || _items != null) return;
+        Future.delayed(const Duration(milliseconds: 900), () {
+          if (!mounted) return;
+          if (_items != null && _items!.isNotEmpty) return;
           _subscribeLive();
         });
       }
@@ -2267,15 +2269,19 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               },
                             ),
                             SliverToBoxAdapter(
-                              child: ChurchPublicAppDownloadBanner(
-                                accentColor: accent,
-                                onAnalytics: logChurchPublic,
-                              ),
+                              child: kIsWeb
+                                  ? const SizedBox.shrink()
+                                  : ChurchPublicAppDownloadBanner(
+                                      accentColor: accent,
+                                      onAnalytics: logChurchPublic,
+                                    ),
                             ),
                             SliverToBoxAdapter(
-                              child: ChurchPublicWelcomeStrip(
-                                churchName: nome,
-                                accentColor: accent,
+                              child: ChurchPublicSiteMobileFrame(
+                                child: ChurchPublicWelcomeStrip(
+                                  churchName: nome,
+                                  accentColor: accent,
+                                ),
                               ),
                             ),
                             SliverToBoxAdapter(
@@ -2535,6 +2541,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                             ChurchAvisosCarousel(
                                               churchIdHint: igrejaId,
                                               compact: true,
+                                              forPublicSite: true,
                                             ),
                                             const SizedBox(height: 24),
                                             FutureBuilder<
@@ -2784,7 +2791,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                         ),
                         ),
                         Positioned(
-                          right: 12,
+                          right: churchPublicSiteMobileFrameSideInset(context) + 12,
                           bottom: MediaQuery.paddingOf(context).bottom + 12,
                           child: YahwehPublicFloatingActions(
                             brandBlue: accent,
@@ -2820,7 +2827,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                         ),
                         if (waLaunchUri != null)
                           Positioned(
-                            right: 16,
+                            right: churchPublicSiteMobileFrameSideInset(context) + 16,
                             bottom: MediaQuery.paddingOf(context).bottom + 84,
                             child: FloatingActionButton(
                               heroTag: 'public_whatsapp_fab',

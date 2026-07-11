@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
@@ -23,6 +24,7 @@ abstract final class TenantIntelligentPreload {
     if (tid.isEmpty) return;
     unawaited(_runDashboardOnly(tid));
     ChurchPanelModulePrefetchService.scheduleFullPrefetch(tid);
+    unawaited(ChurchAprovacoesLoadService.warmPendentes(tid));
     unawaited(
       ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
     );
@@ -78,6 +80,10 @@ abstract final class TenantIntelligentPreload {
 
   /// Compat — reaquece Firestore cache do módulo aberto (delega ao prefetch).
   static Future<void> _warmShellModuleLegacy(String tenantId, int shellIndex) async {
+    if (shellIndex == ChurchShellIndices.aprovacoesRapidas) {
+      unawaited(ChurchAprovacoesLoadService.warmPendentes(tenantId));
+      return;
+    }
     final module = _moduleForShellIndex(shellIndex);
     if (module == null) return;
     ChurchPanelModulePrefetchService.scheduleModule(tenantId, module);

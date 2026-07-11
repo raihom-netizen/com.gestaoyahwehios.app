@@ -7,7 +7,10 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
+import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
@@ -16,6 +19,48 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
 /// Ampliar imagem do chat (pinch) — reutiliza o lightbox do feed.
 Future<void> churchChatOpenImageZoom(BuildContext context, String rawUrl) {
   return showYahwehFullscreenZoomableImage(context, imageUrl: rawUrl);
+}
+
+/// Pré-visualização moderna de mídia já recebida (imagem ou vídeo).
+Future<void> churchChatOpenReceivedMediaPreview(
+  BuildContext context, {
+  required String type,
+  required Map<String, dynamic> data,
+  String? tenantId,
+  String? messageId,
+}) async {
+  final sp = ChurchChatMessageFields.storagePath(data);
+  final legacy = ChurchChatMessageFields.mediaUrl(data);
+  final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+        storagePath: sp.isNotEmpty ? sp : legacy,
+        tenantId: tenantId,
+        messageId: messageId,
+      ) ??
+      legacy;
+  if (resolved.trim().isEmpty) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Ficheiro ainda não disponível. Tente novamente em instantes.',
+        ),
+      );
+    }
+    return;
+  }
+  if (!context.mounted) return;
+  if (type == 'video') {
+    await showChurchHostedVideoTheater(
+      context,
+      videoUrl: resolved,
+      thumbnailUrl: ChurchChatMessageFields.thumbnailUrl(data),
+      title: ChurchChatMessageFields.fileName(data).isNotEmpty
+          ? ChurchChatMessageFields.fileName(data)
+          : 'Vídeo',
+      autoPlay: true,
+    );
+    return;
+  }
+  await churchChatOpenImageZoom(context, resolved);
 }
 
 /// Guardar imagem na galeria (Android/iOS). Web: mensagem.

@@ -82,7 +82,6 @@ import 'package:gestao_yahweh/services/church_chat_alert_notification_service.da
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
-import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/sync_feedback_listener.dart';
 import 'package:gestao_yahweh/ui/widgets/web_session_expired_overlay.dart';
@@ -1157,10 +1156,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 ? <String>[]
                 : path.split('/').where((s) => s.isNotEmpty).toList();
 
-            // ── iOS App Store (Apple Guideline 3.1.1 / 3.1.3) ──
-            // No app iOS nativo, NUNCA expor páginas com preços/checkout
-            // (LandingPage, RenewPlanPage, SitePublicPage). Redireciona
-            // tudo para login ou para a tela informativa sem preços.
+            // ── iOS nativo: landing pública → login; planos/checkout = paridade Web/Android.
             if (IosPaymentsGate.isIosNative) {
               if (path == '/') {
                 final em = uri.queryParameters['email']?.trim();
@@ -1174,14 +1170,6 @@ class _AppWithThemeState extends State<_AppWithTheme>
                     prefillEmail:
                         (em != null && em.isNotEmpty) ? em : null,
                   ),
-                );
-              }
-              if (path == '/planos' ||
-                  path == '/pagamento' ||
-                  path == '/atualizar-plano') {
-                return MaterialPageRoute(
-                  settings: settings,
-                  builder: (_) => const IosPaymentUnavailableView(),
                 );
               }
               if (IosPaymentsGate.isOrganizationSignupPath(path, pathSegments)) {
@@ -1368,9 +1356,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   pagina = const ExpressRenewGatePage();
                   break;
                 case '/atualizar-plano': {
-                  // Fluxo «Atualizar plano expresso» — vindo do app iOS via
-                  // Safari (IosPaymentUnavailableView). Só pede login para
-                  // identificar a igreja e leva direto ao checkout MP.
+                  // Fluxo «Atualizar plano expresso» — login + checkout MP (Web/Android/iOS).
                   final em = uri.queryParameters['email']?.trim();
                   final fromIos = uri.queryParameters['from']?.toLowerCase() ==
                       'ios_app';

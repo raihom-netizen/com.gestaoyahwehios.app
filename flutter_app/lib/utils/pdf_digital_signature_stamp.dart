@@ -138,6 +138,12 @@ List<String> _leftColumnLines(PdfDigitalStampInput input) {
   return _wrapWords(nome, _kWrapMax);
 }
 
+List<String> digitalStampLeftColumnLines(PdfDigitalStampInput input) =>
+    _leftColumnLines(input);
+
+List<String> digitalStampRightColumnLines(PdfDigitalStampInput input) =>
+    _rightColumnLines(input);
+
 /// Selo horizontal compacto — acima da linha de assinatura (não usa imagem raster).
 pw.Widget pdfDigitalCertificateStampBlock(
   PdfDigitalStampInput input, {

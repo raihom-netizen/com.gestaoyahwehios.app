@@ -72,6 +72,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _pendentesDocs = [];
   bool _pendentesLoading = false;
   bool _showingStaleCache = false;
+  bool _pendentesResolvedFromCache = false;
   Object? _pendentesError;
   Timer? _webLoadCap;
 
@@ -88,7 +89,24 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     if (instant == null) return;
     _pendentesDocs = instant.docs;
     _pendentesLoading = false;
-    _showingStaleCache = true;
+    _showingStaleCache = instant.fromCache;
+    _pendentesResolvedFromCache = true;
+  }
+
+  Future<void> _warmLocalCachesThenFetch() async {
+    if (!_pendentesResolvedFromCache) {
+      final local =
+          await ChurchAprovacoesLoadService.tryLocalCachesOnly(_churchId);
+      if (local != null && mounted) {
+        setState(() {
+          _pendentesDocs = local.docs;
+          _showingStaleCache = local.fromCache;
+          _pendentesResolvedFromCache = true;
+          _pendentesLoading = false;
+        });
+      }
+    }
+    await _loadPendentes();
   }
 
   void _startWebLoadingCap() {
@@ -104,40 +122,40 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Future<void> _loadPendentes({bool forceRefresh = false}) async {
     if (!mounted) return;
+    final hadLocal = _pendentesResolvedFromCache || _pendentesDocs.isNotEmpty;
     setState(() {
       _pendentesLoading = PanelResilientLoad.shouldShowFetching(
-        listEmpty: _pendentesDocs.isEmpty,
+        listEmpty: !hadLocal,
         forceRefresh: forceRefresh,
       );
       if (forceRefresh) _pendentesError = null;
     });
     _startWebLoadingCap();
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final hadLocal = _pendentesDocs.isNotEmpty;
       final result = await ChurchAprovacoesLoadService.loadPendentes(
         seedTenantId: _churchId,
         forceRefresh: forceRefresh,
       );
       if (!mounted) return;
       final ui = PanelResilientLoad.afterFetch(
-        hadLocalData: hadLocal,
+        hadLocalData: hadLocal || result.fromCache,
         newItems: result.docs,
         fromCache: result.fromCache,
         softError: result.softError,
         forceFresh: forceRefresh,
       );
       setState(() {
-        if (result.docs.isNotEmpty || !hadLocal) {
+        if (result.docs.isNotEmpty || !hadLocal || result.fromCache) {
           _pendentesDocs = result.docs;
         }
+        _pendentesResolvedFromCache = true;
         _showingStaleCache = ui.showingStaleCache;
         // Lista vazia sem softError = nenhum pendente (sucesso).
-        _pendentesError = result.hasHardError && result.docs.isEmpty
+        _pendentesError = result.hasHardError && result.docs.isEmpty && !hadLocal
             ? ui.loadError ?? result.softError
-            : (result.docs.isEmpty ? null : ui.loadError);
+            : (result.docs.isEmpty && result.softError == null
+                ? null
+                : ui.loadError);
         if (result.churchId.isNotEmpty) {
           _effectiveTenantId = result.churchId;
         }
@@ -149,6 +167,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         setState(() {
           _pendentesDocs = instant.docs;
           _showingStaleCache = true;
+          _pendentesResolvedFromCache = true;
           _pendentesError = null;
         });
         return;
@@ -180,7 +199,10 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       if (mounted) setState(() {});
     });
     _seedPendentesFromCache();
-    unawaited(_loadPendentes());
+    if (_pendentesResolvedFromCache && mounted) {
+      setState(() {});
+    }
+    unawaited(_warmLocalCachesThenFetch());
   }
 
   @override
@@ -191,9 +213,10 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       _tenantLinkageCache = null;
       _pendentesDocs = [];
       _selecionados.clear();
+      _pendentesResolvedFromCache = false;
       _seedPendentesFromCache();
       _pendentesLoadKey++;
-      unawaited(_loadPendentes(forceRefresh: true));
+      unawaited(_warmLocalCachesThenFetch());
     }
   }
 
@@ -688,8 +711,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         ),
       );
     }
-    if (_pendentesLoading && docs.isEmpty) {
-      return const ChurchPanelLoadingBody();
+    if (_pendentesLoading && docs.isEmpty && !_pendentesResolvedFromCache) {
+      return const ChurchPanelLoadingBody(itemCount: 3);
     }
 
     return Column(

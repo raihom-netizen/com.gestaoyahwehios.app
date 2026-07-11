@@ -15,7 +15,13 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show eventNoticiaDocHasPhotoMedia;
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show noticiaGalleryRefsForShare;
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -28,6 +34,7 @@ class ChurchAvisoItem {
     required this.title,
     required this.body,
     required this.imageUrls,
+    required this.rawData,
     required this.createdAt,
     required this.permanent,
     this.expiresAt,
@@ -38,12 +45,17 @@ class ChurchAvisoItem {
   final String title;
   final String body;
   final List<String> imageUrls;
+  final Map<String, dynamic> rawData;
   final DateTime? createdAt;
   final bool permanent;
   final DateTime? expiresAt;
   final String authorName;
 
-  bool get hasImages => imageUrls.isNotEmpty;
+  bool get hasImages =>
+      imageUrls.isNotEmpty || eventNoticiaDocHasPhotoMedia(rawData);
+
+  /// URLs + paths Storage para carrossel (igual eventos / site público).
+  List<String> mediaRefs() => noticiaGalleryRefsForShare(rawData);
 
   /// Metadados mínimos para limpeza Storage na exclusão.
   Map<String, dynamic> toStorageCleanupPayload() => <String, dynamic>{
@@ -70,6 +82,9 @@ class ChurchAvisoItem {
     addUrl(m['imageUrl']);
     addUrl(m['coverPhotoUrl']);
     addUrl(m['fotoUrl']);
+    for (final u in noticiaGalleryRefsForShare(m)) {
+      addUrl(u);
+    }
 
     DateTime? created;
     final c = m['createdAt'];
@@ -84,6 +99,7 @@ class ChurchAvisoItem {
       title: (m['title'] ?? m['titulo'] ?? '').toString().trim(),
       body: (m['body'] ?? m['text'] ?? m['mensagem'] ?? '').toString().trim(),
       imageUrls: urls,
+      rawData: Map<String, dynamic>.from(m),
       createdAt: created,
       permanent: m['permanent'] == true || exp == null,
       expiresAt: exp,

@@ -21,6 +21,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoHttpsUrl,
         memCacheExtentForLogicalSize;
+import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
+    show ChurchPublicSiteMobileFrame, kChurchPublicSiteMobileFrameWidth;
 import 'package:gestao_yahweh/ui/widgets/church_public_social_gallery.dart'
     show ChurchPublicSocialPresets;
 
@@ -338,17 +340,20 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    final layoutCompact = w < 640;
-    final logoSize = _logoSizeForWidth(w);
+    // Web: sempre layout compacto (coluna celular WISDOMAPP).
+    final layoutCompact = kIsWeb || w < 640;
+    final logoSize = kIsWeb
+        ? _logoSizeForWidth(kChurchPublicSiteMobileFrameWidth)
+        : _logoSizeForWidth(w);
     final logoRadius = logoSize >= 88 ? 18.0 : 14.0;
 
     final displayName = nome.trim();
     final phoneLine = churchPublicFormattedPhone(churchData);
     final address = churchPublicFormattedAddress(churchData).trim();
     final hasPhone = phoneLine != null && phoneLine.isNotEmpty;
-    final hasAddress = address.isNotEmpty;
-    final nameMaxLines = layoutCompact ? 6 : 4;
-    final nameFontSize = layoutCompact ? 13.5 : 14.0;
+    final hasAddress = address.isNotEmpty && !kIsWeb;
+    final nameMaxLines = layoutCompact ? 2 : 4;
+    final nameFontSize = layoutCompact ? 14.0 : 14.0;
     final charsPerLine = layoutCompact ? 22.0 : 34.0;
     final estNameLines = displayName.isEmpty
         ? 1
@@ -367,7 +372,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     final inAppBack = churchPublicSiteInAppBackLeading(context);
     final hasInAppBack = inAppBack != null;
     final toolbarClamped = (toolbarH + (hasInAppBack ? 4.0 : 0.0))
-        .clamp(logoSize + 12.0, 152.0);
+        .clamp(logoSize + 12.0, kIsWeb ? 118.0 : 152.0);
 
     final metaStyle = TextStyle(
       fontSize: 12.5,
@@ -680,7 +685,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
       ),
       title: SafeArea(
         bottom: false,
-        child: Padding(
+        child: ChurchPublicSiteMobileFrame(
           padding: EdgeInsets.fromLTRB(12, 6, layoutCompact ? 12 : 6, 8),
           child: layoutCompact
               ? Column(
@@ -1656,8 +1661,18 @@ class ChurchPublicSiteScaffoldBackground extends StatelessWidget {
     return Container(
       width: double.infinity,
       height: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: YahwehDesignSystem.publicPageGradient,
+      decoration: BoxDecoration(
+        gradient: kIsWeb
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  YahwehWisdomVisualKit.navyDeep.withValues(alpha: 0.06),
+                  const Color(0xFFF1F5F9),
+                  const Color(0xFFEFF6FF),
+                ],
+              )
+            : YahwehDesignSystem.publicPageGradient,
       ),
       child: child,
     );

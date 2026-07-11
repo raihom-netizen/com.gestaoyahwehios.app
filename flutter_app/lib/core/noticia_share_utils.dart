@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoUrls,
         eventNoticiaThumbStoragePath,
         eventNoticiaVideosFromDoc,
+        feedPostCarouselPhotoUrlsFromRawRefs,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -456,8 +457,13 @@ Future<String?> resolveNoticiaHostedVideoShareUrl(Map<String, dynamic> d) async 
 
 /// URLs/paths utilizáveis como fotos no feed e na partilha (mesma lógica do cartão público).
 List<String> noticiaGalleryRefsForShare(Map<String, dynamic> p) {
-  final seen = <String>{};
+  final fromUrls = eventNoticiaPhotoUrls(p);
+  if (fromUrls.isNotEmpty) {
+    return feedPostCarouselPhotoUrlsFromRawRefs(fromUrls);
+  }
+
   final out = <String>[];
+  final seen = <String>{};
   void add(String? raw) {
     final s = sanitizeImageUrl(raw ?? '');
     if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return;
@@ -475,14 +481,24 @@ List<String> noticiaGalleryRefsForShare(Map<String, dynamic> p) {
     if (seen.add(s)) out.add(s);
   }
 
-  for (final u in eventNoticiaPhotoUrls(p)) {
-    add(u);
-  }
   for (final u in imageUrlsListFromMap(p)) {
     add(u);
   }
   if (out.isEmpty) {
     add(imageUrlFromMap(p));
   }
-  return dedupeImageRefsByStorageIdentity(out);
+
+  // Paths Storage sem URL https (publicação CT) — só quando não há URL resolvível.
+  for (var i = 0; i < 10; i++) {
+    final sp = eventNoticiaPhotoStoragePathAt(p, i);
+    if (sp == null || sp.trim().isEmpty) {
+      if (i == 0) break;
+      continue;
+    }
+    add(sp);
+  }
+  final single = eventNoticiaImageStoragePath(p);
+  if (single != null && single.trim().isNotEmpty) add(single);
+
+  return feedPostCarouselPhotoUrlsFromRawRefs(out);
 }

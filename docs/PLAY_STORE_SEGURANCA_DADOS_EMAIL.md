@@ -2,8 +2,8 @@
 
 **App:** Gestão Yahweh - Igrejas  
 **Pacote:** `com.gestaoyahweh.app`  
-**Versão rejeitada:** `versionCode` **2062**  
-**Correção:** declarar **Endereço de e-mail** no formulário + enviar **AAB 2063+**
+**Versão rejeitada (exemplo):** `versionCode` **2078** — e-mail não declarado  
+**Correção:** atualizar ficha **Segurança dos dados** na Play Console **antes** de enviar o próximo AAB (não basta só subir APK/AAB novo).
 
 ---
 
@@ -60,7 +60,7 @@ Política no app: `config/legal_documents` — secção «Informações que cole
 
 6. **Salvar** → **Enviar para análise** (rascunho da ficha de dados)
 
-7. **Testar e lançar** → **Produção** → criar nova versão → upload do **AAB 2063**
+7. **Testar e lançar** → **Produção** → criar nova versão → upload do **AAB** com `versionCode` **maior que 2078** (ex.: 2079 após `build_android_play_store_aab.ps1`)
 
 ---
 
@@ -77,11 +77,44 @@ Cópia: `D:\Temporarios\` (nome com versão e build).
 
 ---
 
+## Automação no repositório (não substitui a Play Console)
+
+Antes de cada AAB:
+
+```powershell
+.\scripts\play_store_data_safety_preflight.ps1 -Strict
+```
+
+O script `build_android_play_store_aab.ps1` já imprime este lembrete após o build.
+
+---
+
+## Tabela completa — tipos de dados a declarar (evitar nova rejeição)
+
+Marque na Play Console **todos** que o app usa (scanner do Google compara tráfego real × ficha):
+
+| Tipo (Play Console) | Coletado | Compartilhado | Origem no app |
+|---------------------|----------|---------------|---------------|
+| **Endereço de e-mail** | Sim | Sim | Firebase Auth, login Google/Apple, cadastro membro/igreja, MP |
+| **Nome** | Sim | Sim | Cadastro membro, igreja, chat |
+| **Fotos** | Sim | Sim | Perfil, avisos, eventos, chat, patrimônio |
+| **Telefone** | Sim | Opcional | Cadastro membro/igreja |
+| **Outras informações** (CPF) | Sim | Não* | Membros, quando informado |
+| **Identificadores do dispositivo** | Sim | Sim | FCM push, Analytics |
+| **Registros de falhas** | Sim | Sim | Firebase Crashlytics |
+| **Arquivos e documentos** | Sim | Sim | Chat, comprovantes financeiros |
+
+\*Compartilhado = enviado a processadores (Google Cloud, Mercado Pago), não “vendido a terceiros”.
+
+**ID de publicidade:** manifest declara `AD_ID` — na ficha, confirme uso conforme Firebase Analytics.
+
+---
+
 ## Checklist antes de reenviar
 
 - [ ] Segurança dos dados: **E-mail** declarado (coletado + compartilhado)
 - [ ] Política de privacidade URL na ficha do app (site ou `/privacidade`)
-- [ ] `versionCode` **2063** (maior que 2062)
+- [ ] `versionCode` **> 2078** (2079 ou superior no próximo envio)
 - [ ] AAB assinado com a mesma chave de upload (SHA1 `96:91:41:90:...`)
 - [ ] Enviar alterações da ficha + novo pacote para análise
 

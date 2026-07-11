@@ -3,12 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_sheet.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// Comprovante financeiro — JPEG/PNG/PDF (sem vídeo), padrão Controle Total.
 class FinanceComprovanteAttachment {
@@ -23,11 +25,12 @@ class FinanceComprovanteAttachment {
   final String fileName;
   final String mimeType;
 
-  /// true quando o picker já passou por [MediaOptimizationService.optimizeForReceipt].
+  /// true quando o picker já passou por optimização no pick.
   final bool alreadyOptimized;
 
   bool get isPdf => mimeType.contains('pdf');
   bool get isImage => mimeType.startsWith('image/');
+  bool get isPng => mimeType.contains('png');
 }
 
 abstract final class FinanceComprovanteAttachService {
@@ -39,7 +42,6 @@ abstract final class FinanceComprovanteAttachService {
   static bool hasComprovanteInDoc(Map<String, dynamic> data) =>
       hasComprovanteReady(data);
 
-  /// Comprovante disponível para visualizar (URL ou path Storage confirmados).
   static bool hasComprovanteReady(Map<String, dynamic> data) =>
       ChurchCanonicalMediaContract.hasViewableFinanceComprovante(data);
 
@@ -91,10 +93,56 @@ abstract final class FinanceComprovanteAttachService {
     return e == 'jpg' || e == 'png' || e == 'pdf';
   }
 
+  static bool _isPngBytes(Uint8List bytes) {
+    return bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47;
+  }
+
+  static String _ensureExtension(String fileName, String ext) {
+    final base = fileName.trim().isEmpty ? 'comprovante' : fileName.trim();
+    final dot = base.lastIndexOf('.');
+    final stem = dot > 0 ? base.substring(0, dot) : base;
+    return '$stem.$ext';
+  }
+
   static void _showSnack(BuildContext context, String message) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  /// Uma compressão só (CT): JPEG optimizado; PNG pequeno mantém formato.
+  static Future<FinanceComprovanteAttachment?> _finalizeImageAttachment({
+    required Uint8List raw,
+    required String fileName,
+    String? hintExt,
+  }) async {
+    if (raw.isEmpty) return null;
+    final ext = (hintExt ?? '').toLowerCase().replaceAll('jpeg', 'jpg');
+    final keepPng = ext == 'png' || _isPngBytes(raw);
+
+    if (keepPng && raw.lengthInBytes <= maxBytes) {
+      return FinanceComprovanteAttachment(
+        bytes: raw,
+        fileName: _ensureExtension(fileName, 'png'),
+        mimeType: 'image/png',
+        alreadyOptimized: true,
+      );
+    }
+
+    final optimized = await MediaOptimizationService.optimizeForReceipt(raw);
+    if (optimized.lengthInBytes > maxBytes) {
+      return null;
+    }
+    return FinanceComprovanteAttachment(
+      bytes: optimized,
+      fileName: _ensureExtension(fileName, 'jpg'),
+      mimeType: 'image/jpeg',
+      alreadyOptimized: true,
     );
   }
 
@@ -140,12 +188,6 @@ abstract final class FinanceComprovanteAttachService {
       }
 
       final mime = _mimeFromExtension(ext);
-      if (mime.startsWith('video/')) {
-        _showSnack(context, 'Vídeo não permitido. Use JPEG, PNG ou PDF.');
-        return null;
-      }
-
-      // Uma compressão só (CT): imagens → JPEG no pick; PDF intacto.
       if (mime.contains('pdf')) {
         return FinanceComprovanteAttachment(
           bytes: bytes,
@@ -154,21 +196,20 @@ abstract final class FinanceComprovanteAttachService {
           alreadyOptimized: true,
         );
       }
-      final optimized = await MediaOptimizationService.optimizeForReceipt(bytes);
-      if (optimized.lengthInBytes > maxBytes) {
-        _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
-        return null;
-      }
-      return FinanceComprovanteAttachment(
-        bytes: optimized,
-        fileName: f.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
-        mimeType: 'image/jpeg',
-        alreadyOptimized: true,
+
+      final attachment = await _finalizeImageAttachment(
+        raw: bytes,
+        fileName: f.name,
+        hintExt: ext,
       );
+      if (attachment == null) {
+        _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
+      }
+      return attachment;
     } catch (e) {
       _showSnack(
         context,
-        'Erro ao selecionar arquivo: ${e.toString().split('\n').first}',
+        'Erro ao selecionar arquivo: ${formatFirebaseErrorForUser(e)}',
       );
       return null;
     }
@@ -177,7 +218,6 @@ abstract final class FinanceComprovanteAttachService {
   static Future<FinanceComprovanteAttachment?> pickFromCamera(
     BuildContext context,
   ) async {
-    if (kIsWeb) return null;
     if (!await YahwehModuleMediaGate.ensureReadyForPick(
       context: context,
       module: YahwehMediaModule.financeiro,
@@ -185,11 +225,9 @@ abstract final class FinanceComprovanteAttachService {
       return null;
     }
     try {
-      final picker = ImagePicker();
-      final xfile = await picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1920,
-        imageQuality: 85,
+      final xfile = await MediaHandlerService.instance.pickAndProcessFromCamera(
+        module: YahwehMediaModule.financeiro,
+        context: context,
       );
       if (xfile == null) return null;
       if (!context.mounted) return null;
@@ -198,72 +236,89 @@ abstract final class FinanceComprovanteAttachService {
         _showSnack(context, 'Não foi possível ler a foto da câmera.');
         return null;
       }
-      final bytes = await MediaOptimizationService.optimizeForReceipt(raw);
-      if (bytes.lengthInBytes > maxBytes) {
-        _showSnack(context, 'Foto grande demais. Limite: 5 MB.');
-        return null;
-      }
-      return FinanceComprovanteAttachment(
-        bytes: bytes,
-        fileName: xfile.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
-        mimeType: 'image/jpeg',
-        alreadyOptimized: true,
+      final attachment = await _finalizeImageAttachment(
+        raw: raw,
+        fileName: xfile.name.isNotEmpty ? xfile.name : 'camera.jpg',
       );
+      if (attachment == null) {
+        _showSnack(context, 'Foto grande demais. Limite: 5 MB.');
+      }
+      return attachment;
     } catch (e) {
       _showSnack(
         context,
-        'Erro na câmera: ${e.toString().split('\n').first}',
+        'Erro na câmera: ${formatFirebaseErrorForUser(e)}',
       );
       return null;
     }
   }
 
+  static Future<FinanceComprovanteAttachment?> pickFromGallery(
+    BuildContext context,
+  ) =>
+      _pickFromGallery(context);
+
+  /// Folha inferior — Galeria / Câmera / Arquivo (padrão Controle Total).
   static Future<FinanceComprovanteAttachment?> showPickSheet(
     BuildContext context, {
     bool allowCamera = true,
     String title = 'Anexar comprovante',
   }) async {
-    final choice = await showDialog<String>(
+    final choice = await showModalBottomSheet<String>(
       context: context,
-      builder: (ctx) => SimpleDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        ),
-        title: Text(title),
-        children: [
-          if (allowCamera && !kIsWeb)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, 'camera'),
-              child: const Row(
-                children: [
-                  Icon(Icons.camera_alt_rounded),
-                  SizedBox(width: 12),
-                  Text('Câmera'),
-                ],
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 12 + bottom),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                ),
               ),
-            ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, 'file'),
-            child: const Row(
-              children: [
-                Icon(Icons.attach_file_rounded),
-                SizedBox(width: 12),
-                Text('Arquivo (JPEG, PNG ou PDF)'),
-              ],
-            ),
+              const SizedBox(height: 4),
+              Text(
+                'JPEG, PNG ou PDF — até 5 MB',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
+              if (allowCamera)
+                ListTile(
+                  leading: const Icon(Icons.photo_camera_outlined),
+                  title: const Text('Câmera'),
+                  subtitle: kIsWeb
+                      ? const Text('Tirar foto agora')
+                      : const Text('Capturar comprovante'),
+                  onTap: () => Navigator.pop(ctx, 'camera'),
+                ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Galeria'),
+                subtitle: const Text('Escolher foto JPEG ou PNG'),
+                onTap: () => Navigator.pop(ctx, 'gallery'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.picture_as_pdf_outlined),
+                title: const Text('Arquivo'),
+                subtitle: const Text('PDF, JPEG ou PNG no dispositivo'),
+                onTap: () => Navigator.pop(ctx, 'file'),
+              ),
+            ],
           ),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, 'gallery'),
-            child: const Row(
-              children: [
-                Icon(Icons.photo_library_rounded),
-                SizedBox(width: 12),
-                Text('Galeria de fotos'),
-              ],
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
     if (!context.mounted || choice == null) return null;
 
@@ -288,11 +343,9 @@ abstract final class FinanceComprovanteAttachService {
       return null;
     }
     try {
-      final picker = ImagePicker();
-      final xfile = await picker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 1920,
-        imageQuality: 85,
+      final xfile = await MediaHandlerService.instance.pickAndProcessFromGallery(
+        module: YahwehMediaModule.financeiro,
+        context: context,
       );
       if (xfile == null) return null;
       if (!context.mounted) return null;
@@ -301,21 +354,20 @@ abstract final class FinanceComprovanteAttachService {
         _showSnack(context, 'Não foi possível ler a imagem.');
         return null;
       }
-      final bytes = await MediaOptimizationService.optimizeForReceipt(raw);
-      if (bytes.lengthInBytes > maxBytes) {
-        _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
-        return null;
-      }
-      return FinanceComprovanteAttachment(
-        bytes: bytes,
-        fileName: xfile.name.replaceAll(RegExp(r'\.(png|jpe?g)$', caseSensitive: false), '.jpg'),
-        mimeType: 'image/jpeg',
-        alreadyOptimized: true,
+      final hintExt = xfile.name.toLowerCase().endsWith('.png') ? 'png' : 'jpg';
+      final attachment = await _finalizeImageAttachment(
+        raw: raw,
+        fileName: xfile.name.isNotEmpty ? xfile.name : 'galeria.jpg',
+        hintExt: hintExt,
       );
+      if (attachment == null) {
+        _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
+      }
+      return attachment;
     } catch (e) {
       _showSnack(
         context,
-        'Erro na galeria: ${e.toString().split('\n').first}',
+        'Erro na galeria: ${formatFirebaseErrorForUser(e)}',
       );
       return null;
     }

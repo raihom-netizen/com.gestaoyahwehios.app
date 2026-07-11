@@ -38,15 +38,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.processarCertificadosLote = void 0;
 /**
- * Lote na nuvem: um único PDF (pdf-lib), fotos via Storage/HTTP + sharp (~300 dpi no slot),
- * grava em temporario/{loteId}.pdf e devolve URL assinada.
+ * Lote na nuvem: um único PDF multi-página (PDFKit — UTF-8/pt-BR),
+ * fotos via Storage/HTTP + sharp, grava em igrejas/{id}/certificados_lote/.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
-const pdf_lib_1 = require("pdf-lib");
+const crypto_1 = require("crypto");
 const sharp_1 = __importDefault(require("sharp"));
 const https = __importStar(require("https"));
 const http = __importStar(require("http"));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const PDFDocument = require("pdfkit");
 function canEmitCertificatesRole(role) {
     const r = role.toUpperCase();
     return r === "MASTER" || r === "ADM" || r === "ADMIN" || r === "GESTOR";
@@ -115,7 +117,6 @@ async function downloadUrlBuffer(url) {
         }
     });
 }
-/** Caminho no bucket a partir de URL do Firebase Storage (download). */
 function storagePathFromFirebaseDownloadUrl(url) {
     try {
         const u = new URL(url);
@@ -160,10 +161,9 @@ async function downloadImageBuffer(bucket, urlOrPath) {
     }
     return downloadUrlBuffer(raw);
 }
-/** ~300 dpi em slot de ~3" na página: borda longa ~900 px. */
 async function sharpForPdfSlot(buf) {
     try {
-        const out = await (0, sharp_1.default)(buf)
+        return await (0, sharp_1.default)(buf)
             .rotate()
             .resize({
             width: 900,
@@ -173,7 +173,6 @@ async function sharpForPdfSlot(buf) {
         })
             .jpeg({ quality: 88, chromaSubsampling: "4:4:4", mozjpeg: true })
             .toBuffer();
-        return new Uint8Array(out);
     }
     catch {
         return null;
@@ -215,10 +214,104 @@ function cargoFromMemberData(md) {
 function fillTextoModelo(tpl, nome, cpf, dh) {
     return tpl.split("{NOME}").join(nome).split("{CPF}").join(formatCpf(cpf)).split("{DATA_CERTIFICADO}").join(dh);
 }
-exports.processarCertificadosLote = functions
-    .region("us-central1")
-    .runWith({ timeoutSeconds: 300, memory: "1GB" })
-    .https.onCall(async (data, context) => {
+function drawCertificatePage(doc, opts) {
+    const pageW = doc.page.width;
+    const margin = 48;
+    doc
+        .lineWidth(2)
+        .strokeColor("#264D8C")
+        .rect(margin - 12, margin - 12, pageW - 2 * (margin - 12), doc.page.height - 2 * (margin - 12))
+        .stroke();
+    doc.fontSize(20).fillColor("#1A3366").text(opts.titulo, margin, margin, {
+        align: "center",
+        width: pageW - 2 * margin,
+    });
+    doc.moveDown(0.6);
+    doc.fontSize(16).fillColor("#000000").text(opts.nome, {
+        align: "center",
+        width: pageW - 2 * margin,
+    });
+    doc.moveDown(0.8);
+    const textWidth = pageW - 2 * margin - (opts.memberPhotoJpeg ? 90 : 0);
+    doc.fontSize(11).fillColor("#262626").text(opts.texto, {
+        align: "justify",
+        width: textWidth,
+    });
+    if (opts.memberPhotoJpeg) {
+        try {
+            const photoX = pageW - margin - 72;
+            const photoY = margin + 8;
+            doc.image(opts.memberPhotoJpeg, photoX, photoY, { fit: [72, 72] });
+        }
+        catch {
+            /* ignore bad image */
+        }
+    }
+    doc.moveDown(1.2);
+    doc.fontSize(14).fillColor("#1A3366").text(opts.nomeIgreja, {
+        align: "center",
+        width: pageW - 2 * margin,
+    });
+    if (opts.localLine) {
+        doc.moveDown(0.3);
+        doc.fontSize(10).fillColor("#666666").text(opts.localLine, {
+            align: "center",
+            width: pageW - 2 * margin,
+        });
+        doc.fillColor("#000000");
+    }
+    const bottomY = doc.page.height - margin - 70;
+    doc.y = bottomY;
+    const imgs = opts.signatureImages.filter(Boolean);
+    if (imgs.length > 0) {
+        const startY = doc.y;
+        let x = margin;
+        const slotW = (pageW - 2 * margin) / Math.min(imgs.length, 3) - 8;
+        for (let i = 0; i < Math.min(imgs.length, 3); i++) {
+            try {
+                doc.image(imgs[i], x, startY, { fit: [Math.min(slotW, 120), 48] });
+            }
+            catch {
+                /* ignore */
+            }
+            x += slotW + 16;
+        }
+        doc.y = startY + 56;
+        doc.moveDown(0.3);
+    }
+    doc.fontSize(10).fillColor("#000000").text(opts.pastorNome, {
+        align: "center",
+        width: pageW - 2 * margin,
+    });
+    doc.fontSize(9).fillColor("#555555").text(opts.pastorCargo, {
+        align: "center",
+        width: pageW - 2 * margin,
+    });
+}
+function buildMultiPagePdfBuffer(pages) {
+    return new Promise((resolve, reject) => {
+        const chunks = [];
+        const doc = new PDFDocument({
+            size: "A4",
+            layout: "landscape",
+            margin: 48,
+            autoFirstPage: false,
+        });
+        doc.on("data", (c) => chunks.push(c));
+        doc.on("error", reject);
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        for (let i = 0; i < pages.length; i++) {
+            doc.addPage();
+            drawCertificatePage(doc, pages[i]);
+        }
+        doc.end();
+    });
+}
+async function firebaseDownloadUrlForPath(bucket, objectPath, downloadToken) {
+    const encoded = encodeURIComponent(objectPath);
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${downloadToken}`;
+}
+async function processarCertificadosLoteHandler(data, context) {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Login necessário");
     }
@@ -260,19 +353,6 @@ exports.processarCertificadosLote = functions
         textoModelo = TEXTO_MODELO_PADRAO[idAssinatura] || TEXTO_MODELO_PADRAO.batismo;
     if (!titulo)
         titulo = TITULO_PADRAO[idAssinatura] || "Certificado";
-    const templateStoragePath = String(certData.pdfTemplateStoragePath || certData.certPdfTemplatePath || "").trim();
-    let templateDoc = null;
-    if (templateStoragePath) {
-        try {
-            const [tbytes] = await bucket.file(templateStoragePath).download();
-            if (tbytes.length > 200) {
-                templateDoc = await pdf_lib_1.PDFDocument.load(tbytes);
-            }
-        }
-        catch {
-            templateDoc = null;
-        }
-    }
     const rawList = certData.defaultSignatoryMemberIds;
     const defaultSigIds = Array.isArray(rawList)
         ? rawList.map((x) => String(x || "").trim()).filter(Boolean)
@@ -282,7 +362,7 @@ exports.processarCertificadosLote = functions
     const useDigital = String(certData.defaultSignatureMode || "digital").trim() !== "manual";
     let pastorNome = String(tdata.gestorNome || tdata.gestor_nome || "").trim();
     let pastorCargo = "Pastor(a) Presidente";
-    const signatureJpegs = [];
+    const signatureBuffers = [];
     for (const mid of defaultSigIds.slice(0, sigCount)) {
         const mSnap = await db.doc(`igrejas/${igrejaId}/membros/${mid}`).get();
         const md = mSnap.data() || {};
@@ -296,170 +376,85 @@ exports.processarCertificadosLote = functions
             const raw = String(md.assinaturaUrl || md.assinatura_url || "").trim();
             if (raw) {
                 const buf = await downloadImageBuffer(bucket, raw);
-                if (buf) {
-                    const j = await sharpForPdfSlot(buf);
-                    if (j)
-                        signatureJpegs.push(j);
-                }
+                if (buf)
+                    signatureBuffers.push(buf);
             }
         }
     }
     if (!pastorNome)
         pastorNome = "_______________________";
     const dh = dataHojeBr();
-    const outDoc = await pdf_lib_1.PDFDocument.create();
-    const fontBold = await outDoc.embedFont(pdf_lib_1.StandardFonts.HelveticaBold);
-    const font = await outDoc.embedFont(pdf_lib_1.StandardFonts.Helvetica);
-    let pagesAdded = 0;
-    const W = 842;
-    const H = 595;
+    const pageOpts = [];
     for (const mid of memberIds) {
         const mSnap = await db.doc(`igrejas/${igrejaId}/membros/${mid}`).get();
         if (!mSnap.exists)
             continue;
         const md = mSnap.data() || {};
-        const nome = String(md.NOME_COMPLETO || md.nome || "Membro").trim();
+        const nome = String(md.NOME_COMPLETO || md.nome || "").trim();
+        if (!nome)
+            continue;
         const cpf = String(md.CPF || md.cpf || "").trim();
         const texto = fillTextoModelo(textoModelo, nome, cpf, dh);
-        let page;
-        if (templateDoc && templateDoc.getPageCount() > 0) {
-            const [copied] = await outDoc.copyPages(templateDoc, [0]);
-            outDoc.addPage(copied);
-            const pages = outDoc.getPages();
-            page = pages[pages.length - 1];
-        }
-        else {
-            page = outDoc.addPage([W, H]);
-            page.drawRectangle({
-                x: 36,
-                y: 36,
-                width: W - 72,
-                height: H - 72,
-                borderColor: (0, pdf_lib_1.rgb)(0.15, 0.35, 0.65),
-                borderWidth: 2,
-            });
-        }
-        const { width, height } = page.getSize();
-        page.drawText(titulo, {
-            x: 50,
-            y: height - 72,
-            size: 20,
-            font: fontBold,
-            color: (0, pdf_lib_1.rgb)(0.1, 0.2, 0.45),
-            maxWidth: width - 100,
-        });
-        page.drawText(texto, {
-            x: 50,
-            y: height - 200,
-            size: 11,
-            font,
-            color: (0, pdf_lib_1.rgb)(0.15, 0.15, 0.15),
-            maxWidth: width - 100,
-            lineHeight: 14,
-        });
-        page.drawText(nome, {
-            x: 50,
-            y: height - 130,
-            size: 16,
-            font: fontBold,
-            color: (0, pdf_lib_1.rgb)(0, 0, 0),
-            maxWidth: width - 100,
-        });
-        page.drawText(churchName, {
-            x: 50,
-            y: 120,
-            size: 13,
-            font: fontBold,
-            color: (0, pdf_lib_1.rgb)(0.1, 0.2, 0.45),
-            maxWidth: width - 100,
-        });
-        if (localLine) {
-            page.drawText(localLine, {
-                x: 50,
-                y: 100,
-                size: 10,
-                font,
-                color: (0, pdf_lib_1.rgb)(0.35, 0.35, 0.35),
-            });
-        }
+        let memberPhotoJpeg = null;
         const photoUrl = memberPhotoUrl(md);
         if (photoUrl) {
             const pbuf = await downloadImageBuffer(bucket, photoUrl);
-            if (pbuf) {
-                const jpg = await sharpForPdfSlot(pbuf);
-                if (jpg) {
-                    try {
-                        const img = await outDoc.embedJpg(jpg);
-                        const iw = 72;
-                        const ih = 72;
-                        page.drawImage(img, {
-                            x: width - 36 - iw,
-                            y: height - 36 - ih,
-                            width: iw,
-                            height: ih,
-                        });
-                    }
-                    catch {
-                        /* ignore */
-                    }
-                }
-            }
+            if (pbuf)
+                memberPhotoJpeg = await sharpForPdfSlot(pbuf);
         }
-        let sigX = width / 2 - Math.min(signatureJpegs.length, 3) * 55;
-        for (let si = 0; si < Math.min(signatureJpegs.length, 3); si++) {
-            try {
-                const img = await outDoc.embedJpg(signatureJpegs[si]);
-                page.drawImage(img, {
-                    x: sigX + si * 110,
-                    y: 52,
-                    width: 90,
-                    height: 36,
-                });
-            }
-            catch {
-                /* ignore */
-            }
-        }
-        page.drawText(pastorNome, {
-            x: 50,
-            y: 40,
-            size: 10,
-            font: fontBold,
-            color: (0, pdf_lib_1.rgb)(0, 0, 0),
-            maxWidth: width - 100,
+        pageOpts.push({
+            titulo,
+            nome,
+            texto,
+            nomeIgreja: churchName,
+            localLine,
+            signatureImages: signatureBuffers,
+            pastorNome,
+            pastorCargo,
+            memberPhotoJpeg,
         });
-        page.drawText(pastorCargo, {
-            x: 50,
-            y: 26,
-            size: 9,
-            font,
-            color: (0, pdf_lib_1.rgb)(0.3, 0.3, 0.3),
-            maxWidth: width - 100,
-        });
-        pagesAdded += 1;
     }
-    if (pagesAdded === 0) {
+    if (pageOpts.length === 0) {
         throw new functions.https.HttpsError("not-found", "Nenhum membro encontrado para os IDs informados");
     }
-    const pdfBytes = await outDoc.save();
+    const pdfBytes = await buildMultiPagePdfBuffer(pageOpts);
     const loteId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    const storagePath = `temporario/${loteId}.pdf`;
+    const storagePath = `igrejas/${igrejaId}/certificados_lote/${loteId}.pdf`;
+    const downloadToken = (0, crypto_1.randomUUID)();
     const file = bucket.file(storagePath);
-    await file.save(Buffer.from(pdfBytes), {
+    await file.save(pdfBytes, {
         metadata: {
             contentType: "application/pdf",
             cacheControl: "private, max-age=0",
+            metadata: { firebaseStorageDownloadTokens: downloadToken },
         },
     });
-    const [downloadUrl] = await file.getSignedUrl({
-        action: "read",
-        expires: Date.now() + 7 * 24 * 3600 * 1000,
-    });
+    const downloadUrl = await firebaseDownloadUrlForPath(bucket, storagePath, downloadToken);
     return {
         ok: true,
         jobId: loteId,
         downloadUrl,
-        pageCount: pagesAdded,
+        pageCount: pageOpts.length,
     };
+}
+exports.processarCertificadosLote = functions
+    .region("us-central1")
+    .runWith({ timeoutSeconds: 300, memory: "1GB" })
+    .https.onCall(async (data, context) => {
+    try {
+        return await processarCertificadosLoteHandler((data || {}), context);
+    }
+    catch (e) {
+        if (e instanceof functions.https.HttpsError)
+            throw e;
+        const msg = e instanceof Error ? e.message : String(e);
+        functions.logger.error("processarCertificadosLote: falha inesperada", {
+            error: msg,
+            stack: e instanceof Error ? e.stack : undefined,
+            igrejaId: data?.igrejaId || data?.tenantId,
+            count: Array.isArray(data?.listaMembrosId) ? data.listaMembrosId.length : 0,
+        });
+        throw new functions.https.HttpsError("internal", `Falha ao gerar certificados em lote: ${msg}`);
+    }
 });
 //# sourceMappingURL=processarCertificadosLote.js.map

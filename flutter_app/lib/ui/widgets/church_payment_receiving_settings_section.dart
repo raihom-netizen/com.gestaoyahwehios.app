@@ -139,8 +139,8 @@ class _ChurchPaymentReceivingSettingsSectionState
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             'Dízimos e ofertas via Mercado Pago. '
-            'Android e web: PIX e cartão no módulo Doação. '
-            'iPhone: site da igreja (App Store).',
+            'PIX e cartão no módulo Doação do painel '
+            '(no iPhone o pagamento abre no Safari).',
             style: TextStyle(
               fontSize: 12.5,
               color: Colors.grey.shade700,

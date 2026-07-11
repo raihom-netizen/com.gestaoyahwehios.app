@@ -2,6 +2,7 @@ import 'dart:async' show TimeoutException;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
@@ -93,16 +94,26 @@ abstract final class ChurchBirthdayYearLoadService {
       }
     }
 
-    if (byId.length < 8) {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.membrosRecent(
-          churchId,
-          limit: scanLimit,
-        ),
-        maxAttempts: 4,
+    if (_needsFullRoster(directory, byId.length)) {
+      final yearDocs = await ChurchBirthdayQueryService.fetchYearAllMonths(
+        tenantId: churchId,
+        perMonthLimit: 80,
       );
-      for (final doc in snap.docs) {
+      for (final doc in yearDocs) {
         absorb(doc.id, doc.data());
+      }
+
+      if (byId.length < 8) {
+        final snap = await FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchTenantResilientReads.membrosRecent(
+            churchId,
+            limit: scanLimit,
+          ),
+          maxAttempts: 4,
+        );
+        for (final doc in snap.docs) {
+          absorb(doc.id, doc.data());
+        }
       }
     }
 
@@ -112,6 +123,19 @@ abstract final class ChurchBirthdayYearLoadService {
         return cm != 0 ? cm : a.day.compareTo(b.day);
       });
     return list;
+  }
+
+  /// Directory pode ter muitos membros mas poucas `DATA_NASCIMENTO` — força roster.
+  static bool _needsFullRoster(
+    MembersDirectorySnapshot? directory,
+    int birthdayCount,
+  ) {
+    if (birthdayCount < 8) return true;
+    if (directory == null || !directory.hasEntries) return true;
+    final total = directory.entries.length;
+    if (total <= 0) return true;
+    final minExpected = (total * 0.2).ceil().clamp(3, 999);
+    return birthdayCount < minExpected;
   }
 
   static Future<MembersDirectorySnapshot?> _resolveDirectory(

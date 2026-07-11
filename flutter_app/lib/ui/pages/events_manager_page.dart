@@ -84,7 +84,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
-    show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
+    show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico, eventoDocApareceNoFeedPainel;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDocHasPhotoMedia,
@@ -97,6 +97,8 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaVideoThumbUrl,
         looksLikeHostedVideoFileUrl,
+        eventNoticiaUrlEligibleForHostedInlinePlayer,
+        feedPostStoragePathFromRef,
         postFeedCarouselAspectRatioForIndex,
         cacheBustImageUrl,
         eventNoticiaMediaCacheRevision;
@@ -151,7 +153,7 @@ import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage;
+    show buildNoticiaInviteShareMessage, noticiaGalleryRefsForShare;
 import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
@@ -742,6 +744,68 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     }
   }
 
+  static const List<Color> _eventoFixoWeekdayColors = [
+    Color(0xFF3B82F6),
+    Color(0xFF10B981),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFFEC4899),
+    Color(0xFFF97316),
+    Color(0xFFEF4444),
+  ];
+
+  static const List<String> _eventoFixoWeekdayLabels = [
+    'Seg',
+    'Ter',
+    'Qua',
+    'Qui',
+    'Sex',
+    'Sáb',
+    'Dom',
+  ];
+
+  Future<Uint8List> _compressEventoFixoCoverBytes(XFile file) =>
+      SafeImageBytes.fromPickerFile(
+        file,
+        maxEdge: 1920,
+        quality: 85,
+      );
+
+  Future<String?> _pickAndUploadEventoFixoCover({
+    required String tenantId,
+    required String templateStorageId,
+  }) async {
+    final file = await MediaHandlerService.instance.pickAndProcessImage(
+      source: ImageSource.gallery,
+    );
+    if (file == null) return null;
+    await ensureFirebaseReadyForPublishUpload();
+    final compressed = await _compressEventoFixoCoverBytes(file);
+    final downloadUrl = await EventoMediaUpload.uploadTemplateCover(
+      churchId: tenantId,
+      templateId: templateStorageId,
+      compressedBytes: compressed,
+    );
+    FirebaseStorageCleanupService.scheduleCleanupAfterEventTemplateCoverUpload(
+      tenantId: tenantId,
+      templateUniqueId: templateStorageId,
+    );
+    return downloadUrl;
+  }
+
+  Map<String, dynamic> _eventoFixoCoverClearPatch() => {
+        'defaultImageUrl': FieldValue.delete(),
+        'imageUrl': FieldValue.delete(),
+        'imageUrls': FieldValue.delete(),
+        'imagemUrl': FieldValue.delete(),
+        'imagem_url': FieldValue.delete(),
+        'coverUrl': FieldValue.delete(),
+        'coverStoragePath': FieldValue.delete(),
+        'photoStoragePath': FieldValue.delete(),
+        'imageStoragePath': FieldValue.delete(),
+        'defaultImageStoragePath': FieldValue.delete(),
+      };
+
   Future<void> _editTemplate(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     final data = doc?.data() ?? {};
@@ -760,8 +824,66 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final urls = _eventImageUrlsFromData(data);
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
     final defaultPhotoUrl = ValueNotifier<String>(initialPhoto);
+    final uploadingPhoto = ValueNotifier<bool>(false);
     final tenantId = _tid;
     final stableTemplateId = doc?.id ?? _templates.doc().id;
+
+    Future<void> pickAndUploadCover(void Function(void Function()) setSheetState) async {
+      if (uploadingPhoto.value) return;
+      uploadingPhoto.value = true;
+      setSheetState(() {});
+      try {
+        final downloadUrl = await _pickAndUploadEventoFixoCover(
+          tenantId: tenantId,
+          templateStorageId: stableTemplateId,
+        );
+        if (downloadUrl == null) return;
+        defaultPhotoUrl.value = downloadUrl;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar('Capa enviada e pronta para salvar.'),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erro ao enviar foto: $e'),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
+      } finally {
+        uploadingPhoto.value = false;
+        setSheetState(() {});
+      }
+    }
+
+    InputDecoration _eventoFixoFieldDecoration({
+      required String label,
+      IconData? icon,
+    }) =>
+        InputDecoration(
+          labelText: label,
+          prefixIcon: icon != null ? Icon(icon) : null,
+          filled: true,
+          fillColor: const Color(0xFFF8FAFC),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            borderSide: BorderSide(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
+              width: 1.4,
+            ),
+          ),
+        );
 
     Future<void> fillLocationFromCadastro() async {
       try {
@@ -864,6 +986,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             letterSpacing: -0.2,
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Programação semanal com capa personalizada',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -873,290 +1004,357 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                   TextField(
-                      controller: titleCtrl,
-                      decoration: const InputDecoration(
-                          labelText: 'Título',
-                          prefixIcon: Icon(Icons.title_rounded))),
+                    controller: titleCtrl,
+                    decoration: _eventoFixoFieldDecoration(
+                      label: 'Título do culto',
+                      icon: Icons.title_rounded,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Dia da semana',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ValueListenableBuilder<int>(
+                    valueListenable: dow,
+                    builder: (_, selectedDow, __) => Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: List.generate(7, (i) {
+                        final day = i + 1;
+                        final color = _eventoFixoWeekdayColors[i];
+                        final selected = selectedDow == day;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => dow.value = day,
+                            borderRadius: BorderRadius.circular(14),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: selected
+                                    ? LinearGradient(
+                                        colors: [
+                                          color,
+                                          color.withValues(alpha: 0.78),
+                                        ],
+                                      )
+                                    : null,
+                                color: selected ? null : color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: selected
+                                      ? color
+                                      : color.withValues(alpha: 0.28),
+                                ),
+                              ),
+                              child: Text(
+                                _eventoFixoWeekdayLabels[i],
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                  color: selected ? Colors.white : color,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: timeCtrl,
+                    decoration: _eventoFixoFieldDecoration(
+                      label: 'Horário',
+                      icon: Icons.schedule_rounded,
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(
-                        child: ValueListenableBuilder<int>(
-                            valueListenable: dow,
-                            builder: (_, v, __) => DropdownButtonFormField<int>(
-                                  value: v,
-                                  decoration:
-                                      const InputDecoration(labelText: 'Dia'),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: 1, child: Text('Seg')),
-                                    DropdownMenuItem(
-                                        value: 2, child: Text('Ter')),
-                                    DropdownMenuItem(
-                                        value: 3, child: Text('Qua')),
-                                    DropdownMenuItem(
-                                        value: 4, child: Text('Qui')),
-                                    DropdownMenuItem(
-                                        value: 5, child: Text('Sex')),
-                                    DropdownMenuItem(
-                                        value: 6, child: Text('Sáb')),
-                                    DropdownMenuItem(
-                                        value: 7, child: Text('Dom'))
-                                  ],
-                                  onChanged: (nv) => dow.value = nv ?? 7,
-                                ))),
-                    const SizedBox(width: 12),
-                    Expanded(
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
                         child: TextField(
-                            controller: timeCtrl,
-                            decoration:
-                                const InputDecoration(labelText: 'Horário'))),
-                  ]),
-                  const SizedBox(height: 12),
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(
-                        child: TextField(
-                            controller: locCtrl,
-                            decoration: const InputDecoration(
-                                labelText: 'Local (opcional)',
-                                prefixIcon: Icon(Icons.location_on_outlined)))),
-                    const SizedBox(width: 8),
-                    TextButton.icon(
+                          controller: locCtrl,
+                          decoration: _eventoFixoFieldDecoration(
+                            label: 'Local (opcional)',
+                            icon: Icons.location_on_outlined,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
                         onPressed: () async {
                           await fillLocationFromCadastro();
                           setSheetState(() {});
                         },
                         icon: const Icon(Icons.business_rounded, size: 18),
-                        label: const Text('Do cadastro')),
-                  ]),
-                  const SizedBox(height: 12),
-                  ValueListenableBuilder<String>(
-                      valueListenable: defaultPhotoUrl,
-                      builder: (_, url, __) {
-                        if (url.isNotEmpty) {
-                          return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                        label: const Text('Do cadastro'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: uploadingPhoto,
+                    builder: (_, uploading, __) {
+                      return ValueListenableBuilder<String>(
+                        valueListenable: defaultPhotoUrl,
+                        builder: (_, url, ___) {
+                          final hasPhoto = url.trim().isNotEmpty;
+                          return Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg,
+                              ),
+                              gradient: LinearGradient(
+                                colors: [
+                                  const Color(0xFF6366F1).withValues(alpha: 0.08),
+                                  const Color(0xFFEC4899).withValues(alpha: 0.08),
+                                  const Color(0xFFF59E0B).withValues(alpha: 0.06),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                Text('Foto padrão escolhida',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.grey.shade700)),
-                                const SizedBox(height: 8),
                                 Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: SafeNetworkImage(
-                                          imageUrl: url,
-                                          width: 96,
-                                          height: 96,
-                                          fit: BoxFit.cover,
-                                          placeholder: Container(
-                                              width: 96,
-                                              height: 96,
-                                              color: Colors.grey.shade200,
-                                              child: Icon(Icons.photo_rounded,
-                                                  size: 36,
-                                                  color: Colors.grey.shade400)),
-                                          errorWidget: Container(
-                                              width: 96,
-                                              height: 96,
-                                              color: Colors.grey.shade200,
-                                              child: Icon(
-                                                  Icons.broken_image_rounded,
-                                                  size: 36,
-                                                  color: Colors.grey.shade500)),
+                                  children: [
+                                    Icon(
+                                      Icons.photo_camera_front_rounded,
+                                      color: ThemeCleanPremium.primary,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Expanded(
+                                      child: Text(
+                                        'Capa personalizada',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 14,
                                         ),
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                          child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                            Text(
-                                                'Esta foto aparece na lista de Eventos Fixos. O Feed não mistura com a rotina semanal.',
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    color:
-                                                        Colors.grey.shade600)),
-                                            const SizedBox(height: 8),
-                                            OutlinedButton.icon(
-                                                icon: const Icon(
-                                                    Icons.change_circle_rounded,
-                                                    size: 18),
-                                                label:
-                                                    const Text('Trocar foto'),
-                                                onPressed: () async {
-                                                  final file =
-                                                      await MediaHandlerService
-                                                          .instance
-                                                          .pickAndProcessImage(
-                                                              source:
-                                                                  ImageSource
-                                                                      .gallery);
-                                                  if (file == null ||
-                                                      !ctx.mounted) return;
-                                                  setSheetState(() {});
-                                                  try {
-                                                    final compressed =
-                                                        file.path
-                                                                .trim()
-                                                                .isNotEmpty
-                                                            ? await SafeImageBytes
-                                                                .fromPath(
-                                                                file.path,
-                                                                maxEdge: 1920,
-                                                                quality: 85,
-                                                              )
-                                                            : await ImageHelper
-                                                                .compressImage(
-                                                                await file
-                                                                    .readAsBytes(),
-                                                                minWidth: 800,
-                                                                minHeight: 600,
-                                                                quality: 85,
-                                                              );
-                                                    final templateStorageId =
-                                                        stableTemplateId;
-                                                    final storagePath =
-                                                        ChurchStorageLayout
-                                                            .eventTemplateCoverPath(
-                                                          tenantId,
-                                                          templateStorageId,
-                                                        );
-                                                    final downloadUrl =
-                                                        await EventoMediaUpload
-                                                            .uploadTemplateCover(
-                                                      churchId: tenantId,
-                                                      templateId:
-                                                          templateStorageId,
-                                                      compressedBytes:
-                                                          compressed,
-                                                    );
-                                                    FirebaseStorageCleanupService
-                                                        .scheduleCleanupAfterEventTemplateCoverUpload(
-                                                      tenantId: tenantId,
-                                                      templateUniqueId:
-                                                          templateStorageId,
-                                                    );
-                                                    if (ctx.mounted) {
-                                                      defaultPhotoUrl.value =
-                                                          downloadUrl;
-                                                      setSheetState(() {});
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                              ThemeCleanPremium
-                                                                  .successSnackBar(
-                                                                      'Foto enviada.'));
-                                                    }
-                                                  } catch (e) {
-                                                    if (ctx.mounted)
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(SnackBar(
-                                                              content: Text(
-                                                                  'Erro ao enviar foto: $e'),
-                                                              backgroundColor:
-                                                                  ThemeCleanPremium
-                                                                      .error));
-                                                  }
-                                                }),
-                                          ])),
+                                    ),
+                                    if (hasPhoto)
                                       IconButton(
-                                          icon: const Icon(Icons.close_rounded),
-                                          onPressed: () {
-                                            defaultPhotoUrl.value = '';
-                                            setSheetState(() {});
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(ThemeCleanPremium
-                                                    .successSnackBar(
-                                                        'Foto removida.'));
-                                          },
-                                          tooltip: 'Remover foto'),
-                                    ]),
-                              ]);
-                        }
-                        return OutlinedButton.icon(
-                          icon: const Icon(Icons.add_photo_alternate_outlined,
-                              size: 20),
-                          label: const Text('Foto padrão (opcional)'),
-                          onPressed: () async {
-                            final file = await MediaHandlerService.instance
-                                .pickAndProcessImage(
-                                    source: ImageSource.gallery);
-                            if (file == null || !ctx.mounted) return;
-                            setSheetState(() {});
-                            try {
-                              final compressed = file.path.trim().isNotEmpty
-                                  ? await SafeImageBytes.fromPath(
-                                      file.path,
-                                                                maxEdge: 1920,
-                                                                quality: 85,
-                                    )
-                                  : await ImageHelper.compressImage(
-                                      await file.readAsBytes(),
-                                      minWidth: 800,
-                                      minHeight: 600,
-                                      quality: 85,
-                                    );
-                              final templateStorageId = stableTemplateId;
-                              final storagePath =
-                                  ChurchStorageLayout.eventTemplateCoverPath(
-                                tenantId,
-                                templateStorageId,
-                              );
-                              final downloadUrl =
-                                  await EventoMediaUpload.uploadTemplateCover(
-                                churchId: tenantId,
-                                templateId: templateStorageId,
-                                compressedBytes: compressed,
-                              );
-                              FirebaseStorageCleanupService
-                                  .scheduleCleanupAfterEventTemplateCoverUpload(
-                                tenantId: tenantId,
-                                templateUniqueId: templateStorageId,
-                              );
-                              if (ctx.mounted) {
-                                defaultPhotoUrl.value = downloadUrl;
-                                setSheetState(() {});
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    ThemeCleanPremium.successSnackBar(
-                                        'Foto enviada.'));
-                              }
-                            } catch (e) {
-                              if (ctx.mounted)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content:
-                                            Text('Erro ao enviar foto: $e'),
-                                        backgroundColor:
-                                            ThemeCleanPremium.error));
-                            }
-                          },
-                        );
-                      }),
-                  const SizedBox(height: 12),
+                                        tooltip: 'Remover capa',
+                                        onPressed: uploading
+                                            ? null
+                                            : () {
+                                                defaultPhotoUrl.value = '';
+                                                setSheetState(() {});
+                                              },
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 20,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Aparece na lista de Eventos Fixos, agenda e programação pública.',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                if (hasPhoto)
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        SafeNetworkImage(
+                                          imageUrl: url,
+                                          width: double.infinity,
+                                          height: 148,
+                                          fit: BoxFit.cover,
+                                          placeholder: Container(
+                                            height: 148,
+                                            color: Colors.grey.shade200,
+                                            child: const Center(
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            ),
+                                          ),
+                                          errorWidget: Container(
+                                            height: 148,
+                                            color: Colors.grey.shade200,
+                                            child: Icon(
+                                              Icons.broken_image_outlined,
+                                              color: Colors.grey.shade500,
+                                              size: 40,
+                                            ),
+                                          ),
+                                        ),
+                                        if (uploading)
+                                          Container(
+                                            height: 148,
+                                            color: Colors.black45,
+                                            child: const Center(
+                                              child: CircularProgressIndicator(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    height: 120,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: const Color(0xFFE2E8F0),
+                                        style: BorderStyle.solid,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.add_photo_alternate_outlined,
+                                            size: 36,
+                                            color: Colors.grey.shade400,
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Nenhuma capa ainda',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade600,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: uploading
+                                      ? null
+                                      : () => pickAndUploadCover(setSheetState),
+                                  icon: uploading
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : Icon(
+                                          hasPhoto
+                                              ? Icons.change_circle_rounded
+                                              : Icons.add_a_photo_rounded,
+                                          size: 20,
+                                        ),
+                                  label: Text(
+                                    uploading
+                                        ? 'Enviando capa…'
+                                        : hasPhoto
+                                            ? 'Trocar capa'
+                                            : 'Escolher capa',
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size(0, 48),
+                                    backgroundColor: ThemeCleanPremium.primary,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusMd,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Recorrência',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
                   ValueListenableBuilder<String>(
-                      valueListenable: recurrence,
-                      builder: (_, v, __) => DropdownButtonFormField<String>(
-                            value: v,
-                            decoration:
-                                const InputDecoration(labelText: 'Recorrência'),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 'weekly', child: Text('Semanal')),
-                              DropdownMenuItem(
-                                  value: 'biweekly', child: Text('Quinzenal')),
-                              DropdownMenuItem(
-                                  value: 'monthly', child: Text('Mensal'))
-                            ],
-                            onChanged: (nv) =>
-                                recurrence.value = nv ?? 'weekly',
-                          )),
+                    valueListenable: recurrence,
+                    builder: (_, selectedRec, __) => Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ('weekly', 'Semanal', const Color(0xFF0EA5E9)),
+                        ('biweekly', 'Quinzenal', const Color(0xFF8B5CF6)),
+                        ('monthly', 'Mensal', const Color(0xFFF97316)),
+                      ].map((entry) {
+                        final key = entry.$1;
+                        final label = entry.$2;
+                        final color = entry.$3;
+                        final selected = selectedRec == key;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => recurrence.value = key,
+                            borderRadius: BorderRadius.circular(14),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 180),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: selected
+                                    ? color
+                                    : color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: color.withValues(
+                                    alpha: selected ? 1 : 0.35,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                label,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: selected ? Colors.white : color,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   ValueListenableBuilder<bool>(
                     valueListenable: includeInAgenda,
@@ -1259,6 +1457,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           storagePath: coverPath,
         ),
       );
+    } else if (doc != null && initialPhoto.isNotEmpty) {
+      payload.addAll(_eventoFixoCoverClearPatch());
     }
     if (doc == null) {
       payload['createdAt'] = now;
@@ -1802,9 +2002,16 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       _fetching = false;
       return;
     }
-    _galleryDocs =
-        ChurchEventosLoadService.peekRam(cid, limit: ChurchEventosLoadService.kGalleryLimit) ??
-            const [];
+    _galleryDocs = ChurchEventosLoadService.peekRam(
+          cid,
+          limit: ChurchEventosLoadService.kGalleryLimit,
+        ) ??
+        ChurchEventosLoadService.peekRam(
+          cid,
+          limit: ChurchEventosLoadService.kDefaultFeedLimit,
+        ) ??
+        _EventosNoticiasRamCache.peek(cid) ??
+        const [];
     _fetching = _galleryDocs.isEmpty;
     _loadError = null;
     _showingStaleCache = _galleryDocs.isNotEmpty;
@@ -1832,11 +2039,29 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await ChurchEventosLoadService.loadGallery(
+      var result = await ChurchEventosLoadService.loadGallery(
         seedTenantId: cid,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
       );
+      if (result.docs.isEmpty) {
+        final feedFallback = await ChurchEventosLoadService.loadFeed(
+          seedTenantId: cid,
+          limit: ChurchEventosLoadService.kGalleryLimit,
+          forceRefresh: forceFresh,
+          forceServer: forceFresh,
+        );
+        if (feedFallback.docs.isNotEmpty) {
+          result = ChurchEventosLoadResult(
+            churchId: feedFallback.churchId,
+            docs: feedFallback.docs,
+            readSource: '${feedFallback.readSource}_gallery_fallback',
+            collectionPath: feedFallback.collectionPath,
+            softError: result.softError,
+            fromCache: feedFallback.fromCache,
+          );
+        }
+      }
       if (!mounted) return;
       setState(() {
         _galleryDocs = result.docs;
@@ -2200,9 +2425,14 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     required DateTime now,
   }) {
         var docs = allDocs
-            .where((d) =>
-                noticiaDocEhEventoSpecialFeed(d) &&
-                noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now))
+            .where((d) {
+              final data = d.data();
+              if (data['ativo'] == false || data['publicado'] == false) {
+                return false;
+              }
+              return eventoDocApareceNoFeedPainel(d) &&
+                  noticiaEventoEspecialCaiuDoFeedParaGaleria(data, now);
+            })
             .toList();
         if (_period != 'all') {
           final cutoff = switch (_period) {
@@ -3713,7 +3943,7 @@ class _FeedTabState extends State<_FeedTab> {
     String searchQuery,
   ) {
     // Feed = só eventos especiais; data passada → Galeria, não o Feed.
-    var out = docs.where(noticiaDocEhEventoSpecialFeed).where((d) {
+    var out = docs.where(eventoDocApareceNoFeedPainel).where((d) {
       final data = d.data();
       if (data['ativo'] == false) return false;
       if (data['publicado'] == false) return false;
@@ -4709,17 +4939,31 @@ List<String> _eventImageUrlsFromData(Map<String, dynamic> data) =>
 /// Fotos do card do Feed sem repetir a capa/miniatura do vídeo (evita faixa cinza/branca + vídeo).
 /// Índice da foto no doc original (para [eventNoticiaPhotoStoragePathAt]) a partir da URL filtrada.
 int? _eventPhotoUrlIndexInDoc(Map<String, dynamic> data, String candidateUrl) {
-  final target = sanitizeImageUrl(candidateUrl);
+  final target = candidateUrl.trim();
   if (target.isEmpty) return null;
+  final norm = target.replaceAll('\\', '/');
   final photos = eventNoticiaPhotoUrls(data);
   for (var i = 0; i < photos.length; i++) {
-    if (sanitizeImageUrl(photos[i]) == target) return i;
+    if (sanitizeImageUrl(photos[i]) == sanitizeImageUrl(target)) return i;
+  }
+  for (var i = 0; i < 10; i++) {
+    final p = eventNoticiaPhotoStoragePathAt(data, i);
+    if (p != null && p.trim() == norm) return i;
+  }
+  final fromRef = feedPostStoragePathFromRef(norm);
+  if (fromRef != null && fromRef.trim().isNotEmpty) {
+    final nPath = normalizeFirebaseStorageObjectPath(fromRef);
+    for (var i = 0; i < 10; i++) {
+      final p = eventNoticiaPhotoStoragePathAt(data, i);
+      if (p == null) continue;
+      if (normalizeFirebaseStorageObjectPath(p) == nPath) return i;
+    }
   }
   return null;
 }
 
 List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
-  final raw = _eventImageUrlsFromData(data);
+  final raw = noticiaGalleryRefsForShare(data);
   final thumbUrls = <String>{
     sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(data) ?? ''),
     sanitizeImageUrl(eventNoticiaVideoThumbUrl(data) ?? ''),
@@ -4810,9 +5054,8 @@ class _EventoPostState extends State<_EventoPost>
     final liked = merged.contains(_myUid!);
     try {
       final m = await _memberDisplay();
-      await NoticiaSocialService.toggleCurtida(
-        tenantId: widget.tenantId,
-        postId: widget.doc.id,
+      await NoticiaSocialService.toggleCurtidaOnPost(
+        postRef: widget.doc.reference,
         uid: _myUid!,
         memberName: m.name,
         photoUrl: m.photo,
@@ -4976,7 +5219,7 @@ class _EventoPostState extends State<_EventoPost>
     final origIdx = _eventPhotoUrlIndexInDoc(data, imageUrl);
     final path = origIdx != null
         ? eventNoticiaPhotoStoragePathAt(data, origIdx)
-        : null;
+        : feedPostStoragePathFromRef(imageUrl.trim());
     if (isValidImageUrl(displayUrl) &&
         (displayUrl.startsWith('http://') || displayUrl.startsWith('https://'))) {
       return SafeNetworkImage(
@@ -5068,9 +5311,7 @@ class _EventoPostState extends State<_EventoPost>
     final rawHosted = eventNoticiaHostedVideoPlayUrl(data) ?? '';
     final hostedVideoUrl = sanitizeImageUrl(rawHosted);
     final useHostedPlayer = hostedVideoUrl.isNotEmpty &&
-        (hostedVideoUrl.startsWith('http://') ||
-            hostedVideoUrl.startsWith('https://')) &&
-        looksLikeHostedVideoFileUrl(hostedVideoUrl);
+        eventNoticiaUrlEligibleForHostedInlinePlayer(hostedVideoUrl);
     var externalLaunchUrl = '';
     if (!useHostedPlayer) {
       final ext = eventNoticiaExternalVideoUrl(data);

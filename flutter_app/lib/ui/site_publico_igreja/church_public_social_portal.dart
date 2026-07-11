@@ -25,7 +25,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
-    show churchMuralCarouselClipHeight;
+    show churchMuralCarouselClipHeight, kChurchPublicSiteMobileFrameWidth;
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -135,7 +135,7 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.sizeOf(context).width >= 720;
+    final isWide = !kIsWeb && MediaQuery.sizeOf(context).width >= 720;
     final nav = ThemeCleanPremium.navSidebar;
     final mid = Color.lerp(nav, ThemeCleanPremium.primary, 0.38)!;
     final end = Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.22)!;
@@ -166,7 +166,11 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
       ),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
+          constraints: BoxConstraints(
+            maxWidth: kIsWeb
+                ? kChurchPublicSiteMobileFrameWidth
+                : 1100,
+          ),
           child: Row(
             children: [
               Expanded(
@@ -194,127 +198,102 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
                   ),
                 ),
               ),
-              if (isWide) ...[
-                const SizedBox(width: 8),
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onAcessarSistema,
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                    child: Ink(
-                      decoration: BoxDecoration(
+              if (!kIsWeb)
+                if (isWide)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onAcessarSistema,
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.22),
-                          width: 1.1,
-                        ),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color.lerp(accent, Colors.white, 0.16)!,
-                            Color.lerp(accent, Colors.white, 0.06)!,
-                            Color.lerp(accent, const Color(0xFF0F172A), 0.26)!,
-                          ],
-                          stops: const [0.0, 0.45, 1.0],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: accent.withValues(alpha: 0.36),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
-                            spreadRadius: -2,
-                          ),
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 14,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.login_rounded,
-                                color: Colors.white, size: 20),
-                            const SizedBox(width: 9),
-                            Text(
-                              'Acessar Sistema',
-                              style: GoogleFonts.inter(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13.5,
-                                letterSpacing: -0.35,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 1),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ] else ...[
-                const SizedBox(width: 4),
-                Tooltip(
-                  message: 'Acessar sistema',
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: onAcessarSistema,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      child: SizedBox(
-                        width: 46,
-                        height: 46,
                         child: Ink(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusMd),
+                            borderRadius:
+                                BorderRadius.circular(ThemeCleanPremium.radiusLg),
                             border: Border.all(
                               color: Colors.white.withValues(alpha: 0.22),
-                              width: 1.05,
+                              width: 1.1,
                             ),
                             gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                               colors: [
-                                Color.lerp(accent, Colors.white, 0.14)!,
-                                Color.lerp(accent, const Color(0xFF0F172A), 0.28)!,
+                                Color.lerp(accent, Colors.white, 0.16)!,
+                                Color.lerp(accent, Colors.white, 0.06)!,
+                                Color.lerp(accent, const Color(0xFF0F172A), 0.26)!,
+                              ],
+                              stops: const [0.0, 0.45, 1.0],
+                            ),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.login_rounded,
+                                    color: Colors.white, size: 20),
+                                SizedBox(width: 9),
+                                Text(
+                                  'Acessar Sistema',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13.5,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ],
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: accent.withValues(alpha: 0.38),
-                                blurRadius: 18,
-                                offset: const Offset(0, 7),
-                                spreadRadius: -1,
-                              ),
-                            ],
                           ),
-                          child: const Center(
-                            child: Icon(Icons.login_rounded,
-                                color: Colors.white, size: 22),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Tooltip(
+                      message: 'Acessar sistema',
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: onAcessarSistema,
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          child: SizedBox(
+                            width: 46,
+                            height: 46,
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.22),
+                                  width: 1.05,
+                                ),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Color.lerp(accent, Colors.white, 0.14)!,
+                                    Color.lerp(accent, const Color(0xFF0F172A), 0.28)!,
+                                  ],
+                                ),
+                              ),
+                              child: const Center(
+                                child: Icon(Icons.login_rounded,
+                                    color: Colors.white, size: 22),
+                              ),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
             ],
           ),
         ),

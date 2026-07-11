@@ -19,7 +19,6 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
-import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_donation_load_service.dart';
@@ -853,14 +852,6 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
 
   @override
   Widget build(BuildContext context) {
-    // Apple 3.2.2(iv): sem coleta de doação no binário iOS — só Safari → site.
-    if (IosPaymentsGate.isIosNative) {
-      return IosDonationReaderView(
-        tenantId: _effectiveTenantId.isEmpty ? widget.tenantId : _effectiveTenantId,
-        embeddedInShell: widget.embeddedInShell,
-      );
-    }
-
     final primary = ThemeCleanPremium.primary;
     final deep = Color.lerp(primary, const Color(0xFF0F172A), 0.35)!;
 

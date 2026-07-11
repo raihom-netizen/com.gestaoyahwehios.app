@@ -1,4 +1,3 @@
-import 'dart:async' show TimeoutException;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -11,6 +10,7 @@ import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Fotos do património — upload strict Storage → Firestore (`foto01`…`foto05`).
@@ -68,13 +68,15 @@ abstract final class PatrimonioPhotosUpdateService {
       slot: idx,
     );
 
-    await PatrimonioPublishService.publishMetadataOnly(
-      seedTenantId: churchId,
-      itemId: iid,
-      corePayload: corePayload,
-      isNewDoc: false,
-      indexedSlotUrls: urls,
-      indexedSlotPaths: paths,
+    await runFirestorePublishWithRecovery(
+      () => PatrimonioPublishService.publishMetadataOnly(
+        seedTenantId: churchId,
+        itemId: iid,
+        corePayload: corePayload,
+        isNewDoc: false,
+        indexedSlotUrls: urls,
+        indexedSlotPaths: paths,
+      ),
     ).timeout(const Duration(seconds: 28));
 
     await ChurchPatrimonioLoadService.invalidate(churchId);

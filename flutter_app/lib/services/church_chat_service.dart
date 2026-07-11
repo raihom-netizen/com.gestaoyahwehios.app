@@ -1174,16 +1174,16 @@ class ChurchChatService {
   /// Motivo pelo qual a mensagem não pode ser reencaminhada (`null` = OK).
   static String? forwardBlockReason(Map<String, dynamic> messageData) {
     final type = (messageData['type'] ?? 'text').toString().trim();
-    if (type == 'video') {
-      return 'Vídeos não podem ser reencaminhados no chat.';
-    }
     if (type == 'text') {
       final text = (messageData['text'] ?? '').toString().trim();
       if (text.isEmpty) return 'Mensagem vazia.';
       return null;
     }
     if (ChurchChatMessageFields.isUploadInProgress(messageData)) {
-      return 'Aguarde o envio terminar antes de reencaminhar.';
+      final sp = _storagePathForForward(messageData);
+      if (sp.isEmpty) {
+        return 'Aguarde o envio terminar antes de reencaminhar.';
+      }
     }
     final sp = _storagePathForForward(messageData);
     if (sp.isEmpty) {

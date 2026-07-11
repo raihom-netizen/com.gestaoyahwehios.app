@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -712,6 +713,14 @@ class _FornecedoresFinanceModuloTabState
           .where((d) =>
               (d.data()['fornecedorId'] ?? '').toString().trim().isNotEmpty)
           .toList();
+      for (final d in linked) {
+        final m = d.data();
+        final fid = (m['fornecedorId'] ?? '').toString().trim();
+        final n = (m['fornecedorNome'] ?? '').toString().trim();
+        if (fid.isNotEmpty && n.isNotEmpty) {
+          nomes.putIfAbsent(fid, () => n);
+        }
+      }
       if (!mounted) return;
       setState(() {
         _nomes = nomes;
@@ -849,6 +858,9 @@ class _FornecedoresFinanceModuloTabState
                 color: const Color(0xFF1D4ED8),
                 bg: const Color(0xFFDBEAFE),
                 fullWidth: true,
+                onTap: rows.isEmpty
+                    ? null
+                    : () => _openLancamentosGrid(rows.first.key),
               ),
             ),
           ),
@@ -880,10 +892,18 @@ class _FornecedoresFinanceModuloTabState
                       bg: const Color(0xFFDCFCE7),
                       onTap: rows.isEmpty
                           ? null
-                          : () => _openLancamentosGrid(
-                                rows.first.key,
+                          : () {
+                              final byRec = porFn.entries.toList()
+                                ..sort(
+                                  (a, b) =>
+                                      b.value.receitas.compareTo(a.value.receitas),
+                                );
+                              if (byRec.first.value.receitas <= 0) return;
+                              _openLancamentosGrid(
+                                byRec.first.key,
                                 filtro: 'receitas',
-                              ),
+                              );
+                            },
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -893,6 +913,20 @@ class _FornecedoresFinanceModuloTabState
                       value: money.format(totalR - totalD),
                       color: const Color(0xFF0D9488),
                       bg: const Color(0xFFCCFBF1),
+                      onTap: rows.isEmpty
+                          ? null
+                          : () {
+                              final bySaldo = porFn.entries.toList()
+                                ..sort(
+                                  (a, b) => (b.value.receitas - b.value.despesas)
+                                      .abs()
+                                      .compareTo(
+                                        (a.value.receitas - a.value.despesas)
+                                            .abs(),
+                                      ),
+                                );
+                              _openLancamentosGrid(bySaldo.first.key);
+                            },
                     ),
                   ),
                 ],
@@ -905,10 +939,17 @@ class _FornecedoresFinanceModuloTabState
                 padding: const EdgeInsets.all(16),
                 child: _TopFornecedoresChart(
                   rows: rows.take(6).map((e) {
-                    final nome = _nomes[e.key] ?? e.key;
-                    return (nome: nome, valor: e.value.despesas);
+                    return (
+                      id: e.key,
+                      nome: _nomeFornecedor(e.key),
+                      valor: e.value.despesas,
+                    );
                   }).toList(),
                   money: money,
+                  onFornecedorTap: (id) => _openLancamentosGrid(
+                    id,
+                    filtro: 'despesas',
+                  ),
                 ),
               ),
             ),
@@ -925,85 +966,28 @@ class _FornecedoresFinanceModuloTabState
                       ),
                     ),
                   )
-                : SliverList(
+                : SliverGrid(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount:
+                          MediaQuery.sizeOf(context).width >= 900 ? 3 : 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1.22,
+                    ),
                     delegate: SliverChildBuilderDelegate(
                       (context, i) {
                         final e = rows[i];
                         final nome = _nomeFornecedor(e.key);
                         final cadastroOk = _nomes.containsKey(e.key);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Material(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () => _openLancamentosGrid(e.key),
-                              child: Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  border:
-                                      Border.all(color: const Color(0xFFE2E8F0)),
-                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                                ),
-                                child: Row(
-                                  children: [
-                                    CircleAvatar(
-                                      backgroundColor: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12),
-                                      child: Icon(
-                                        Icons.storefront_rounded,
-                                        color: ThemeCleanPremium.primary,
-                                        size: 20,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            nome,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          if (!cadastroOk)
-                                            Padding(
-                                              padding:
-                                                  const EdgeInsets.only(top: 2),
-                                              child: Text(
-                                                'Cadastro removido · só lançamentos',
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.orange.shade800,
-                                                ),
-                                              ),
-                                            ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            'Desp: ${money.format(e.value.despesas)} · Rec: ${money.format(e.value.receitas)}',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    Icon(Icons.chevron_right_rounded,
-                                        color: Colors.grey.shade400),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
+                        final saldo = e.value.receitas - e.value.despesas;
+                        return _FornecedorFinanceGridCard(
+                          nome: nome,
+                          cadastroOk: cadastroOk,
+                          despesas: money.format(e.value.despesas),
+                          receitas: money.format(e.value.receitas),
+                          saldo: money.format(saldo),
+                          saldoNegativo: saldo < 0,
+                          onTap: () => _openLancamentosGrid(e.key),
                         );
                       },
                       childCount: rows.length,
@@ -1082,15 +1066,47 @@ class _KpiTile extends StatelessWidget {
 }
 
 class _TopFornecedoresChart extends StatelessWidget {
-  const _TopFornecedoresChart({required this.rows, required this.money});
+  const _TopFornecedoresChart({
+    required this.rows,
+    required this.money,
+    this.onFornecedorTap,
+  });
 
-  final List<({String nome, double valor})> rows;
+  final List<({String id, String nome, double valor})> rows;
   final NumberFormat money;
+  final void Function(String fornecedorId)? onFornecedorTap;
+
+  static const _palette = <Color>[
+    Color(0xFFDC2626),
+    Color(0xFFEA580C),
+    Color(0xFFD97706),
+    Color(0xFF0D9488),
+    Color(0xFF2563EB),
+    Color(0xFF7C3AED),
+  ];
 
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) return const SizedBox.shrink();
-    final maxV = rows.fold<double>(0, (a, b) => b.valor > a ? b.valor : a);
+    final total = rows.fold<double>(0, (a, b) => a + b.valor);
+    final sections = <PieChartSectionData>[];
+    for (var i = 0; i < rows.length; i++) {
+      final pct = total <= 0 ? 0.0 : (rows[i].valor / total) * 100;
+      sections.add(
+        PieChartSectionData(
+          value: rows[i].valor <= 0 ? 0.001 : rows[i].valor,
+          color: _palette[i % _palette.length],
+          radius: 46,
+          title: pct >= 8 ? '${pct.toStringAsFixed(0)}%' : '',
+          titleStyle: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+          ),
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1106,52 +1122,191 @@ class _TopFornecedoresChart extends StatelessWidget {
             'Top despesas por fornecedor',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
           ),
-          const SizedBox(height: 12),
-          ...rows.map((r) {
-            final pct = maxV <= 0 ? 0.0 : (r.valor / maxV).clamp(0.0, 1.0);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          r.nome,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 132,
+                height: 132,
+                child: PieChart(
+                  PieChartData(
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 28,
+                    sections: sections,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  children: [
+                    for (var i = 0; i < rows.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: onFornecedorTap == null
+                                ? null
+                                : () => onFornecedorTap!(rows[i].id),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 4,
+                                horizontal: 4,
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: _palette[i % _palette.length],
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      rows[i].nome,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    money.format(rows[i].valor),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 11,
+                                      color: _palette[i % _palette.length],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                      Text(
-                        money.format(r.valor),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 11,
-                          color: Color(0xFFB91C1C),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: pct,
-                      minHeight: 8,
-                      backgroundColor: Colors.grey.shade200,
-                      color: const Color(0xFFDC2626).withValues(alpha: 0.75),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FornecedorFinanceGridCard extends StatelessWidget {
+  const _FornecedorFinanceGridCard({
+    required this.nome,
+    required this.cadastroOk,
+    required this.despesas,
+    required this.receitas,
+    required this.saldo,
+    required this.saldoNegativo,
+    required this.onTap,
+  });
+
+  final String nome;
+  final bool cadastroOk;
+  final String despesas;
+  final String receitas;
+  final String saldo;
+  final bool saldoNegativo;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(14),
                     ),
+                    child: Icon(
+                      Icons.storefront_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 22,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.open_in_new_rounded,
+                    size: 18,
+                    color: Colors.grey.shade400,
                   ),
                 ],
               ),
-            );
-          }),
-        ],
+              const SizedBox(height: 10),
+              Text(
+                nome,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  height: 1.2,
+                ),
+              ),
+              if (!cadastroOk) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Cadastro removido',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.orange.shade800,
+                  ),
+                ),
+              ],
+              const Spacer(),
+              Text(
+                'Saldo $saldo',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                  color: saldoNegativo
+                      ? const Color(0xFFB91C1C)
+                      : const Color(0xFF0D9488),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Desp. $despesas',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+              Text(
+                'Rec. $receitas',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1540,16 +1695,27 @@ class _FornecedorLancamentosGridSheetState
   Future<void> _anexarComprovante(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    await FinanceComprovanteAttachFlow.attachToLancamento(
+    final ok = await FinanceComprovanteAttachFlow.attachToLancamento(
       context: context,
       tenantId: widget.tenantId,
       docRef: doc.reference,
       docData: doc.data(),
     );
-    if (mounted) {
-      await _load(force: true);
-      widget.onChanged?.call();
+    if (!mounted || !ok) return;
+    unawaited(_load(force: true));
+    widget.onChanged?.call();
+  }
+
+  void _verComprovante(Map<String, dynamic> data) {
+    if (!FinanceComprovanteAttachService.hasComprovanteReady(data)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Este lançamento ainda não tem comprovante.'),
+        ),
+      );
+      return;
     }
+    unawaited(FinanceComprovanteAttachService.viewFromDoc(context, data));
   }
 
   @override
@@ -1696,6 +1862,8 @@ class _FornecedorLancamentosGridSheetState
                                     onTogglePagamento: () =>
                                         _toggleEfetivacao(doc),
                                     onComprovante: () => _anexarComprovante(doc),
+                                    onVerComprovante: () =>
+                                        _verComprovante(doc.data()),
                                   );
                                 },
                                 childCount: visible.length,
@@ -1720,6 +1888,7 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
     required this.onExcluir,
     required this.onTogglePagamento,
     required this.onComprovante,
+    required this.onVerComprovante,
   });
 
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
@@ -1729,6 +1898,7 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
   final VoidCallback onExcluir;
   final VoidCallback onTogglePagamento;
   final VoidCallback onComprovante;
+  final VoidCallback onVerComprovante;
 
   @override
   Widget build(BuildContext context) {
@@ -1744,6 +1914,8 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
         ? const Color(0xFFDC2626)
         : (isEntrada ? const Color(0xFF15803D) : const Color(0xFF6366F1));
     final hasComp = FinanceComprovanteAttachService.hasComprovanteReady(m);
+    final compEnviando =
+        FinanceComprovanteAttachService.isComprovanteUploading(m);
     final pendente = isSaida
         ? financeLancamentoPendentePagamento(m)
         : financeLancamentoPendenteRecebimento(m);
@@ -1849,17 +2021,41 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
                         ? Icons.check_circle_outline_rounded
                         : Icons.undo_rounded,
                     tooltip: pendente
-                        ? (isSaida ? 'Confirmar pagamento' : 'Confirmar recebimento')
+                        ? (isSaida
+                            ? 'Confirmar pagamento'
+                            : 'Confirmar recebimento')
                         : 'Marcar pendente',
                     color: const Color(0xFF2563EB),
                     onTap: onTogglePagamento,
                   ),
                   _GridActionIcon(
-                    icon: Icons.attach_file_rounded,
-                    tooltip: 'Anexar comprovante',
-                    color: const Color(0xFF0D9488),
-                    onTap: onComprovante,
+                    icon: Icons.visibility_rounded,
+                    tooltip: hasComp ? 'Ver comprovante' : 'Sem comprovante',
+                    color: hasComp
+                        ? const Color(0xFF0D9488)
+                        : Colors.grey.shade400,
+                    onTap: onVerComprovante,
                   ),
+                  if (compEnviando)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 2),
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else
+                    _GridActionIcon(
+                      icon: hasComp
+                          ? Icons.sync_rounded
+                          : Icons.attach_file_rounded,
+                      tooltip: hasComp
+                          ? 'Trocar comprovante'
+                          : 'Anexar comprovante',
+                      color: const Color(0xFF7C3AED),
+                      onTap: onComprovante,
+                    ),
                   _GridActionIcon(
                     icon: Icons.edit_rounded,
                     tooltip: 'Editar',

@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_recibo_emit_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
@@ -4360,9 +4361,8 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               (await ChurchRepository.churchDoc(_tenantId).get()).data() ??
                   {};
         } catch (_) {}
-        churchStamp = PdfDigitalStampInput.now(
-          signerName: signer.nome,
-          signerCpfDigits: signer.cpfDigits,
+        churchStamp = buildChurchDocumentDigitalStamp(
+          signer: signer,
           churchName: branding.churchName,
           churchData: churchData,
         );
@@ -4377,6 +4377,8 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
         referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
         dataPagamento: dt,
         showDigitalSignature: cfg.useDigital,
+        reserveManualSignatureSpace:
+            cfg.signatureMode == ChurchDocumentSignatureMode.manual,
         churchSignerName: signer?.nome ?? '',
         churchSignerRole: signer?.cargo ?? '',
         churchDigitalStamp: churchStamp,

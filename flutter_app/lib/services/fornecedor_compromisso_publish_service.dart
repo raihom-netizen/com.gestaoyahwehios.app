@@ -77,15 +77,17 @@ abstract final class FornecedorCompromissoPublishService {
     }
     onProgress?.call(0.05);
 
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(
-        {
-          'comprovanteUploadState': 'uploading',
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      ),
-    ).catchError((_) {});
+    if (!kIsWeb) {
+      await runFirestorePublishWithRecovery(
+        () => docRef.set(
+          {
+            'comprovanteUploadState': 'uploading',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ),
+      ).catchError((_) {});
+    }
 
     try {
       final uploaded = await FornecedorCompromissoComprovanteService.upload(

@@ -57,6 +57,8 @@ import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
+import 'package:gestao_yahweh/services/member_nameless_purge_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
@@ -570,7 +572,7 @@ class _MembersPageState extends State<MembersPage> {
   /// [applySearch] false = painel estatístico ignora a caixa de busca (lista continua a usar).
   List<_MemberDoc> _aplicarFiltros(List<_MemberDoc> docs,
       {bool applySearch = true}) {
-    var out = docs;
+    var out = docs.where((d) => memberDataHasValidName(d.data)).toList();
     if (applySearch && _q.isNotEmpty) {
       final qFold = _foldSearchText(_q);
       final qDigits = _q.replaceAll(RegExp(r'\D'), '');
@@ -759,6 +761,7 @@ class _MembersPageState extends State<MembersPage> {
     _deptsFuture = _loadDeptsForFilter();
     unawaited(_hydrateMembersDirectoryCache());
     unawaited(_watchMembersDirectoryCache());
+    unawaited(_purgeNamelessMembersIfAllowed());
     // Resolve tenant o mais cedo possível para que _effectiveTenantId esteja correto em ações (add/edit).
     _resolveEffectiveTenantId().then((resolved) {
       if (!mounted) return;
@@ -2085,6 +2088,19 @@ class _MembersPageState extends State<MembersPage> {
         widget.role,
         permissions: widget.permissions,
       );
+
+  Future<void> _purgeNamelessMembersIfAllowed() async {
+    if (!_canDeleteMembers) return;
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty || MemberNamelessPurgeService.alreadyPurgedThisSession(tid)) {
+      return;
+    }
+    final removed = await MemberNamelessPurgeService.purgeNamelessMembersOnce(
+      seedTenantId: tid,
+    );
+    if (!mounted || removed <= 0) return;
+    _refreshMembers();
+  }
 
   String? _membersModuleBarSubtitle() {
     final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
@@ -4522,6 +4538,14 @@ class _MembersPageState extends State<MembersPage> {
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: () {
+                              final nameMsg =
+                                  memberNameValidationMessage(nameCtrl.text);
+                              if (nameMsg != null) {
+                                ScaffoldMessenger.of(ctx).showSnackBar(
+                                  ThemeCleanPremium.feedbackSnackBar(nameMsg),
+                                );
+                                return;
+                              }
                               final sel =
                                   List<String>.from(funcoesNotifier.value);
                               final funcaoSalvar =
@@ -4587,6 +4611,18 @@ class _MembersPageState extends State<MembersPage> {
     if (dialogResult == null || dialogResult is! Map) return;
     final result = Map<String, dynamic>.from(dialogResult as Map);
     if (result['saved'] != true) return;
+
+    final nameToSave =
+        (result['name'] ?? '').toString().trim();
+    final nameErr = memberNameValidationMessage(nameToSave);
+    if (nameErr != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(nameErr),
+        );
+      }
+      return;
+    }
 
     _applyOptimisticMemberEditOverlay(
         member.id, Map<String, dynamic>.from(result));

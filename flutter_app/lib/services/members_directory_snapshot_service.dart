@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -75,7 +76,7 @@ class MemberDirectoryEntry {
 
     return MemberDirectoryEntry(
       memberDocId: (raw['memberDocId'] ?? '').toString(),
-      displayName: (raw['displayName'] ?? 'Membro').toString(),
+      displayName: memberDisplayNameFromData(raw),
       photoUrl: photo.isEmpty ? null : photo,
       photoThumbUrl: thumb.isEmpty ? null : thumb,
       fotoUrlCacheRevision: n(raw['fotoUrlCacheRevision']),
@@ -543,7 +544,9 @@ class MembersDirectorySnapshotService {
       return const MergedFirestoreQuerySnapshot([]);
     }
     final baseRef = ChurchOperationalPaths.churchDoc(tid);
-    final docs = snap.entries.map((e) {
+    final docs = snap.entries
+        .where((e) => isRealMemberDisplayName(e.displayName))
+        .map((e) {
       final id = e.memberDocId.trim().isNotEmpty ? e.memberDocId.trim() : 'dir_${e.displayName.hashCode}';
       return _DirectoryMemberQueryDocumentSnapshot(
         reference: baseRef.collection('membros').doc(id),

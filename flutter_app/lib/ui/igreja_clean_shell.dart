@@ -13,7 +13,6 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
-import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
@@ -26,6 +25,7 @@ import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
+import 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
 import 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
@@ -65,7 +65,6 @@ import 'pages/configuracoes_page.dart';
 import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
-import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'pages/church_donations_page.dart';
 import '../services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
@@ -208,8 +207,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       AppPermissions.canPurchaseChurchLicense(_panelRole);
 
   /// Android/Web: botão «Alterar plano». iOS Reader: oculto (Apple 3.1.1).
-  bool get _showUpgradePlanUi =>
-      _canPurchaseLicense && !IosPaymentsGate.hideInAppPlanPurchaseUi;
+  bool get _showUpgradePlanUi => _canPurchaseLicense;
 
   void _syncPanelRoleFromChurch(Map<String, dynamic>? churchData) {
     final user = firebaseDefaultAuth.currentUser;
@@ -302,10 +300,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           behavior: SnackBarBehavior.floating,
         ),
       );
-      return;
-    }
-    // iOS Reader: sem checkout nem link de vendas no app.
-    if (IosPaymentsGate.hideInAppPlanPurchaseUi) {
       return;
     }
     unawaited(ExpressRenewBootstrap.instance.warmUp());
@@ -1439,6 +1433,108 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
+  /// Rótulo único Android / Web / iOS.
+  static const String _acquirePlanCtaLabel = 'Adquirir Plano';
+
+  /// CTA «Adquirir Plano» no menu lateral (topo — desktop e drawer mobile).
+  Widget _buildAcquirePlanSidebarButton({
+    required bool compact,
+    VoidCallback? onBeforeTap,
+    EdgeInsetsGeometry padding = EdgeInsets.zero,
+  }) {
+    if (!_showUpgradePlanUi) return const SizedBox.shrink();
+
+    final label = _acquirePlanCtaLabel;
+    void onTap() {
+      onBeforeTap?.call();
+      unawaited(_openUpgradePlans());
+    }
+
+    final Widget button;
+    if (compact) {
+      button = Tooltip(
+        message: label,
+        waitDuration: const Duration(milliseconds: 400),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius:
+                BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: const Icon(
+                Icons.add_card_rounded,
+                size: 22,
+                color: ThemeCleanPremium.navSidebarAccent,
+              ),
+            ),
+          ),
+        ),
+      );
+    } else {
+      button = Material(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              borderRadius:
+                  BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: ThemeCleanPremium.navSidebar.withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.add_card_rounded,
+                  size: 20,
+                  color: ThemeCleanPremium.navSidebarAccent,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: ThemeCleanPremium.navSidebarAccent,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (padding == EdgeInsets.zero) return button;
+    return Padding(padding: padding, child: button);
+  }
+
   Widget _buildNavTile(int i, {required bool compact}) {
     final item = _items[i];
     final selected = _selectedIndex == i;
@@ -1774,7 +1870,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         letterSpacing: 0.12,
                       ),
                     ),
-                    if (_moduleTenantId.trim().isNotEmpty)
+                    if (_moduleTenantId.trim().isNotEmpty &&
+                        DiagnosticAccessPolicy.isMasterDiagnosticRole(_panelRole))
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
@@ -1874,9 +1971,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ),
                 if (_showUpgradePlanUi)
                   IconButton(
-                    tooltip: IosPaymentsGate.shouldHidePayments
-                        ? 'Atualizar plano'
-                        : 'Planos e assinatura',
+                    tooltip: _acquirePlanCtaLabel,
                     onPressed: () => unawaited(_openUpgradePlans()),
                     // Material estável na web (subset de ícones arredondados pode falhar).
                     icon: const Icon(Icons.emoji_events_rounded,
@@ -1891,9 +1986,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       color: Colors.white, size: 22),
                   onPressed: () => unawaited(_openUpgradePlans()),
                   style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                  tooltip: IosPaymentsGate.shouldHidePayments
-                      ? 'Atualizar plano'
-                      : 'Planos',
+                  tooltip: _acquirePlanCtaLabel,
                 ),
               IconButton(
                 tooltip: 'Sair',
@@ -2167,6 +2260,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ],
             ),
           SizedBox(height: compact ? 8 : ThemeCleanPremium.spaceMd),
+          _buildAcquirePlanSidebarButton(
+            compact: compact,
+            padding: EdgeInsets.fromLTRB(
+              compact ? 6 : ThemeCleanPremium.spaceSm,
+              0,
+              compact ? 6 : ThemeCleanPremium.spaceSm,
+              ThemeCleanPremium.spaceSm,
+            ),
+          ),
           Expanded(
             child: ListView(
               padding: EdgeInsets.symmetric(
@@ -2190,101 +2292,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ],
               ],
             ),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-                compact ? 6 : ThemeCleanPremium.spaceSm,
-                ThemeCleanPremium.spaceSm,
-                compact ? 6 : ThemeCleanPremium.spaceSm,
-                ThemeCleanPremium.spaceMd),
-            child: _showUpgradePlanUi
-                ? (compact
-                    ? Tooltip(
-                        message: IosPaymentsGate.shouldHidePayments
-                            ? 'Atualizar plano'
-                            : 'Adquirir plano',
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () => unawaited(_openUpgradePlans()),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusMd),
-                            child: Container(
-                              width: double.infinity,
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusMd),
-                                gradient: const LinearGradient(
-                                  colors: [
-                                    Color(0xFF0A3D91),
-                                    Color(0xFF1565C0)
-                                  ],
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                ),
-                              ),
-                              child: const Icon(Icons.add_card_rounded,
-                                  size: 22,
-                                  color: ThemeCleanPremium.navSidebarAccent),
-                            ),
-                          ),
-                        ),
-                      )
-                    : Material(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
-                        child: InkWell(
-                          onTap: () => unawaited(_openUpgradePlans()),
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusMd),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
-                              gradient: const LinearGradient(
-                                colors: [
-                                  Color(0xFF0A3D91),
-                                  Color(0xFF1565C0)
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: ThemeCleanPremium.navSidebar
-                                      .withOpacity(0.35),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.add_card_rounded,
-                                    size: 20,
-                                    color: ThemeCleanPremium.navSidebarAccent),
-                                const SizedBox(width: 10),
-                                Text(
-                                  IosPaymentsGate.shouldHidePayments
-                                      ? 'Atualizar plano'
-                                      : 'Adquirir Plano',
-                                  style: const TextStyle(
-                                      color:
-                                          ThemeCleanPremium.navSidebarAccent,
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 14),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ))
-                : const SizedBox.shrink(),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
         ],
@@ -2346,80 +2353,86 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ],
                 ),
               ),
+              _buildAcquirePlanSidebarButton(
+                compact: false,
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.symmetric(
                       horizontal: ThemeCleanPremium.spaceSm, vertical: 10),
                   children: [
                     for (final section in _menuSectionsForRole(_panelRole)) ...[
-                      if (section.indices.any(_shouldListNavIndex))
+                      if (section.indices.any(_shouldListNavIndex)) ...[
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child: _sidebarSectionLabel(section.title),
                         ),
-                      for (final i in section.indices)
-                        if (_shouldListNavIndex(i))
-                          Builder(
-                            builder: (context) {
-                              return MouseRegion(
-                                onEnter: (_) => _prefetchShellModuleData(i),
-                                child: ListTile(
-                                  key: ValueKey('drawer_$i'),
-                                  leading: _navMenuIconChip(
-                                    i,
-                                    _selectedIndex == i,
-                                  ),
-                                  title: Text(
-                                    _items[i].label,
-                                    style: GoogleFonts.inter(
-                                      color: Colors.white.withValues(
-                                        alpha: _selectedIndex == i ? 1.0 : 0.85,
-                                      ),
-                                      fontWeight: _selectedIndex == i
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                      fontSize: _isPhone ? 15 : 13.5,
-                                      letterSpacing: -0.2,
+                        for (final i in section.indices)
+                          if (_shouldListNavIndex(i))
+                            Builder(
+                              builder: (context) {
+                                return MouseRegion(
+                                  onEnter: (_) => _prefetchShellModuleData(i),
+                                  child: ListTile(
+                                    key: ValueKey('drawer_$i'),
+                                    leading: _navMenuIconChip(
+                                      i,
+                                      _selectedIndex == i,
                                     ),
-                                  ),
-                                  subtitle: _items[i].subtitle.isNotEmpty
-                                      ? Text(
-                                          _items[i].subtitle,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: GoogleFonts.inter(
-                                            color: Colors.white.withValues(
-                                              alpha: _selectedIndex == i
-                                                  ? 0.72
-                                                  : 0.48,
+                                    title: Text(
+                                      _items[i].label,
+                                      style: GoogleFonts.inter(
+                                        color: Colors.white.withValues(
+                                          alpha:
+                                              _selectedIndex == i ? 1.0 : 0.85,
+                                        ),
+                                        fontWeight: _selectedIndex == i
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                        fontSize: _isPhone ? 15 : 13.5,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                    subtitle: _items[i].subtitle.isNotEmpty
+                                        ? Text(
+                                            _items[i].subtitle,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.inter(
+                                              color: Colors.white.withValues(
+                                                alpha: _selectedIndex == i
+                                                    ? 0.72
+                                                    : 0.48,
+                                              ),
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w500,
                                             ),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        )
-                                      : null,
-                                  selected: _selectedIndex == i,
-                                  selectedTileColor:
-                                      Colors.white.withValues(alpha: 0.08),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
+                                          )
+                                        : null,
+                                    selected: _selectedIndex == i,
+                                    selectedTileColor:
+                                        Colors.white.withValues(alpha: 0.08),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    minVerticalPadding: _isPhone ? 14 : 12,
+                                    onTap: () {
+                                      if (!_canAccessItem(i)) {
+                                        _showPanelSnack(
+                                          'Acesso negado para este módulo.',
+                                          isError: true,
+                                        );
+                                        return;
+                                      }
+                                      setState(() => _selectedIndex = i);
+                                      Navigator.of(context).pop();
+                                    },
                                   ),
-                                  minVerticalPadding: _isPhone ? 14 : 12,
-                                  onTap: () {
-                                    if (!_canAccessItem(i)) {
-                                      _showPanelSnack(
-                                        'Acesso negado para este módulo.',
-                                        isError: true,
-                                      );
-                                      return;
-                                    }
-                                    setState(() => _selectedIndex = i);
-                                    Navigator.of(context).pop();
-                                  },
-                                ),
-                              );
-                            },
-                          ),
+                                );
+                              },
+                            ),
+                      ],
                     ],
                   ],
                 ),
@@ -2435,61 +2448,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     onChanged: (v) => ThemeModeScope.of(context)!
                         .setMode(v ? ThemeMode.dark : ThemeMode.light),
                     activeColor: ThemeCleanPremium.navSidebarAccent,
-                  ),
-                ),
-              if (_showUpgradePlanUi)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
-                  child: Material(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        unawaited(_openUpgradePlans());
-                      },
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: ThemeCleanPremium.navSidebar
-                                  .withOpacity(0.3),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.add_card_rounded,
-                                size: 20,
-                                color: ThemeCleanPremium.navSidebarAccent),
-                            const SizedBox(width: 10),
-                            Text(
-                              IosPaymentsGate.shouldHidePayments
-                                  ? 'Atualizar plano'
-                                  : 'Adquirir Plano',
-                              style: const TextStyle(
-                                  color: ThemeCleanPremium.navSidebarAccent,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
                   ),
                 ),
             ],
@@ -2698,7 +2656,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return SistemaInformacoesPage(
             key: _shellPageKey(17),
             tenantId: _moduleTenantId,
-            embeddedInShell: true);
+            embeddedInShell: true,
+            onNavigateToShellModule: _navigateToShellModuleFromDashboard);
       case 18:
         return AprovarMembrosPendentesPage(
           key: _shellPageKey(18),
@@ -2751,13 +2710,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 22:
-        if (IosPaymentsGate.isIosNative) {
-          return IosDonationReaderView(
-            key: ValueKey('page_22_ios_donation_$_moduleTenantId'),
-            tenantId: _moduleTenantId,
-            embeddedInShell: true,
-          );
-        }
         return ChurchDonationsPage(
           key: _shellPageKey(22),
           tenantId: _moduleTenantId,

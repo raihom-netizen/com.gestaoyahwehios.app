@@ -33,6 +33,8 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_digital.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/member_department_multi_filter_field.dart';
+import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show churchTenantLogoUrl, sanitizeImageUrl;
@@ -108,6 +110,9 @@ class _MemberCardPageState extends State<MemberCardPage>
   String _churchId = '';
   String _search = '';
   String _genderFilter = 'todos';
+  String _ageFilter = 'todas';
+  final Set<String> _selectedDeptIds = {};
+  List<({String id, String name})> _departments = [];
   final Set<String> _selectedIds = {};
 
   List<_MemberRow> _members = [];
@@ -180,6 +185,7 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   Future<void> _bootstrap() async {
     unawaited(_warmTenantData());
+    unawaited(_loadDepartments());
     if (widget.cnhFullscreenOnly || _isRestricted) {
       await _loadSingleCard(
         memberId: widget.memberId,
@@ -203,6 +209,45 @@ class _MemberCardPageState extends State<MemberCardPage>
         _tenantData = Map<String, dynamic>.from(loaded.data);
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadDepartments() async {
+    try {
+      final churchId = _churchIdResolved;
+      if (churchId.isEmpty) return;
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await ChurchRepository.departamentos
+          .list(churchIdHint: churchId, limit: 80)
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      final depts = <({String id, String name})>[];
+      for (final d in snap.items) {
+        final data = d.data();
+        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
+        if (nome.isEmpty) continue;
+        depts.add((id: d.id, name: nome));
+      }
+      depts.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      setState(() => _departments = depts);
+    } catch (_) {}
+  }
+
+  void _pruneSelection() {
+    if (_selectedIds.isEmpty) return;
+    final valid = _members.map((m) => m.id).toSet();
+    _selectedIds.removeWhere((id) => !valid.contains(id));
+  }
+
+  int get _validSelectedCount {
+    final valid = _members.map((m) => m.id).toSet();
+    return _selectedIds.where(valid.contains).length;
+  }
+
+  Set<String> get _validSelectedIds {
+    final valid = _members.map((m) => m.id).toSet();
+    return _selectedIds.where(valid.contains).toSet();
   }
 
   void _rebuildSignersCache() {
@@ -306,17 +351,23 @@ class _MemberCardPageState extends State<MemberCardPage>
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       const limit = YahwehPerformanceV4.adminExportBatchLimit;
+      final dirMem =
+          MembersDirectorySnapshotService.peekMemory(_churchIdResolved);
+      final expectedTotal = dirMem?.totalCount ?? 0;
       final instant = MemberCardDirectoryService.peekMembersSync(
         _churchIdResolved,
         limit: limit,
       );
       if (instant != null && instant.isNotEmpty && mounted) {
+        final incomplete =
+            expectedTotal > 0 && instant.length < expectedTotal;
         setState(() {
           _members = _mapEntries(instant);
           _loadingMembers = false;
         });
+        _pruneSelection();
         _rebuildSignersCache();
-        if (!forceRefresh) {
+        if (!forceRefresh && !incomplete) {
           unawaited(_refreshMembersInBackground(limit: limit));
           return;
         }
@@ -331,6 +382,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         _members = _mapEntries(entries);
         _loadingMembers = false;
       });
+      _pruneSelection();
       _rebuildSignersCache();
     } catch (e) {
       if (!mounted) return;
@@ -350,6 +402,7 @@ class _MemberCardPageState extends State<MemberCardPage>
       );
       if (!mounted || entries.isEmpty) return;
       setState(() => _members = _mapEntries(entries));
+      _pruneSelection();
       _rebuildSignersCache();
     } catch (_) {}
   }
@@ -357,6 +410,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   List<_MemberRow> _mapEntries(List<MemberCardListEntry> entries) {
     return _preserveSignedOverlay(
       entries
+          .where((e) => memberDataHasValidName(e.data))
           .map(
             (e) => _MemberRow(
               id: e.id,
@@ -401,6 +455,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         .trim()
         .toLowerCase();
     return _members.where((m) {
+      if (!memberDataHasValidName(m.data)) return false;
       if (q.isNotEmpty) {
         final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '')
             .toString()
@@ -415,6 +470,14 @@ class _MemberCardPageState extends State<MemberCardPage>
         if (genderCategoryFromMemberData(m.data) != 'M') return false;
       } else if (_genderFilter == 'feminino') {
         if (genderCategoryFromMemberData(m.data) != 'F') return false;
+      }
+      if (!memberMatchesAgeBand(m.data, _ageFilter)) return false;
+      if (!memberMatchesDepartmentsFilter(
+        m.data,
+        _selectedDeptIds,
+        knownDepts: _departments,
+      )) {
+        return false;
       }
       return true;
     }).toList();
@@ -590,7 +653,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   Future<void> _exportSelectedPdf(BuildContext context) async {
     final ids = _selectedIds.isEmpty
         ? (_previewMember != null ? [_previewMember!.id] : <String>[])
-        : _selectedIds.toList();
+        : _validSelectedIds.toList();
     if (ids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
@@ -789,7 +852,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   Future<void> _signSelected(BuildContext context) async {
     final ids = _selectedIds.isEmpty
         ? (_previewMember != null ? [_previewMember!.id] : <String>[])
-        : _selectedIds.toList();
+        : _validSelectedIds.toList();
     if (ids.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
@@ -833,6 +896,44 @@ class _MemberCardPageState extends State<MemberCardPage>
     );
     if (ok != true || !context.mounted) return;
     setState(() => _signingBusy = true);
+    final progress = ValueNotifier<int>(0);
+    final totalSign = ids.length;
+    if (context.mounted) {
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('Assinando carteirinhas…'),
+              content: ValueListenableBuilder<int>(
+                valueListenable: progress,
+                builder: (_, done, __) {
+                  final pct = totalSign > 0 ? (done / totalSign * 100).round() : 0;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      LinearProgressIndicator(
+                        value: totalSign > 0 ? done / totalSign : null,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '$done de $totalSign ($pct%)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
@@ -841,6 +942,9 @@ class _MemberCardPageState extends State<MemberCardPage>
         tenantId: _churchIdResolved,
         memberIds: ids,
         signatory: signatory,
+        onProgress: (done, total) {
+          progress.value = done;
+        },
       );
       if (!mounted) return;
       if (r.ok > 0 && r.fail == 0) {
@@ -872,6 +976,10 @@ class _MemberCardPageState extends State<MemberCardPage>
         ThemeCleanPremium.feedbackSnackBar('Erro ao assinar: $e'),
       );
     } finally {
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+      }
+      progress.dispose();
       if (mounted) setState(() => _signingBusy = false);
     }
   }
@@ -1053,10 +1161,40 @@ class _MemberCardPageState extends State<MemberCardPage>
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _filterChip('Todos', 'todos', const Color(0xFF6366F1)),
-                  _filterChip('Homens', 'masculino', const Color(0xFF0EA5E9)),
-                  _filterChip('Mulheres', 'feminino', const Color(0xFFEC4899)),
+                  _filterChip('Todos', 'todos', const Color(0xFF6366F1), _genderFilter,
+                      (v) => _genderFilter = v),
+                  _filterChip('Homens', 'masculino', const Color(0xFF0EA5E9), _genderFilter,
+                      (v) => _genderFilter = v),
+                  _filterChip('Mulheres', 'feminino', const Color(0xFFEC4899), _genderFilter,
+                      (v) => _genderFilter = v),
                 ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _filterChip('Todas idades', 'todas', const Color(0xFF64748B), _ageFilter,
+                      (v) => _ageFilter = v),
+                  _filterChip('Crianças', 'criancas', const Color(0xFFF59E0B), _ageFilter,
+                      (v) => _ageFilter = v),
+                  _filterChip('Adolescentes', 'adolescentes', const Color(0xFF8B5CF6), _ageFilter,
+                      (v) => _ageFilter = v),
+                  _filterChip('Adultos', 'adultos', const Color(0xFF10B981), _ageFilter,
+                      (v) => _ageFilter = v),
+                  _filterChip('Idosos', 'idosos', const Color(0xFF78716C), _ageFilter,
+                      (v) => _ageFilter = v),
+                ],
+              ),
+              const SizedBox(height: 8),
+              MemberDepartmentMultiFilterField(
+                departments: _departments,
+                selectedIds: _selectedDeptIds,
+                onChanged: (picked) => setState(() {
+                  _selectedDeptIds
+                    ..clear()
+                    ..addAll(picked);
+                }),
               ),
               const SizedBox(height: 8),
               if (_canManage)
@@ -1086,13 +1224,13 @@ class _MemberCardPageState extends State<MemberCardPage>
                         ),
                       ),
                     ),
-                    if (_selectedIds.isNotEmpty) ...[
+                    if (_validSelectedCount > 0) ...[
                       TextButton.icon(
                         onPressed: _exportingPdf
                             ? null
                             : () => unawaited(_exportSelectedPdf(context)),
                         icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-                        label: Text('PDF (${_selectedIds.length})'),
+                        label: Text('PDF ($_validSelectedCount)'),
                       ),
                     ],
                   ],
@@ -1101,7 +1239,8 @@ class _MemberCardPageState extends State<MemberCardPage>
                 children: [
                   Text(
                     '${_filtered.length} de ${_members.length} membros'
-                        '${_selectedIds.isEmpty ? '' : ' · ${_selectedIds.length} sel.'}',
+                        '${_validSelectedCount == 0 ? '' : ' · $_validSelectedCount sel.'}'
+                        '${_selectedIds.length > _validSelectedCount ? ' (${_selectedIds.length - _validSelectedCount} inválidos)' : ''}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1130,12 +1269,18 @@ class _MemberCardPageState extends State<MemberCardPage>
     );
   }
 
-  Widget _filterChip(String label, String value, Color color) {
-    final sel = _genderFilter == value;
+  Widget _filterChip(
+    String label,
+    String value,
+    Color color,
+    String groupValue,
+    ValueChanged<String> onPick,
+  ) {
+    final sel = groupValue == value;
     return FilterChip(
       label: Text(label),
       selected: sel,
-      onSelected: (_) => setState(() => _genderFilter = value),
+      onSelected: (_) => setState(() => onPick(value)),
       selectedColor: color.withValues(alpha: 0.18),
       checkmarkColor: color,
       labelStyle: TextStyle(
@@ -1306,7 +1451,8 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   Widget _buildSignTab() {
-    final n = _selectedIds.length;
+    final n = _validSelectedCount;
+    final stale = _selectedIds.length - n;
     final pad = ThemeCleanPremium.pagePadding(context);
     return CustomScrollView(
       slivers: [
@@ -1342,7 +1488,8 @@ class _MemberCardPageState extends State<MemberCardPage>
                           Text(
                             n == 0
                                 ? 'Marque membros na lista ou abra um cartão para assinar só ele.'
-                                : '$n membro(s) selecionado(s) para assinatura.',
+                                : '$n membro(s) selecionado(s) para assinatura.'
+                                    '${stale > 0 ? ' ($stale fora da lista atual — recarregue em Membros)' : ''}',
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               height: 1.45,

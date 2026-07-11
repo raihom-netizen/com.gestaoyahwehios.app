@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
@@ -9,6 +10,8 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
 /// Fluxo único de anexo de comprovante — padrão Controle Total.
 ///
@@ -39,6 +42,10 @@ abstract final class FinanceComprovanteAttachFlow {
     if (picked == null) return false;
     if (!context.mounted) return false;
 
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+
     final label =
         jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
     GlobalUploadProgress.instance.start(label);
@@ -68,6 +75,7 @@ abstract final class FinanceComprovanteAttachFlow {
 
       report(1.0);
       if (context.mounted && !suppressSuccessSnackBar) {
+        ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',
@@ -139,6 +147,10 @@ abstract final class FinanceComprovanteAttachFlow {
     if (picked == null) return false;
     if (!context.mounted) return false;
 
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+
     final label =
         jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
     GlobalUploadProgress.instance.start(label);
@@ -163,6 +175,7 @@ abstract final class FinanceComprovanteAttachFlow {
 
       report(1.0);
       if (context.mounted && !suppressSuccessSnackBar) {
+        ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             jaTem ? 'Comprovante actualizado.' : 'Comprovante anexado.',

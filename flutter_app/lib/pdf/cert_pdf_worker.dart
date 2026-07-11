@@ -93,6 +93,9 @@ class CertPdfPipelineParams {
   /// Cargo exibido junto à assinatura institucional.
   final String institutionalPastorCargo;
 
+  /// CNPJ/CPF da igreja para a coluna esquerda do selo (padrão Cartas).
+  final String churchTaxIdDigits;
+
   const CertPdfPipelineParams({
     required this.tenantId,
     required this.logoFetchCandidates,
@@ -121,6 +124,7 @@ class CertPdfPipelineParams {
     this.includeInstitutionalPastorSignature = true,
     this.institutionalPastorNome = '',
     this.institutionalPastorCargo = 'Pastor(a) Presidente',
+    this.churchTaxIdDigits = '',
   });
 }
 
@@ -383,7 +387,7 @@ Future<void> warmCertificatePdfAssets({
       nomeIgreja: nomeIgreja,
     ),
   ];
-  if (useDigitalSignature) {
+  if (!useDigitalSignature) {
     if (includeInstitutionalPastorSignature) {
       jobs.add(_fetchInstitutionalPastorSignatureBytes(tid).then((_) {}));
     }
@@ -848,7 +852,9 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   await _primeCertPdfWebStorageAuth();
 
   final fontsFuture = _ensureAllCertPdfFonts();
-  final enhanceModeFuture = _resolveTenantSignatureEnhanceMode(p.tenantId);
+  final enhanceModeFuture = p.useDigitalSignature
+      ? Future<String>.value(kSignatureEnhanceModeUltra)
+      : _resolveTenantSignatureEnhanceMode(p.tenantId);
 
   final tpl = certificateVisualTemplateById(p.visualTemplateId.trim()) ??
       kCertificateVisualTemplates.first;
@@ -857,7 +863,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     storageStem: tpl.storageStem,
   );
   final instSigFuture = p.includeInstitutionalPastorSignature &&
-          p.useDigitalSignature
+          !p.useDigitalSignature
       ? _fetchInstitutionalPastorSignatureBytes(p.tenantId)
       : Future<Uint8List?>.value(null);
 
@@ -901,7 +907,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         }
         return raw.trim();
       }));
-      final firstBatch = refreshedUrls.take(5).toList();
+      final firstBatch = refreshedUrls.take(kIsWeb ? 2 : 5).toList();
       final batchBytes =
           await Future.wait(firstBatch.map(_fetchLogoBytesHighRes));
       for (final bytes in batchBytes) {
@@ -948,7 +954,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   final logoFuture = fetchFirstLogoBytes();
 
   final Future<List<Uint8List?>> sigPackFuture;
-  if (p.useDigitalSignature && p.signatoriesForPdf.isNotEmpty) {
+  if (!p.useDigitalSignature && p.signatoriesForPdf.isNotEmpty) {
     sigPackFuture = Future.wait(
       p.signatoriesForPdf
           .map(
@@ -975,23 +981,30 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   final packedFutures = <Future<Object?>>[
     logoFuture,
     bgFuture,
-    instSigFuture,
-    sigPackFuture,
+    if (!p.useDigitalSignature) instSigFuture,
+    if (!p.useDigitalSignature) sigPackFuture,
   ];
   if (!allFontsCached) {
     packedFutures.insert(0, fontsFuture.then((_) => null));
   }
   final packed = await Future.wait<Object?>(packedFutures).timeout(
-    const Duration(seconds: 45),
+    Duration(seconds: p.useDigitalSignature && kIsWeb ? 28 : 45),
     onTimeout: () => throw TimeoutException(
-      'O carregamento de logo ou assinaturas excedeu o tempo limite. '
-      'Verifique a rede e tente novamente.',
+      p.useDigitalSignature
+          ? 'O carregamento de logo ou fundo excedeu o tempo limite. '
+              'Verifique a rede e tente novamente.'
+          : 'O carregamento de logo ou assinaturas excedeu o tempo limite. '
+              'Verifique a rede e tente novamente.',
     ),
   );
   final logoRaw = packed[allFontsCached ? 0 : 1] as Uint8List?;
   final bgRaw = packed[allFontsCached ? 1 : 2] as Uint8List?;
-  final instSigRaw = packed[allFontsCached ? 2 : 3] as Uint8List?;
-  final sigRaw = packed[allFontsCached ? 3 : 4] as List<Uint8List?>;
+  final instSigRaw = p.useDigitalSignature
+      ? null
+      : packed[allFontsCached ? 2 : 3] as Uint8List?;
+  final sigRaw = p.useDigitalSignature
+      ? List<Uint8List?>.filled(p.signatoriesForPdf.length, null)
+      : packed[allFontsCached ? 3 : 4] as List<Uint8List?>;
 
   report('Processando certificado 1 de 1 — otimizando fotos…', 0.38);
 
@@ -1000,6 +1013,9 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
 
   final logoOptFuture = () {
     if (logoRaw == null) return Future<Uint8List?>.value(null);
+    if (p.useDigitalSignature && kIsWeb && logoRaw.length <= 1200 * 1024) {
+      return Future<Uint8List?>.value(logoRaw);
+    }
     final baseKey = logoUrls.isNotEmpty ? logoUrls.first : p.logoUrlFallback;
     final logoCacheKey =
         baseKey.isNotEmpty ? '$baseKey|certLogoHiResAlpha' : '';
@@ -1013,35 +1029,41 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     });
   }();
   final sigOptFutures = <Future<Uint8List?>>[];
-  final signatureEnhanceMode = await enhanceModeFuture;
-  for (var i = 0; i < sigRaw.length; i++) {
-    final b = sigRaw[i];
-    if (b == null) {
-      sigOptFutures.add(Future<Uint8List?>.value(null));
-      continue;
+  if (!p.useDigitalSignature) {
+    final signatureEnhanceMode = await enhanceModeFuture;
+    for (var i = 0; i < sigRaw.length; i++) {
+      final b = sigRaw[i];
+      if (b == null) {
+        sigOptFutures.add(Future<Uint8List?>.value(null));
+        continue;
+      }
+      final signer =
+          i < p.signatoriesForPdf.length ? p.signatoriesForPdf[i] : null;
+      final signCacheKey = signer == null
+          ? 'sig_$i'
+          : '${p.tenantId}|${signer.memberId}|${sanitizeImageUrl(signer.assinaturaUrlHint ?? '')}';
+      if (_signatureOptimizedBytesCache.containsKey(signCacheKey)) {
+        sigOptFutures.add(
+            Future<Uint8List?>.value(_signatureOptimizedBytesCache[signCacheKey]));
+        continue;
+      }
+      sigOptFutures.add(
+        _signatureBytesFloatingPipeline(
+          b,
+          signCacheKey,
+          sigMaxW,
+          sigMaxH,
+          signatureEnhanceMode,
+        ),
+      );
     }
-    final signer = i < p.signatoriesForPdf.length ? p.signatoriesForPdf[i] : null;
-    final signCacheKey = signer == null
-        ? 'sig_$i'
-        : '${p.tenantId}|${signer.memberId}|${sanitizeImageUrl(signer.assinaturaUrlHint ?? '')}';
-    if (_signatureOptimizedBytesCache.containsKey(signCacheKey)) {
-      sigOptFutures
-          .add(Future<Uint8List?>.value(_signatureOptimizedBytesCache[signCacheKey]));
-      continue;
-    }
-    sigOptFutures.add(
-      _signatureBytesFloatingPipeline(
-        b,
-        signCacheKey,
-        sigMaxW,
-        sigMaxH,
-        signatureEnhanceMode,
-      ),
-    );
   }
 
   final bgOptFuture = () async {
     if (bgRaw == null || bgRaw.length <= 64) return null;
+    if (p.useDigitalSignature && kIsWeb) {
+      return bgRaw;
+    }
     final bgOptKey =
         '${p.tenantId.trim()}|${tpl.storageStem.trim()}|pdfOptV1';
     if (_certificateBackgroundOptimizedCache.containsKey(bgOptKey)) {
@@ -1055,37 +1077,40 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     return bgOpt;
   }();
 
-  final instSigOptFuture = () async {
-    if (instSigRaw == null || instSigRaw.length <= 32) return null;
-    final tidOpt = p.tenantId.trim();
-    if (tidOpt.isNotEmpty &&
-        _institutionalPastorSigOptCache.containsKey(tidOpt)) {
-      return _institutionalPastorSigOptCache[tidOpt];
-    }
-    Uint8List? instSigOpt;
-    try {
-      final mode = normalizeSignatureEnhanceMode(signatureEnhanceMode);
-      final piped = kIsWeb
-          ? carteirinhaPdfSignaturePipelineSync(instSigRaw, mode: mode)
-          : await compute(
-              mode == kSignatureEnhanceModeNormal
-                  ? carteirinhaPdfSignaturePipelineNormalForCompute
-                  : carteirinhaPdfSignaturePipelineForCompute,
-              instSigRaw,
-            );
-      if (piped != null && piped.length > 32) {
-        instSigOpt = piped;
-      }
-    } catch (_) {}
-    instSigOpt ??= await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
-    if (instSigOpt == null || instSigOpt.length <= 32) {
-      instSigOpt = instSigRaw;
-    }
-    if (tidOpt.isNotEmpty) {
-      _institutionalPastorSigOptCache[tidOpt] = instSigOpt;
-    }
-    return instSigOpt;
-  }();
+  final instSigOptFuture = p.useDigitalSignature
+      ? Future<Uint8List?>.value(null)
+      : () async {
+          if (instSigRaw == null || instSigRaw.length <= 32) return null;
+          final tidOpt = p.tenantId.trim();
+          if (tidOpt.isNotEmpty &&
+              _institutionalPastorSigOptCache.containsKey(tidOpt)) {
+            return _institutionalPastorSigOptCache[tidOpt];
+          }
+          Uint8List? instSigOpt;
+          try {
+            final signatureEnhanceMode = await enhanceModeFuture;
+            final mode = normalizeSignatureEnhanceMode(signatureEnhanceMode);
+            final piped = kIsWeb
+                ? carteirinhaPdfSignaturePipelineSync(instSigRaw, mode: mode)
+                : await compute(
+                    mode == kSignatureEnhanceModeNormal
+                        ? carteirinhaPdfSignaturePipelineNormalForCompute
+                        : carteirinhaPdfSignaturePipelineForCompute,
+                    instSigRaw,
+                  );
+            if (piped != null && piped.length > 32) {
+              instSigOpt = piped;
+            }
+          } catch (_) {}
+          instSigOpt ??= await _optimizeImageForPdf(instSigRaw, sigMaxW, sigMaxH);
+          if (instSigOpt == null || instSigOpt.length <= 32) {
+            instSigOpt = instSigRaw;
+          }
+          if (tidOpt.isNotEmpty) {
+            _institutionalPastorSigOptCache[tidOpt] = instSigOpt;
+          }
+          return instSigOpt;
+        }();
 
   // Logo, assinaturas, fundo e assinatura institucional em paralelo (CPU/isolate).
   final optPacked = await Future.wait<Object?>([
@@ -1114,7 +1139,8 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
   report('Processando certificado 1 de 1 — montando página…', 0.62);
 
   Uint8List? effectiveSignatureBytesForIndex(int i) {
-    if (!p.useDigitalSignature || i >= sigOpt.length) return null;
+    if (p.useDigitalSignature) return null;
+    if (i >= sigOpt.length) return null;
     final o = sigOpt[i];
     if (o != null && o.length > 32) return o;
     if (i < sigRaw.length) {
@@ -1133,10 +1159,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         cpfDigits: p.signatoriesForPdf[i].cpfDigits,
       ),
   ];
-  if (p.includeInstitutionalPastorSignature &&
-      p.useDigitalSignature &&
-      instSigOpt != null &&
-      instSigOpt.length > 32) {
+  if (p.includeInstitutionalPastorSignature) {
     var nomeInst = p.institutionalPastorNome.trim();
     if (nomeInst.isEmpty) {
       nomeInst = p.pastorManual.trim();
@@ -1144,16 +1167,27 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
     if (nomeInst.isEmpty) {
       nomeInst = 'Assinatura institucional';
     }
-    pdfSignatories.add(
-      CertSignatoryPdfData(
-        nome: nomeInst,
-        cargo: p.institutionalPastorCargo.trim().isEmpty
-            ? 'Assinatura institucional'
-            : p.institutionalPastorCargo.trim(),
-        signatureImageBytes: instSigOpt,
-        cpfDigits: '',
-      ),
-    );
+    final cargoInst = p.institutionalPastorCargo.trim().isEmpty
+        ? 'Assinatura institucional'
+        : p.institutionalPastorCargo.trim();
+    if (p.useDigitalSignature) {
+      pdfSignatories.add(
+        CertSignatoryPdfData(
+          nome: nomeInst,
+          cargo: cargoInst,
+          cpfDigits: '',
+        ),
+      );
+    } else if (instSigOpt != null && instSigOpt.length > 32) {
+      pdfSignatories.add(
+        CertSignatoryPdfData(
+          nome: nomeInst,
+          cargo: cargoInst,
+          signatureImageBytes: instSigOpt,
+          cpfDigits: '',
+        ),
+      );
+    }
   }
 
   return CertPdfResolvedShared(
@@ -1237,6 +1271,7 @@ Future<Uint8List> runCertificatePdfPipeline(
     useLuxuryPdfFonts: true,
     useDigitalSignatureStamp: p.useDigitalSignature,
     digitalSignatureDadosLine: p.digitalSignatureDadosLine.trim(),
+    churchTaxIdDigits: p.churchTaxIdDigits,
   );
 
   report('Processando certificado 1 de 1 — compactando PDF…', 0.88);
@@ -1318,6 +1353,7 @@ Future<Uint8List> runCertificateGalaLuxoBatchPdfPipeline({
       useLuxuryPdfFonts: true,
       useDigitalSignatureStamp: shared.useDigitalSignature,
       digitalSignatureDadosLine: shared.digitalSignatureDadosLine.trim(),
+      churchTaxIdDigits: shared.churchTaxIdDigits,
     );
     maps.add(certificatePdfInputToMap(input));
   }

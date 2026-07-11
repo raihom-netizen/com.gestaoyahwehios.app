@@ -415,12 +415,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   static const Color _wisdomAccent = Color(0xFF0891B2);
 
-  String get _escalasFirestorePath =>
-      ChurchPanelTenant.firestoreRootPath(_churchId);
-
-  String get _escalasStoragePath =>
-      ChurchPanelTenant.storageRootPath(_churchId);
-
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
@@ -602,107 +596,107 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       });
     }
     _startWebLoadingCap();
+    var templates = _templatesDocs;
+    var instances = _instancesDocs;
+    Object? templatesErr;
+    Object? instancesErr;
+
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      // Escalas + modelos primeiro (departamentos não bloqueiam — evita timeout triplo).
-      final results = await Future.wait<Object>([
-        _fetchTemplates(
-          churchId,
-          forceServer: forceFresh,
-          forceRefresh: forceFresh,
-        ),
-        _fetchEscalas(
-          churchId,
-          forceServer: forceFresh,
-          forceRefresh: forceFresh,
-        ),
-      ]).timeout(PanelResilientLoad.queryCap);
-      if (!mounted) return;
-      final templates =
-          (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
-      final instances =
-          (results[1] as QuerySnapshot<Map<String, dynamic>>).docs;
-      _SchedulesPageRamCache.put(
+      final snap = await _fetchTemplates(
         churchId,
-        templates: templates,
-        instances: instances,
-        depts: _deptsItems,
+        forceServer: forceFresh,
+        forceRefresh: forceFresh,
       );
-      final tplUi = PanelResilientLoad.afterFetch(
-        hadLocalData: hadTemplates,
-        newItems: templates,
-        fromCache: !forceFresh,
-        forceFresh: forceFresh,
-      );
-      final instUi = PanelResilientLoad.afterFetch(
-        hadLocalData: hadInstances,
-        newItems: instances,
-        fromCache: !forceFresh,
-        forceFresh: forceFresh,
-      );
-      setState(() {
-        _templatesDocs = templates;
-        _instancesDocs = instances;
-        _templatesFetching = tplUi.fetching;
-        _instancesFetching = instUi.fetching;
-        _syncLegacyFutures();
-        if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
-          _tab.animateTo(1);
-        }
-      });
-      _refreshEscalasFullInBackground(churchId);
-      unawaited(
-        _loadDepartmentsForTenant(churchId).then((depts) {
-          if (!mounted) return;
-          setState(() {
-            _deptsItems = depts;
-            _deptsFetching = false;
-            _deptsFuture = Future.value(depts);
-          });
-          _SchedulesPageRamCache.put(
-            churchId,
-            templates: _templatesDocs,
-            instances: _instancesDocs,
-            depts: depts,
-          );
-        }).catchError((_) {
-          if (mounted) setState(() => _deptsFetching = false);
-        }),
-      );
+      templates = snap.docs;
     } catch (e) {
-      if (!mounted) return;
-      final msg = formatFirebaseErrorForUser(e, logToCrashlytics: false);
-      final tplUi = PanelResilientLoad.afterError(
-        hadLocalData: hadTemplates,
-        error: e,
-      );
-      final instUi = PanelResilientLoad.afterError(
-        hadLocalData: hadInstances,
-        error: e,
-      );
-      setState(() {
-        _templatesFetching = tplUi.fetching;
-        _instancesFetching = instUi.fetching;
-        _deptsFetching = false;
-        if (_templatesDocs.isEmpty) {
-          _templatesLoadHint ??= msg;
-        }
-        if (_instancesDocs.isEmpty) {
-          _instancesLoadHint ??= msg;
-        }
-        _syncLegacyFutures();
-      });
-    } finally {
-      _webLoadCap?.cancel();
-      if (mounted) {
-        setState(() {
-          _templatesFetching = false;
-          _instancesFetching = false;
-        });
-      }
+      templatesErr = e;
     }
+
+    try {
+      final snap = await _fetchEscalas(
+        churchId,
+        forceServer: forceFresh,
+        forceRefresh: forceFresh,
+      );
+      instances = snap.docs;
+    } catch (e) {
+      instancesErr = e;
+    }
+
+    if (!mounted) return;
+
+    _SchedulesPageRamCache.put(
+      churchId,
+      templates: templates,
+      instances: instances,
+      depts: _deptsItems,
+    );
+    final tplUi = templatesErr != null
+        ? PanelResilientLoad.afterError(
+            hadLocalData: hadTemplates,
+            error: templatesErr,
+          )
+        : PanelResilientLoad.afterFetch(
+            hadLocalData: hadTemplates,
+            newItems: templates,
+            fromCache: !forceFresh,
+            forceFresh: forceFresh,
+          );
+    final instUi = instancesErr != null
+        ? PanelResilientLoad.afterError(
+            hadLocalData: hadInstances,
+            error: instancesErr,
+          )
+        : PanelResilientLoad.afterFetch(
+            hadLocalData: hadInstances,
+            newItems: instances,
+            fromCache: !forceFresh,
+            forceFresh: forceFresh,
+          );
+    setState(() {
+      _templatesDocs = templates;
+      _instancesDocs = instances;
+      _templatesFetching = tplUi.fetching;
+      _instancesFetching = instUi.fetching;
+      if (templates.isNotEmpty) _templatesLoadHint = null;
+      if (instances.isNotEmpty) _instancesLoadHint = null;
+      if (_templatesDocs.isEmpty && templatesErr != null) {
+        _templatesLoadHint ??= formatFirebaseErrorForUser(
+          templatesErr,
+          logToCrashlytics: false,
+        );
+      }
+      if (_instancesDocs.isEmpty && instancesErr != null) {
+        _instancesLoadHint ??= formatFirebaseErrorForUser(
+          instancesErr,
+          logToCrashlytics: false,
+        );
+      }
+      _syncLegacyFutures();
+      if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
+        _tab.animateTo(1);
+      }
+    });
+    _refreshEscalasFullInBackground(churchId);
+    unawaited(
+      _loadDepartmentsForTenant(churchId).then((depts) {
+        if (!mounted) return;
+        setState(() {
+          _deptsItems = depts;
+          _deptsFetching = false;
+          _deptsFuture = Future.value(depts);
+        });
+        _SchedulesPageRamCache.put(
+          churchId,
+          templates: _templatesDocs,
+          instances: _instancesDocs,
+          depts: depts,
+        );
+      }).catchError((_) {
+        if (mounted) setState(() => _deptsFetching = false);
+      }),
+    );
+    _webLoadCap?.cancel();
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
@@ -1565,6 +1559,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId);
     _tab = TabController(length: 3, vsync: this);
     _seedSchedulesPanel();
+    if (kIsWeb) {
+      unawaited(FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}));
+    }
     unawaited(_fetchSchedulesPanel());
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
     _effectiveTidFuture.then((tid) async {
@@ -2518,20 +2515,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Firestore: $_escalasFirestorePath/escalas · '
-                              'escala_templates · escala_trocas',
+                              'Crie modelos por departamento e gere as escalas da igreja.',
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
-                                height: 1.3,
-                              ),
-                            ),
-                            Text(
-                              'Storage: $_escalasStoragePath (metadados no Firestore)',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
-                                height: 1.3,
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
                               ),
                             ),
                           ],

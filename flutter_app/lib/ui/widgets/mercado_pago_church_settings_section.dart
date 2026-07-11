@@ -245,7 +245,7 @@ class _MercadoPagoChurchSettingsSectionState
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Módulo Doação aberto — gere PIX ou cartão (Android e web).',
+          'Módulo Doação aberto — gere PIX ou cartão no painel.',
         ),
         behavior: SnackBarBehavior.floating,
       ),

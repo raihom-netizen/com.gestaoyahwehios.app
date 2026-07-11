@@ -61,6 +61,7 @@ import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -75,6 +76,7 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -356,12 +358,15 @@ DateTime? _dataAquisicaoFromPatrimonioMap(Map<String, dynamic> m) {
 
 Future<({
   String signerName,
+  String signerCargo,
   Uint8List? signerSignatureBytes,
   bool showDigitalSignature,
+  bool reserveManualSignatureSpace,
   PdfDigitalStampInput? digitalStamp,
 })?> _pickPatrimonioPdfSigner(
   BuildContext context, {
   required String tenantId,
+  String sheetTitle = 'Assinatura do relatório de patrimônio',
 }) async {
   final signers = await ChurchSignatoryLoadService.loadEligible(
     seedTenantId: tenantId,
@@ -370,47 +375,11 @@ Future<({
 
   final picked = await showChurchSignatoryPickerSheet(
     context,
-    title: 'Assinatura do relatório de patrimônio',
+    title: sheetTitle,
     tenantId: tenantId,
     signers: signers,
   );
   if (picked == null || !context.mounted) return null;
-
-  var useDigital = false;
-  final useDigitalConfirmed = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        'Assinatura digital',
-        style: TextStyle(fontWeight: FontWeight.w800),
-      ),
-      content: StatefulBuilder(
-        builder: (ctx, setDlg) => SwitchListTile.adaptive(
-          value: useDigital,
-          onChanged: (v) => setDlg(() => useDigital = v),
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: const Text('Carregar selo de assinatura digital'),
-          subtitle: Text(
-            '${picked.nome} — certificado digital (igreja + assinante)',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Continuar'),
-        ),
-      ],
-    ),
-  );
-  if (useDigitalConfirmed != true || !context.mounted) return null;
 
   Map<String, dynamic> churchData = {};
   try {
@@ -418,21 +387,24 @@ Future<({
     churchData = snap.data() ?? {};
   } catch (_) {}
 
-  PdfDigitalStampInput? digitalStamp;
-  if (useDigital) {
-    digitalStamp = PdfDigitalStampInput.now(
-      signerName: picked.nome,
-      signerCpfDigits: picked.cpfDigits,
-      churchName: brandingChurchNameFromPatrimonio(churchData, tenantId),
-      churchData: churchData,
-    );
-  }
+  final churchName = brandingChurchNameFromPatrimonio(churchData, tenantId);
+
+  final cfg = await showChurchDocumentSignatureModeSheet(
+    context,
+    signer: picked,
+    churchName: churchName,
+    churchData: churchData,
+    title: sheetTitle,
+  );
+  if (cfg == null || !context.mounted) return null;
 
   return (
-    signerName: picked.nome,
+    signerName: cfg.signer.nome,
+    signerCargo: cfg.signer.cargo,
     signerSignatureBytes: null,
-    showDigitalSignature: useDigital,
-    digitalStamp: digitalStamp,
+    showDigitalSignature: cfg.useDigital,
+    reserveManualSignatureSpace: !cfg.useDigital,
+    digitalStamp: cfg.digitalStamp,
   );
 }
 
@@ -455,7 +427,11 @@ Future<void> _exportPatrimonioRelatorioPdf({
   List<String> filterSummaryLines = const [],
   String filename = 'patrimonio_relatorio.pdf',
 }) async {
-  final signerCfg = await _pickPatrimonioPdfSigner(context, tenantId: tenantId);
+  final signerCfg = await _pickPatrimonioPdfSigner(
+    context,
+    tenantId: tenantId,
+    sheetTitle: 'Assinatura do relatório de patrimônio',
+  );
   if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
@@ -526,6 +502,8 @@ Future<void> _exportPatrimonioRelatorioPdf({
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
           digitalStamp: signerCfg.digitalStamp,
+          lineSpaceBeforeBarPt:
+              signerCfg.reserveManualSignatureSpace ? 36 : 22,
         ),
       ],
     ),
@@ -543,7 +521,11 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
   required Map<String, dynamic> data,
   required String Function(String?) statusLabel,
 }) async {
-  final signerCfg = await _pickPatrimonioPdfSigner(context, tenantId: tenantId);
+  final signerCfg = await _pickPatrimonioPdfSigner(
+    context,
+    tenantId: tenantId,
+    sheetTitle: 'Assinatura do inventário',
+  );
   if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
@@ -629,10 +611,16 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
         pw.SizedBox(height: 20),
         PdfSuperPremiumTheme.reportPastoralSignatureBox(
           accent: branding.accent,
+          sectionTitle: 'Validação pastoral',
+          label: signerCfg.signerCargo.trim().isNotEmpty
+              ? '${signerCfg.signerName.trim()} — ${signerCfg.signerCargo.trim()}'
+              : 'Assinatura do pastor responsável',
           signerName: signerCfg.signerName,
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
           digitalStamp: signerCfg.digitalStamp,
+          lineSpaceBeforeBarPt:
+              signerCfg.reserveManualSignatureSpace ? 36 : 22,
         ),
       ],
     ),
@@ -4232,8 +4220,13 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final valor = m['valor'];
     final cor = catColor(categoria);
     final stColor = statusColor(status);
+    final churchId =
+        (m['churchId'] ?? m['tenantId'] ?? '').toString().trim();
+    final pendingThumb = churchId.isNotEmpty
+        ? PatrimonioPendingPhotosCache.firstThumb(churchId, doc.id)
+        : null;
     final slots = _patrimonioCarouselSlotsFromData(m);
-    final hasPhoto = slots.urls.isNotEmpty;
+    final hasPhoto = pendingThumb != null || slots.urls.isNotEmpty;
     final thumb = _patrimonioThumbFromSlots(
       slots.urls,
       slots.paths,
@@ -4319,7 +4312,15 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    hasPhoto
+                    pendingThumb != null
+                        ? Image.memory(
+                            pendingThumb,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: thumbH,
+                            gaplessPlayback: true,
+                          )
+                        : hasPhoto
                         ? FotoPatrimonioWidget(
                             key: ValueKey('gal_${doc.id}'),
                             storagePath: thumbPath,
@@ -8443,6 +8444,61 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
+      if (uploadsBySlot.isNotEmpty) {
+        PatrimonioPendingPhotosCache.set(tenantId, itemId, uploadsBySlot);
+        final corePayload = buildCorePayload();
+        try {
+          await PatrimonioSaveService.saveMetadataFirst(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: corePayload,
+            isNewDoc: wasNew,
+            indexedSlotUrls: indexedSlotUrls,
+            indexedSlotPaths: indexedSlotPaths,
+          );
+        } catch (e) {
+          PatrimonioPendingPhotosCache.clear(tenantId, itemId);
+          rethrow;
+        }
+        YahwehFlowLog.patrimonioSuccess();
+        if (!mounted) return;
+        final savedPayload = Map<String, dynamic>.from(corePayload);
+        PatrimonioPhotoFields.applyIndexedSlots(
+          savedPayload,
+          indexedSlotUrls,
+          indexedSlotPaths,
+        );
+        navigator.pop(<String, dynamic>{
+          'ok': true,
+          'itemId': itemId,
+          'payload': savedPayload,
+          'photosPending': true,
+        });
+        messenger.showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            wasNew
+                ? 'Patrimônio cadastrado — fotos a enviar em segundo plano.'
+                : 'Patrimônio atualizado — fotos a enviar em segundo plano.',
+          ),
+        );
+        unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+        unawaited(
+          PatrimonioSaveService.uploadPhotosInBackground(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: corePayload,
+            isNewDoc: wasNew,
+            uploadsBySlot: uploadsBySlot,
+            indexedSlotUrls: indexedSlotUrls,
+            indexedSlotPaths: indexedSlotPaths,
+          ).whenComplete(() {
+            PatrimonioPendingPhotosCache.clear(tenantId, itemId);
+            unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+          }),
+        );
+        return;
+      }
+
       GlobalUploadProgress.instance.start('A enviar fotos do bem…');
       try {
         final corePayload = buildCorePayload();
@@ -8469,6 +8525,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
       YahwehFlowLog.patrimonioSuccess();
       if (!mounted) return;
+      PatrimonioPendingPhotosCache.clear(tenantId, itemId);
 
       final savedPayload = buildCorePayload();
       PatrimonioPhotoFields.applyIndexedSlots(

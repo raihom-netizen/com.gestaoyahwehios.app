@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -33,8 +34,11 @@ String _scheduleAddrKey(String raw) {
   return s;
 }
 
+/// Largura máxima do site público — coluna única tipo celular (WISDOMAPP).
+const double kChurchPublicSiteMobileFrameWidth = 430;
+
 /// Largura máxima do post no site público (desktop) — coluna central tipo Instagram.
-const double kChurchPublicFeedCardMaxWidth = 468;
+const double kChurchPublicFeedCardMaxWidth = kChurchPublicSiteMobileFrameWidth;
 
 /// Largura máxima do bloco de mídia no feed (1:1 dentro da coluna).
 const double kChurchPublicFeedInstagramMaxWidth = kChurchPublicFeedCardMaxWidth;
@@ -282,6 +286,40 @@ class ChurchPublicPremiumPlayOrb extends StatelessWidget {
   }
 }
 
+/// Inset lateral no web quando a coluna mobile está centrada (FAB / overlays).
+double churchPublicSiteMobileFrameSideInset(BuildContext context) {
+  if (!kIsWeb) return 0;
+  final w = MediaQuery.sizeOf(context).width;
+  if (w <= kChurchPublicSiteMobileFrameWidth) return 0;
+  return (w - kChurchPublicSiteMobileFrameWidth) / 2;
+}
+
+/// Moldura celular no web — conteúdo centrado (coluna WISDOMAPP ~430px).
+class ChurchPublicSiteMobileFrame extends StatelessWidget {
+  const ChurchPublicSiteMobileFrame({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    final inner = Padding(padding: padding, child: child);
+    if (w <= kChurchPublicSiteMobileFrameWidth + 8) return inner;
+    return Center(
+      child: ConstrainedBox(
+        constraints:
+            const BoxConstraints(maxWidth: kChurchPublicSiteMobileFrameWidth),
+        child: inner,
+      ),
+    );
+  }
+}
+
 /// Centraliza e limita a largura de cada item do feed no desktop (cartão + barra social + ações).
 class ChurchPublicFeedItemWidth extends StatelessWidget {
   final Widget child;
@@ -290,15 +328,7 @@ class ChurchPublicFeedItemWidth extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final w = MediaQuery.sizeOf(context).width;
-    if (w < 600) return child;
-    return Center(
-      child: ConstrainedBox(
-        constraints:
-            const BoxConstraints(maxWidth: kChurchPublicFeedCardMaxWidth),
-        child: child,
-      ),
-    );
+    return ChurchPublicSiteMobileFrame(child: child);
   }
 }
 

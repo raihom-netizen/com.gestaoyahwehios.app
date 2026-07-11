@@ -84,7 +84,7 @@ class _ChurchChatPendingVoiceBubbleState
             ? (widget.errorMessage ?? 'Falha no envio')
             : (sending
                 ? (clamped >= 0.88
-                    ? 'A confirmar envio...'
+                    ? 'A finalizar…'
                     : 'A enviar áudio... $pct%')
                 : _formatDuration(widget.durationMs));
         return Row(

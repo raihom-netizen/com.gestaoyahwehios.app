@@ -84,7 +84,7 @@ abstract final class ChurchMembersLoadService {
   ) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return null;
-    for (final limit in [120, kDefaultLimit, 80, 50, 30]) {
+    for (final limit in [500, 200, 120, kDefaultLimit, 80, 50, 30]) {
       final hit = _peekRam(churchId, limit);
       if (hit != null && hit.isNotEmpty) return hit;
     }

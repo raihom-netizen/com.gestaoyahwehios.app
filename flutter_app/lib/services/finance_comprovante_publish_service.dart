@@ -97,6 +97,9 @@ abstract final class FinanceComprovantePublishService {
     if (mime.contains('pdf')) {
       return (bytes: rawBytes, mimeType: mimeType);
     }
+    if (mime.contains('png') && alreadyCompressed) {
+      return (bytes: rawBytes, mimeType: 'image/png');
+    }
     if (alreadyCompressed &&
         (mime.contains('jpeg') || mime.contains('jpg'))) {
       return (bytes: rawBytes, mimeType: 'image/jpeg');
@@ -504,7 +507,9 @@ abstract final class FinanceComprovantePublishService {
       mimeType: mimeType,
       alreadyCompressed: alreadyCompressed,
     );
-    final ext = optimized.mimeType.contains('pdf') ? 'pdf' : 'jpg';
+    final ext = optimized.mimeType.contains('pdf')
+        ? 'pdf'
+        : (optimized.mimeType.contains('png') ? 'png' : 'jpg');
     onProgress?.call(0.15);
 
     final path = comprovantePathFor(
@@ -585,15 +590,20 @@ abstract final class FinanceComprovantePublishService {
     YahwehFlowLog.uploadStart('comprovante_ct');
     final churchId = ChurchRepository.churchId(tenantId.trim());
 
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(
-        {
-          comprovanteUploadStateField: EntityPublishStatus.uploading,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      ),
-    ).catchError((_) {});
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      await FirestoreWebGuard.ensureFirestoreClientAlive().catchError((_) {});
+    } else {
+      await runFirestorePublishWithRecovery(
+        () => docRef.set(
+          {
+            comprovanteUploadStateField: EntityPublishStatus.uploading,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ),
+      ).catchError((_) {});
+    }
 
     try {
       final persisted = await _uploadComprovanteStorageCore(

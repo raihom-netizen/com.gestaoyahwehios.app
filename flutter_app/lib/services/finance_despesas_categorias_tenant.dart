@@ -1,4 +1,7 @@
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'dart:async' show unawaited;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Categorias de despesa padrão (seed). Alinhado ao módulo financeiro.
 const kCategoriasDespesaPadrao = [
@@ -21,20 +24,30 @@ const kCategoriasDespesaPadrao = [
   'Outros',
 ];
 
+Future<void> _seedCategoriasDespesaFirestore(
+  CollectionReference<Map<String, dynamic>> col,
+) async {
+  try {
+    final probe = await col.limit(1).get();
+    if (probe.docs.isNotEmpty) return;
+    for (final nome in kCategoriasDespesaPadrao) {
+      await col.add(
+          {'nome': nome, 'ordem': kCategoriasDespesaPadrao.indexOf(nome)});
+    }
+  } catch (_) {}
+}
+
 /// Categorias de despesa do tenant, com criação dos documentos padrão se a coleção estiver vazia.
 Future<List<String>> getCategoriasDespesaForTenant(String tenantId) async {
   try {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final op = ChurchRepository.churchId(tenantId.trim());
     if (op.isEmpty) return List<String>.from(kCategoriasDespesaPadrao);
-    final col = ChurchOperationalPaths.churchDoc(op)
+    final col = ChurchUiCollections.churchDoc(op)
         .collection('categorias_despesas');
-    var snap = await col.orderBy('nome').get();
+    final snap = await col.orderBy('nome').get();
     if (snap.docs.isEmpty) {
-      for (final nome in kCategoriasDespesaPadrao) {
-        await col.add(
-            {'nome': nome, 'ordem': kCategoriasDespesaPadrao.indexOf(nome)});
-      }
-      snap = await col.orderBy('nome').get();
+      unawaited(_seedCategoriasDespesaFirestore(col));
+      return List<String>.from(kCategoriasDespesaPadrao);
     }
     final nomes = snap.docs
         .map((d) => (d.data()['nome'] ?? '').toString())

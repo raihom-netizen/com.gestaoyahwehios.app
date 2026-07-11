@@ -145,8 +145,7 @@ class NoticiaSocialService {
     }
 
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-      await FirestoreWebGuard.runWithWebRecovery(write, maxAttempts: 3);
+      await FirestoreWebGuard.runChatWriteWithRecovery(write, maxAttempts: 5);
       return;
     }
     await write();
@@ -197,8 +196,7 @@ class NoticiaSocialService {
     Future<void> commit() => batch.commit();
 
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-      await FirestoreWebGuard.runWithWebRecovery(commit, maxAttempts: 3);
+      await FirestoreWebGuard.runChatWriteWithRecovery(commit, maxAttempts: 5);
       return;
     }
     await commit();
@@ -265,8 +263,7 @@ class NoticiaSocialService {
 
     Future<void> commit() => batch.commit();
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-      await FirestoreWebGuard.runWithWebRecovery(commit, maxAttempts: 3);
+      await FirestoreWebGuard.runChatWriteWithRecovery(commit, maxAttempts: 5);
       return;
     }
     await commit();
