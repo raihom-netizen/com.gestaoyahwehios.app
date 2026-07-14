@@ -33,11 +33,20 @@ class AppConnectivityService {
   }
 
   Future<void> start() async {
+    var initialOnline = true;
     try {
       final initial = await _connectivity.checkConnectivity();
-      _setOnline(_listIndicatesOnline(initial));
+      initialOnline = _listIndicatesOnline(initial);
+      _setOnline(initialOnline);
     } catch (_) {
       _setOnline(true);
+    }
+    if (initialOnline && kIsWeb && !WebPanelStability.isSessionExpired) {
+      unawaited(
+        firebaseDefaultFirestore.enableNetwork().catchError((Object e, StackTrace s) {
+          YahwehFlowLog.error('NETWORK', e, s);
+        }),
+      );
     }
     await _subscription?.cancel();
     _subscription = _connectivity.onConnectivityChanged.listen((list) {

@@ -13,7 +13,7 @@ import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 abstract final class PatrimonioSaveService {
   PatrimonioSaveService._();
 
-  static const Duration kSaveTimeout = Duration(seconds: 120);
+  static const Duration kSaveTimeout = Duration(seconds: 60);
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
@@ -106,7 +106,7 @@ abstract final class PatrimonioSaveService {
           await EcoFireDirectFirebase.ensureDefaultApp();
           await DirectStorageUrlPublish.ensureReady(requireAuth: true);
           await Future<void>.delayed(
-            Duration(milliseconds: 280 * (attempt + 1)),
+            Duration(milliseconds: 120 * (attempt + 1)),
           );
           continue;
         }

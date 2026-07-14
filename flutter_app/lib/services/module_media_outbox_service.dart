@@ -182,27 +182,50 @@ abstract final class ModuleMediaOutboxService {
         if (raw == null || raw.isEmpty) return;
         final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
         final remaining = <Map<String, dynamic>>[];
+        final eligible = <Map<String, dynamic>>[];
         for (final m in list) {
           final attempts =
               (m['attemptCount'] is num ? (m['attemptCount'] as num).toInt() : 0);
-          if (attempts >= 6) {
+          if (attempts >= 10) {
             remaining.add({...m, 'attemptCount': attempts});
             continue;
           }
-          try {
-            await _retryJob(m);
-            // sucesso — não re-adiciona
-          } catch (e) {
-            if (kDebugMode) {
-              debugPrint('ModuleMediaOutboxService retry: $e');
-            }
-            remaining.add({...m, 'attemptCount': attempts + 1});
+          eligible.add(m);
+        }
+        for (var i = 0; i < eligible.length; i += 3) {
+          final batch = eligible.sublist(
+            i,
+            (i + 3 > eligible.length) ? eligible.length : i + 3,
+          );
+          final results = await Future.wait(
+            batch.map((m) async {
+              try {
+                await _retryJob(m);
+                return null;
+              } catch (e) {
+                if (kDebugMode) {
+                  debugPrint('ModuleMediaOutboxService retry: $e');
+                }
+                final attempts = (m['attemptCount'] is num
+                    ? (m['attemptCount'] as num).toInt()
+                    : 0);
+                return <String, dynamic>{...m, 'attemptCount': attempts + 1};
+              }
+            }),
+            eagerError: false,
+          );
+          for (final r in results) {
+            if (r != null) remaining.add(r);
           }
         }
         await prefs.setString(_prefsKey, jsonEncode(remaining));
       },
       debugLabel: 'module_media_outbox_drain',
-    ).catchError((_) {});
+    ).catchError((e, st) {
+      if (kDebugMode) {
+        debugPrint('ModuleMediaOutboxService.drainPendingJobs: $e\n$st');
+      }
+    });
   }
 
   static Future<void> _retryJob(Map<String, dynamic> m) async {

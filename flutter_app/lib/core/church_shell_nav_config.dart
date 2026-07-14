@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 /// `storefront_rounded` pode renderizar vazio na web/PWA (subset Material / tree-shake).
 const IconData kFornecedoresModuleIcon = Icons.local_shipping_rounded;
 
+/// Ícone do módulo **Utilitários** (menu + cards).
+const IconData kUtilitariosModuleIcon = Icons.widgets_rounded;
+
 /// Entrada do menu lateral do painel da igreja ([IgrejaCleanShell]).
 /// A ordem define os **índices** (`_selectedIndex`, cache de páginas, etc.).
 /// [accent] — cor do módulo (chips do menu, rodapé, identidade visual moderna).
@@ -167,6 +170,12 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
     Color(0xFF0D9488),
     subtitle: 'Mensagens e grupos por departamento',
   ),
+  ChurchShellNavEntry(
+    kUtilitariosModuleIcon,
+    'Utilitários',
+    Color(0xFF9333EA),
+    subtitle: 'PDF, fotos e compressão — 100% local',
+  ),
 ];
 
 /// Acentos derivados de [kChurchShellNavEntries] — login, marketing e Torre Master SaaS
@@ -239,4 +248,18 @@ const List<IconData> kChurchShellNavMaterialIconExtras = [
   Icons.warning_amber_rounded,
   Icons.feedback_rounded,
   Icons.view_list_rounded,
+  kUtilitariosModuleIcon,
+  Icons.widgets_rounded,
+  Icons.picture_as_pdf_rounded,
+  Icons.table_chart_rounded,
+  Icons.grid_on_rounded,
+  Icons.slideshow_rounded,
+  Icons.compress_rounded,
+  Icons.movie_creation_rounded,
+  Icons.audio_file_rounded,
+  Icons.merge_type_rounded,
+  Icons.content_cut_rounded,
+  Icons.draw_rounded,
+  Icons.folder_zip_rounded,
+  Icons.image_aspect_ratio_rounded,
 ];

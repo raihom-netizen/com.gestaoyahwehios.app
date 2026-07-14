@@ -44,12 +44,12 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
   }
 
   Object? last;
-  for (var attempt = 0; attempt < 5; attempt++) {
+  for (var attempt = 0; attempt < 2; attempt++) {
     try {
       if (attempt > 0) {
         FirebaseBootstrapService.resetPublishWarmState();
         await Future<void>.delayed(
-          Duration(milliseconds: 200 + 180 * attempt),
+          Duration(milliseconds: 100 + 100 * attempt),
         );
       }
 
@@ -77,7 +77,7 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
       // Caminho resiliente padrão: garante app DEFAULT + Storage ligado.
       await FirebaseBootstrapService.ensureStorageAlwaysLinked(
         refreshAuthToken: requireAuth,
-        maxAttempts: 5,
+        maxAttempts: 2,
       );
 
       // Warmup Ecofire apenas após o núcleo estar estável.

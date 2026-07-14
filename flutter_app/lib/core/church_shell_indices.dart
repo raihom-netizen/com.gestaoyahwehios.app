@@ -28,6 +28,7 @@ abstract final class ChurchShellIndices {
   static const int fornecedores = 21;
   static const int doacao = 22;
   static const int chatIgreja = 23;
+  static const int utilitarios = 24;
 }
 
 /// Compatibilidade com código que importava constantes soltas.
@@ -44,4 +45,5 @@ const int kChurchShellIndexEscalaGeral = ChurchShellIndices.escalaGeral;
 const int kChurchShellIndexFornecedores = ChurchShellIndices.fornecedores;
 const int kChurchShellIndexChurchLetters = ChurchShellIndices.cartasTransferencias;
 const int kChurchShellIndexChat = ChurchShellIndices.chatIgreja;
+const int kChurchShellIndexUtilitarios = ChurchShellIndices.utilitarios;
 const int kChurchShellIndexConfiguracoes = ChurchShellIndices.configuracoes;

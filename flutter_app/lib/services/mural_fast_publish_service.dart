@@ -253,7 +253,7 @@ abstract final class MuralFastPublishService {
       rethrow;
     }
     try {
-      await StorageService.warmAuthToken().timeout(const Duration(seconds: 25));
+      await StorageService.warmAuthToken().timeout(const Duration(seconds: 5));
       Map<String, dynamic>? firstVariants;
       final maxConc = _feedUploadConcurrency(newImages.length);
       final uploaded = await StorageService.uploadPhotosParallel<String>(
@@ -348,7 +348,7 @@ abstract final class MuralFastPublishService {
     }
     try {
       await StorageService.warmAuthToken()
-          .timeout(const Duration(seconds: 25));
+          .timeout(const Duration(seconds: 5));
       Map<String, dynamic>? firstVariants;
       final uploaded = await StorageService.uploadPhotosParallel<String>(
         count: paths.length,
@@ -444,9 +444,9 @@ abstract final class MuralFastPublishService {
     patch['publishError'] = FieldValue.delete();
     patch['updatedAt'] = FieldValue.serverTimestamp();
     Object? lastFinalize;
-    for (var attempt = 1; attempt <= 5; attempt++) {
+    for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await ensureFirebaseReadyForPublishUpload();
+        if (attempt > 1) await ensureFirebaseReadyForPublishUpload();
         await ChurchDataService.instance.setTenantDocument(
           ref: docRef,
           data: patch,
@@ -457,8 +457,8 @@ abstract final class MuralFastPublishService {
         break;
       } catch (e) {
         lastFinalize = e;
-        if (attempt >= 5) rethrow;
-        await Future.delayed(Duration(milliseconds: 300 * attempt));
+        if (attempt >= 3) rethrow;
+        await Future.delayed(Duration(milliseconds: 150 * attempt));
       }
     }
     if (lastFinalize != null) throw lastFinalize;
@@ -504,7 +504,7 @@ abstract final class MuralFastPublishService {
     if (url.trim().isEmpty) return;
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await ensureFirebaseReadyForPublishUpload();
+        if (attempt == 1) await ensureFirebaseReadyForPublishUpload();
         await ChurchDataService.instance.updateTenantDocument(
           ref: docRef,
           data: <String, dynamic>{
@@ -521,7 +521,7 @@ abstract final class MuralFastPublishService {
           module: 'mural_append_url',
         );
         if (attempt >= 3) return;
-        await Future.delayed(Duration(milliseconds: 200 * attempt));
+        await Future.delayed(Duration(milliseconds: 100 * attempt));
       }
     }
   }
@@ -539,8 +539,10 @@ abstract final class MuralFastPublishService {
     );
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await FirebaseBootstrapService.ensureInitializedOnce();
-        await ensureFirebaseReadyForPublishUpload();
+        if (attempt == 1) {
+          await FirebaseBootstrapService.ensureInitializedOnce();
+          await ensureFirebaseReadyForPublishUpload();
+        }
         await ChurchDataService.instance.setTenantDocument(
           ref: docRef,
           data: <String, dynamic>{
@@ -562,7 +564,7 @@ abstract final class MuralFastPublishService {
           module: 'mural_failed',
         );
         if (attempt >= 3) return;
-        await Future.delayed(Duration(milliseconds: 200 * attempt));
+        await Future.delayed(Duration(milliseconds: 100 * attempt));
       }
     }
   }

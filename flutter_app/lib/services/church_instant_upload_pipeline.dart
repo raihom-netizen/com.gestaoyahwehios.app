@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -155,7 +157,7 @@ abstract final class ChurchInstantUploadPipeline {
         last = e;
         if (attempt < 2 && isFirebaseNoAppError(e)) {
           await Future<void>.delayed(
-            Duration(milliseconds: 280 * (attempt + 1)),
+            Duration(milliseconds: 120 * (attempt + 1)),
           );
           continue;
         }
@@ -208,7 +210,10 @@ abstract final class ChurchInstantUploadPipeline {
     if (!isValidImageUrl(clean)) {
       throw StateError('Upload concluiu sem URL de download válida.');
     }
-    await ChurchStorageMetadataVerify.assertExists(storagePath);
+    // putData OK — verificação de metadata em background (não invalidar upload na Web).
+    unawaited(
+      ChurchStorageMetadataVerify.assertExists(storagePath).catchError((_) {}),
+    );
     return FeedPhotoSlotResult(
       fullPath: storagePath,
       thumbPath: storagePath,

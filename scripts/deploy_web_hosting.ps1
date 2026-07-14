@@ -69,7 +69,12 @@ if ($buildExit -ne 0) { exit $buildExit }
 
 Set-Location $RepoRoot
 Write-Host "`n=== firebase deploy --only hosting ===" -ForegroundColor Cyan
-firebase deploy --only hosting
+$firebaseCmd = Join-Path $env:APPDATA 'npm\firebase.cmd'
+if (Test-Path $firebaseCmd) {
+    & $firebaseCmd deploy --only hosting --project gestaoyahweh-21e23 --force --non-interactive
+} else {
+    firebase deploy --only hosting --project gestaoyahweh-21e23 --force --non-interactive
+}
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""

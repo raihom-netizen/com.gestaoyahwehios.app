@@ -25,7 +25,7 @@ abstract final class ChurchChatMediaStorage {
     for (var attempt = 0; attempt < _maxAttempts; attempt++) {
       try {
         if (attempt > 0) {
-          await Future<void>.delayed(Duration(milliseconds: 220 * attempt));
+          await Future<void>.delayed(Duration(milliseconds: 120 * attempt));
           await EcoFireDirectFirebase.ensureDefaultApp();
           await DirectStorageUrlPublish.ensureReady(requireAuth: true);
         }
@@ -68,6 +68,7 @@ abstract final class ChurchChatMediaStorage {
         onProgress: onProgress,
       );
 
+  /// @deprecated Preferir [putBytesFast] com bytes lidos do picker — mantido para legado.
   static Future<String> putFile({
     required String storagePath,
     required String localPath,
@@ -75,7 +76,9 @@ abstract final class ChurchChatMediaStorage {
     void Function(double progress)? onProgress,
   }) async {
     if (kIsWeb) {
-      throw UnsupportedError('putFile do chat não suportado na web.');
+      throw UnsupportedError(
+        'putFile do chat não suportado na web — use bytes do picker.',
+      );
     }
     final file = File(localPath);
     if (!await file.exists()) {

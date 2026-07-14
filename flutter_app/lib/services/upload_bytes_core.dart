@@ -2,28 +2,12 @@ import 'dart:async';
 
 import 'dart:io';
 
-import 'dart:math' as math;
-
 import 'dart:typed_data';
 
-
-
 import 'package:firebase_storage/firebase_storage.dart';
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
-import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
-import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
-
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
-import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
-
-import 'package:gestao_yahweh/services/upload_storage_task.dart'
-    hide formatUploadErrorForUser;
-
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 
@@ -53,6 +37,9 @@ Future<String> uploadStoragePutDataWithRetry({
   String? localFilePathForRetry,
 
 }) async {
+  if (bytes.isEmpty) {
+    throw StateError('Ficheiro vazio — selecione outro.');
+  }
   if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
     await ensureUploadBootstrapForStoragePath(storagePath);
   }
@@ -83,135 +70,31 @@ Future<String> uploadStoragePutDataWithRetry({
 
 
 
-/// Upload de ficheiro local via [Reference.putFile] — o SDK Firebase usa upload
-
-/// resumível por chunks (retoma após falhas de rede dentro da mesma sessão).
-
+/// Ficheiro local → lê bytes → [uploadStoragePutDataWithRetry] (padrão CT: só putData).
 Future<String> uploadStoragePutFileWithRetry({
-
   required String storagePath,
-
   required File file,
-
   required String contentType,
-
   String cacheControl = 'public, max-age=31536000',
-
   int maxAttempts = 4,
-
   void Function(double progress)? onProgress,
-
   void Function(UploadTask task)? onTaskStarted,
-
   bool useOfflineQueue = false,
-
 }) async {
-  if (kIsWeb) {
-    final bytes = await file.readAsBytes();
-    return uploadStoragePutDataWithRetry(
-      storagePath: storagePath,
-      bytes: bytes,
-      contentType: contentType,
-      cacheControl: cacheControl,
-      maxAttempts: maxAttempts,
-      onProgress: onProgress,
-      onTaskStarted: onTaskStarted,
-      useOfflineQueue: useOfflineQueue,
-    );
+  final bytes = await file.readAsBytes();
+  if (bytes.isEmpty) {
+    throw StateError('Ficheiro vazio — selecione outro.');
   }
-  if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-    await ensureUploadBootstrapForStoragePath(storagePath);
-  }
-  try {
-    await ChurchTenantMediaService.assertUploadPathFromResolvedTenant(
-      storagePath: storagePath,
-    );
-  } on ChurchTenantMediaException catch (e) {
-    ChurchTenantMediaActivity.recordError(e.toString());
-    rethrow;
-  }
-
-  final byteLen = await file.length();
-
-  Object? lastError;
-
-  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-
-    try {
-
-      final ref = firebaseStorageRef(storagePath);
-      final ct = StorageUploadMetadata.contentTypeForPut(
-        contentType: contentType,
-        storagePath: storagePath,
-      );
-
-      final task = ref.putFile(
-        file,
-        SettableMetadata(
-          contentType: ct,
-          cacheControl: StorageUploadMetadata.cacheControl,
-        ),
-      );
-
-      onTaskStarted?.call(task);
-
-      final snap = await awaitStorageUploadTask(
-
-        task,
-
-        payloadBytes: byteLen,
-
-        onProgress: onProgress,
-
-      );
-
-      onProgress?.call(1.0);
-
-      final url = await storageDownloadUrlWithRetry(snap.ref);
-      ChurchTenantMediaActivity.recordUpload(storagePath);
-      return url;
-
-    } catch (e) {
-
-      lastError = e;
-
-      final isCanceled = e is FirebaseException && e.code == 'canceled';
-
-      if (isCanceled) break;
-
-      if (attempt >= maxAttempts) break;
-
-      onProgress?.call(0);
-
-      await Future.delayed(
-
-          Duration(milliseconds: 120 * math.pow(2, attempt - 1).toInt()));
-
-    }
-
-  }
-
-  final err = lastError ?? StateError('Falha de upload');
-  ChurchTenantMediaActivity.recordError(err.toString());
-
-  logFirebaseDiagnostic(err, StackTrace.current, context: storagePath);
-
-  unawaited(
-
-    PendingUploadsFirestoreService.recordFailureForStoragePath(
-
-      storagePath: storagePath,
-
-      error: err,
-
-      localPath: file.path,
-
-      contentType: contentType,
-
-    ),
-
+  return uploadStoragePutDataWithRetry(
+    storagePath: storagePath,
+    bytes: bytes,
+    contentType: contentType,
+    cacheControl: cacheControl,
+    maxAttempts: maxAttempts,
+    onProgress: onProgress,
+    onTaskStarted: onTaskStarted,
+    useOfflineQueue: useOfflineQueue,
+    localFilePathForRetry: file.path,
   );
-
-  throw StateError(formatUploadErrorForUser(err));
 }
 

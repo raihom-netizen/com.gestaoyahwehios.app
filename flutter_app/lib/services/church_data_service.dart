@@ -292,23 +292,12 @@ final class ChurchDataService {
       documentId: documentId,
       timestampMs: ts,
     );
-    ChurchTenantWriteLog.storageUploadStart(storagePath, module: module);
-    try {
-      final ref = storage.ref(storagePath);
-      final task = await ref.putFile(file);
-      final url = await task.ref.getDownloadURL();
-      ChurchTenantWriteLog.storageUploadOk(storagePath, module: module);
-      return url;
-    } catch (e, s) {
-      ChurchTenantWriteLog.storageUploadFail(
-        storagePath,
-        e,
-        stack: s,
-        module: module,
-      );
-      _logError('UPLOAD ERROR', e, s);
-      rethrow;
-    }
+    final bytes = await file.readAsBytes();
+    return uploadBytes(
+      storagePath: storagePath,
+      bytes: bytes,
+      module: module,
+    );
   }
 
   /// Chat — texto directo no Firestore (sem Cloud Function).

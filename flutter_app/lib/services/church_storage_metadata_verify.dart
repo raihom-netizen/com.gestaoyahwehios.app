@@ -6,7 +6,7 @@ abstract final class ChurchStorageMetadataVerify {
   ChurchStorageMetadataVerify._();
 
   static const Duration kDefaultTimeout = Duration(seconds: 15);
-  static const int kMaxAttempts = 6;
+  static const int kMaxAttempts = 4;
 
   static Future<void> assertExists(
     String storagePath, {
@@ -29,7 +29,7 @@ abstract final class ChurchStorageMetadataVerify {
         last = e;
         if (attempt >= maxAttempts - 1) break;
         await Future<void>.delayed(
-          Duration(milliseconds: 180 + attempt * 220),
+          Duration(milliseconds: 100 + attempt * 150),
         );
       }
     }
@@ -41,10 +41,11 @@ abstract final class ChurchStorageMetadataVerify {
     Duration timeout = kDefaultTimeout,
     int maxAttempts = kMaxAttempts,
   }) async {
-    for (final p in storagePaths) {
-      final t = p.trim();
-      if (t.isEmpty) continue;
-      await assertExists(t, timeout: timeout, maxAttempts: maxAttempts);
-    }
+    final paths = storagePaths.map((p) => p.trim()).where((p) => p.isNotEmpty);
+    if (paths.isEmpty) return;
+    await Future.wait(
+      paths.map((p) => assertExists(p, timeout: timeout, maxAttempts: maxAttempts)),
+      eagerError: false,
+    );
   }
 }

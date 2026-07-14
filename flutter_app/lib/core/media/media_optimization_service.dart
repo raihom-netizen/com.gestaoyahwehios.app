@@ -90,7 +90,7 @@ abstract final class MediaOptimizationService {
     );
   }
 
-  /// Chat — full ~150 KB + thumb + preview instantâneo (WhatsApp-style).
+  /// Chat — full ~150 KB + thumb instantâneo (WhatsApp-style).
   static Future<OptimizedMediaPayload> optimizeForChat({
     Uint8List? bytes,
     String? localPath,
@@ -105,26 +105,20 @@ abstract final class MediaOptimizationService {
       throw StateError('Sem dados para otimizar imagem do chat.');
     }
 
-    final preview = await optimizeImageBytes(
-      source,
-      profile: MediaOptimizationProfile.thumbPreview,
-    );
-
-    final full = await optimizeImageBytes(
-      source,
-      profile: MediaOptimizationProfile.chat,
-    );
-    final thumb = await optimizeImageBytes(
-      source,
-      profile: MediaOptimizationProfile.thumbUpload,
-    );
+    // Compress full e thumb em paralelo (2 passes em vez de 3 sequenciais).
+    final results = await Future.wait([
+      optimizeImageBytes(source, profile: MediaOptimizationProfile.chat),
+      optimizeImageBytes(source, profile: MediaOptimizationProfile.thumbUpload),
+    ]);
+    final full = results[0];
+    final thumb = results[1];
 
     return OptimizedMediaPayload(
       fullBytes: full,
       fullMime: _mimeFor(full),
       fullFileName: _fileNameFor(full, prefix: 'chat'),
       thumbBytes: thumb.isNotEmpty ? thumb : null,
-      previewBytes: preview.isNotEmpty ? preview : full,
+      previewBytes: full,
     );
   }
 
@@ -177,14 +171,12 @@ abstract final class MediaOptimizationService {
 
   /// Foto de perfil — 512×512.
   static Future<OptimizedMediaPayload> optimizeForProfile(Uint8List raw) async {
-    final full = await optimizeImageBytes(
-      raw,
-      profile: MediaOptimizationProfile.profile,
-    );
-    final thumb = await optimizeImageBytes(
-      raw,
-      profile: MediaOptimizationProfile.thumbUpload,
-    );
+    final results = await Future.wait([
+      optimizeImageBytes(raw, profile: MediaOptimizationProfile.profile),
+      optimizeImageBytes(raw, profile: MediaOptimizationProfile.thumbUpload),
+    ]);
+    final full = results[0];
+    final thumb = results[1];
     return OptimizedMediaPayload(
       fullBytes: full,
       fullMime: _mimeFor(full),

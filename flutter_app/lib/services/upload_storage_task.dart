@@ -65,7 +65,7 @@ Future<TaskSnapshot> awaitStorageUploadTask(
   UploadTask task, {
   required int payloadBytes,
   void Function(double progress)? onProgress,
-  Duration stallAfter = const Duration(seconds: 90),
+  Duration stallAfter = const Duration(seconds: 120),
 }) async {
   final maxDuration = uploadMaxDurationForPayloadBytes(payloadBytes);
   final effectiveStall = payloadBytes <= kStorageUploadCompressedImageMaxBytes
@@ -161,7 +161,7 @@ Future<String> storageDownloadUrlWithRetry(Reference ref) async {
     } catch (e) {
       last = e;
       if (i < 2) {
-        await Future.delayed(Duration(milliseconds: 400 * (i + 1)));
+        await Future.delayed(Duration(milliseconds: 150 * (i + 1)));
       }
     }
   }

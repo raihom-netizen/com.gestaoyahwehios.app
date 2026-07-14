@@ -8,9 +8,9 @@ import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart' show YahwehMediaModule;
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     show formatUploadErrorForUser;
+import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 export 'package:gestao_yahweh/services/upload_storage_task.dart'
@@ -250,7 +250,7 @@ abstract final class ChurchMediaUploadFacade {
   /// Mensagem amigável com código real — use no `catch` das telas.
   static String mensagemAmigavel(Object error) => formatUploadErrorForUser(error);
 
-  /// Chat / ficheiros genéricos — delega a [UnifiedUploadService].
+  /// Chat / ficheiros genéricos — bytes → putData (padrão CT).
   static Future<String> uploadFromPipeline({
     required Uint8List bytes,
     required String storagePath,
@@ -263,9 +263,12 @@ abstract final class ChurchMediaUploadFacade {
       bytes: bytes.length,
       logLabel: module.name,
     );
-    return UnifiedUploadService.uploadImage(
+    return YahwehMediaUploadPipeline.uploadBytes(
       storagePath: storagePath,
       bytes: bytes,
+      contentType: StorageUploadMetadata.contentTypeForPut(
+        storagePath: storagePath,
+      ),
       module: module,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,

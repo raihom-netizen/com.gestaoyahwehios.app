@@ -426,13 +426,7 @@ void main() async {
   // 4. Offline/Hive — só após bootstrap OK (configureFirestoreForOfflineAndSpeed).
   if (firebaseBoot.isReady) {
     try {
-      unawaited(
-        OfflineFirstCoordinator.initialize().catchError((Object e, StackTrace st) {
-          if (kDebugMode) {
-            debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
-          }
-        }),
-      );
+      await OfflineFirstCoordinator.initialize();
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');

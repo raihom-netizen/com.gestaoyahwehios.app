@@ -324,20 +324,6 @@ class MemberProfilePhotoUpdateService {
         .toString()
         .trim();
 
-    if (authUid.isNotEmpty) {
-      try {
-        await firebaseDefaultFirestore.collection('users').doc(authUid).set({
-          'photoStoragePath': result.storagePath,
-          'photoThumbStoragePath': result.thumbStoragePath,
-          'fotoPath': result.storagePath,
-          'fotoThumbPath': result.thumbStoragePath,
-          'fotoUrlCacheRevision': result.cacheRevision,
-        }, SetOptions(merge: true));
-      } catch (e, st) {
-        YahwehFlowLog.error('MEMBROS', e, st);
-      }
-    }
-
     final mergedMember = Map<String, dynamic>.from(memberData)
       ..addAll({
         'photoStoragePath': result.storagePath,
@@ -346,16 +332,34 @@ class MemberProfilePhotoUpdateService {
         'fotoThumbPath': result.thumbStoragePath,
         'fotoUrlCacheRevision': result.cacheRevision,
       });
-    await syncChatPeerProfilesAfterPhotoUpdate(
-      primaryTenantId: tenantId,
-      memberDocId: memberDocId,
-      memberData: mergedMember,
-      photoUrl: photoUrl,
-      photoThumbUrl: thumbUrl,
-      cacheRevision: result.cacheRevision,
-      photoStoragePath: result.storagePath,
-      photoThumbStoragePath: result.thumbStoragePath,
+
+    final futures = <Future<void>>[];
+    if (authUid.isNotEmpty) {
+      futures.add(
+        firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          'photoStoragePath': result.storagePath,
+          'photoThumbStoragePath': result.thumbStoragePath,
+          'fotoPath': result.storagePath,
+          'fotoThumbPath': result.thumbStoragePath,
+          'fotoUrlCacheRevision': result.cacheRevision,
+        }, SetOptions(merge: true)).catchError((e, st) {
+          YahwehFlowLog.error('MEMBROS', e, st);
+        }),
+      );
+    }
+    futures.add(
+      syncChatPeerProfilesAfterPhotoUpdate(
+        primaryTenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: mergedMember,
+        photoUrl: photoUrl,
+        photoThumbUrl: thumbUrl,
+        cacheRevision: result.cacheRevision,
+        photoStoragePath: result.storagePath,
+        photoThumbStoragePath: result.thumbStoragePath,
+      ),
     );
+    await Future.wait(futures, eagerError: false);
   }
 
   static Future<MemberProfilePhotoUpdateResult> _uploadAndPatchMemberCore({

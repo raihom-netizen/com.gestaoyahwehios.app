@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:cross_file/cross_file.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
@@ -289,12 +290,23 @@ abstract final class ChurchChatMediaOutboxService {
             )
             .take(_maxJobsPerResumeWave)
             .toList();
-        for (final m in jobs) {
-          await _retryFromJson(m);
+        for (var i = 0; i < jobs.length; i += 2) {
+          final batch = jobs.sublist(
+            i,
+            (i + 2 > jobs.length) ? jobs.length : i + 2,
+          );
+          await Future.wait(
+            batch.map(_retryFromJson),
+            eagerError: false,
+          );
         }
       },
       debugLabel: 'chat_outbox_thread_resume',
-    ).catchError((_) {});
+    ).catchError((e, st) {
+      if (kDebugMode) {
+        debugPrint('ChurchChatMediaOutboxService.resumeForThread: $e\n$st');
+      }
+    });
   }
 
   static void resumePendingOnAppStart() {
@@ -320,7 +332,6 @@ abstract final class ChurchChatMediaOutboxService {
 
   static const int _maxJobsPerResumeWave = 4;
   static bool _resumeScheduled = false;
-  static const int _maxAttemptsPerJob = 4;
 
   /// Remove fila local do chat e apaga stubs no Firestore (botão Limpar).
   static Future<int> clearAllJobs({String? tenantId}) async {
@@ -380,12 +391,23 @@ abstract final class ChurchChatMediaOutboxService {
         if (raw == null || raw.isEmpty) return;
         final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
         final wave = list.take(_maxJobsPerResumeWave).toList();
-        for (final m in wave) {
-          await _retryFromJson(m);
+        for (var i = 0; i < wave.length; i += 2) {
+          final batch = wave.sublist(
+            i,
+            (i + 2 > wave.length) ? wave.length : i + 2,
+          );
+          await Future.wait(
+            batch.map(_retryFromJson),
+            eagerError: false,
+          );
         }
       },
       debugLabel: 'chat_outbox_resume',
-    ).catchError((_) {});
+    ).catchError((e, st) {
+      if (kDebugMode) {
+        debugPrint('ChurchChatMediaOutboxService._resumeAll: $e\n$st');
+      }
+    });
   }
 
   /// Limpa envios sem bytes/path (web) — evita fila infinita de «25 pendentes».
@@ -400,21 +422,6 @@ abstract final class ChurchChatMediaOutboxService {
       final threadId = (m['threadId'] ?? '').toString();
       final localId = (m['localId'] ?? '').toString();
       if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) continue;
-      final attempts = m['attempts'] is num
-          ? (m['attempts'] as num).toInt()
-          : int.tryParse('${m['attempts']}') ?? 0;
-      if (attempts >= _maxAttemptsPerJob) {
-        removed++;
-        await clearJob(
-          tenantId: tenantId,
-          threadId: threadId,
-          localId: localId,
-          uploadDocId: (m['uploadDocId'] ?? '').toString().isEmpty
-              ? null
-              : (m['uploadDocId'] ?? '').toString(),
-        );
-        continue;
-      }
       final hasBytes = m['hasBytes'] == true;
       final localPath = (m['localPath'] ?? '').toString();
       final pathOk =
@@ -469,20 +476,6 @@ abstract final class ChurchChatMediaOutboxService {
     final localId = (json['localId'] ?? '').toString();
     if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) return;
 
-    final attempts = json['attempts'] is num
-        ? (json['attempts'] as num).toInt()
-        : int.tryParse('${json['attempts']}') ?? 0;
-    if (attempts >= _maxAttemptsPerJob) {
-      await clearJob(
-        tenantId: tenantId,
-        threadId: threadId,
-        localId: localId,
-        uploadDocId: (json['uploadDocId'] ?? '').toString().isEmpty
-            ? null
-            : (json['uploadDocId'] ?? '').toString(),
-      );
-      return;
-    }
     final kind = (json['kind'] ?? 'image').toString();
     final fileName = (json['fileName'] ?? 'media').toString();
     final mime = (json['mime'] ?? 'application/octet-stream').toString();
@@ -504,6 +497,15 @@ abstract final class ChurchChatMediaOutboxService {
         threadId: threadId,
         localId: localId,
       );
+    }
+
+    if (bytes == null && kIsWeb && localPath.isNotEmpty) {
+      try {
+        final raw = await XFile(localPath).readAsBytes();
+        if (raw.isNotEmpty) {
+          bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
+        }
+      } catch (_) {}
     }
 
     final pathOk = !kIsWeb &&

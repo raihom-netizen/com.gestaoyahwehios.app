@@ -273,8 +273,16 @@ class MediaUploadService {
         chatJpegFast: chatJpegFast,
       );
     }
+    if (deleteFirebaseDownloadUrlsBefore != null) {
+      for (final u in deleteFirebaseDownloadUrlsBefore) {
+        await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
+      }
+    }
+    final fileBytes = await file.readAsBytes();
+    if (fileBytes.isEmpty) {
+      throw StateError('Ficheiro vazio — selecione outro.');
+    }
     if (_shouldCompressJpeg(contentType) && !skipRecompress) {
-      final fileBytes = await file.readAsBytes();
       final preparedBytes = await _prepareBytesForUpload(
         bytes: fileBytes,
         contentType: contentType,
@@ -286,7 +294,6 @@ class MediaUploadService {
         contentType: contentType,
         cacheControl: cacheControl,
         maxAttempts: maxAttempts,
-        deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
         onProgress: onProgress,
         onUploadTaskCreated: onUploadTaskCreated,
         useOfflineQueue: useOfflineQueue,
@@ -294,45 +301,18 @@ class MediaUploadService {
         chatJpegFast: chatJpegFast,
       );
     }
-    if (deleteFirebaseDownloadUrlsBefore != null) {
-      for (final u in deleteFirebaseDownloadUrlsBefore) {
-        await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
-      }
-    }
-    if (!useOfflineQueue) {
-      return uploadStoragePutFileWithRetry(
-        storagePath: storagePath,
-        file: file,
-        contentType: contentType,
-        cacheControl: cacheControl,
-        maxAttempts: maxAttempts,
-        onProgress: onProgress,
-        onTaskStarted: onUploadTaskCreated,
-      );
-    }
-    try {
-      return await uploadStoragePutFileWithRetry(
-        storagePath: storagePath,
-        file: file,
-        contentType: contentType,
-        cacheControl: cacheControl,
-        maxAttempts: maxAttempts,
-        onProgress: onProgress,
-        onTaskStarted: onUploadTaskCreated,
-      );
-    } catch (e) {
-      if (isLikelyNetworkUploadError(e)) {
-        final b = await file.readAsBytes();
-        return StorageUploadQueueService.instance.enqueuePutData(
-          storagePath: storagePath,
-          bytes: b,
-          contentType: contentType,
-          cacheControl: cacheControl,
-          onProgress: onProgress,
-        );
-      }
-      rethrow;
-    }
+    return uploadBytesWithRetry(
+      storagePath: storagePath,
+      bytes: fileBytes,
+      contentType: contentType,
+      cacheControl: cacheControl,
+      maxAttempts: maxAttempts,
+      onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
+      useOfflineQueue: useOfflineQueue,
+      skipClientPrepare: skipRecompress,
+      chatJpegFast: chatJpegFast,
+    );
   }
 
   static Future<MediaUploadResult> uploadFileDetailed({

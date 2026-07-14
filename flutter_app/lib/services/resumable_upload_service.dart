@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 
-/// Upload resumível — vídeos e ficheiros grandes via [putFile] (SDK retoma chunks).
+/// Upload via bytes → putData (padrão CT; vídeos e ficheiros grandes incluídos).
 abstract final class ResumableUploadService {
   ResumableUploadService._();
 

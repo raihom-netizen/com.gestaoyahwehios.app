@@ -144,15 +144,22 @@ abstract final class EcoFireFeedPublishService {
   /// Converte paths ou URLs mistos em URLs HTTPS para o Firestore.
   static Future<List<String>> refsToPlayableUrls(List<String> refs) async {
     final out = <String>[];
-    for (final raw in refs) {
-      final t = raw.trim();
+    final futures = <Future<String?>>[];
+    final indices = <int>[];
+    for (var i = 0; i < refs.length; i++) {
+      final t = refs[i].trim();
       if (t.isEmpty) continue;
       if (t.startsWith('http')) {
         final u = sanitizeImageUrl(t);
         if (isValidImageUrl(u)) out.add(u);
         continue;
       }
-      final u = await EcoFireStorageUpload.downloadUrlFromStoragePath(t);
+      indices.add(i);
+      futures.add(EcoFireStorageUpload.downloadUrlFromStoragePath(t));
+    }
+    final results = await Future.wait(futures, eagerError: false);
+    for (var j = 0; j < results.length; j++) {
+      final u = results[j];
       if (u != null && u.isNotEmpty) {
         out.add(sanitizeImageUrl(u));
       }

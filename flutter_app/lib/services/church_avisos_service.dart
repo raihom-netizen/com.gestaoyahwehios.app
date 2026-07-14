@@ -113,7 +113,7 @@ abstract final class ChurchAvisosService {
   ChurchAvisosService._();
 
   static const int kMaxPhotos = 5;
-  static const Duration kPublishTimeout = Duration(seconds: 120);
+  static const Duration kPublishTimeout = Duration(seconds: 75);
 
   /// Legado — lista pode ler `mural_avisos` quando `avisos` está vazio.
   static const List<String> _deleteCollections = ['avisos', 'mural_avisos'];
@@ -148,8 +148,6 @@ abstract final class ChurchAvisosService {
           await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
             last ?? StateError('core/no-app'),
           );
-          await ensureFirebaseReadyForPublishUpload();
-          await _ensurePublishReady();
         }
         await ChurchFeedLinearPublishService.publishAviso(
           docRef: docRef,
@@ -471,12 +469,20 @@ abstract final class ChurchAvisosService {
     }
 
     var docData = data == null ? null : Map<String, dynamic>.from(data);
-    for (final sub in _deleteCollections) {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => _collection(cid, sub).doc(id).get(),
-        maxAttempts: kIsWeb ? 4 : 3,
-      );
-      if (snap.exists) {
+    final snaps = await Future.wait(
+      _deleteCollections.map((sub) async {
+        try {
+          return await FirestoreWebGuard.runWithWebRecovery(
+            () => _collection(cid, sub).doc(id).get(),
+            maxAttempts: kIsWeb ? 4 : 3,
+          );
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    for (final snap in snaps) {
+      if (snap != null && snap.exists) {
         docData = <String, dynamic>{...?docData, ...?snap.data()};
       }
     }
@@ -504,7 +510,6 @@ abstract final class ChurchAvisosService {
         .toList();
     if (ids.isEmpty) return;
 
-    // Cada id gera 2 deletes (avisos + mural_avisos legado).
     const chunkSize = 200;
 
     for (var i = 0; i < ids.length; i += chunkSize) {
@@ -512,6 +517,8 @@ abstract final class ChurchAvisosService {
         i,
         i + chunkSize > ids.length ? ids.length : i + chunkSize,
       );
+
+      // Batch principal: apaga só da coleção `avisos`.
       await AdminFeedFirestoreBridge.deleteFeedPosts(
         churchId: churchId,
         collection: 'avisos',
@@ -520,9 +527,7 @@ abstract final class ChurchAvisosService {
           () async {
             final batch = ChurchRepository.batch();
             for (final id in slice) {
-              for (final sub in _deleteCollections) {
-                batch.delete(_collection(churchId, sub).doc(id));
-              }
+              batch.delete(_collection(churchId, 'avisos').doc(id));
             }
             await batch.commit();
           },
@@ -530,6 +535,24 @@ abstract final class ChurchAvisosService {
           criticalWrite: true,
         ),
       );
+
+      // Legado: `mural_avisos` em batch separado e não-crítico.
+      unawaited(_deleteLegacyMuralAvisos(churchId, slice));
+    }
+  }
+
+  static Future<void> _deleteLegacyMuralAvisos(
+    String churchId,
+    List<String> docIds,
+  ) async {
+    try {
+      final batch = ChurchRepository.batch();
+      for (final id in docIds) {
+        batch.delete(_collection(churchId, 'mural_avisos').doc(id));
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint('AVISOS legacy mural_avisos delete: $e');
     }
   }
 
@@ -549,15 +572,18 @@ abstract final class ChurchAvisosService {
 
     await _deleteAvisoDocs(churchId: cid, docIds: ids);
 
-    for (final id in ids) {
-      await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
-        tenantId: cid,
-        postId: id,
-        isEvento: false,
-        data: dataById[id],
-      );
-      ChurchAvisosLoadService.evictDocFromCaches(cid, id);
-    }
+    await Future.wait(
+      ids.map((id) async {
+        await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
+          tenantId: cid,
+          postId: id,
+          isEvento: false,
+          data: dataById[id],
+        );
+        ChurchAvisosLoadService.evictDocFromCaches(cid, id);
+      }),
+      eagerError: false,
+    );
 
     await ChurchAvisosLoadService.invalidate(cid);
     return ids.length;

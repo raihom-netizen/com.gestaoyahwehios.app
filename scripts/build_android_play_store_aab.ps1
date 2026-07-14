@@ -160,6 +160,136 @@ function Test-SharedObject16k {
     }
 }
 
+function Remove-AabLegacyAbiLibs {
+    param([string] $AabPath)
+
+    $legacyAbiRegex = '(^|/)lib/(armeabi-v7a|armeabi|x86|x86_64|mips|mips64)(/|$)'
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $zip = [System.IO.Compression.ZipFile]::Open(
+        $AabPath,
+        [System.IO.Compression.ZipArchiveMode]::Update
+    )
+    try {
+        $toRemove = @(
+            $zip.Entries | Where-Object {
+                $name = ($_.FullName -replace '\\', '/').ToLowerInvariant()
+                $name -match $legacyAbiRegex -or
+                    $name -match '^bundle-metadata/.*/(armeabi-v7a|armeabi|x86|x86_64|mips|mips64)/' -or
+                    $name -eq 'base/native.pb'
+            }
+        )
+        if ($toRemove.Count -eq 0) {
+            Write-Host "AAB: nenhuma biblioteca ABI legada (32-bit) para remover." -ForegroundColor DarkGray
+            return
+        }
+        foreach ($entry in $toRemove) {
+            $entry.Delete()
+        }
+        Write-Host "AAB: removidas $($toRemove.Count) entradas ABI legadas/metadados (publicamos só arm64-v8a)." -ForegroundColor Yellow
+    }
+    finally {
+        $zip.Dispose()
+    }
+}
+
+function Assert-AabNoLegacyAbiEntries {
+    param([string] $AabPath)
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $legacyAbiRegex = '(^|/)lib/(armeabi-v7a|armeabi|x86|x86_64|mips|mips64)(/|$)|^bundle-metadata/.*/(armeabi-v7a|armeabi|x86|x86_64|mips|mips64)/|^base/native\.pb$'
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($AabPath)
+    try {
+        $leftovers = @(
+            $zip.Entries | Where-Object {
+                (($_.FullName -replace '\\', '/').ToLowerInvariant()) -match $legacyAbiRegex
+            } | Select-Object -ExpandProperty FullName
+        )
+        if ($leftovers.Count -gt 0) {
+            throw "AAB invalido: entradas ABI legadas restantes: $($leftovers -join ', ')"
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
+    Write-Host "AAB ABI: sem diretórios/arquivos legados vazios (x86_64/x86/armeabi)." -ForegroundColor Green
+}
+
+function Find-BundletoolJar {
+    $candidates = @()
+    $standalone = 'D:\Temporarios\bundletool-all-1.18.3.jar'
+    if (Test-Path $standalone) { $candidates += $standalone }
+
+    $known = @(
+        (Join-Path $RepoRoot '.gradle-build-cache'),
+        (Join-Path $env:USERPROFILE '.gradle\caches')
+        'D:\Temporarios\gradle-home-controletotal\caches',
+        'D:\Temporarios\gradle-home-controletotal\maven-prefetch-staging'
+    )
+    foreach ($dir in $known) {
+        if (Test-Path $dir) {
+            $found = @(Get-ChildItem -Path $dir -Recurse -Filter 'bundletool-all-*.jar' -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Length -gt 1024 * 1024 } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 8)
+            foreach ($item in $found) { $candidates += $item.FullName }
+        }
+    }
+
+    foreach ($jar in $candidates) {
+        if (-not (Test-Path $jar)) { continue }
+        try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $zip = [System.IO.Compression.ZipFile]::OpenRead($jar)
+            try {
+                $manifest = $zip.GetEntry('META-INF/MANIFEST.MF')
+                if ($manifest -ne $null) { return $jar }
+            }
+            finally {
+                $zip.Dispose()
+            }
+        } catch {
+            Write-Host "bundletool ignorado (jar invalido): $jar" -ForegroundColor DarkYellow
+        }
+    }
+    return $null
+}
+
+function Assert-AabBundletoolBuildApks {
+    param([string] $AabPath)
+
+    $bundletool = Find-BundletoolJar
+    if (-not $bundletool) {
+        throw "bundletool.jar nao encontrado para validar o AAB localmente."
+    }
+    $javaExe = 'java'
+    if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {
+        $javaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'
+    } elseif (Test-Path 'C:\dev\gestao-yahweh-toolchain\jdk-17\bin\java.exe') {
+        $javaExe = 'C:\dev\gestao-yahweh-toolchain\jdk-17\bin\java.exe'
+    }
+    $tmpApks = Join-Path ([System.IO.Path]::GetTempPath()) ("gy_bundletool_" + [Guid]::NewGuid().ToString("N") + ".apks")
+    try {
+        Write-Host "bundletool: $bundletool" -ForegroundColor DarkGray
+        Write-Host "java: $javaExe" -ForegroundColor DarkGray
+        & $javaExe -jar $bundletool build-apks --bundle=$AabPath --output=$tmpApks --mode=universal --overwrite 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            throw "bundletool build-apks falhou (exit $LASTEXITCODE)."
+        }
+        if (-not (Test-Path $tmpApks)) {
+            throw "bundletool nao gerou APKS em $tmpApks"
+        }
+        Write-Host "bundletool build-apks: OK ($tmpApks)" -ForegroundColor Green
+    }
+    finally {
+        if (Test-Path $tmpApks) { Remove-Item $tmpApks -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 function Assert-Aab16kCompatibility {
     param([string] $AabPath, [string] $FlutterAppPath)
 
@@ -180,6 +310,10 @@ function Assert-Aab16kCompatibility {
         $incompatible = @()
 
         foreach ($so in $soFiles) {
+            $relative = $so.FullName.Replace($tmpDir + "\", "").Replace("\", "/")
+            # Só validamos arm64-v8a — ABIs legadas são removidas antes desta etapa.
+            if ($relative -notmatch '/lib/arm64-v8a/') { continue }
+
             $check = Test-SharedObject16k -ReadelfExe $readelf -SoPath $so.FullName
             if (-not $check.IsCompatible) {
                 $incompatible += [PSCustomObject]@{
@@ -323,9 +457,15 @@ Write-Host "`n=== validacao Advertising ID (Play Console) ===" -ForegroundColor 
 Assert-ReleaseManifestHasAdIdPermission -FlutterAppPath $FlutterApp
 Write-Host 'Se a Play ainda acusar erro: Politica do app - ID de publicidade - confirme Sim e carregue ESTE AAB.' -ForegroundColor DarkGray
 
+Write-Host "`n=== validacao ABI ampla no AAB (sem diretorios vazios) ===" -ForegroundColor Cyan
+Write-Host "Compatibilidade Play: manter ABIs disponiveis; bundletool valida se algum split ABI ficou vazio." -ForegroundColor DarkGray
+
 Write-Host "`n=== validacao 16K page size no AAB ===" -ForegroundColor Cyan
 Assert-Aab16kCompatibility -AabPath $OutAab -FlutterAppPath $FlutterApp
 Write-Host "Play 16K: NDK r28+ + validacao automatica de .so no AAB." -ForegroundColor DarkGray
+
+Write-Host "`n=== validacao bundletool build-apks (Play Console local) ===" -ForegroundColor Cyan
+Assert-AabBundletoolBuildApks -AabPath $OutAab
 
 $verLine = Select-String -Path (Join-Path $FlutterApp "pubspec.yaml") -Pattern "^version:\s*" | Select-Object -First 1
 $ver = if ($verLine) { ($verLine.Line -replace '^version:\s*', '').Trim() } else { "unknown" }

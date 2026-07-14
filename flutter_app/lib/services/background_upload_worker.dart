@@ -46,11 +46,12 @@ abstract final class BackgroundUploadWorker {
       }
       await ChurchChatMediaOutboxService.resumeRecoverableNow();
 
-      await MuralPublishOutboxService.drainPendingJobs();
-      await ModuleMediaOutboxService.drainPendingJobs();
-      if (!kIsWeb) {
-        await StorageUploadPersistenceService.resumePendingOnAppStart();
-      }
+      await Future.wait([
+        MuralPublishOutboxService.drainPendingJobs(),
+        ModuleMediaOutboxService.drainPendingJobs(),
+        if (!kIsWeb)
+          StorageUploadPersistenceService.resumePendingOnAppStart(),
+      ], eagerError: false);
 
       await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
       if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {

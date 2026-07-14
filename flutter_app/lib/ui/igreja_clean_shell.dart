@@ -63,6 +63,7 @@ import 'pages/calendar_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
 import 'pages/church_chat_hub_page.dart';
+import 'pages/utilitarios_screen.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'pages/church_donations_page.dart';
@@ -1642,6 +1643,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Relatórios e suporte', indices: [16, 17]),
     (title: 'Gestão financeira', indices: [19, 20, 21]),
+    (title: 'Utilitários', indices: [ChurchShellIndices.utilitarios]),
   ];
 
   List<({String title, List<int> indices})> _menuSectionsForRole(String role) {
@@ -1656,6 +1658,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
       (title: 'Agenda', indices: [11, 12]),
       (title: 'Documentos', indices: [13]),
+      (
+        title: 'Utilitários',
+        indices: [ChurchShellIndices.utilitarios],
+      ),
     ];
   }
 
@@ -2725,6 +2731,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           role: _panelRole,
           embeddedInShell: true,
           permissions: widget.permissions,
+        );
+      case 24:
+        return UtilitariosScreen(
+          key: _shellPageKey(24),
+          uid: FirebaseAuth.instance.currentUser?.uid ?? '',
+          isAdmin: DiagnosticAccessPolicy.isMasterDiagnosticRole(_panelRole),
+          onNavigateTo: (i) => setState(() => _selectedIndex = i),
         );
       default:
         return IgrejaDashboardModerno(

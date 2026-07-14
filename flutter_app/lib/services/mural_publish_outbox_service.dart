@@ -115,15 +115,30 @@ abstract final class MuralPublishOutboxService {
         final raw = prefs.getString(_prefsKey);
         if (raw == null || raw.isEmpty) return;
         final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+        final eligible = <Map<String, dynamic>>[];
         for (final m in list) {
           final attempts =
               (m['attemptCount'] is num ? (m['attemptCount'] as num).toInt() : 0);
-          if (attempts >= 6) continue;
-          await _retryFromJson(m, attemptCount: attempts + 1);
+          if (attempts >= 10) continue;
+          eligible.add({...m, 'attemptCount': attempts + 1});
+        }
+        for (var i = 0; i < eligible.length; i += 2) {
+          final batch = eligible.sublist(
+            i,
+            (i + 2 > eligible.length) ? eligible.length : i + 2,
+          );
+          await Future.wait(
+            batch.map((m) => _retryFromJson(m, attemptCount: m['attemptCount'] as int)),
+            eagerError: false,
+          );
         }
       },
       debugLabel: 'mural_outbox_drain',
-    ).catchError((_) {});
+    ).catchError((e, st) {
+      if (kDebugMode) {
+        debugPrint('MuralPublishOutboxService.drainPendingJobs: $e\n$st');
+      }
+    });
   }
 
   static void bindConnectivityResume() {

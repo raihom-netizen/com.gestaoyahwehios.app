@@ -90,6 +90,7 @@ abstract final class StorageUploadPersistenceService {
       if (list.isEmpty) return;
 
       final remaining = <Map<String, dynamic>>[];
+      final validJobs = <Map<String, dynamic>>[];
       for (final job in list) {
         final path = (job['localPath'] ?? '').toString();
         final storagePath = (job['storagePath'] ?? '').toString();
@@ -99,50 +100,67 @@ abstract final class StorageUploadPersistenceService {
 
         final f = File(path);
         if (!await f.exists()) continue;
+        validJobs.add({...job, 'localPath': path, 'storagePath': storagePath, 'contentType': contentType});
+      }
 
-        try {
-          final size = await f.length();
-          final url = ResumableUploadService.shouldUseFileUpload(
-            contentType,
-            size,
-          )
-              ? await ResumableUploadService.uploadLocalFile(
-                  storagePath: storagePath,
-                  localFilePath: path,
-                  contentType: contentType,
-                )
-              : await uploadStoragePutDataWithRetry(
-                  storagePath: storagePath,
-                  bytes: await f.readAsBytes(),
-                  contentType: contentType,
-                  maxAttempts: 3,
-                  useOfflineQueue: false,
-                  localFilePathForRetry: path,
+      for (var i = 0; i < validJobs.length; i += 3) {
+        final batch = validJobs.sublist(
+          i,
+          (i + 3 > validJobs.length) ? validJobs.length : i + 3,
+        );
+        final results = await Future.wait(
+          batch.map((job) async {
+            final path = job['localPath'] as String;
+            final storagePath = job['storagePath'] as String;
+            final contentType = job['contentType'] as String;
+            final f = File(path);
+            try {
+              final size = await f.length();
+              final url = ResumableUploadService.shouldUseFileUpload(
+                contentType,
+                size,
+              )
+                  ? await ResumableUploadService.uploadLocalFile(
+                      storagePath: storagePath,
+                      localFilePath: path,
+                      contentType: contentType,
+                    )
+                  : await uploadStoragePutDataWithRetry(
+                      storagePath: storagePath,
+                      bytes: await f.readAsBytes(),
+                      contentType: contentType,
+                      maxAttempts: 3,
+                      useOfflineQueue: false,
+                      localFilePathForRetry: path,
+                    );
+              if (url.isEmpty) return job;
+              try {
+                await f.delete();
+              } catch (_) {}
+              return null;
+            } catch (e, st) {
+              await YahwehTelemetry.recordUploadFailure(
+                e,
+                st,
+                context: storagePath,
+              );
+              if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+                unawaited(
+                  PendingUploadsFirestoreService.recordFailureForStoragePath(
+                    storagePath: storagePath,
+                    error: e,
+                    localPath: path,
+                    contentType: contentType,
+                  ),
                 );
-          if (url.isEmpty) {
-            remaining.add(job);
-            continue;
-          }
-          try {
-            await f.delete();
-          } catch (_) {}
-        } catch (e, st) {
-          await YahwehTelemetry.recordUploadFailure(
-            e,
-            st,
-            context: storagePath,
-          );
-          if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
-            unawaited(
-              PendingUploadsFirestoreService.recordFailureForStoragePath(
-                storagePath: storagePath,
-                error: e,
-                localPath: path,
-                contentType: contentType,
-              ),
-            );
-          }
-          remaining.add(job);
+              }
+              return job;
+            }
+          }),
+          eagerError: false,
+        );
+        for (final r in results) {
+          if (r != null) remaining.add(r);
         }
       }
       await prefs.setString(_manifestKey, jsonEncode(remaining));

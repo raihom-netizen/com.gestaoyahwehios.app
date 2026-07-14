@@ -1,4 +1,3 @@
-import 'dart:async' show unawaited;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -17,7 +16,7 @@ abstract final class ChurchChatPendingMediaCache {
 
   static Future<Directory?> _dirFor(String localId) async {
     if (kIsWeb) return null;
-    final base = await getTemporaryDirectory();
+    final base = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(base.path, 'chat_pending', localId.trim()));
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -36,12 +35,7 @@ abstract final class ChurchChatPendingMediaCache {
     _memory[key] = bytes;
     final dir = await _dirFor(localId);
     if (dir == null) return;
-    unawaited(() async {
-      try {
-        await File(p.join(dir.path, 'payload.bin'))
-            .writeAsBytes(bytes, flush: true);
-      } catch (_) {}
-    }());
+    await File(p.join(dir.path, 'payload.bin')).writeAsBytes(bytes, flush: true);
   }
 
   static Future<Uint8List?> get({

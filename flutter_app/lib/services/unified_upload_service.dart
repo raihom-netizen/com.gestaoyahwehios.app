@@ -17,8 +17,7 @@ import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
-/// Upload unificado — Web, Android e iOS usam o mesmo pipeline ([MediaUploadService]
-/// + bootstrap + retry). A Web é a referência; nativos usam [putFile] quando há path local.
+/// Upload unificado — Web, Android e iOS usam o mesmo pipeline (bytes → putData).
 ///
 /// **Painel igreja (avisos, eventos, membros, património, financeiro):** preferir
 /// [ChurchMediaUploadFacade] / [ChurchCentralStorageUpload] — gate + timeout + regras Storage.
@@ -101,27 +100,6 @@ abstract final class UnifiedUploadService {
           ),
         );
       }
-      if (!kIsWeb &&
-          localPath != null &&
-          localPath.trim().isNotEmpty &&
-          await File(localPath).exists() &&
-          (skipClientPrepare || module == YahwehUploadModule.chat)) {
-        final url = await withUploadTimeout(
-          MediaUploadService.uploadFileWithRetry(
-            storagePath: storagePath,
-            file: File(localPath),
-            contentType: contentType,
-            maxAttempts: maxAttempts,
-            useOfflineQueue: useOfflineQueue,
-            skipRecompress: skipClientPrepare,
-            chatJpegFast: chatJpegFast,
-            onProgress: onProgress,
-            onUploadTaskCreated: onUploadTaskCreated,
-          ),
-        );
-        logFirebasePublishPhase('UPLOAD_SUCCESS', '$platformLabel|$storagePath');
-        return url;
-      }
 
       final String url;
       if (skipClientPrepare) {
@@ -189,13 +167,17 @@ abstract final class UnifiedUploadService {
         throw StateError('Vídeo não encontrado no aparelho.');
       }
       final compressed = await YahwehMediaUploadPipeline.compressVideoFile(file);
-      final url = await MediaUploadService.uploadFileWithRetry(
+      final videoBytes = await compressed.readAsBytes();
+      if (videoBytes.isEmpty) {
+        throw StateError('Vídeo vazio após compressão.');
+      }
+      final url = await MediaUploadService.uploadBytesWithRetry(
         storagePath: storagePath,
-        file: compressed,
+        bytes: videoBytes,
         contentType: contentType,
         maxAttempts: maxAttempts,
         useOfflineQueue: false,
-        skipRecompress: true,
+        skipClientPrepare: true,
         onProgress: onProgress,
       );
       logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');
@@ -230,13 +212,21 @@ abstract final class UnifiedUploadService {
       if (kIsWeb) {
         throw UnsupportedError('uploadFile por path só no mobile.');
       }
-      final url = await MediaUploadService.uploadFileWithRetry(
+      final file = File(localPath);
+      if (!await file.exists()) {
+        throw StateError('Ficheiro não encontrado no aparelho.');
+      }
+      final fileBytes = await file.readAsBytes();
+      if (fileBytes.isEmpty) {
+        throw StateError('Ficheiro vazio — selecione outro.');
+      }
+      final url = await MediaUploadService.uploadBytesWithRetry(
         storagePath: storagePath,
-        file: File(localPath),
+        bytes: fileBytes,
         contentType: contentType,
         maxAttempts: maxAttempts,
         useOfflineQueue: false,
-        skipRecompress: true,
+        skipClientPrepare: true,
         onProgress: onProgress,
       );
       logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');

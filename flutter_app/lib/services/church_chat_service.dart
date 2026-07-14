@@ -15,9 +15,8 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
-    show YahwehUploadModule;
+    show YahwehUploadModule, YahwehMediaUploadPipeline;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -1730,7 +1729,7 @@ class ChurchChatService {
         lastError = e;
       }
       if (attempt < 4) {
-        await Future<void>.delayed(Duration(milliseconds: 350 * (attempt + 1)));
+        await Future<void>.delayed(Duration(milliseconds: 150 * (attempt + 1)));
       }
     }
     if (kDebugMode && lastError != null) {
@@ -1903,7 +1902,7 @@ class ChurchChatService {
       } catch (e) {
         last = e;
         if (attempt >= 5) break;
-        await Future.delayed(Duration(milliseconds: 280 * attempt));
+        await Future.delayed(Duration(milliseconds: 120 * attempt));
       }
     }
     throw last ?? StateError('Não foi possível concluir o envio da mensagem.');
@@ -2114,12 +2113,10 @@ class ChurchChatService {
         'igrejas/$tenantId/chat_stickers/${uid}_${ts}_$safeName';
     final ubytes =
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-    final url = await UnifiedUploadService.uploadImage(
+    final url = await ChurchChatMediaStorage.putBytesFast(
       storagePath: path,
       bytes: ubytes,
       contentType: contentType,
-      module: YahwehUploadModule.chat,
-      skipClientPrepare: true,
     );
     return (url: url, path: path);
   }
@@ -2487,7 +2484,7 @@ class ChurchChatService {
         if (attempt > 1) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           await ensureFirebaseReadyForChatSend();
-          await Future<void>.delayed(const Duration(milliseconds: 320));
+          await Future<void>.delayed(const Duration(milliseconds: 150));
         }
         if (kIsWeb) {
           await FirestoreWebGuard.runChatWriteWithRecovery(
@@ -2566,14 +2563,16 @@ class ChurchChatService {
     return ChurchChatMessageFields.withCanonicalAliases(patch);
   }
 
-  /// Valida objeto no bucket antes de finalizar mensagem.
+  /// Valida objeto no bucket — em background (putData já concluiu; padrão CT).
   static Future<void> assertChatMediaUploaded(
     String storagePath, {
     String? thumbStoragePath,
   }) async {
-    await ChatPublishVerificationService.verifyStorageMetadata(
-      storagePath: storagePath,
-      thumbStoragePath: thumbStoragePath,
+    unawaited(
+      ChatPublishVerificationService.verifyStorageMetadata(
+        storagePath: storagePath,
+        thumbStoragePath: thumbStoragePath,
+      ).catchError((_) {}),
     );
   }
 
@@ -2588,6 +2587,7 @@ class ChurchChatService {
     String? mediaUrl,
     String? thumbUrl,
     int? fileSize,
+    String? kind,
   }) async {
     final resolvedTenant =
         await ChatPublishVerificationService.resolveTenantForPublish(
@@ -2607,6 +2607,7 @@ class ChurchChatService {
       mediaUrl: mediaUrl,
       thumbUrl: thumbUrl,
       fileSize: fileSize,
+      kind: kind,
     );
   }
 
@@ -2621,6 +2622,7 @@ class ChurchChatService {
     String? mediaUrl,
     String? thumbUrl,
     int? fileSize,
+    String? kind,
   }) async {
     final patch = mediaUploadFinalizePatch(
       storagePath: storagePath,
@@ -2660,9 +2662,16 @@ class ChurchChatService {
     );
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
-      final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
+      final resolvedKind = (kind ?? '').trim().isNotEmpty
+          ? kind!.trim()
+          : ChurchChatAttachmentUtils.messageKindForAttachment(
+              fileName: (fileName ?? storagePath).trim(),
+              mime: ChurchChatAttachmentUtils.mimeFromFileName(
+                (fileName ?? storagePath).trim(),
+              ),
+            );
       final preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
-        kind: kind,
+        kind: resolvedKind,
         fileName: fileName,
       );
       try {
@@ -2670,7 +2679,7 @@ class ChurchChatService {
         final threadPatch = threadLastMessageIndexPatch(
           preview: preview,
           senderUid: uid,
-          messageType: kind,
+          messageType: resolvedKind,
         );
         await AdminFeedFirestoreBridge.upsertDocRef(
           docRef: tRef,
@@ -2684,7 +2693,7 @@ class ChurchChatService {
             myUid: uid,
             threadId: threadId,
             preview: preview,
-            messageType: kind,
+            messageType: resolvedKind,
           ),
         );
       } catch (_) {}
@@ -2731,7 +2740,7 @@ class ChurchChatService {
         last = e;
         if (attempt >= maxAttempts) break;
         await Future.delayed(
-          Duration(milliseconds: 280 * attempt),
+          Duration(milliseconds: 120 * attempt),
         );
       }
     }
@@ -2926,13 +2935,12 @@ class ChurchChatService {
     } else if (ct.startsWith('image/')) {
       final chatJpegFast =
           ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
-      url = await UnifiedUploadService.uploadImage(
+      url = await YahwehMediaUploadPipeline.uploadBytes(
         storagePath: path,
         bytes: ubytes,
         contentType: contentType,
         module: YahwehUploadModule.chat,
         chatJpegFast: chatJpegFast,
-        skipClientPrepare: skipClientPrepare,
         onProgress: onProgress,
         onUploadTaskCreated: onUploadTaskCreated,
       );
@@ -3048,4 +3056,3 @@ class ChurchChatService {
     }
   }
 }
-

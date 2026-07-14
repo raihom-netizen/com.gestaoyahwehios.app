@@ -19,9 +19,9 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Galeria de evento — `igrejas/{churchId}/eventos/{eventoId}/…`.
 ///
@@ -121,21 +121,22 @@ class EventoGalleryService {
       contentType: 'video/mp4',
     );
 
-    final videoUrl = await UnifiedUploadService.uploadFile(
+    final videoUrl = await EcoFireEventVideoUpload.putVideoFile(
       storagePath: storageVideoPath,
-      localPath: compressed.path,
-      contentType: 'video/mp4',
-      module: YahwehUploadModule.generic,
-      maxAttempts: 4,
+      file: compressed,
     );
 
     var thumbUrl = '';
     if (thumbFile != null && thumbFile.existsSync()) {
       final thumbBytes = await thumbFile.readAsBytes();
-      thumbUrl = await UnifiedUploadService.uploadJpegBytes(
-        storagePath: '$storagePathPrefix/video_poster_$fileName.jpg',
+      final thumbResult = await ChurchMediaUploadFacade.uploadMidia(
         bytes: thumbBytes,
+        storagePath: '$storagePathPrefix/video_poster_$fileName.jpg',
+        logLabel: 'evento_video_thumb',
+        alreadyCompressed: true,
+        compressForFeed: false,
       );
+      thumbUrl = thumbResult.downloadUrl;
     }
 
     final novoVideo = {
@@ -181,10 +182,13 @@ class EventoGalleryService {
 
     final fileName = '${DateTime.now().millisecondsSinceEpoch}';
     final storagePath = '$storagePathPrefix/$fileName.jpg';
-    final downloadUrl = await UnifiedUploadService.uploadJpegBytes(
-      storagePath: storagePath,
+    final uploaded = await ChurchMediaUploadFacade.uploadMidia(
       bytes: bytes,
+      storagePath: storagePath,
+      logLabel: 'evento_galeria_foto',
+      alreadyCompressed: fileToUpload.path != arquivo.path,
     );
+    final downloadUrl = uploaded.downloadUrl;
 
     final fresh = await eventRef.get();
     final list = fresh.exists && fresh.data() != null

@@ -317,6 +317,9 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(UploadTask task)? onUploadTaskCreated,
     bool requireAuth = true,
   }) async {
+    if (bytes.isEmpty) {
+      throw StateError('Ficheiro vazio — selecione outro.');
+    }
     if (EcoFireFlow.directStorageUpload) {
       final profile = ecofireProfileFromPath(storagePath);
       return EcoFireMediaUpload.uploadBytes(

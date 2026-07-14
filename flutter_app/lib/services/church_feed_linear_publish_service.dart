@@ -183,17 +183,25 @@ abstract final class ChurchFeedLinearPublishService {
               'As fotos do evento na web devem ser enviadas em memória (bytes).',
             );
           }
+          final files = <File>[];
           for (final localPath in imagePaths) {
             final file = File(localPath);
             if (!await file.exists()) {
               throw StateError('Foto do evento não encontrada no aparelho.');
             }
-            final bytes = await file.readAsBytes();
-            if (bytes.isEmpty) {
-              throw StateError('Foto do evento vazia — selecione outra imagem.');
-            }
-            allBytes.add(bytes);
+            files.add(file);
           }
+          final readBytes = await Future.wait(
+            files.map((f) async {
+              final bytes = await f.readAsBytes();
+              if (bytes.isEmpty) {
+                throw StateError('Foto do evento vazia — selecione outra imagem.');
+              }
+              return bytes;
+            }),
+            eagerError: true,
+          );
+          allBytes.addAll(readBytes);
         }
         if (allBytes.isEmpty) {
           throw StateError('Inclua pelo menos uma foto no evento.');
@@ -264,17 +272,25 @@ abstract final class ChurchFeedLinearPublishService {
               'As fotos do aviso na web devem ser enviadas em memória (bytes).',
             );
           }
+          final files = <File>[];
           for (final localPath in imagePaths) {
             final file = File(localPath);
             if (!await file.exists()) {
               throw StateError('Foto do aviso não encontrada no aparelho.');
             }
-            final bytes = await file.readAsBytes();
-            if (bytes.isEmpty) {
-              throw StateError('Foto do aviso vazia — selecione outra imagem.');
-            }
-            allBytes.add(bytes);
+            files.add(file);
           }
+          final readBytes = await Future.wait(
+            files.map((f) async {
+              final bytes = await f.readAsBytes();
+              if (bytes.isEmpty) {
+                throw StateError('Foto do aviso vazia — selecione outra imagem.');
+              }
+              return bytes;
+            }),
+            eagerError: true,
+          );
+          allBytes.addAll(readBytes);
         }
 
         var nextSlot = startSlotIndex;
@@ -337,8 +353,11 @@ abstract final class ChurchFeedLinearPublishService {
         );
       }
       if (isEvento && alignedThumbUrls.isEmpty) {
-        for (final tp in alignedThumbPaths) {
-          final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);
+        final thumbFutures = alignedThumbPaths.map(
+          (tp) => EcoFireFeedPublishService.refsToPlayableUrls([tp]),
+        );
+        final thumbResults = await Future.wait(thumbFutures, eagerError: false);
+        for (final tu in thumbResults) {
           if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
         }
       }
@@ -633,7 +652,7 @@ abstract final class ChurchFeedLinearPublishService {
 
     if (kIsWeb) {
       try {
-        await verify().timeout(const Duration(seconds: 18));
+        await verify().timeout(const Duration(seconds: 10));
       } catch (_) {
         // CF Admin SDK já gravou — não bloquear por lag de leitura web.
       }

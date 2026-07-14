@@ -1,9 +1,9 @@
-import 'dart:async';
+import 'dart:async' show unawaited;
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 
 /// Fila por igreja: `igrejas/{tenantId}/pending_uploads/{id}`.
 /// A coleção raiz `pendingUploads` está descontinuada (legado — migrar/apagar).
@@ -69,11 +70,13 @@ abstract final class PendingUploadsFirestoreService {
       return id;
     }
     final alias = FeedTenantStorageMap.canonicalIgrejasPathHint(storagePath);
+    final canonicalTenant =
+        ChurchPublishContext.churchIdForPublish(tenantId.trim());
     final data = <String, dynamic>{
       'id': id,
       'userId': uid,
       'ownerUid': uid,
-      'tenantId': tenantId,
+      'tenantId': canonicalTenant,
       'module': module,
       'type': module,
       'storagePath': storagePath,
@@ -86,7 +89,7 @@ abstract final class PendingUploadsFirestoreService {
       if (alias != null && alias.isNotEmpty) 'canonicalPathHint': alias,
       if (meta != null) ...meta,
     };
-    await _col(tenantId).doc(id).set(data);
+    await _col(canonicalTenant).doc(id).set(data);
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
       unawaited(
         StorageUploadPersistenceService.enqueueFileJob(
@@ -165,6 +168,7 @@ abstract final class PendingUploadsFirestoreService {
     required double progress,
     String status = 'uploading',
   }) async {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     final patch = {
       'progress': progress.clamp(0.0, 1.0),
       'status': status,
@@ -172,20 +176,34 @@ abstract final class PendingUploadsFirestoreService {
     };
     try {
       await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PendingUploads.markProgress $uploadId: $e');
+      }
+    }
   }
 
   static Future<void> markCompleted(String tenantId, String uploadId) async {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     try {
       await _col(tenantId).doc(uploadId).delete();
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PendingUploads.markCompleted $uploadId: $e');
+      }
+    }
   }
 
   static Future<void> cancelJob(String tenantId, String uploadId) async {
     if (tenantId.isEmpty || uploadId.isEmpty) return;
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     try {
       await _col(tenantId).doc(uploadId).delete();
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PendingUploads.cancelJob $uploadId: $e');
+      }
+    }
   }
 
   static Future<void> markFailed(
@@ -193,6 +211,7 @@ abstract final class PendingUploadsFirestoreService {
     String uploadId,
     Object error,
   ) async {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     final patch = {
       'status': 'failed',
       'lastError': error.toString(),
@@ -200,7 +219,11 @@ abstract final class PendingUploadsFirestoreService {
     };
     try {
       await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PendingUploads.markFailed $uploadId: $e');
+      }
+    }
     unawaited(
       CrashlyticsService.record(error, StackTrace.current, reason: 'pending_upload'),
     );
@@ -208,6 +231,7 @@ abstract final class PendingUploadsFirestoreService {
 
   /// Contagem de jobs abertos do utilizador actual (tenant).
   static Future<int> countOpenForTenant(String tenantId) async {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return 0;
     if (tenantId.isEmpty) return 0;
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
@@ -283,6 +307,9 @@ abstract final class PendingUploadsFirestoreService {
     bool masterSeeAll = false,
     int limit = 40,
   }) {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      return const Stream.empty();
+    }
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return const Stream.empty();
     final group =
@@ -432,7 +459,11 @@ abstract final class PendingUploadsFirestoreService {
         },
       );
       await markFailed(tenantId, id, error);
-    } catch (_) {}
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('PendingUploadsFirestoreService.recordFailedBytesUpload: $e\n$st');
+      }
+    }
   }
 
   static const _openStatuses = ['pending', 'failed', 'uploading', 'queued'];

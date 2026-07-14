@@ -10,6 +10,7 @@ abstract final class FirestoreOfflineConfig {
 
   static bool persistenceEnabled = false;
   static bool webIndexedDbFallback = false;
+  static bool settingsApplied = false;
 }
 
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
@@ -20,6 +21,7 @@ abstract final class FirestoreOfflineConfig {
 /// - **Mobile:** cache ilimitado + persistência nativa.
 /// - Cache de módulos na Web: [ChurchRepository.listCacheFirst] + Hive (não IndexedDB SDK).
 void configureFirestoreForOfflineAndSpeed() {
+  if (FirestoreOfflineConfig.settingsApplied) return;
   if (!isFirebaseReady) {
     debugPrint(
       'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto — ignorado.',
@@ -38,6 +40,7 @@ void configureFirestoreForOfflineAndSpeed() {
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
+      FirestoreOfflineConfig.settingsApplied = true;
     } catch (e, st) {
       debugPrint('configureFirestoreForOfflineAndSpeed (web CT): $e\n$st');
       _applyFallbackSettings(db);
@@ -53,6 +56,7 @@ void configureFirestoreForOfflineAndSpeed() {
     );
     FirestoreOfflineConfig.persistenceEnabled = true;
     FirestoreOfflineConfig.webIndexedDbFallback = false;
+    FirestoreOfflineConfig.settingsApplied = true;
   } catch (e, st) {
     debugPrint('configureFirestoreForOfflineAndSpeed (mobile): $e\n$st');
     _applyFallbackSettings(db);
@@ -69,6 +73,7 @@ void _applyFallbackSettings(FirebaseFirestore db) {
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = true;
+      FirestoreOfflineConfig.settingsApplied = true;
     } else {
       db.settings = Settings(
         persistenceEnabled: true,
@@ -76,6 +81,7 @@ void _applyFallbackSettings(FirebaseFirestore db) {
         ignoreUndefinedProperties: true,
       );
       FirestoreOfflineConfig.persistenceEnabled = true;
+      FirestoreOfflineConfig.settingsApplied = true;
     }
   } catch (e2) {
     debugPrint('configureFirestoreForOfflineAndSpeed fallback: $e2');

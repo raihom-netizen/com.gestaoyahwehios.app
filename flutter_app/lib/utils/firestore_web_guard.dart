@@ -53,10 +53,7 @@ class FirestoreWebGuard {
 
   static Future<void> prepareBeforeWebSignIn() async {
     if (!kIsWeb) return;
-    try {
-      await firebaseDefaultFirestore.disableNetwork();
-    } catch (_) {}
-    await Future<void>.delayed(const Duration(milliseconds: 48));
+    await ensureWebDatabaseConnected(refreshAuth: false);
   }
 
   static Future<void> stabilizeAfterWebSignIn() async {
@@ -76,38 +73,34 @@ class FirestoreWebGuard {
     await Future<void>.delayed(const Duration(milliseconds: 140));
   }
 
-  /// Recuperação Web — **sem** `terminate()` (mata o singleton e quebra Eventos/Avisos/Patrimônio).
+  static Future<void>? _recoveryInFlight;
+
+  /// Recuperação Web single-flight — nunca desliga a rede global do Firestore.
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
     if (WebPanelStability.isSessionExpired) return;
 
-    if (allowHardReconnect) {
-      await _reconnectFirestoreAfterTerminated();
-      applyWebFirestoreSettings();
-    }
-
-    await stabilizeAfterWebSignIn();
-    if (allowHardReconnect) {
-      try {
-        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
-        applyWebFirestoreSettings();
-      } catch (_) {}
-    }
-    try {
-      await firebaseDefaultFirestore.disableNetwork();
-      await Future<void>.delayed(const Duration(milliseconds: 80));
-      await firebaseDefaultFirestore.enableNetwork();
-    } catch (e) {
-      if (isClientTerminated(e)) {
+    final active = _recoveryInFlight;
+    if (active != null) return active;
+    final recovery = () async {
+      if (allowHardReconnect) {
         await _reconnectFirestoreAfterTerminated();
-        applyWebFirestoreSettings();
         try {
-          await firebaseDefaultFirestore.enableNetwork();
+          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
         } catch (_) {}
       }
+      applyWebFirestoreSettings();
+      await stabilizeAfterWebSignIn();
+      await firebaseDefaultFirestore.enableNetwork();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }();
+    _recoveryInFlight = recovery;
+    try {
+      await recovery;
+    } finally {
+      if (identical(_recoveryInFlight, recovery)) _recoveryInFlight = null;
     }
-    await Future<void>.delayed(const Duration(milliseconds: 100));
   }
 
   /// Garante cliente Firestore utilizável na web — **nunca** chama `terminate()`.
@@ -142,14 +135,17 @@ class FirestoreWebGuard {
       return _panelReadReadyOnce!;
     }
     _panelReadReadyOnce = () async {
-      try {
-        applyWebFirestoreSettings();
-        await ensureWebDatabaseConnected(refreshAuth: false).timeout(
-          ChurchPanelReadTimeouts.readReadyCap,
-        );
-        _panelReadReadyAt = DateTime.now();
-      } catch (_) {}
+      applyWebFirestoreSettings();
+      await ensureWebDatabaseConnected(refreshAuth: false).timeout(
+        ChurchPanelReadTimeouts.readReadyCap,
+      );
+      _panelReadReadyAt = DateTime.now();
     }();
+    _panelReadReadyOnce = _panelReadReadyOnce!.catchError((Object e, StackTrace st) {
+      _panelReadReadyAt = null;
+      _panelReadReadyOnce = null;
+      Error.throwWithStackTrace(e, st);
+    });
     return _panelReadReadyOnce!;
   }
 
@@ -247,9 +243,7 @@ class FirestoreWebGuard {
   static Future<void> ensureWebDatabaseConnected({bool refreshAuth = false}) async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
-    try {
-      await firebaseDefaultFirestore.enableNetwork();
-    } catch (_) {}
+    await firebaseDefaultFirestore.enableNetwork();
     if (refreshAuth) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && !user.isAnonymous) {

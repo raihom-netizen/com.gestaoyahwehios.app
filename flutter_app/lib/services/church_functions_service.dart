@@ -27,6 +27,35 @@ abstract final class ChurchFunctionsService {
     return <String, dynamic>{'ok': raw == true};
   }
 
+  /// OCR imagem (Utilitários / smart input) — retorna null se CF indisponível; cliente usa Textify/ML Kit.
+  static Future<String?> ocrImageForSmartInput({
+    required String base64,
+    String mimeType = 'image/jpeg',
+  }) async {
+    try {
+      if (firebaseDefaultAuth.currentUser == null) return null;
+      final res = await _call('gyOcrImageForSmartInput', {
+        'base64': base64,
+        'mimeType': mimeType,
+      });
+      if (res['ok'] == true && res['text'] is String) {
+        final t = (res['text'] as String).trim();
+        if (t.isNotEmpty) return t;
+      }
+    } catch (_) {}
+    try {
+      final res = await _call('ctOcrImageForSmartInput', {
+        'base64': base64,
+        'mimeType': mimeType,
+      });
+      if (res['ok'] == true && res['text'] is String) {
+        final t = (res['text'] as String).trim();
+        if (t.isNotEmpty) return t;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Upload comprovante via CF (Web) — base64 → Storage + Firestore merge.
   static Future<FinanceComprovanteCfResult> uploadFinanceComprovante({
     required String churchId,

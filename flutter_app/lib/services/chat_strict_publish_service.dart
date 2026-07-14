@@ -22,8 +22,9 @@ abstract final class ChatStrictPublishService {
     String? mediaUrl,
     String? thumbUrl,
     int? fileSize,
-    bool skipStorageVerify = false,
-    bool skipServerRecheck = false,
+    String? kind,
+    bool skipStorageVerify = true,
+    bool skipServerRecheck = true,
   }) async {
     if (!skipStorageVerify) {
       await DirectStorageUrlPublish.ensureReady(requireAuth: true);
@@ -86,6 +87,7 @@ abstract final class ChatStrictPublishService {
       mediaUrl: resolvedUrl,
       thumbUrl: resolvedThumbUrl,
       fileSize: fileSize,
+      kind: kind,
     );
 
     if (!skipServerRecheck && !kIsWeb) {
@@ -130,6 +132,7 @@ abstract final class ChatStrictPublishService {
             : ChurchChatMessageFields.fileName(data),
         thumbStoragePath: thumb.isEmpty ? null : thumb,
         fileSize: ChurchChatMessageFields.fileSize(data),
+        kind: (data['type'] ?? '').toString(),
         skipStorageVerify: true,
         skipServerRecheck: true,
       );
@@ -168,7 +171,7 @@ abstract final class ChatStrictPublishService {
         last = e;
       }
       if (attempt < 4) {
-        await Future.delayed(Duration(milliseconds: 220 * (attempt + 1)));
+        await Future.delayed(Duration(milliseconds: 100 * (attempt + 1)));
       }
     }
     throw last ??

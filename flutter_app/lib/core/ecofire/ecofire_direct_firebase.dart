@@ -45,7 +45,7 @@ abstract final class EcoFireDirectFirebase {
 
     final future = () async {
       Object? last;
-      for (var attempt = 0; attempt < 4; attempt++) {
+      for (var attempt = 0; attempt < 2; attempt++) {
         try {
           if (!_hasDefaultApp() && Firebase.apps.isEmpty) {
             await FirebaseBootstrap.ensureInitialized();
@@ -72,9 +72,9 @@ abstract final class EcoFireDirectFirebase {
           return app;
         } catch (e) {
           last = e;
-          if (attempt < 3) {
+          if (attempt < 1) {
             await Future<void>.delayed(
-              Duration(milliseconds: 180 + (attempt * 220)),
+              Duration(milliseconds: 100 + (attempt * 100)),
             );
           }
         }
@@ -102,11 +102,11 @@ abstract final class EcoFireDirectFirebase {
   /// Bucket Storage ligado ao app [DEFAULT].
   static Future<void> ensureStorageLinked() async {
     Object? last;
-    for (var attempt = 0; attempt < 4; attempt++) {
+    for (var attempt = 0; attempt < 2; attempt++) {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(
-            Duration(milliseconds: 160 + 200 * attempt),
+            Duration(milliseconds: 100 + 100 * attempt),
           );
         }
         final app = await ensureDefaultApp();
@@ -142,7 +142,7 @@ abstract final class EcoFireDirectFirebase {
     if (user == null || user.isAnonymous) {
       try {
         user = await SessionRestoreService.waitForPersistedFirebaseUser().timeout(
-          const Duration(seconds: 3),
+          const Duration(seconds: 1),
           onTimeout: () => null,
         );
       } catch (_) {}
@@ -159,7 +159,7 @@ abstract final class EcoFireDirectFirebase {
       WebPanelStability.bindLoginSession(user);
     }
     try {
-      await user.getIdToken(false).timeout(const Duration(seconds: 8));
+      await user.getIdToken(false).timeout(const Duration(seconds: 3));
     } catch (_) {}
   }
 

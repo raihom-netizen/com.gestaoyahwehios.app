@@ -2,6 +2,8 @@ import 'dart:async' show TimeoutException, unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 
+import 'package:cross_file/cross_file.dart';
+import 'package:firebase_core/firebase_core.dart' show FirebaseException;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
@@ -34,12 +36,22 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchChatMediaSendService {
   ChurchChatMediaSendService._();
 
-  static const Duration kPrepareTimeout = Duration(seconds: 18);
-  static const Duration kStorageImageTimeout = Duration(seconds: 55);
-  static const Duration kStorageThumbTimeout = Duration(seconds: 12);
-  static const Duration kStorageVideoTimeout = Duration(seconds: 180);
-  static const Duration kStorageAudioTimeout = Duration(seconds: 90);
-  static const Duration kStorageDocumentTimeout = Duration(seconds: 120);
+  static Future<Uint8List> _readLocalPathBytes(String path) async {
+    final p = path.trim();
+    if (p.isEmpty) return Uint8List(0);
+    if (kIsWeb) {
+      final raw = await XFile(p).readAsBytes();
+      return raw is Uint8List ? raw : Uint8List.fromList(raw);
+    }
+    return Uint8List.fromList(await File(p).readAsBytes());
+  }
+
+  static const Duration kPrepareTimeout = Duration(seconds: 8);
+  static const Duration kStorageImageTimeout = Duration(seconds: 35);
+  static const Duration kStorageThumbTimeout = Duration(seconds: 8);
+  static const Duration kStorageVideoTimeout = Duration(seconds: 120);
+  static const Duration kStorageAudioTimeout = Duration(seconds: 60);
+  static const Duration kStorageDocumentTimeout = Duration(seconds: 60);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,
@@ -82,18 +94,16 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
-    } catch (e) {
-      if (isFirebaseNoAppError(e)) {
-        await EcoFireDirectFirebase.ensureDefaultApp();
+      try {
         await DirectStorageUrlPublish.ensureReady(requireAuth: true);
-      } else {
-        onError?.call(ChurchChatService.formatInstantSendError(e));
-        rethrow;
+      } catch (e) {
+        if (isFirebaseNoAppError(e)) {
+          await EcoFireDirectFirebase.ensureDefaultApp();
+          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+        } else {
+          rethrow;
+        }
       }
-    }
-
-    try {
       await ChurchChatMediaUploadCoordinator.run(() => sendInternal(
         resolvedTenant: resolvedTenant,
         threadId: threadId,
@@ -106,11 +116,11 @@ abstract final class ChurchChatMediaSendService {
       ));
       onSuccess?.call();
     } catch (e) {
-      // Só fila silenciosa se estiver REALMENTE offline.
-      // Na Web, `internal`/`timeout` após Storage NÃO pode virar «sucesso» —
-      // isso removia a bolha e o chat ficava «Sem mensagens ainda».
-      final trulyOffline = !AppConnectivityService.instance.isOnline;
-      if (trulyOffline && EcoFireResilientPublish.shouldQueueSilently(e)) {
+      // Fila silenciosa: só offline real ou erro que [shouldQueueSilently] aceita.
+      // Timeout online → erro visível + «Tentar de novo» (não sumir bolha).
+      final queueSilently = EcoFireResilientPublish.shouldQueueSilently(e) ||
+          (!AppConnectivityService.instance.isOnline);
+      if (queueSilently) {
         try {
           await EcoFireResilientPublish.queueChatMedia(
             tenantId: resolvedTenant,
@@ -197,24 +207,22 @@ abstract final class ChurchChatMediaSendService {
         status: ChurchChatUploadsService.statusUploading,
       ),
     );
-    unawaited(
-      ChurchChatMediaOutboxService.registerJob(
-        tenantId: resolvedTenant,
-        threadId: threadId,
-        localId: pending.localId,
-        kind: pending.kind,
-        fileName: pending.fileName,
-        mime: pending.mime,
-        firestoreMessageId: messageId,
-        storagePath: storagePath,
-        localPath: uploadPath.isNotEmpty ? uploadPath : null,
-        bytes: uploadBytes != null && uploadBytes.isNotEmpty
-            ? (uploadBytes is Uint8List
-                ? uploadBytes
-                : Uint8List.fromList(uploadBytes))
-            : null,
-        uploadDocId: messageId,
-      ),
+    await ChurchChatMediaOutboxService.registerJob(
+      tenantId: resolvedTenant,
+      threadId: threadId,
+      localId: pending.localId,
+      kind: pending.kind,
+      fileName: pending.fileName,
+      mime: pending.mime,
+      firestoreMessageId: messageId,
+      storagePath: storagePath,
+      localPath: uploadPath.isNotEmpty ? uploadPath : null,
+      bytes: uploadBytes != null && uploadBytes.isNotEmpty
+          ? (uploadBytes is Uint8List
+              ? uploadBytes
+              : Uint8List.fromList(uploadBytes))
+          : null,
+      uploadDocId: messageId,
     );
 
     void reportProgress(double t) {
@@ -243,7 +251,7 @@ abstract final class ChurchChatMediaSendService {
           bytes: uploadBytes != null && uploadBytes.isNotEmpty
               ? Uint8List.fromList(uploadBytes)
               : null,
-          localPath: uploadPath.isNotEmpty && !kIsWeb ? uploadPath : null,
+          localPath: uploadPath.isNotEmpty ? uploadPath : null,
         );
         fileSize = prepared.fullBytes.length;
         reportProgress(0.2);
@@ -262,24 +270,26 @@ abstract final class ChurchChatMediaSendService {
         );
         reportProgress(0.82);
 
-        // Thumb não bloqueia envio — timeout curto; Firestore segue com imagem principal.
+        // Thumb truly non-blocking — fire-and-forget; message goes immediately.
         if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
           thumbStoragePath =
               ChurchChatService.buildChatImageThumbStoragePathForMessage(
             tenantId: resolvedTenant,
             messageId: messageId,
           );
-          try {
-            thumbUrl = await ChurchChatMediaStorage.putBytesFast(
+          unawaited(
+            ChurchChatMediaStorage.putBytesFast(
               storagePath: thumbStoragePath,
               bytes: prepared.thumbBytes!,
               contentType: 'image/webp',
-              onProgress: (t) => _mapProgress(reportProgress, 0.82, 0.88, t),
-            ).timeout(kStorageThumbTimeout);
-          } catch (_) {
-            thumbStoragePath = null;
-            thumbUrl = null;
-          }
+            ).timeout(kStorageThumbTimeout).then(
+              (url) => thumbUrl = url,
+              onError: (_) {
+                thumbStoragePath = null;
+                thumbUrl = null;
+              },
+            ),
+          );
         }
         reportProgress(0.88);
       } else if (pending.kind == 'video') {
@@ -315,17 +325,17 @@ abstract final class ChurchChatMediaSendService {
             onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
           ).timeout(kStorageVideoTimeout);
         } else if (videoLocalPath.isNotEmpty) {
-          mediaUrl = await ChurchChatMediaStorage.putFile(
+          final videoBytes = await _readLocalPathBytes(videoLocalPath);
+          if (videoBytes.isEmpty) {
+            throw StateError('Vídeo vazio — selecione outro ficheiro.');
+          }
+          fileSize = videoBytes.length;
+          mediaUrl = await ChurchChatMediaStorage.putBytesFast(
             storagePath: storagePath,
-            localPath: videoLocalPath,
+            bytes: videoBytes,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.3, 0.85, t),
           ).timeout(kStorageVideoTimeout);
-          if (fileSize == null) {
-            try {
-              fileSize = await File(videoLocalPath).length();
-            } catch (_) {}
-          }
         } else {
           throw StateError('Sem vídeo para enviar.');
         }
@@ -337,17 +347,19 @@ abstract final class ChurchChatMediaSendService {
             tenantId: resolvedTenant,
             messageId: messageId,
           );
-          try {
-            thumbUrl = await ChurchChatMediaStorage.putBytesFast(
+          unawaited(
+            ChurchChatMediaStorage.putBytesFast(
               storagePath: thumbStoragePath,
               bytes: thumbBytes,
               contentType: 'image/jpeg',
-              onProgress: (t) => _mapProgress(reportProgress, 0.85, 0.9, t),
-            ).timeout(kStorageThumbTimeout);
-          } catch (_) {
-            thumbStoragePath = null;
-            thumbUrl = null;
-          }
+            ).timeout(kStorageThumbTimeout).then(
+              (url) => thumbUrl = url,
+              onError: (_) {
+                thumbStoragePath = null;
+                thumbUrl = null;
+              },
+            ),
+          );
         }
       } else if (pending.kind == 'audio') {
         final mime = pending.mime.isNotEmpty ? pending.mime : 'audio/mp4';
@@ -366,18 +378,20 @@ abstract final class ChurchChatMediaSendService {
             kStorageAudioTimeout,
           ));
         } else if (uploadPath.isNotEmpty) {
-          mediaUrl = await ChurchChatMediaStorage.putFile(
+          final audioBytes = await _readLocalPathBytes(uploadPath);
+          if (audioBytes.isEmpty) {
+            throw StateError('Áudio vazio — selecione outro ficheiro.');
+          }
+          fileSize = audioBytes.length;
+          mediaUrl = await ChurchChatMediaStorage.putBytesFast(
             storagePath: storagePath,
-            localPath: uploadPath,
+            bytes: audioBytes,
             contentType: mime,
             onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
           ).timeout(kStorageAudioTimeout, onTimeout: () => throw TimeoutException(
             'O envio do áudio demorou demais. Verifique a rede e toque em «Tentar de novo».',
             kStorageAudioTimeout,
           ));
-          try {
-            fileSize = await File(uploadPath).length();
-          } catch (_) {}
         } else {
           throw StateError('Sem áudio para enviar.');
         }
@@ -395,15 +409,19 @@ abstract final class ChurchChatMediaSendService {
           onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
         ).timeout(kStorageDocumentTimeout);
       } else if (uploadPath.isNotEmpty) {
-        mediaUrl = await ChurchChatMediaStorage.putFile(
+        final docBytes = await _readLocalPathBytes(uploadPath);
+        if (docBytes.isEmpty) {
+          throw StateError('Ficheiro vazio — selecione outro.');
+        }
+        fileSize = docBytes.length;
+        mediaUrl = await ChurchChatMediaStorage.putBytesFast(
           storagePath: storagePath,
-          localPath: uploadPath,
-          contentType: pending.mime,
+          bytes: docBytes,
+          contentType: pending.mime.isNotEmpty
+              ? pending.mime
+              : 'application/octet-stream',
           onProgress: (t) => _mapProgress(reportProgress, 0.15, 0.85, t),
         ).timeout(kStorageDocumentTimeout);
-        try {
-          fileSize = await File(uploadPath).length();
-        } catch (_) {}
       } else {
         throw StateError('Sem dados para enviar.');
       }
@@ -521,9 +539,8 @@ abstract final class ChurchChatMediaSendService {
       try {
         if (attempt > 0) {
           await EcoFireDirectFirebase.ensureDefaultApp();
-          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
           await Future<void>.delayed(
-            Duration(milliseconds: 280 * attempt),
+            Duration(milliseconds: 100 * attempt),
           );
         }
         return await _writeFirestoreAfterUpload(
@@ -538,10 +555,10 @@ abstract final class ChurchChatMediaSendService {
           fileSize: fileSize,
           replyTo: replyTo,
         ).timeout(
-          const Duration(seconds: 22),
+          const Duration(seconds: 12),
           onTimeout: () => throw TimeoutException(
             'Gravação demorou demais. Verifique a rede e tente novamente.',
-            const Duration(seconds: 22),
+            const Duration(seconds: 12),
           ),
         );
       } catch (e) {
@@ -549,7 +566,11 @@ abstract final class ChurchChatMediaSendService {
         if (attempt < 2 &&
             (isFirebaseNoAppError(e) ||
                 FirestoreWebGuard.isInternalAssertionError(e) ||
-                FirestoreWebGuard.isClientTerminated(e))) {
+                FirestoreWebGuard.isClientTerminated(e) ||
+                e is FirebaseException &&
+                    (e.code == 'unavailable' ||
+                        e.code == 'deadline-exceeded' ||
+                        e.code == 'cancelled'))) {
           continue;
         }
         rethrow;
@@ -573,6 +594,17 @@ abstract final class ChurchChatMediaSendService {
         fullFileName: cached.fullFileName,
         thumbBytes: cached.thumbBytes,
       );
+    }
+    if (kIsWeb &&
+        localPath != null &&
+        localPath.isNotEmpty &&
+        (bytes == null || bytes.isEmpty)) {
+      try {
+        final raw = await _readLocalPathBytes(localPath);
+        if (raw.isNotEmpty) {
+          bytes = raw;
+        }
+      } catch (_) {}
     }
     // Telegram/CT: se ainda não comprimiu, envia JPEG leve do path sem bloquear 25s.
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
@@ -603,7 +635,7 @@ abstract final class ChurchChatMediaSendService {
           localPath,
           maxEdge: MediaOptimizationLimits.chatMaxEdge,
           quality: MediaOptimizationLimits.chatQuality,
-        ).timeout(const Duration(seconds: 20));
+        ).timeout(const Duration(seconds: 8));
         return PreparedChatImage(
           fullBytes: raw,
           fullMime: 'image/jpeg',

@@ -950,12 +950,16 @@ abstract final class ChurchEventosLoadService {
   ) async {
     try {
       final batch = ChurchRepository.batch();
-      final legacy = firebaseDefaultFirestore
-          .collection(ChurchDataPaths.rootCollection)
-          .doc(churchId)
-          .collection(ChurchDataPaths.legacyEventosEn);
       for (final id in docIds) {
-        batch.delete(legacy.doc(id));
+        final tenant = firebaseDefaultFirestore
+            .collection(ChurchDataPaths.rootCollection)
+            .doc(churchId);
+        batch.delete(
+          tenant.collection(ChurchDataPaths.legacyEventosEn).doc(id),
+        );
+        batch.delete(
+          tenant.collection(ChurchDataPaths.legacyEventosNoticias).doc(id),
+        );
       }
       await batch.commit();
     } catch (e) {

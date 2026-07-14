@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -66,7 +67,9 @@ abstract final class ChurchStorageService {
       onProgress: onProgress,
       maxAttempts: 3,
     ).timeout(kUploadTimeout);
-    await ChurchStorageMetadataVerify.assertExists(path);
+    unawaited(
+      ChurchStorageMetadataVerify.assertExists(path).catchError((_) {}),
+    );
     return path;
   }
 

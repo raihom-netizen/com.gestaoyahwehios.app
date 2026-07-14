@@ -876,7 +876,7 @@ service cloud.firestore {
           allow update: if false;
         }
       }
-      // Fila de upload descontinuada â€” limpeza pelo autor; app nÃ£o cria novos docs.
+      // Fila de upload — recupera uploads pendentes se app fechar durante envio.
       match /pending_uploads/{uploadId} {
         allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
           && isSignedIn()
@@ -884,7 +884,14 @@ service cloud.firestore {
         allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
           && isSignedIn()
           && resource.data.ownerUid == request.auth.uid;
-        allow create, update: if false;
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.tenantId == id
+          && request.resource.data.storagePath is string;
+        allow update: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
       }
 
       // Mural de avisos (Firestore): separado de `noticias` (eventos).
@@ -921,6 +928,24 @@ service cloud.firestore {
           allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
           allow update: if false;
         }
+      }
+      // Mural de avisos legado (mural_avisos) — permissões idênticas a `avisos` para compatibilidade com batch de exclusão.
+      match /mural_avisos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create: if canWriteMuralFeed(id);
+        allow delete: if canDeleteMuralFeedPost(id);
+        allow update: if canWriteMuralFeed(id);
+      }
+      // Espelhos legados de eventos — leitura/migração e limpeza pelo mesmo perfil do mural.
+      match /events/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update: if canWriteMuralFeed(id);
+        allow delete: if canDeleteMuralFeedPost(id);
+      }
+      match /noticias/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update: if canWriteMuralFeed(id);
+        allow delete: if canDeleteMuralFeedPost(id);
       }
       match /cultos/{cultoId} {
         allow read: if isMaster() || canAccessTenant(id);

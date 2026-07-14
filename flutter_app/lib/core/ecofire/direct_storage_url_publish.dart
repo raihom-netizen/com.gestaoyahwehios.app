@@ -26,7 +26,7 @@ abstract final class DirectStorageUrlPublish {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(
-            Duration(milliseconds: 200 + 240 * attempt),
+            Duration(milliseconds: 100 + 100 * attempt),
           );
           await EcoFireDirectFirebase.ensureDefaultApp();
         }

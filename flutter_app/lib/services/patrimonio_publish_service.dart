@@ -176,12 +176,19 @@ abstract final class PatrimonioPublishService {
         }
 
         if (kIsWeb) {
-          // Web: uploads em série — paralelo + Firestore write causa INTERNAL ASSERTION.
+          // Web: uploads com concorrência limitada (3 em paralelo).
           uploaded = <PatrimonioGalleryUploadResult>[];
-          for (var i = 0; i < slots.length; i++) {
-            final slot = slots[i];
-            uploaded.add(await uploadSlot(slot));
-            onUploadProgress?.call(0.06 + ((i + 1) / total) * 0.78);
+          const maxConcurrent = 3;
+          for (var i = 0; i < slots.length; i += maxConcurrent) {
+            final batch = slots.sublist(
+              i,
+              [i + maxConcurrent, slots.length].reduce((a, b) => a < b ? a : b),
+            );
+            final results = await Future.wait(batch.map(uploadSlot));
+            uploaded.addAll(results);
+            onUploadProgress?.call(
+              0.06 + (uploaded.length / total) * 0.78,
+            );
           }
         } else {
           uploaded = await FirebaseBootstrapService.runGuarded(
@@ -207,10 +214,12 @@ abstract final class PatrimonioPublishService {
       }
 
       if (uploadedPaths.isNotEmpty) {
-        await PatrimonioPublishVerificationService.verifyStorageMetadata(
-          photoPaths: uploadedPaths,
-          timeout: const Duration(seconds: 12),
-          maxAttempts: 4,
+        unawaited(
+          PatrimonioPublishVerificationService.verifyStorageMetadata(
+            photoPaths: uploadedPaths,
+            timeout: const Duration(seconds: 12),
+            maxAttempts: 2,
+          ).catchError((_) {}),
         );
       }
 
@@ -253,10 +262,12 @@ abstract final class PatrimonioPublishService {
           }
         }
 
-        await PatrimonioPublishVerificationService.verifyStorageMetadata(
-          photoPaths: uploaded.map((e) => e.storagePath),
-          timeout: const Duration(seconds: 12),
-          maxAttempts: 4,
+        unawaited(
+          PatrimonioPublishVerificationService.verifyStorageMetadata(
+            photoPaths: uploaded.map((e) => e.storagePath),
+            timeout: const Duration(seconds: 12),
+            maxAttempts: 2,
+          ).catchError((_) {}),
         );
 
         FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
@@ -266,21 +277,29 @@ abstract final class PatrimonioPublishService {
       }
     }
 
-    // Remove Storage de qualquer slot vazio (inclui remoções no meio da galeria).
+    // Remove Storage de qualquer slot vazio — paralelo.
+    final emptySlotFutures = <Future<void>>[];
     for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
       if (slotUrls[slot].trim().isEmpty) {
         slotPaths[slot] = '';
-        await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-          tenantId: igrejaId,
-          itemDocId: itemId,
-          slot: slot,
+        emptySlotFutures.add(
+          FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+            tenantId: igrejaId,
+            itemDocId: itemId,
+            slot: slot,
+          ),
         );
       }
     }
+    if (emptySlotFutures.isNotEmpty) {
+      await Future.wait(emptySlotFutures, eagerError: false);
+    }
 
-    await FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleriaInItemFolder(
-      tenantId: igrejaId,
-      itemDocId: itemId,
+    unawaited(
+      FirebaseStorageCleanupService.deleteLegacyPatrimonioGaleriaInItemFolder(
+        tenantId: igrejaId,
+        itemDocId: itemId,
+      ),
     );
 
     onUploadProgress?.call(0.88);
@@ -311,15 +330,19 @@ abstract final class PatrimonioPublishService {
       directWrite: () => runFirestorePublishWithRecovery(
         () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
       ).timeout(
-        const Duration(seconds: 45),
+        const Duration(seconds: 25),
         onTimeout: () => throw TimeoutException(
           'Gravação no Firestore demorou demais. Verifique a rede.',
         ),
       ),
     );
 
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef)
-        .timeout(const Duration(seconds: 20));
+    unawaited(() async {
+      try {
+        await PatrimonioPublishVerificationService.verifyDocumentExists(docRef)
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {}
+    }());
 
     onUploadProgress?.call(1.0);
 
@@ -401,7 +424,11 @@ abstract final class PatrimonioPublishService {
         () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
       ),
     );
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+    unawaited(() async {
+      try {
+        await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+      } catch (_) {}
+    }());
   }
 
   /// Metadados imediatos com fotos pendentes — UI fecha; upload continua em background.
@@ -448,7 +475,11 @@ abstract final class PatrimonioPublishService {
         () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
       ),
     );
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+    unawaited(() async {
+      try {
+        await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+      } catch (_) {}
+    }());
   }
 
   /// Repara doc preso em `uploading` — lê URLs do Storage e grava Firestore.
@@ -465,19 +496,33 @@ abstract final class PatrimonioPublishService {
 
     final urls = <String>[];
     final paths = <String>[];
+    final futures = <Future<void>>[];
+    final results = List<bool>.filled(PatrimonioPhotoFields.maxPhotos, false);
+    final urlResults = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
+    final pathResults = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
     for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
       final path = PatrimonioPublishVerificationService.photoStoragePath(
         igrejaId: cid,
         itemId: iid,
         slot: slot,
       );
-      try {
-        final url = await firebaseDefaultStorage.ref(path).getDownloadURL();
-        if (url.trim().isNotEmpty) {
-          paths.add(path);
-          urls.add(sanitizeImageUrl(url));
-        }
-      } catch (_) {}
+      futures.add(() async {
+        try {
+          final url = await firebaseDefaultStorage.ref(path).getDownloadURL();
+          if (url.trim().isNotEmpty) {
+            results[slot] = true;
+            pathResults[slot] = path;
+            urlResults[slot] = sanitizeImageUrl(url);
+          }
+        } catch (_) {}
+      }());
+    }
+    await Future.wait(futures, eagerError: false);
+    for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
+      if (results[slot]) {
+        paths.add(pathResults[slot]);
+        urls.add(urlResults[slot]);
+      }
     }
     if (urls.isEmpty) return;
 

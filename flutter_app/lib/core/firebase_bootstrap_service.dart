@@ -189,7 +189,7 @@ class FirebaseBootstrapResult {
 abstract final class FirebaseBootstrapService {
   FirebaseBootstrapService._();
 
-  static const _reconnectDelaysSec = [1, 2, 5, 10, 30, 60];
+  static const _reconnectDelaysSec = [1, 2, 5];
 
   static Completer<void>? _initCompleter;
   static Future<void>? _ensureOnceFuture;
@@ -245,7 +245,7 @@ abstract final class FirebaseBootstrapService {
         try {
           if (attempt > 0) {
             await Future<void>.delayed(
-              Duration(milliseconds: 160 + 180 * attempt),
+              Duration(milliseconds: 100 + 100 * attempt),
             );
             await FirebaseBootstrap.ensureInitialized();
           }
@@ -302,7 +302,7 @@ abstract final class FirebaseBootstrapService {
         if (attempt < maxAttempts - 1) {
           await _softReinit();
           await Future.delayed(
-            Duration(milliseconds: 120 + 180 * (attempt + 1)),
+            Duration(milliseconds: 100 + 100 * (attempt + 1)),
           );
         }
       }
@@ -552,7 +552,7 @@ abstract final class FirebaseBootstrapService {
     if (!_hasApp()) return false;
     final at = _storageUploadBootstrapAt;
     if (at == null) return false;
-    return DateTime.now().difference(at) < const Duration(minutes: 3);
+    return DateTime.now().difference(at) < const Duration(minutes: 5);
   }
 
   static void invalidateStorageUploadBootstrap() {
@@ -579,7 +579,7 @@ abstract final class FirebaseBootstrapService {
     if (!_hasApp()) {
       await ensureStorageAlwaysLinked(
         refreshAuthToken: requireAuth,
-        maxAttempts: 5,
+        maxAttempts: 2,
       );
     } else {
       await FirebaseBootstrap.ensureInitialized();
@@ -740,7 +740,7 @@ abstract final class FirebaseBootstrapService {
   /// Controle Total: restaura [DEFAULT] + token — **sem** apagar app nem health check pesado.
   static Future<void> ensureAlwaysOn({
     bool refreshAuthToken = false,
-    int maxAttempts = 4,
+    int maxAttempts = 2,
   }) async {
     if (FirebaseAuthTokenGuard.isInQuotaBackoff) {
       refreshAuthToken = false;
@@ -775,7 +775,7 @@ abstract final class FirebaseBootstrapService {
         }
         if (attempt < maxAttempts - 1) {
           await Future.delayed(
-            Duration(milliseconds: 120 + 180 * (attempt + 1)),
+            Duration(milliseconds: 100 + 100 * (attempt + 1)),
           );
         }
       }
@@ -898,7 +898,7 @@ abstract final class FirebaseBootstrapService {
             _lastHealth = null;
             _healthOkAt = null;
           }
-          await Future.delayed(Duration(milliseconds: 220 * attempt));
+          await Future.delayed(Duration(milliseconds: 150 * attempt));
         }
       }
       if (last is FirebaseBootstrapException) {
@@ -944,13 +944,13 @@ abstract final class FirebaseBootstrapService {
         }
         final raw = e.toString();
         if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
-          await Future.delayed(Duration(milliseconds: 400 * attempt));
+          await Future.delayed(Duration(milliseconds: 200 * attempt));
           try {
             await FirebaseAuthTokenGuard.refreshIfStale();
           } catch (_) {}
           continue;
         }
-        await Future.delayed(Duration(milliseconds: 280 * attempt));
+        await Future.delayed(Duration(milliseconds: 150 * attempt));
         try {
           await ensureAlwaysOn(refreshAuthToken: false);
         } catch (_) {}

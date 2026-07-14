@@ -54,7 +54,7 @@ function Invoke-WatchdogLoop {
             } catch { }
         }
         Write-Log "Rodada $round (only=$only)"
-        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=8 --only=$only 2>&1
+        $out = & node $publish gestaoyahweh-21e23 --force --max-attempts=3 --only=$only 2>&1
         $text = $out | Out-String
         Add-Content -Path $log -Value $text -Encoding UTF8
         if ($LASTEXITCODE -eq 0) {
@@ -62,7 +62,18 @@ function Invoke-WatchdogLoop {
             Remove-Item $lock -Force -ErrorAction SilentlyContinue
             return
         }
-        Write-Log "Falha exit=$LASTEXITCODE - proxima em ${IntervalMinutes}min"
+        $firebaseCmd = Join-Path $env:APPDATA 'npm\firebase.cmd'
+        if (Test-Path $firebaseCmd) {
+            Write-Log 'REST falhou; tentar Firebase CLI com a mesma conta administrativa.'
+            $cliOut = & $firebaseCmd deploy --only 'firestore:rules' --project 'gestaoyahweh-21e23' --force --non-interactive 2>&1
+            Add-Content -Path $log -Value ($cliOut | Out-String) -Encoding UTF8
+            if ($LASTEXITCODE -eq 0) {
+                Write-Log 'Sucesso - regras publicadas via Firebase CLI.'
+                Remove-Item $lock -Force -ErrorAction SilentlyContinue
+                return
+            }
+        }
+        Write-Log "REST e CLI falharam - proxima em ${IntervalMinutes}min"
         Start-Sleep -Seconds (60 * $IntervalMinutes)
     }
     Write-Log 'Watchdog terminou apos 96 rodadas (~24h).'
@@ -81,7 +92,8 @@ if ($StartBackground) {
     Set-Content -Path $lock -Value (Get-Date).ToString('o') -Encoding UTF8
     Start-Process -FilePath 'powershell.exe' -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass',
-        '-File', (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1')
+        '-File', (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1'),
+        '-IntervalMinutes', $IntervalMinutes
     ) -WindowStyle Hidden -WorkingDirectory $RepoRoot | Out-Null
     Write-Host "Watchdog GCP em background. Log: $log"
     exit 0

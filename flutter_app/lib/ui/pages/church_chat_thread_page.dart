@@ -3,7 +3,9 @@ import 'dart:io' show File, Platform;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
@@ -2000,10 +2002,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
     if (f.bytes == null || f.bytes!.isEmpty) {
-      _showChatAttachmentError(
-        'Não foi possível ler «$name». Tente outro ficheiro.',
-      );
-      return;
+      try {
+        final fileBytes = await utilitariosReadPlatformFileBytes(f);
+        unawaited(_uploadAndSend(
+          fileBytes,
+          name,
+          mime,
+          kind,
+          albumGroupId: albumGroupId,
+          albumIndex: albumIndex,
+          albumCount: albumCount,
+        ));
+        return;
+      } catch (_) {
+        _showChatAttachmentError(
+          'Não foi possível ler «$name». Tente outro ficheiro.',
+        );
+        return;
+      }
     }
     unawaited(_uploadAndSend(
       f.bytes!,
@@ -2394,6 +2410,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       } catch (e, st) {
         debugPrint('_bytesForPendingUpload preview from path: $e\n$st');
       }
+    }
+
+    if (kIsWeb && path.isNotEmpty) {
+      try {
+        final raw = await XFile(path).readAsBytes();
+        if (raw.isNotEmpty) {
+          final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
+          unawaited(
+            ChurchChatPendingMediaCache.put(
+              tenantId: _tid,
+              threadId: widget.threadId,
+              localId: pending.localId,
+              bytes: u8,
+            ),
+          );
+          return u8;
+        }
+      } catch (e, st) {
+        debugPrint('_bytesForPendingUpload web XFile: $e\n$st');
+      }
+      return null;
     }
 
     if (kIsWeb) return null;

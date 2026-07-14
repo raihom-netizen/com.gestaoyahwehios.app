@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
-import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -225,10 +224,12 @@ abstract final class FinanceComprovantePublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required String storagePath,
   }) async {
-    await ChurchStorageMetadataVerify.assertExists(
-      storagePath,
-      maxAttempts: 4,
-      timeout: const Duration(seconds: 12),
+    unawaited(
+      ChurchStorageMetadataVerify.assertExists(
+        storagePath,
+        maxAttempts: 2,
+        timeout: const Duration(seconds: 8),
+      ).catchError((_) {}),
     );
     final snap = await FirestoreWebGuard.runWithWebRecovery(
       () => docRef.get(const GetOptions(source: Source.serverAndCache)),
@@ -654,44 +655,6 @@ abstract final class FinanceComprovantePublishService {
         throw const FinanceComprovanteQueuedLocally();
       }
 
-      if (kIsWeb) {
-        onProgress?.call(0.12);
-        try {
-          final prepared = await _optimizedForUpload(
-            rawBytes: rawBytes,
-            mimeType: mimeType,
-            alreadyCompressed: alreadyCompressed,
-          );
-          final refDate = referenceDate;
-          String? yearMonth;
-          if (refDate != null) {
-            yearMonth =
-                '${refDate.year}_${refDate.month.toString().padLeft(2, '0')}';
-          }
-          final cf = await ChurchFunctionsService.uploadFinanceComprovante(
-            churchId: churchId,
-            lancamentoId: docRef.id,
-            bytes: prepared.bytes,
-            mimeType: prepared.mimeType,
-            fileName: fileName,
-            referenceYearMonth: yearMonth,
-          );
-          if (cf.ok && cf.comprovanteUrl.trim().isNotEmpty) {
-            final persisted = FinanceComprovantePersistResult(
-              url: sanitizeImageUrl(cf.comprovanteUrl),
-              storagePath: cf.storagePath,
-              mimeType: cf.mimeType,
-              fileName: cf.fileName,
-            );
-            await _mergeComprovantePatch(
-              docRef: docRef,
-              patch: persisted.toFirestorePatch(),
-            );
-            onProgress?.call(1.0);
-            return persisted.url;
-          }
-        } catch (_) {}
-      }
       rethrow;
     }
   }
