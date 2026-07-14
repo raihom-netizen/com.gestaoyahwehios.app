@@ -187,7 +187,7 @@ workflows:
             exit 1
           fi
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
-      - name: Garantir iOS deployment target 15.0 (Firebase 12 / cloud_firestore)
+      - name: Garantir iOS deployment target 15.5 (ML Kit / Firebase)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -197,7 +197,7 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_pod_install.sh"
-      - name: Reforçar iOS deployment target 15.0 nos Pods (pós-install)
+      - name: Reforçar iOS deployment target 15.5 nos Pods (pós-install)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"

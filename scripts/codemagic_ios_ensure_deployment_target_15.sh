@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Antes de pod install — Firebase Apple SDK 12.x exige platform :ios, '15.0' no Podfile.
+# Antes de pod install — ML Kit atual exige platform :ios, '15.5' no Podfile.
 set -euo pipefail
 
 ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -16,24 +16,26 @@ PLIST="$IOS_DIR/Flutter/AppFrameworkInfo.plist"
 
 [ -f "$PODFILE" ] || { echo "ERRO: Podfile ausente: $PODFILE"; exit 1; }
 
-if ! grep -qE "platform :ios, '15(\.0)?'" "$PODFILE"; then
-  echo "AVISO: Podfile sem platform 15 — a corrigir..."
-  sed -i '' "s/platform :ios, '[0-9.]*'/platform :ios, '15.0'/" "$PODFILE" || true
-  sed -i '' "s/IPHONEOS_DEPLOYMENT_TARGET'] = '[0-9.]*'/IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'/" "$PODFILE" || true
+if ! grep -qE "platform :ios, '15\.5'" "$PODFILE"; then
+  echo "AVISO: Podfile sem platform 15.5 — a corrigir..."
+  sed -i '' "s/platform :ios, '[0-9.]*'/platform :ios, '15.5'/" "$PODFILE" || true
+  sed -i '' "s/IPHONEOS_DEPLOYMENT_TARGET'] = '[0-9.]*'/IPHONEOS_DEPLOYMENT_TARGET'] = '15.5'/" "$PODFILE" || true
 fi
 
 if [ -f "$PBX" ]; then
-  sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 1[0-4]\.0;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' "$PBX" || true
+  sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 1[0-5]\.[0-4];/IPHONEOS_DEPLOYMENT_TARGET = 15.5;/g' "$PBX" || true
+  sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 1[0-4]\.0;/IPHONEOS_DEPLOYMENT_TARGET = 15.5;/g' "$PBX" || true
 fi
 
 if [ -f "$PLIST" ]; then
-  sed -i '' 's/<string>1[0-4]\.0<\/string>/<string>15.0<\/string>/' "$PLIST" || true
+  sed -i '' 's/<string>1[0-5]\.[0-4]<\/string>/<string>15.5<\/string>/' "$PLIST" || true
+  sed -i '' 's/<string>1[0-4]\.0<\/string>/<string>15.5<\/string>/' "$PLIST" || true
 fi
 
-if ! grep -qE "platform :ios, '15(\.0)?'" "$PODFILE"; then
-  echo "ERRO: Podfile ainda sem platform :ios, '15.0' — cloud_firestore (Firebase 12) vai falhar."
+if ! grep -qE "platform :ios, '15\.5'" "$PODFILE"; then
+  echo "ERRO: Podfile ainda sem platform :ios, '15.5' — ML Kit vai falhar."
   grep "platform :ios" "$PODFILE" || true
   exit 1
 fi
 
-echo "OK: iOS deployment target 15.0 confirmado (Podfile + Runner + AppFrameworkInfo)."
+echo "OK: iOS deployment target 15.5 confirmado (Podfile + Runner + AppFrameworkInfo)."
