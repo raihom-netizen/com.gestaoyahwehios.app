@@ -46,12 +46,12 @@ abstract final class ChurchChatMediaSendService {
     return Uint8List.fromList(await File(p).readAsBytes());
   }
 
-  static const Duration kPrepareTimeout = Duration(seconds: 8);
-  static const Duration kStorageImageTimeout = Duration(seconds: 35);
-  static const Duration kStorageThumbTimeout = Duration(seconds: 8);
-  static const Duration kStorageVideoTimeout = Duration(seconds: 120);
-  static const Duration kStorageAudioTimeout = Duration(seconds: 60);
-  static const Duration kStorageDocumentTimeout = Duration(seconds: 60);
+  static const Duration kPrepareTimeout = Duration(seconds: 20);
+  static const Duration kStorageImageTimeout = Duration(minutes: 3);
+  static const Duration kStorageThumbTimeout = Duration(seconds: 30);
+  static const Duration kStorageVideoTimeout = Duration(minutes: 3);
+  static const Duration kStorageAudioTimeout = Duration(minutes: 3);
+  static const Duration kStorageDocumentTimeout = Duration(minutes: 3);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,
@@ -555,10 +555,10 @@ abstract final class ChurchChatMediaSendService {
           fileSize: fileSize,
           replyTo: replyTo,
         ).timeout(
-          const Duration(seconds: 12),
+          const Duration(seconds: 30),
           onTimeout: () => throw TimeoutException(
             'Gravação demorou demais. Verifique a rede e tente novamente.',
-            const Duration(seconds: 12),
+            const Duration(seconds: 30),
           ),
         );
       } catch (e) {
@@ -613,7 +613,7 @@ abstract final class ChurchChatMediaSendService {
           localPath,
           maxEdge: MediaOptimizationLimits.chatMaxEdge,
           quality: MediaOptimizationLimits.chatQuality,
-        ).timeout(const Duration(seconds: 12));
+        ).timeout(const Duration(seconds: 20));
         if (quick.isNotEmpty) {
           return PreparedChatImage(
             fullBytes: quick,
@@ -635,7 +635,7 @@ abstract final class ChurchChatMediaSendService {
           localPath,
           maxEdge: MediaOptimizationLimits.chatMaxEdge,
           quality: MediaOptimizationLimits.chatQuality,
-        ).timeout(const Duration(seconds: 8));
+        ).timeout(const Duration(seconds: 20));
         return PreparedChatImage(
           fullBytes: raw,
           fullMime: 'image/jpeg',

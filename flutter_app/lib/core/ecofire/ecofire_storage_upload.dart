@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 abstract final class EcoFireStorageUpload {
   EcoFireStorageUpload._();
 
-  static const int _maxAttempts = 2;
+  static const int _maxAttempts = 3;
 
   static Future<String> putData({
     required String storagePath,
@@ -35,7 +35,7 @@ abstract final class EcoFireStorageUpload {
     for (var attempt = 0; attempt < _maxAttempts; attempt++) {
       try {
         if (attempt > 0) {
-          await Future<void>.delayed(Duration(milliseconds: 150 * attempt));
+          await Future<void>.delayed(Duration(seconds: attempt));
           await EcoFireDirectFirebase.ensureForStoragePut();
         }
         final ref = await EcoFireDirectFirebase.storageRef(storagePath);

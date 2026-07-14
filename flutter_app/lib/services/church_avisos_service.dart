@@ -5,14 +5,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -20,8 +18,6 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show noticiaGalleryRefsForShare;
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show sanitizeImageUrl;
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -113,7 +109,7 @@ abstract final class ChurchAvisosService {
   ChurchAvisosService._();
 
   static const int kMaxPhotos = 5;
-  static const Duration kPublishTimeout = Duration(seconds: 75);
+  static const Duration kPublishTimeout = Duration(minutes: 10);
 
   /// Legado — lista pode ler `mural_avisos` quando `avisos` está vazio.
   static const List<String> _deleteCollections = ['avisos', 'mural_avisos'];
@@ -142,7 +138,7 @@ abstract final class ChurchAvisosService {
     void Function(double progress)? onUploadProgress,
   }) async {
     Object? last;
-    for (var attempt = 0; attempt < 2; attempt++) {
+    for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
           await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
@@ -161,21 +157,24 @@ abstract final class ChurchAvisosService {
           calendarDate: calendarDate,
           syncCalendar: syncCalendar,
           onUploadProgress: onUploadProgress,
-        ).timeout(
-          kPublishTimeout,
-          onTimeout: () => throw TimeoutException(
-            isNewDoc
-                ? 'Publicação do aviso demorou demais. Verifique a rede e tente de novo.'
-                : 'Atualização do aviso demorou demais. Verifique a rede e tente de novo.',
-            kPublishTimeout,
-          ),
         );
         return;
       } catch (e) {
         last = e;
-        final retryable =
-            isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e);
-        if (!retryable || attempt >= 1) rethrow;
+        final retryable = isFirebaseNoAppError(e) ||
+            FirestoreWebGuard.isClientTerminated(e) ||
+            e is TimeoutException ||
+            (e is FirebaseException &&
+                const {
+                  'unavailable',
+                  'network-request-failed',
+                  'retry-limit-exceeded',
+                  'deadline-exceeded',
+                  'cancelled',
+                  'unknown',
+                }.contains(e.code));
+        if (!retryable || attempt >= 2) rethrow;
+        await Future<void>.delayed(Duration(seconds: attempt + 1));
       }
     }
   }

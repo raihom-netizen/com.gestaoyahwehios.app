@@ -81,7 +81,7 @@ class ChurchMediaUploadBatchResult {
 abstract final class ChurchMediaUploadFacade {
   ChurchMediaUploadFacade._();
 
-  static const Duration kDefaultTimeout = Duration(seconds: 60);
+  static const Duration kDefaultTimeout = Duration(minutes: 3);
 
   /// Apaga path/URL antigo **após** o novo objeto existir (padrão CT ocorrências).
   /// Se [oldPathOrUrl] for igual a [newStoragePath], não apaga (overwrite no mesmo path).

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
-import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
@@ -229,12 +228,12 @@ abstract final class ChurchFeedLinearPublishService {
           items: batchItems,
           timeoutPerItem: const Duration(seconds: 55),
           onItemProgress: (index, p) {
-            final span = 0.54 / batchItems.length;
+            final span = 0.62 / batchItems.length;
             _report(onUploadProgress, 0.20 + span * index + p * span);
           },
           onBatchProgress: (done, total) {
             if (total <= 0) return;
-            _report(onUploadProgress, 0.20 + 0.54 * (done / total));
+            _report(onUploadProgress, 0.20 + 0.62 * (done / total));
           },
         );
         final batchErr = ChurchMediaUploadFacade.firstBatchError(batch);
@@ -313,14 +312,14 @@ abstract final class ChurchFeedLinearPublishService {
 
         final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
           items: batchItems,
-          timeoutPerItem: const Duration(seconds: 50),
+          timeoutPerItem: const Duration(minutes: 3),
           onItemProgress: (index, p) {
-            final span = 0.54 / batchItems.length;
+            final span = 0.62 / batchItems.length;
             _report(onUploadProgress, 0.20 + span * index + p * span);
           },
           onBatchProgress: (done, total) {
             if (total <= 0) return;
-            _report(onUploadProgress, 0.20 + 0.54 * (done / total));
+            _report(onUploadProgress, 0.20 + 0.62 * (done / total));
           },
         );
         final batchErr = ChurchMediaUploadFacade.firstBatchError(batch);
@@ -345,7 +344,7 @@ abstract final class ChurchFeedLinearPublishService {
         'linear_upload_ok',
         '$postType path=${docRef.path} tenant=$churchId uploaded=$uploadedCount',
       );
-      _report(onUploadProgress, 0.74);
+      _report(onUploadProgress, 0.82);
       if (uploadedCount == 0) {
         throw StateError(
           'Não foi possível enviar as fotos para o Storage. '
@@ -430,7 +429,7 @@ abstract final class ChurchFeedLinearPublishService {
     payload['status'] = 'publicado';
     payload['publicSite'] = publicSite;
 
-    _report(onUploadProgress, 0.78);
+    _report(onUploadProgress, 0.88);
     logFirebasePublishPhase(
       'linear_firestore_before_save',
       '$postType path=${docRef.path} tenant=$churchId',
@@ -468,7 +467,7 @@ abstract final class ChurchFeedLinearPublishService {
       'linear_firestore_saved',
       '$postType path=${docRef.path} tenant=$churchId',
     );
-    _report(onUploadProgress, 0.88);
+    _report(onUploadProgress, 0.96);
 
     // Agenda/calendário em background — não segurar UI em ~88% (Web).
     if (isEvento && syncAgenda) {
@@ -512,7 +511,7 @@ abstract final class ChurchFeedLinearPublishService {
       }
     }
 
-    _report(onUploadProgress, 0.92);
+    _report(onUploadProgress, 0.98);
     PublicationEngine.scheduleDistribution(
       tenantId: churchId,
       kind: kind,

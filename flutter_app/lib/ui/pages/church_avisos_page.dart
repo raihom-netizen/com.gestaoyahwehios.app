@@ -1699,6 +1699,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   DateTime _expiresAt = DateTime.now().add(const Duration(days: 7));
   final List<String> _existingImageUrls = [];
   final List<Uint8List> _photos = [];
+  bool _publishing = false;
 
   bool get _isEdit => widget.initialItem != null;
 
@@ -1755,6 +1756,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   }
 
   Future<void> _publish() async {
+    if (_publishing) return;
     final titulo = _titleCtrl.text.trim();
     if (titulo.isEmpty) {
       if (mounted) {
@@ -1767,6 +1769,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
     if (_photos.isNotEmpty) {
       await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      if (!mounted) return;
     }
 
     final isEdit = _isEdit;
@@ -1779,6 +1782,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     final docId = widget.initialItem?.id;
 
     try {
+      setState(() => _publishing = true);
       await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
         context: context,
         uploadLabel: 'A enviar fotos do aviso…',
@@ -1823,6 +1827,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       );
     } catch (e, st) {
       debugPrint('ChurchAvisoEditorSheet._publish: $e\n$st');
+    } finally {
+      if (mounted) setState(() => _publishing = false);
     }
   }
 
@@ -2021,7 +2027,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         if ((_existingImageUrls.length + _photos.length) <
                             ChurchAvisosService.kMaxPhotos)
                           InkWell(
-                            onTap: _pickPhotos,
+                            onTap: _publishing ? null : _pickPhotos,
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
                               width: 88,
@@ -2038,7 +2044,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                     ),
                     const SizedBox(height: 16),
                     FilledButton(
-                      onPressed: _publish,
+                      onPressed: _publishing ? null : _publish,
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         backgroundColor: YahwehWisdomVisualKit.navyMid,
@@ -2048,10 +2054,19 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: Text(
-                        _isEdit ? 'Salvar alterações' : 'Publicar aviso',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
+                      child: _publishing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _isEdit ? 'Salvar alterações' : 'Publicar aviso',
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
                     ),
                   ],
                 ),

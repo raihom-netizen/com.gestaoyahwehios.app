@@ -48,7 +48,7 @@ class ChurchCentralUploadResult {
 abstract final class ChurchCentralStorageUpload {
   ChurchCentralStorageUpload._();
 
-  static const Duration kDefaultUploadTimeout = Duration(seconds: 60);
+  static const Duration kDefaultUploadTimeout = Duration(minutes: 3);
 
   /// Valida tamanho **antes** do upload (evita rejeição pelas regras Storage).
   static void assertPayloadWithinRules({
@@ -118,11 +118,6 @@ abstract final class ChurchCentralStorageUpload {
         onProgress: onProgress,
         requireAuth: requireAuth,
         onUploadTaskCreated: onUploadTaskCreated,
-      ).timeout(
-        kDefaultUploadTimeout,
-        onTimeout: () => throw TimeoutException(
-          'Upload demorou demais. Verifique a rede e tente de novo.',
-        ),
       );
 
       return ChurchCentralUploadResult(
