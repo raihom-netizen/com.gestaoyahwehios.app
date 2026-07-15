@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/billing_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/google_play_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart' show EffectivePlanConfig, PlanPriceService;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -83,6 +84,12 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   StreamSubscription<User?>? _idTokenRefreshSub;
   StreamSubscription<Map<String, EffectivePlanConfig>>? _planPricesSub;
   bool _paymentApprovedRedirected = false;
+
+  /// Google Play Billing disponível neste dispositivo Android.
+  bool _playAvailable = false;
+  bool _playLoading = false;
+  bool _playDone = false;
+  String? _playMsg;
 
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _paymentSectionKey = GlobalKey();
@@ -468,6 +475,11 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   @override
   void initState() {
     super.initState();
+    if (GooglePlayPaymentsGate.isPlayAvailable) {
+      unawaited(GooglePlayPaymentsGate.isAvailable().then((ok) {
+        if (mounted) setState(() => _playAvailable = ok);
+      }));
+    }
     final hint = (widget.panelRole ?? '').trim().toLowerCase();
     if (hint.isNotEmpty) _resolvedPanelRole = hint;
     unawaited(_resolvePanelRoleFromAuth());
@@ -891,6 +903,38 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       return;
     }
     setState(() => _checkoutSession = session);
+  }
+
+  Future<void> _startPlayPurchase() async {
+    if (!_playAvailable) return;
+    final sku = GooglePlayPaymentsGate.skuForPlan(_selected);
+    if (sku == null || sku.isEmpty) {
+      setState(() => _playMsg = 'Plano sem produto Google Play configurado.');
+      return;
+    }
+    setState(() {
+      _playLoading = true;
+      _playMsg = null;
+      _playDone = false;
+    });
+    try {
+      final result = await GooglePlayPaymentsGate.buy(
+        sku: sku,
+        planId: _selected,
+        cycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+      );
+      if (!mounted) return;
+      if (result.ok) {
+        setState(() => _playDone = true);
+        PaymentUiFeedbackService.notifyPaymentConfirmed();
+      } else {
+        setState(() => _playMsg = result.error ?? 'Falha no pagamento Google Play.');
+      }
+    } catch (e) {
+      if (mounted) setState(() => _playMsg = 'Erro: $e');
+    } finally {
+      if (mounted) setState(() => _playLoading = false);
+    }
   }
 
   Future<void> _startSubscription() async {
@@ -1513,6 +1557,55 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           : Icons.credit_card_rounded,
                       loading: _loading,
                       onPressed: _startSubscription,
+                    ),
+                  ],
+                  if (_playAvailable) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.green.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Pagar com Google Play',
+                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Confirme diretamente no Google Play (cartão/Google Pay). '
+                            'Pagamento único, sem cobrança recorrente.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          const SizedBox(height: 10),
+                          if (_playDone)
+                            const Text(
+                              'Pagamento confirmado! Licença ativada.',
+                              style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          else
+                            PrimaryButton(
+                              text: 'Pagar com Google Play',
+                              icon: Icons.payment_rounded,
+                              loading: _playLoading,
+                              onPressed: _startPlayPurchase,
+                            ),
+                          if (_playMsg != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _playMsg!,
+                              style: const TextStyle(color: Colors.red, fontSize: 12),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                   if (!widget.expressMode) ...[

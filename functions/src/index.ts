@@ -2042,6 +2042,116 @@ export const createMpPreapproval = functions
     }
   });
 
+// ✅ Verificar compra do Google Play e ativar licença (pagamento único / one-time)
+export const verifyPlayPurchase = functions
+  .region("us-central1")
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+
+    const planId = String(data?.planId || "").trim();
+    const billingCycle = String(data?.billingCycle || "monthly")
+      .trim()
+      .toLowerCase();
+    const productId = String(data?.productId || "").trim();
+    const purchaseToken = String(data?.purchaseToken || "").trim();
+    if (!planId || !productId || !purchaseToken) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "Dados da compra incompletos (planId, productId, purchaseToken)."
+      );
+    }
+
+    const token = await admin.auth().getUser(context.auth.uid);
+    const claims = (token.customClaims || {}) as any;
+    const role = await resolveRoleFromTokenOrDb(
+      context.auth.uid,
+      claims.role ?? claims.nivel ?? claims.perfil
+    );
+    if (!canPurchaseChurchLicenseRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
+      );
+    }
+    const tenantId = String(claims.igrejaId || "").trim();
+    if (!tenantId) {
+      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+    }
+
+    // Conta de serviço com acesso à Google Play Developer API (um dos dois).
+    const saJson = process.env.PLAY_DEVELOPER_SERVICE_ACCOUNT_JSON;
+    const saFile = process.env.PLAY_DEVELOPER_SERVICE_ACCOUNT_FILE;
+    if (!saJson && !saFile) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Google Play Developer API não configurada no servidor (defina " +
+          "PLAY_DEVELOPER_SERVICE_ACCOUNT_JSON ou PLAY_DEVELOPER_SERVICE_ACCOUNT_FILE)."
+      );
+    }
+
+    const { google } = await import("googleapis");
+    const auth = new google.auth.GoogleAuth({
+      credentials: saJson ? JSON.parse(saJson) : undefined,
+      keyFile: saFile || undefined,
+      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+    });
+    const androidpublisher = google.androidpublisher({ version: "v3", auth });
+
+    const packageName = "com.gestaoyahwehios.app";
+    let purchase: any;
+    try {
+      const res = await androidpublisher.purchases.products.get({
+        packageName,
+        productId,
+        token: purchaseToken,
+      });
+      purchase = res.data;
+    } catch (e: any) {
+      throw new functions.https.HttpsError(
+        "not-found",
+        "Não foi possível validar a compra no Google Play: " + (e?.message || e)
+      );
+    }
+
+    // purchaseState: 0 = purchased; consumptionState: 0 = ainda devido (não usado).
+    if (purchase?.purchaseState !== 0) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "Compra do Google Play ainda não confirmada."
+      );
+    }
+    if (purchase?.consumptionState === 1) {
+      throw new functions.https.HttpsError(
+        "already-exists",
+        "Esta compra já foi utilizada."
+      );
+    }
+
+    // Confirma (acknowledge) a compra única para não expirar.
+    try {
+      await androidpublisher.purchases.products.acknowledge({
+        packageName,
+        productId,
+        token: purchaseToken,
+        requestBody: { developerPayload: "" },
+      });
+    } catch (e: any) {
+      functions.logger.warn("Play acknowledge warn: " + (e?.message || e));
+    }
+
+    await updateTenantBilling(tenantId, "paid", {
+      metadataPlanId: planId,
+      billingCycle: billingCycle === "annual" ? "annual" : "monthly",
+      subscriptionId: `play_${productId}`,
+      lastPaymentAt: admin.firestore.Timestamp.now(),
+      mpPaymentId: `play_${purchase?.orderId || purchaseToken}`,
+    });
+
+    return { ok: true, planId, billingCycle };
+  });
+
 // ✅ Criar PIX avulso com QR + copia-e-cola para plano (pagamento imediato)
 export const createMpPixPayment = functions
   .region("us-central1")
