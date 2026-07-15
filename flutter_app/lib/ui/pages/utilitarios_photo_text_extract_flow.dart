@@ -130,6 +130,17 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
       _busyLabel = 'Extraindo texto (IA local)…';
     });
     try {
+      final quotaErr = await UtilitariosDailyQuotaService.checkLight(
+        widget.quotaUid,
+        isAdmin: widget.isAdmin,
+      );
+      if (quotaErr != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(quotaErr), behavior: SnackBarBehavior.floating),
+        );
+        return;
+      }
       final r = await UtilitariosPhotoTextExtractService.extractFromImage(bytes);
       if (!mounted) return;
       setState(() {

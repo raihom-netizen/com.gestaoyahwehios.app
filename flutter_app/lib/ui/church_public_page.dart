@@ -3437,6 +3437,7 @@ class _HorariosCultoSection extends StatelessWidget {
             future:                 ChurchUiCollections.churchDoc(igrejaId)
                 .collection('event_templates')
                 .where('active', isEqualTo: true)
+                .limit(50)
                 .get(),
             builder: (context, tplSnap) {
               final docs = tplSnap.data?.docs ?? [];

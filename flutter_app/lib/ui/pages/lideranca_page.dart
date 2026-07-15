@@ -206,7 +206,7 @@ class _LiderancaPageState extends State<LiderancaPage> {
         });
       }
       Future<QuerySnapshot<Map<String, dynamic>>> read() =>
-          ChurchUiCollections.cargos(op).get();
+          ChurchUiCollections.cargos(op).limit(100).get();
       final snap = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
               read,

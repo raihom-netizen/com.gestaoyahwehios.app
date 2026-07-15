@@ -1079,6 +1079,7 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                           SafeNetworkImage(
                             imageUrl: widget.item.imageUrls.first,
                             fit: BoxFit.cover,
+                            memCacheWidth: 240,
                           )
                         else
                           Container(

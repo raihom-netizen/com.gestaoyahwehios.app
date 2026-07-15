@@ -1,5 +1,6 @@
 ﻿import 'dart:convert';
-import 'dart:io' show File;
+import 'dart:io' show File, Platform;
+import 'package:path_provider/path_provider.dart';
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
@@ -1210,8 +1211,9 @@ abstract final class UtilitariosLocalService {
     final decoded = img.decodeImage(jpeg);
     if (decoded == null) return const [];
 
+    final tmpDir = await getTemporaryDirectory();
     final tmp = File(
-      'D:\\TEMPORARIOS\\util_pdf_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      '${tmpDir.path}${Platform.pathSeparator}util_pdf_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
     );
     TextRecognizer? rec;
     try {
