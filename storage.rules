@@ -286,8 +286,18 @@ service firebase.storage {
 
     /// Chat: fotos, vídeos, áudio (voz / ficheiro), PDF, Office, ZIP/RAR, APK, etc.
     /// iOS/Android podem enviar MIME atípico (ex.: audio/x-caf, image/heic, video/quicktime).
+    /// Bloqueia executáveis e pacotes perigosos (exe/bat/dll/apk) por extensão e tipo.
+    function blockedBinaryContentType() {
+      return request.resource.contentType == 'application/java-archive'
+        || request.resource.contentType == 'application/vnd.android.package-archive'
+        || request.resource.contentType == 'application/x-msdownload'
+        || request.resource.contentType == 'application/x-msdos-program'
+        || request.resource.name.matches('(?i).*\\.(exe|bat|dll|apk|cmd|scr|com|msi|jar)$');
+    }
+
     function chatMediaOrBlob() {
-      return mediaImageVideoOrBlob()
+      return !blockedBinaryContentType()
+        && (mediaImageVideoOrBlob()
         || request.resource.contentType == 'image/webp'
         || request.resource.contentType.matches('audio/.*')
         || request.resource.contentType.matches('application/pdf')
@@ -313,10 +323,7 @@ service firebase.storage {
         || request.resource.contentType == 'application/zip'
         || request.resource.contentType == 'application/vnd.rar'
         || request.resource.contentType == 'application/x-rar-compressed'
-        || request.resource.contentType == 'application/x-7z-compressed'
-        || request.resource.contentType == 'application/java-archive'
-        || request.resource.contentType ==
-             'application/vnd.android.package-archive';
+        || request.resource.contentType == 'application/x-7z-compressed');
     }
 
     /// Upload autenticado (mobile): não bloquear por MIME quando o cliente envia octet-stream ou tipo vazio.

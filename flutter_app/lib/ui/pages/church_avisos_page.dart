@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
@@ -1755,6 +1756,72 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 
+  void _openAvisoPhotoZoom({String? url, Uint8List? bytes}) {
+    if (!mounted) return;
+    final image = bytes != null
+        ? Image.memory(bytes)
+        : url != null
+            ? Image.network(url)
+            : null;
+    if (image == null) return;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.black,
+          insetPadding: const EdgeInsets.all(12),
+          child: InteractiveViewer(
+            child: GestureDetector(
+              onTap: () => Navigator.of(ctx).pop(),
+              child: image,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _avisoRemoveButton({required VoidCallback onRemove}) {
+    return Material(
+      color: Colors.black54,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: () {
+          if (!mounted) return;
+          unawaited(
+            showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Remover foto'),
+                content: const Text('Quer mesmo remover esta foto do aviso?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Remover'),
+                  ),
+                ],
+              ),
+            ).then((ok) {
+              if (ok == true) onRemove();
+            }),
+          );
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: const SizedBox(
+          width: 36,
+          height: 36,
+          child: Center(
+            child: Icon(Icons.close, size: 22, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _publish() async {
     if (_publishing) return;
     final titulo = _titleCtrl.text.trim();
@@ -1970,28 +2037,25 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         for (var i = 0; i < _existingImageUrls.length; i++)
                           Stack(
                             children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: SafeNetworkImage(
-                                  imageUrl: _existingImageUrls[i],
-                                  width: 88,
-                                  height: 88,
-                                  fit: BoxFit.cover,
+                              GestureDetector(
+                                onTap: () => _openAvisoPhotoZoom(
+                                    url: _existingImageUrls[i]),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: SafeNetworkImage(
+                                    imageUrl: _existingImageUrls[i],
+                                    width: 140,
+                                    height: 140,
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                               Positioned(
-                                top: 0,
-                                right: 0,
-                                child: IconButton(
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black54,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(32, 32),
-                                  ),
-                                  iconSize: 18,
-                                  onPressed: () =>
-                                      setState(() => _existingImageUrls.removeAt(i)),
-                                  icon: const Icon(Icons.close),
+                                top: 4,
+                                right: 4,
+                                child: _avisoRemoveButton(
+                                  onRemove: () => setState(
+                                      () => _existingImageUrls.removeAt(i)),
                                 ),
                               ),
                             ],
@@ -1999,27 +2063,43 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         for (var i = 0; i < _photos.length; i++)
                           Stack(
                             children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Image.memory(
-                                  _photos[i],
-                                  width: 88,
-                                  height: 88,
-                                  fit: BoxFit.cover,
+                              GestureDetector(
+                                onTap: () =>
+                                    _openAvisoPhotoZoom(bytes: _photos[i]),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.memory(
+                                    _photos[i],
+                                    width: 140,
+                                    height: 140,
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                               Positioned(
-                                top: 0,
-                                right: 0,
-                                child: IconButton(
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black54,
-                                    foregroundColor: Colors.white,
-                                    minimumSize: const Size(32, 32),
+                                bottom: 4,
+                                left: 4,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(6),
                                   ),
-                                  iconSize: 18,
-                                  onPressed: () => setState(() => _photos.removeAt(i)),
-                                  icon: const Icon(Icons.close),
+                                  child: Text(
+                                    ImmediateMediaAttachFeedback.formatBytes(
+                                        _photos[i].length),
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 10),
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: _avisoRemoveButton(
+                                  onRemove: () =>
+                                      setState(() => _photos.removeAt(i)),
                                 ),
                               ),
                             ],
@@ -2030,14 +2110,15 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                             onTap: _publishing ? null : _pickPhotos,
                             borderRadius: BorderRadius.circular(12),
                             child: Container(
-                              width: 88,
-                              height: 88,
+                              width: 140,
+                              height: 140,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(color: Colors.grey.shade300),
                                 color: Colors.grey.shade50,
                               ),
-                              child: const Icon(Icons.add_a_photo_outlined),
+                              child: const Icon(Icons.add_a_photo_outlined,
+                                  size: 30),
                             ),
                           ),
                       ],

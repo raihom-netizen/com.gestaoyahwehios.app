@@ -6896,6 +6896,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   final List<Uint8List> _newImages = [];
   final List<String> _newImagePaths = [];
   final List<String> _newNames = [];
+  final List<int> _newSizes = [];
   int _inFlightPhotoUploads = 0;
   bool _eventDraftEnsured = false;
   final ValueNotifier<int> _addressPreviewTick = ValueNotifier(0);
@@ -6922,6 +6923,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       setState(() {
         _newImages.add(webBytes!);
         _newNames.add(displayName);
+        _newSizes.add(webBytes!.length);
       });
     } else {
       final encodedPath = encoded.path.trim();
@@ -6951,10 +6953,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _newNames.add(
           displayName.isNotEmpty ? displayName : mobilePath!.split('/').last,
         );
+        _newSizes.add(File(mobilePath!).lengthSync());
       });
     }
     if (!mounted) return;
-    ImmediateMediaAttachFeedback.showArquivoAnexado(context, displayName);
+    final attachSize = kIsWeb
+        ? (webBytes?.length ?? 0)
+        : (mobilePath != null ? File(mobilePath).lengthSync() : 0);
+    ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+      context,
+      fileName: displayName,
+      sizeBytes: attachSize,
+    );
   }
 
   void _removePendingEventPhotoFromLists({
@@ -6966,12 +6976,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (i >= 0) {
         _newImages.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
+        if (i < _newSizes.length) _newSizes.removeAt(i);
       }
     } else if (mobilePath != null) {
       final i = _newImagePaths.indexOf(mobilePath);
       if (i >= 0) {
         _newImagePaths.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
+        if (i < _newSizes.length) _newSizes.removeAt(i);
       }
     }
   }
@@ -7184,8 +7196,95 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       } else {
         _newImagePaths.removeAt(index);
       }
-      _newNames.removeAt(index);
+      if (index < _newNames.length) _newNames.removeAt(index);
+      if (index < _newSizes.length) _newSizes.removeAt(index);
     });
+  }
+
+  /// Botão remover (X) com área tátil ampla e confirmação opcional.
+  Widget _mediaRemoveButton({
+    required VoidCallback onRemove,
+    String confirmMessage = 'Remover esta foto?',
+  }) {
+    return Material(
+      color: Colors.black54,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: () {
+          if (!mounted) return;
+          if (confirmMessage.isEmpty) {
+            onRemove();
+            return;
+          }
+          unawaited(
+            showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Remover foto'),
+                content: Text(confirmMessage),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Cancelar'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('Remover'),
+                  ),
+                ],
+              ),
+            ).then((ok) {
+              if (ok == true) onRemove();
+            }),
+          );
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: const SizedBox(
+          width: 30,
+          height: 30,
+          child: Center(
+            child: Icon(Icons.close, size: 20, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Mostra resolução (WxH) da foto local — melhor-esforço, assíncrono.
+  Widget _resolutionChip({Uint8List? bytes, String? path}) {
+    return FutureBuilder<String?>(
+      future: _readLocalResolution(bytes: bytes, path: path),
+      builder: (_, snap) {
+        final r = snap.data;
+        if (r == null || r.isEmpty) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            r,
+            style: const TextStyle(color: Colors.white, fontSize: 10),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<String?> _readLocalResolution({Uint8List? bytes, String? path}) async {
+    Uint8List? data = bytes;
+    if (data == null && path != null && path.isNotEmpty) {
+      final f = File(path);
+      if (f.existsSync()) {
+        try {
+          data = await f.readAsBytes();
+        } catch (_) {}
+      }
+    }
+    if (data == null) return null;
+    return ImmediateMediaAttachFeedback.readResolution(data);
   }
 
   /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
@@ -8626,6 +8725,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       _newImages.clear();
       _newImagePaths.clear();
       _newNames.clear();
+      _newSizes.clear();
     });
   }
 
@@ -8999,34 +9099,30 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             borderRadius: BorderRadius.circular(12),
             child: SafeNetworkImage(
                 imageUrl: _existingUrls[idx],
-                width: 100,
-                height: 100,
+                width: 160,
+                height: 160,
                 fit: BoxFit.cover,
                 placeholder: Container(
-                    width: 100,
-                    height: 100,
+                    width: 160,
+                    height: 160,
                     color: Colors.grey.shade200,
                     child: const Center(
                         child: CircularProgressIndicator(strokeWidth: 2))),
                 errorWidget: Container(
-                    width: 100,
-                    height: 100,
+                    width: 160,
+                    height: 160,
                     color: Colors.grey.shade300,
                     child: const Icon(Icons.broken_image_rounded,
                         color: Colors.grey))),
           ),
         ),
         Positioned(
-            top: 2,
-            right: 2,
-            child: GestureDetector(
-                onTap: () => setState(() => _existingUrls.removeAt(idx)),
-                child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                        color: Colors.black54, shape: BoxShape.circle),
-                    child: const Icon(Icons.close,
-                        size: 14, color: Colors.white)))),
+          top: 4,
+          right: 4,
+          child: _mediaRemoveButton(
+            onRemove: () => setState(() => _existingUrls.removeAt(idx)),
+          ),
+        ),
       ]));
     }
     for (var i = 0; i < _newPhotoCount; i++) {
@@ -9035,14 +9131,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ? feedEditorLocalPhotoThumb(
               webBytes: _newImages[idx],
               mobilePath: null,
-              size: 100,
+              size: 160,
             )
           : feedEditorLocalPhotoThumb(
               webBytes: null,
               mobilePath: _newImagePaths[idx],
-              size: 100,
+              size: 160,
             );
-      allPreviews.add(Stack(children: [
+      final sizeLabel = idx < _newSizes.length
+          ? ImmediateMediaAttachFeedback.formatBytes(_newSizes[idx])
+          : null;
+      allPreviews.add(Stack(clipBehavior: Clip.none, children: [
         GestureDetector(
           onTap: () => _openEventEditorPhotoLightbox(
             urls: const [],
@@ -9056,16 +9155,36 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ),
         ),
         Positioned(
-            top: 2,
-            right: 2,
-            child: GestureDetector(
-                onTap: () => _removeNewPhotoAt(idx),
-                child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                        color: Colors.black54, shape: BoxShape.circle),
-                    child: const Icon(Icons.close,
-                        size: 14, color: Colors.white)))),
+          top: 4,
+          right: 4,
+          child: _mediaRemoveButton(
+            onRemove: () => _removeNewPhotoAt(idx),
+          ),
+        ),
+        if (sizeLabel != null)
+          Positioned(
+            bottom: 4,
+            left: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                sizeLabel,
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ),
+          ),
+        Positioned(
+          bottom: 22,
+          left: 4,
+          child: _resolutionChip(
+            bytes: kIsWeb ? _newImages[idx] : null,
+            path: kIsWeb ? null : _newImagePaths[idx],
+          ),
+        ),
       ]));
     }
 
@@ -9291,12 +9410,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                       isValidImageUrl(thumbUrl)
                                   ? SafeNetworkImage(
                                       imageUrl: thumbUrl,
-                                      width: 100,
-                                      height: 100,
+                                      width: 160,
+                                      height: 160,
                                       fit: BoxFit.cover,
                                       placeholder: Container(
-                                        width: 100,
-                                        height: 100,
+                                        width: 160,
+                                        height: 160,
                                         color: Colors.grey.shade200,
                                         child: const Center(
                                             child: CircularProgressIndicator(
@@ -9309,16 +9428,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                             Positioned(
                               top: 4,
                               right: 4,
-                              child: GestureDetector(
-                                onTap: () => unawaited(_removeEventVideoAt(i)),
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                      color: Colors.black54,
-                                      shape: BoxShape.circle),
-                                  child: const Icon(Icons.close,
-                                      size: 16, color: Colors.white),
-                                ),
+                              child: _mediaRemoveButton(
+                                onRemove: () =>
+                                    unawaited(_removeEventVideoAt(i)),
                               ),
                             ),
                           ],
