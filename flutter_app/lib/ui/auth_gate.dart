@@ -1720,7 +1720,11 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final fs = fn is List
         ? fn.map((e) => e.toString()).join('\u001f')
         : '';
-    return '$r|$ativo|$rs|$fs';
+    final perm = d['permissoes'] ?? d['permissions'];
+    final ps = perm is List
+        ? (perm.map((e) => e.toString()).toList()..sort()).join('\u001f')
+        : '';
+    return '$r|$ativo|$rs|$fs|$ps';
   }
 
   void _onUsersDocSnapshotForRole(
@@ -1728,21 +1732,31 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     if (!mounted) return;
     final sig = _roleRelevantSignature(snap.data());
     _userRoleSigDebounce?.cancel();
-    _userRoleSigDebounce = Timer(const Duration(milliseconds: 450), () {
+    _userRoleSigDebounce = Timer(const Duration(milliseconds: 450), () async {
       if (!mounted) return;
       if (_userRoleSig == null) {
         _userRoleSig = sig;
         return;
       }
-      if (sig != _userRoleSig) {
-        _userRoleSig = sig;
-        setState(() {
-          _profileFuture = _profileFutureWithOfflineFallback();
-          _readyFuture = Future.wait([_profileFuture, _biometricFuture]).then(
-              (list) =>
-                  (list[0] as Map<String, dynamic>?, list[1] as bool));
-        });
+      if (sig == _userRoleSig) return;
+      _userRoleSig = sig;
+      // Força refresh dos custom claims (ex.: rebaixa admin→membro ou mudança de
+      // acessos granulares) para que a alteração de papel surta efeito SEM logout.
+      try {
+        await widget.user
+            .getIdToken(true)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        // ignora falha de rede — o rebuild abaixo ainda lê users/{uid} em saliva.
       }
+      if (!mounted) return;
+      unawaited(_silentRefreshProfileCache());
+      setState(() {
+        _profileFuture = _profileFutureWithOfflineFallback();
+        _readyFuture = Future.wait([_profileFuture, _biometricFuture]).then(
+            (list) =>
+                (list[0] as Map<String, dynamic>?, list[1] as bool));
+      });
     });
   }
 
