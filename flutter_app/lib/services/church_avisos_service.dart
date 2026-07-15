@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
@@ -120,8 +121,16 @@ abstract final class ChurchAvisosService {
   ) =>
       ChurchUiCollections.ref(sub, churchIdHint: churchId);
 
-  static Future<void> _ensurePublishReady() async {
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+  static Future<void> _ensurePublishReady({bool allowOfflineQueue = true}) async {
+    try {
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    } catch (e) {
+      if (allowOfflineQueue &&
+          EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
+        return;
+      }
+      rethrow;
+    }
   }
 
   static Future<void> _publishAvisoWithRecovery({
@@ -330,6 +339,22 @@ abstract final class ChurchAvisosService {
         error: e,
         stack: st,
       );
+      if (EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
+        await EcoFireResilientPublish.queueFeedPublish(
+          churchId: cid,
+          docId: postId,
+          postType: 'aviso',
+          docRef: docRef,
+          corePayload: corePayload,
+          isNewDoc: true,
+          existingUrls: const [],
+          startSlotIndex: 0,
+          hasVideo: false,
+          bytesList: imgs.isNotEmpty ? imgs : null,
+        );
+        EcoFireResilientPublish.scheduleSync(reason: 'aviso_queued');
+        throw ResilientPublishQueuedException('aviso:$postId');
+      }
       rethrow;
     }
 
@@ -444,6 +469,22 @@ abstract final class ChurchAvisosService {
         error: e,
         stack: st,
       );
+      if (EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
+        await EcoFireResilientPublish.queueFeedPublish(
+          churchId: cid,
+          docId: id,
+          postType: 'aviso',
+          docRef: docRef,
+          corePayload: corePayload,
+          isNewDoc: false,
+          existingUrls: keepUrls,
+          startSlotIndex: keepUrls.length,
+          hasVideo: false,
+          bytesList: newImages.isNotEmpty ? newImages : null,
+        );
+        EcoFireResilientPublish.scheduleSync(reason: 'aviso_update_queued');
+        throw ResilientPublishQueuedException('aviso:$id');
+      }
       rethrow;
     }
 

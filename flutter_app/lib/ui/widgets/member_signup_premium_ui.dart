@@ -163,12 +163,14 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
     required this.photoPreview,
     required this.onGallery,
     required this.onCamera,
+    this.onRemove,
   });
 
   final bool hasPhoto;
   final Widget photoPreview;
   final VoidCallback? onGallery;
   final VoidCallback? onCamera;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -184,6 +186,7 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
           memberSignupFieldLabel('Foto de perfil', required: true),
           const SizedBox(height: 10),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               photoPreview,
               const SizedBox(width: 14),
@@ -201,6 +204,7 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
                         kIsWeb ? 'Escolher foto' : 'Galeria',
                       ),
                       style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
@@ -214,10 +218,23 @@ class MemberSignupPhotoRequiredCard extends StatelessWidget {
                         icon: const Icon(Icons.camera_alt_rounded, size: 20),
                         label: const Text('Selfie'),
                         style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 48),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
+                        ),
+                      ),
+                    ],
+                    if (hasPhoto && onRemove != null) ...[
+                      const SizedBox(height: 8),
+                      TextButton.icon(
+                        onPressed: onRemove,
+                        icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                        label: const Text('Remover foto'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: ThemeCleanPremium.error,
+                          minimumSize: const Size(0, 48),
                         ),
                       ),
                     ],

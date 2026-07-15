@@ -41,6 +41,10 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatUploadErrorForUser, kFeedPublishQueuedUserMessage;
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
@@ -1014,6 +1018,47 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       _photoFile = XFile.fromData(hit.bytes, name: hit.displayName);
       _photoBytes = hit.bytes;
     });
+    final resolution =
+        await ImmediateMediaAttachFeedback.readResolution(hit.bytes);
+    if (!mounted) return;
+    ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+      context,
+      fileName: hit.displayName.trim().isNotEmpty
+          ? hit.displayName
+          : 'foto_perfil.webp',
+      sizeBytes: hit.bytes.length,
+      resolution: resolution,
+    );
+  }
+
+  void _clearPhoto() {
+    if (!mounted) return;
+    setState(() {
+      _photoFile = null;
+      _photoBytes = null;
+    });
+  }
+
+  Future<void> _confirmClearPhoto() async {
+    if (_photoBytes == null || _photoBytes!.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remover foto'),
+        content: const Text('Quer remover a foto selecionada?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) _clearPhoto();
   }
 
   /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — path fixo (1 foto).
@@ -1204,14 +1249,25 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       String? photoStoragePathField;
       String? photoUrlField;
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
-        final uploaded = await _uploadPhoto(
-          tenantId: _tenantId!,
-          memberDocId: ref.id,
-          file: _photoFile,
-          rawBytes: _photoBytes,
-        );
-        photoStoragePathField = uploaded.storagePath;
-        photoUrlField = sanitizeImageUrl(uploaded.url);
+        GlobalUploadProgress.instance.start('Enviando foto…');
+        try {
+          try {
+            final uploaded = await _uploadPhoto(
+              tenantId: _tenantId!,
+              memberDocId: ref.id,
+              file: _photoFile,
+              rawBytes: _photoBytes,
+            );
+            photoStoragePathField = uploaded.storagePath;
+            photoUrlField = sanitizeImageUrl(uploaded.url);
+          } on MemberProfilePhotoQueuedLocally {
+            // Cadastro segue; foto sincroniza depois.
+            photoStoragePathField = null;
+            photoUrlField = null;
+          }
+        } finally {
+          GlobalUploadProgress.instance.end();
+        }
       }
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
@@ -1304,6 +1360,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         _submittedMemberName = _nameCtrl.text.trim();
         _lastSubmittedDocId = ref.id;
       });
+      if (photoUrlField == null &&
+          _photoBytes != null &&
+          _photoBytes!.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+        );
+      }
     } catch (e) {
       await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
         e,
@@ -1315,7 +1378,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       final msg = e.toString().contains('permission-denied') &&
               (u == null || u.isAnonymous)
           ? 'Não foi possível gravar. Verifique os dados e tente novamente, ou entre em contato com a igreja.'
-          : 'Erro ao cadastrar: $e';
+          : formatUploadErrorForUser(e);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1851,16 +1914,49 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           _photoBytes != null && _photoBytes!.isNotEmpty,
                       onGallery: () => _pickPhoto(fromCamera: false),
                       onCamera: () => _pickPhoto(fromCamera: true),
-                      photoPreview: CircleAvatar(
-                        radius: 40,
-                        backgroundColor: const Color(0xFFF1F5F9),
-                        backgroundImage: _photoBytes == null
-                            ? null
-                            : MemoryImage(_photoBytes!),
-                        child: _photoBytes == null
-                            ? Icon(Icons.person_rounded,
-                                size: 36, color: Colors.grey.shade400)
-                            : null,
+                      onRemove: _photoBytes != null && _photoBytes!.isNotEmpty
+                          ? () => unawaited(_confirmClearPhoto())
+                          : null,
+                      photoPreview: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          CircleAvatar(
+                            radius: 72,
+                            backgroundColor: const Color(0xFFF1F5F9),
+                            backgroundImage: _photoBytes == null
+                                ? null
+                                : MemoryImage(_photoBytes!),
+                            child: _photoBytes == null
+                                ? Icon(Icons.person_rounded,
+                                    size: 56, color: Colors.grey.shade400)
+                                : null,
+                          ),
+                          if (_photoBytes != null && _photoBytes!.isNotEmpty)
+                            Positioned(
+                              top: -4,
+                              right: -4,
+                              child: Material(
+                                color: Colors.black54,
+                                shape: const CircleBorder(),
+                                child: InkWell(
+                                  onTap: () =>
+                                      unawaited(_confirmClearPhoto()),
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: const SizedBox(
+                                    width: 48,
+                                    height: 48,
+                                    child: Center(
+                                      child: Icon(
+                                        Icons.close_rounded,
+                                        size: 26,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 20),

@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
@@ -40,23 +42,19 @@ abstract final class EcoFireResilientPublish {
 
   /// Deve enfileirar em background (sem bloquear o utilizador).
   ///
-  /// **Só com offline real.** Na Web, `timeout` / `internal` / assert com rede
-  /// **não** são sucesso silencioso (chat: bolha sumia → «Sem mensagens ainda»).
+  /// Offline real → sempre. Online: só erros de rede transitórios explícitos
+  /// (nunca `internal`/assert — chat: bolha sumia → «Sem mensagens ainda»).
   static bool shouldQueueSilently(Object error) {
     if (error is ResilientPublishQueuedException) return true;
     if (!AppConnectivityService.instance.isOnline) return true;
 
-    // Online: nunca tratar timeout/internal/assert como fila silenciosa.
     if (FirestoreWebGuard.isInternalAssertionError(error)) return false;
-    if (error is TimeoutException) return false;
 
     if (error is FirebaseException) {
       switch (error.code) {
         case 'unavailable':
         case 'network-request-failed':
-          // Ainda pode ser rede intermitente — só fila se connectivity diz offline
-          // (já tratado acima). Online → falha visível.
-          return false;
+          return true;
         case 'deadline-exceeded':
         case 'resource-exhausted':
         case 'aborted':
@@ -69,17 +67,28 @@ abstract final class EcoFireResilientPublish {
     final low = error.toString().toLowerCase();
     if (low.contains('offline') ||
         low.contains('sem conexão') ||
-        low.contains('client is offline')) {
-      return !AppConnectivityService.instance.isOnline;
+        low.contains('sem ligacao') ||
+        low.contains('client is offline') ||
+        low.contains('network-request-failed') ||
+        low.contains('failed to fetch') ||
+        low.contains('socketexception')) {
+      return true;
     }
     if (low.contains('timeout') ||
         low.contains('tempo esgotado') ||
         low.contains('deadline') ||
-        low.contains('internal assertion') ||
-        low.contains('failed to fetch')) {
+        low.contains('internal assertion')) {
       return false;
     }
 
+    return false;
+  }
+
+  /// Avisos/eventos — também enfileira após falha de bootstrap (já com retry).
+  static bool shouldQueueFeedPublish(Object error) {
+    if (shouldQueueSilently(error)) return true;
+    if (isFirebaseNoAppError(error)) return true;
+    if (error is TimeoutException) return !AppConnectivityService.instance.isOnline;
     return false;
   }
 

@@ -15,9 +15,11 @@ import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
     MarketingPublicSiteService.marketingClientesDocRef;
@@ -138,7 +140,11 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao salvar: $e')),
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }
@@ -367,9 +373,28 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                   pick.files.first.bytes == null) {
                                 return;
                               }
+                              final raw = pick.files.first.bytes!;
                               setLocal(() {
-                                pendingBytes = pick.files.first.bytes;
+                                pendingBytes = raw;
                               });
+                              if (ctx.mounted) {
+                                final resolution = raw.isNotEmpty
+                                    ? await ImmediateMediaAttachFeedback
+                                        .readResolution(
+                                        raw is Uint8List
+                                            ? raw
+                                            : Uint8List.fromList(raw),
+                                      )
+                                    : null;
+                                if (!ctx.mounted) return;
+                                ImmediateMediaAttachFeedback
+                                    .showFotoAdicionadaSucesso(
+                                  ctx,
+                                  fileName: pick.files.first.name,
+                                  sizeBytes: raw.length,
+                                  resolution: resolution,
+                                );
+                              }
                             },
                       icon: const Icon(Icons.photo_outlined),
                       label: Text(
@@ -443,6 +468,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 FirebasePaths.storageMarketingCapa(tenantRaw);
                             final oldPath =
                                 (ref?['fotoPath'] ?? '').toString().trim();
+                            GlobalUploadProgress.instance.start('Enviando capa…');
                             // CT: Storage primeiro; apagar capa antiga só depois do novo OK.
                             final uploaded =
                                 await ChurchCanonicalMediaPublish
@@ -451,7 +477,11 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                               storagePath: photoPath,
                               gateModule: YahwehMediaModule.divulgacao,
                               logLabel: 'marketing_cliente_capa',
+                              onProgress: (p) {
+                                GlobalUploadProgress.instance.update(p);
+                              },
                             );
+                            GlobalUploadProgress.instance.end();
                             pendingFotoPath = uploaded.storagePath;
                             pendingFotoUrl = uploaded.downloadUrl;
                             AppStorageImageService.instance.invalidate(
@@ -599,11 +629,16 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
 
                           if (ctx.mounted) Navigator.pop(ctx, true);
                         } catch (e) {
+                          GlobalUploadProgress.instance.end();
                           await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
                           setLocal(() => uploading = false);
                           if (ctx.mounted) {
                             ScaffoldMessenger.of(ctx).showSnackBar(
-                              SnackBar(content: Text('Erro: $e')),
+                              SnackBar(
+                                content: Text(formatUploadErrorForUser(e)),
+                                backgroundColor: ThemeCleanPremium.error,
+                                behavior: SnackBarBehavior.floating,
+                              ),
                             );
                           }
                         }
@@ -716,7 +751,11 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e')),
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }

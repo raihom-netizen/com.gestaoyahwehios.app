@@ -73,6 +73,28 @@ abstract final class ChurchPublishFlowLog {
   static void uploadOk([String? detail]) =>
       _out('UPLOAD SUCCESS${detail != null ? ' $detail' : ''}');
 
+  static void uploadProgress(String detail, double progress) =>
+      _out('UPLOAD PROGRESS $detail ${(progress * 100).round()}%');
+
+  static void uploadTiming({
+    required String label,
+    required Duration upload,
+    Duration? firestore,
+    Duration? total,
+  }) {
+    _out(
+      'UPLOAD TIMING $label '
+      'upload=${upload.inMilliseconds}ms '
+      'firestore=${firestore?.inMilliseconds ?? '-'}ms '
+      'total=${total?.inMilliseconds ?? '-'}ms',
+    );
+  }
+
+  static void offlineMode(String label) => _out('MODE OFFLINE $label');
+  static void onlineMode(String label) => _out('MODE ONLINE $label');
+  static void retryAttempt(String label, int attempt) =>
+      _out('RETRY $label attempt=$attempt');
+
   static void uploadError(Object e, [StackTrace? st]) {
     _out('UPLOAD ERROR $e');
     if (st != null) logCatch(e, st);

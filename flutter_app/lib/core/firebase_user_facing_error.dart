@@ -64,8 +64,12 @@ String formatFirebaseErrorForUser(
       return 'Erro no Storage ($code). Saia e entre de novo no painel, depois tente o envio.';
     }
     if (_isNoFirebaseAppError(error)) {
-      return 'Sincronização Firebase temporariamente indisponível. '
-          'Toque em «Tentar de novo».';
+      return kFirebaseSyncRetryUserMessage;
+    }
+    if (plugin == 'firebase_storage') {
+      return 'Não foi possível enviar a mídia ($code)'
+          '${m != null && m.isNotEmpty ? ': $m' : ''}. '
+          'O conteúdo pode ser guardado localmente — toque em Tentar de novo.';
     }
     return 'Firebase $plugin ($code)'
         '${m != null && m.isNotEmpty ? ': $m' : ''}';
@@ -79,8 +83,7 @@ String formatFirebaseErrorForUser(
     final m = error.message.trim();
     if (m.contains('Sessão expirada')) return m;
     if (_isNoFirebaseAppError(error)) {
-      return 'Sincronização Firebase temporariamente indisponível. '
-          'Toque em «Tentar de novo».';
+      return kFirebaseSyncRetryUserMessage;
     }
     return m.isNotEmpty ? m : error.toString();
   }
@@ -113,13 +116,32 @@ String formatFirebaseErrorForUser(
   return raw.replaceFirst(RegExp(r'^Bad state:\s*'), '').trim();
 }
 
+/// Mensagem curta — falha transitória de sync (com retry).
+const String kFirebaseSyncRetryUserMessage =
+    'Não foi possível publicar agora. '
+    'Toque em «Tentar novamente». '
+    'Se a ligação falhar, o conteúdo fica guardado localmente para envio automático.';
+
+/// Sucesso local — fila offline aceite.
+const String kFeedPublishQueuedUserMessage =
+    'Não foi possível publicar agora. '
+    'O seu conteúdo foi guardado localmente e será enviado automaticamente '
+    'quando houver conexão.';
+
 bool isFirebaseNoAppError(Object e) {
   final low = e.toString().toLowerCase();
   if (low.contains('bucket vazio')) return false;
-  return low.contains('no firebase app') ||
+  // Evitar falso positivo: "channel has not been initialized" (plugins nativos).
+  if (low.contains('no firebase app') ||
       low.contains('firebase.initializeapp') ||
       low.contains('core/no-app') ||
-      low.contains('has not been initialized');
+      low.contains('no_firebase_app')) {
+    return true;
+  }
+  return low.contains('firebase') &&
+      (low.contains('has not been initialized') ||
+          low.contains('não inicializou') ||
+          low.contains('nao inicializou'));
 }
 
 bool _isNoFirebaseAppError(Object e) => isFirebaseNoAppError(e);

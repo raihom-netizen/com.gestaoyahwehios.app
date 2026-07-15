@@ -31,6 +31,7 @@ import {
   readUsersIndexSnapshot,
 } from "./churchFirestorePaths";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
+import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -1908,9 +1909,15 @@ export const createMpPreapproval = functions
         "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
       );
     }
-    const tenantId = String(claims.igrejaId || "").trim();
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: (context.auth.token || {}) as Record<string, unknown> },
+      String(data?.tenantId || data?.igrejaId || claims.igrejaId || claims.tenantId || "")
+    );
     if (!tenantId) {
-      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "igrejaId ausente — saia e entre de novo com a conta de gestor da igreja."
+      );
     }
 
     const [planSnap, notificationUrl, backUrlBase] = await Promise.all([
@@ -2012,6 +2019,7 @@ export const createMpPreapproval = functions
         billingCycle: isAnnual ? "annual" : "monthly",
         paymentMethod: paymentMethod === "card" ? "card" : "pix",
         installments: String(paymentMethod === "card" ? installments : 1),
+        kind: "platform_license",
       },
       notification_url: notificationUrl,
       back_urls: {
@@ -2022,6 +2030,20 @@ export const createMpPreapproval = functions
       auto_return: "approved",
       payment_methods: {
         installments: paymentMethod === "card" ? installments : 1,
+        // Restringe ao método escolhido no app (evita PIX↔cartão cruzado).
+        ...(paymentMethod === "card"
+          ? {
+              excluded_payment_types: [{ id: "ticket" }, { id: "atm" }],
+              excluded_payment_methods: [{ id: "pix" }],
+            }
+          : {
+              excluded_payment_types: [
+                { id: "credit_card" },
+                { id: "debit_card" },
+                { id: "ticket" },
+                { id: "atm" },
+              ],
+            }),
       },
       statement_descriptor: "GESTAO YAHWEH".slice(0, 13),
     };
@@ -2075,9 +2097,15 @@ export const verifyPlayPurchase = functions
         "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
       );
     }
-    const tenantId = String(claims.igrejaId || "").trim();
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: (context.auth.token || {}) as Record<string, unknown> },
+      String(data?.tenantId || data?.igrejaId || claims.igrejaId || claims.tenantId || "")
+    );
     if (!tenantId) {
-      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "igrejaId ausente — saia e entre de novo com a conta de gestor da igreja."
+      );
     }
 
     // Conta de serviço com acesso à Google Play Developer API (um dos dois).
@@ -2099,7 +2127,8 @@ export const verifyPlayPurchase = functions
     });
     const androidpublisher = google.androidpublisher({ version: "v3", auth });
 
-    const packageName = "com.gestaoyahwehios.app";
+    // Package Android na Play Store (não confundir com bundle iOS).
+    const packageName = "com.gestaoyahweh.app";
     let purchase: any;
     try {
       const res = await androidpublisher.purchases.products.get({
@@ -2177,9 +2206,15 @@ export const createMpPixPayment = functions
         "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
       );
     }
-    const tenantId = String(claims.igrejaId || "").trim();
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: (context.auth.token || {}) as Record<string, unknown> },
+      String(data?.tenantId || data?.igrejaId || claims.igrejaId || claims.tenantId || "")
+    );
     if (!tenantId) {
-      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "igrejaId ausente — saia e entre de novo com a conta de gestor da igreja."
+      );
     }
 
     const planSnap = await db

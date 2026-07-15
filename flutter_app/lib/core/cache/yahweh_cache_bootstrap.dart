@@ -29,8 +29,9 @@ abstract final class YahwehCacheBootstrap {
 
   static Future<void> _ensureProductionBackground(String churchId) async {
     try {
-      await YahwehModuleCaches.ensureProductionModules(churchId).timeout(
-        const Duration(seconds: 14),
+      // Só Phase1 no hot path — Phase2/3 competiam com o dashboard na abertura.
+      await YahwehModuleCaches.ensurePhase1(churchId).timeout(
+        const Duration(seconds: 10),
       );
     } catch (e) {
       if (kDebugMode) debugPrint('YahwehCacheBootstrap production: $e');

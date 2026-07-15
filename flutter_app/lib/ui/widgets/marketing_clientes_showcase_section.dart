@@ -805,9 +805,9 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
   /// Site divulgação: capa em Storage; se não houver, logo canónica da igreja (Firestore `igrejas/{id}`).
   Future<({String url, bool logoContain})> _resolve() async {
     try {
-      // Capa (~20s) + logo tenant (vários resolveImageUrl + getChurchLogo até ~22s) — margem para não cortar URL válida.
+      // First paint rápido: capas já resolvidas no doc; logo só se capa falhar.
       return await _resolveInner().timeout(
-        const Duration(seconds: 52),
+        const Duration(seconds: 8),
         onTimeout: () => (url: '', logoContain: false),
       );
     } catch (_) {
@@ -820,34 +820,14 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
         .toString()
         .trim();
 
-    Future<Map<String, dynamic>?> fetchTenantDoc() async {
-      if (tid.isEmpty) return null;
-      try {
-        final op = ChurchPanelTenantGateway.churchId(tid.trim());
-        final doc = await ChurchRepository.churchDoc(op)
-            .get()
-            .timeout(
-              const Duration(seconds: 10),
-              onTimeout: () =>
-                  throw TimeoutException('igrejas/$tid', const Duration(seconds: 10)),
-            );
-        if (doc.exists && doc.data() != null) return doc.data();
-      } catch (_) {}
-      return null;
-    }
-
-    final capaAndTenant = await Future.wait<Object?>([
-      MarketingClientesShowcaseSection.resolveCapaImageUrl(widget.item),
-      fetchTenantDoc(),
-    ]);
-    final capa = capaAndTenant[0] as String?;
-    final tenantData = capaAndTenant[1] as Map<String, dynamic>?;
-
+    // Preferir URL/path já no item de marketing (sem Firestore por card).
+    final capa =
+        await MarketingClientesShowcaseSection.resolveCapaImageUrl(widget.item)
+            .timeout(const Duration(seconds: 4), onTimeout: () => null);
     if (MarketingClientesShowcaseSection.resolvedUrlLooksUsable(capa)) {
       return (url: capa!, logoContain: false);
     }
 
-    // Fallback logo: preferir campos explícitos de logo (evita `fotoUrl` errado bloquear a logo).
     String? preferForLogo;
     for (final k in <String>['logoUrl', 'urlLogo', 'imagemLogo']) {
       final u = MarketingClientesShowcaseSection._plausibleImageUrl(
@@ -861,17 +841,35 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
     preferForLogo ??=
         MarketingClientesShowcaseSection.primaryImageUrlFromItem(widget.item);
 
-    if (tid.isNotEmpty) {
-      final logo = await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
-        tenantId: tid,
-        tenantData: tenantData,
-        preferImageUrl: preferForLogo,
-        preferStoragePath: null,
-        preferGsUrl: null,
-      );
-      if (MarketingClientesShowcaseSection.resolvedUrlLooksUsable(logo)) {
-        return (url: sanitizeImageUrl(logo!), logoContain: true);
-      }
+    if (preferForLogo != null &&
+        MarketingClientesShowcaseSection.resolvedUrlLooksUsable(preferForLogo)) {
+      return (url: sanitizeImageUrl(preferForLogo), logoContain: true);
+    }
+
+    if (tid.isEmpty) return (url: '', logoContain: false);
+
+    Map<String, dynamic>? tenantData;
+    try {
+      final op = ChurchPanelTenantGateway.churchId(tid.trim());
+      final doc = await ChurchRepository.churchDoc(op).get().timeout(
+            const Duration(seconds: 3),
+            onTimeout: () =>
+                throw TimeoutException('igrejas/$tid', const Duration(seconds: 3)),
+          );
+      if (doc.exists && doc.data() != null) tenantData = doc.data();
+    } catch (_) {}
+
+    final logo = await AppStorageImageService.instance
+        .resolveChurchTenantLogoUrl(
+          tenantId: tid,
+          tenantData: tenantData,
+          preferImageUrl: preferForLogo,
+          preferStoragePath: null,
+          preferGsUrl: null,
+        )
+        .timeout(const Duration(seconds: 3), onTimeout: () => null);
+    if (MarketingClientesShowcaseSection.resolvedUrlLooksUsable(logo)) {
+      return (url: sanitizeImageUrl(logo!), logoContain: true);
     }
     return (url: '', logoContain: false);
   }

@@ -16,9 +16,32 @@ class ChatAudioService {
   String? _path;
   AudioEncoder _encoder = AudioEncoder.aacLc;
   Uint8List? _webBytes;
+  static AudioEncoder? _cachedEncoder;
 
   bool get isRecording => _recorder != null;
   String? get currentPath => _path;
+
+  Future<AudioEncoder> _resolveEncoder(AudioRecorder recorder) async {
+    final cached = _cachedEncoder;
+    if (cached != null) {
+      try {
+        if (await recorder.isEncoderSupported(cached)) return cached;
+      } catch (_) {}
+    }
+    var encoder = AudioEncoder.aacLc;
+    if (!await recorder.isEncoderSupported(AudioEncoder.aacLc)) {
+      if (await recorder.isEncoderSupported(AudioEncoder.opus)) {
+        encoder = AudioEncoder.opus;
+      } else if (await recorder.isEncoderSupported(AudioEncoder.aacHe)) {
+        encoder = AudioEncoder.aacHe;
+      }
+    }
+    if (kIsWeb && !await recorder.isEncoderSupported(encoder)) {
+      encoder = AudioEncoder.opus;
+    }
+    _cachedEncoder = encoder;
+    return encoder;
+  }
 
   Future<bool> _ensureMicrophonePermission() async {
     if (kIsWeb) return true;
@@ -44,15 +67,18 @@ class ChatAudioService {
   /// Inicia gravação (mobile: ficheiro `.m4a`; web: blob em memória).
   Future<String?> startRecording() async {
     await stopRecording(send: false);
-    final nativePermissionOk = await _ensureMicrophonePermission();
+    final permissionFuture = _ensureMicrophonePermission();
+    final recorder = AudioRecorder();
+    final recorderPermFuture = recorder.hasPermission();
+    final nativePermissionOk = await permissionFuture;
     if (!nativePermissionOk) {
+      await recorder.dispose();
       throw StateError(
         'Permissão de microfone negada. Ative em Ajustes do telefone.',
       );
     }
 
-    final recorder = AudioRecorder();
-    var permitted = await recorder.hasPermission();
+    var permitted = await recorderPermFuture;
     if (!permitted) {
       try {
         permitted = await recorder.hasPermission();
@@ -65,17 +91,7 @@ class ChatAudioService {
       );
     }
 
-    _encoder = AudioEncoder.aacLc;
-    if (!await recorder.isEncoderSupported(AudioEncoder.aacLc)) {
-      if (await recorder.isEncoderSupported(AudioEncoder.opus)) {
-        _encoder = AudioEncoder.opus;
-      } else if (await recorder.isEncoderSupported(AudioEncoder.aacHe)) {
-        _encoder = AudioEncoder.aacHe;
-      }
-    }
-    if (kIsWeb && !await recorder.isEncoderSupported(_encoder)) {
-      _encoder = AudioEncoder.opus;
-    }
+    _encoder = await _resolveEncoder(recorder);
 
     String? path;
     if (kIsWeb) {

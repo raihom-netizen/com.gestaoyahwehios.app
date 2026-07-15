@@ -1,6 +1,5 @@
 ﻿import 'dart:convert';
-import 'dart:io' show File, Platform;
-import 'package:path_provider/path_provider.dart';
+import 'dart:io' show File;
 import 'dart:math' as math;
 
 import 'package:archive/archive.dart';
@@ -13,6 +12,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
+import 'package:gestao_yahweh/constants/utilitarios_export_page_format.dart';
 
 /// Anotação no editor PDF (exportada achatada no PDF final).
 class UtilPdfPageAnnotation {
@@ -262,7 +262,7 @@ abstract final class UtilitariosLocalService {
   /// Dividir / juntar / editor PDF — até 100 páginas (miniaturas progressivas).
   static const int kMaxPdfPagesTools = 100;
   static const int kMaxPdfPagesText = 30;
-  static const int kMaxImagesPerPdf = 12;
+  static const int kMaxImagesPerPdf = 20;
   static const int kMaxInputBytes = 28 * 1024 * 1024; // 28 MB
   /// Total ao compactar vários arquivos em ZIP/RAR (local).
   static const int kMaxArchiveTotalBytes = 96 * 1024 * 1024; // 96 MB
@@ -725,9 +725,9 @@ abstract final class UtilitariosLocalService {
   static Uint8List buildMinimalDocx(String plainText) =>
       _buildMinimalDocxIsolate(plainText);
 
-  /// Parágrafos com títulos → DOCX formatado (exportação Lens).
+  /// Parágrafos com títulos/negrito → DOCX formatado (exportação Controletotalapp).
   static Uint8List buildFormattedDocxFromParagraphs(
-    List<({String text, bool isHeading})> paragraphs,
+    List<({String text, bool isHeading, bool isBold})> paragraphs,
   ) {
     final blocks = paragraphs
         .where((p) => p.text.trim().isNotEmpty)
@@ -735,6 +735,7 @@ abstract final class UtilitariosLocalService {
           (p) => _PdfExportBlock(
             kind: p.isHeading ? 'heading' : 'paragraph',
             text: p.text.trim(),
+            bold: p.isBold,
           ),
         )
         .toList();
@@ -744,6 +745,14 @@ abstract final class UtilitariosLocalService {
         plainFallback: paragraphs.map((p) => p.text).join('\n\n'),
       ),
     );
+  }
+
+  /// Texto com parágrafos formatados → PDF A4.
+  static Future<Uint8List> plainTextToFormattedPdf(
+    List<({String text, bool isHeading, bool isBold})> paragraphs,
+  ) async {
+    final theme = await RelatorioService.latinPdfThemeForExport();
+    return _formattedParagraphsToPdf(paragraphs, theme);
   }
 
   /// Texto puro → PDF A4 com fonte Noto (acentos pt-BR).
@@ -1211,9 +1220,8 @@ abstract final class UtilitariosLocalService {
     final decoded = img.decodeImage(jpeg);
     if (decoded == null) return const [];
 
-    final tmpDir = await getTemporaryDirectory();
     final tmp = File(
-      '${tmpDir.path}${Platform.pathSeparator}util_pdf_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      'D:\\TEMPORARIOS\\util_pdf_ocr_${DateTime.now().microsecondsSinceEpoch}.jpg',
     );
     TextRecognizer? rec;
     try {
@@ -2624,41 +2632,51 @@ class _ImagesToPdfArgs {
 
 Future<Uint8List> _imagesToPdfIsolate(_ImagesToPdfArgs args) async {
   final level = args.level;
+  final quality = level.pdfPageJpegQuality;
   final maxSide = level.maxSide;
-  final quality = level.jpegQuality;
-  // Margem menor em Média/Alta = página mais preenchida e arquivo menor.
-  final margin = switch (level) {
-    UtilitariosCompressLevel.baixa => 10.0,
-    UtilitariosCompressLevel.media => 6.0,
-    UtilitariosCompressLevel.alta => 4.0,
-  };
 
   final doc = pw.Document();
   var pages = 0;
   for (final raw in args.images) {
     final decoded = img.decodeImage(raw);
     if (decoded == null) continue;
-    // Reduz antes de embutir — PDF mais leve (GestÃ£o Yahweh).
-    var work = decoded;
+    // EXIF (câmera) sem canvas A4 pesado — página A4 + contain = margens brancas grátis.
+    var work = img.bakeOrientation(decoded);
     final maxDim = work.width > work.height ? work.width : work.height;
-    if (maxDim > maxSide) {
-      work = img.copyResize(
-        work,
-        width: work.width >= work.height ? maxSide : null,
-        height: work.height > work.width ? maxSide : null,
-        interpolation: img.Interpolation.linear,
-      );
+    final needsResize = maxDim > maxSide;
+    final canReuseJpeg = !needsResize &&
+        _looksLikeJpeg(raw) &&
+        work.width == decoded.width &&
+        work.height == decoded.height;
+
+    late final Uint8List jpg;
+    if (canReuseJpeg) {
+      jpg = raw;
+    } else {
+      if (needsResize) {
+        work = img.copyResize(
+          work,
+          width: work.width >= work.height ? maxSide : null,
+          height: work.height > work.width ? maxSide : null,
+          interpolation: img.Interpolation.linear,
+        );
+      }
+      jpg = Uint8List.fromList(img.encodeJpg(work, quality: quality));
     }
-    final jpg = Uint8List.fromList(img.encodeJpg(work, quality: quality));
-    final pageFormat = work.width >= work.height
-        ? PdfPageFormat.a4.landscape
-        : PdfPageFormat.a4;
+
+    final pageFormat = UtilitariosExportPageFormat.pdfForAspect(
+      width: work.width.toDouble(),
+      height: work.height.toDouble(),
+    );
     doc.addPage(
       pw.Page(
         pageFormat: pageFormat,
-        margin: pw.EdgeInsets.all(margin),
+        margin: pw.EdgeInsets.zero,
         build: (_) => pw.Center(
-          child: pw.Image(pw.MemoryImage(jpg), fit: pw.BoxFit.contain),
+          child: pw.Image(
+            pw.MemoryImage(jpg),
+            fit: pw.BoxFit.contain,
+          ),
         ),
       ),
     );
@@ -2669,6 +2687,9 @@ Future<Uint8List> _imagesToPdfIsolate(_ImagesToPdfArgs args) async {
   }
   return doc.save();
 }
+
+bool _looksLikeJpeg(Uint8List bytes) =>
+    bytes.length > 3 && bytes[0] == 0xFF && bytes[1] == 0xD8;
 
 class _DocumentTextArgs {
   const _DocumentTextArgs({required this.bytes, required this.fileName});
@@ -2712,8 +2733,8 @@ Future<Uint8List> _textToPdfWithTheme(String text, pw.ThemeData theme) async {
   final chunks = text.split('\n');
   doc.addPage(
     pw.MultiPage(
-      pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(40),
+      pageFormat: UtilitariosExportPageFormat.a4Portrait,
+      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
       build: (_) => [
         for (final line in chunks)
           pw.Padding(
@@ -2723,6 +2744,40 @@ Future<Uint8List> _textToPdfWithTheme(String text, pw.ThemeData theme) async {
               style: const pw.TextStyle(fontSize: 11, lineSpacing: 1.35),
             ),
           ),
+      ],
+    ),
+  );
+  return doc.save();
+}
+
+Future<Uint8List> _formattedParagraphsToPdf(
+  List<({String text, bool isHeading, bool isBold})> paragraphs,
+  pw.ThemeData theme,
+) async {
+  final doc = pw.Document(theme: theme);
+  doc.addPage(
+    pw.MultiPage(
+      pageFormat: UtilitariosExportPageFormat.a4Portrait,
+      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
+      build: (_) => [
+        for (final p in paragraphs)
+          if (p.text.trim().isNotEmpty)
+            pw.Padding(
+              padding: pw.EdgeInsets.only(
+                bottom: p.isHeading ? 10 : 6,
+                top: p.isHeading ? 8 : 0,
+              ),
+              child: pw.Text(
+                p.text.trim(),
+                style: pw.TextStyle(
+                  fontSize: p.isHeading ? 15 : 11,
+                  fontWeight: (p.isHeading || p.isBold)
+                      ? pw.FontWeight.bold
+                      : pw.FontWeight.normal,
+                  lineSpacing: 1.35,
+                ),
+              ),
+            ),
       ],
     ),
   );
@@ -2799,10 +2854,16 @@ Uint8List _buildMinimalDocxIsolate(String plainText) {
 
 /// Bloco estruturado para export Word/Excel (serializável no isolate).
 class _PdfExportBlock {
-  const _PdfExportBlock({required this.kind, this.text, this.rows});
+  const _PdfExportBlock({
+    required this.kind,
+    this.text,
+    this.rows,
+    this.bold = false,
+  });
   final String kind;
   final String? text;
   final List<List<String>>? rows;
+  final bool bold;
 }
 
 class _PdfExportDocument {
@@ -2832,11 +2893,15 @@ String _docxRun(
   return '<w:r>$rPr<w:t xml:space="preserve">$body</w:t></w:r>';
 }
 
-String _docxParagraphBlock(String text, {bool heading = false}) {
+String _docxParagraphBlock(
+  String text, {
+  bool heading = false,
+  bool bold = false,
+}) {
   final pPr = heading
       ? '<w:pPr><w:spacing w:before="160" w:after="120"/></w:pPr>'
       : '<w:pPr><w:spacing w:after="100" w:line="276" w:lineRule="auto"/></w:pPr>';
-  return '<w:p>$pPr${_docxRun(text, bold: heading, halfPts: heading ? 28 : 22, color: heading ? '1E293B' : '334155')}</w:p>';
+  return '<w:p>$pPr${_docxRun(text, bold: heading || bold, halfPts: heading ? 28 : 22, color: heading ? '1E293B' : '334155')}</w:p>';
 }
 
 String _docxTableBlock(List<List<String>> rows) {
@@ -2892,7 +2957,12 @@ Uint8List _buildFormattedDocxIsolate(_PdfExportDocument doc) {
         case 'heading':
           body.write(_docxParagraphBlock(b.text ?? '', heading: true));
         case 'paragraph':
-          body.write(_docxParagraphBlock(b.text ?? ''));
+          body.write(
+            _docxParagraphBlock(
+              b.text ?? '',
+              bold: b.bold,
+            ),
+          );
         case 'table':
           body.write(_docxTableBlock(b.rows ?? const []));
       }
@@ -2929,8 +2999,7 @@ Uint8List _buildFormattedDocxIsolate(_PdfExportDocument doc) {
   <w:body>
     $body
     <w:sectPr>
-      <w:pgSz w:w="11906" w:h="16838"/>
-      <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/>
+      ${UtilitariosExportPageFormat.docxSectionProperties}
     </w:sectPr>
   </w:body>
 </w:document>''';
@@ -3153,6 +3222,7 @@ $sstXml
   <sheetData>
     $sheetRows
   </sheetData>
+  ${UtilitariosExportPageFormat.xlsxPageSetupBlock}
 </worksheet>''';
 
   final archive = Archive();
@@ -3674,8 +3744,8 @@ Future<Uint8List> _rowsToPdfWithTheme(
   final doc = pw.Document(theme: theme);
   doc.addPage(
     pw.MultiPage(
-      pageFormat: PdfPageFormat.a4.landscape,
-      margin: const pw.EdgeInsets.all(24),
+      pageFormat: UtilitariosExportPageFormat.pdfForTableColumns(colCount),
+      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTableMarginPt),
       build: (_) => [
         pw.Text(
           'Planilha — GestÃ£o Yahweh',

@@ -27,6 +27,7 @@ abstract final class TenantModuleKeys {
   static const cartoes = 'cartoes';
   static const cartasHistorico = 'cartas_historico';
 
+  /// Ordem completa (só sob pedido / troca de conta forçada).
   static const preloadOrder = <String>[
     dashboard,
     membros,
@@ -41,5 +42,13 @@ abstract final class TenantModuleKeys {
     patrimonio,
     financeiro,
     fornecedores,
+  ];
+
+  /// Pós-login / dashboard — só o essencial (resto on-demand no menu).
+  static const criticalPrefetchOrder = <String>[
+    membros,
+    avisos,
+    eventos,
+    departamentos,
   ];
 }

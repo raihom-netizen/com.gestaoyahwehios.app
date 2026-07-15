@@ -16,23 +16,44 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Pré-carrega **todos** os módulos do painel após login/dashboard — cache Hive + Firestore.
+/// Pré-carrega módulos do painel após login/dashboard — cache Hive + Firestore.
 ///
-/// Antes: só 3 módulos em background e timeouts de 10–16s na web (listas vazias).
+/// Hot path: [scheduleCriticalPrefetch] (membros/avisos/eventos/dept).
+/// Completo: só sob [scheduleFullPrefetch] explícito (ex.: diagnóstico).
 abstract final class ChurchPanelModulePrefetchService {
   ChurchPanelModulePrefetchService._();
 
   static String? _sessionChurchId;
   static bool _fullRunning = false;
+  static bool _criticalRunning = false;
   static final Set<String> _warmedKeys = {};
 
   static void resetForAccountSwitch() {
     _sessionChurchId = null;
     _fullRunning = false;
+    _criticalRunning = false;
     _warmedKeys.clear();
   }
 
-  /// Dispara prefetch completo (não bloqueia UI).
+  /// Pós-login / dashboard — só módulos críticos (não satura Web semaphore).
+  static void scheduleCriticalPrefetch(String seedTenantId, {bool force = false}) {
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
+    if (churchId.isEmpty) return;
+    if (!force &&
+        _sessionChurchId == churchId &&
+        (_criticalRunning || _fullRunning)) {
+      return;
+    }
+    _sessionChurchId = churchId;
+    unawaited(_runPrefetch(
+      churchId,
+      modules: TenantModuleKeys.criticalPrefetchOrder,
+      force: force,
+      criticalOnly: true,
+    ));
+  }
+
+  /// Prefetch completo — evitar no hot path do painel.
   static void scheduleFullPrefetch(String seedTenantId, {bool force = false}) {
     final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) return;
@@ -42,7 +63,12 @@ abstract final class ChurchPanelModulePrefetchService {
       return;
     }
     _sessionChurchId = churchId;
-    unawaited(_runFullPrefetch(churchId, force: force));
+    unawaited(_runPrefetch(
+      churchId,
+      modules: TenantModuleKeys.preloadOrder,
+      force: force,
+      criticalOnly: false,
+    ));
   }
 
   /// Um módulo ao abrir no menu — idempotente por sessão.
@@ -52,43 +78,62 @@ abstract final class ChurchPanelModulePrefetchService {
     unawaited(_warmModule(churchId, moduleKey.trim()));
   }
 
-  static Future<void> _runFullPrefetch(String churchId, {bool force = false}) async {
-    if (_fullRunning && !force) return;
-    _fullRunning = true;
+  static Future<void> _runPrefetch(
+    String churchId, {
+    required List<String> modules,
+    bool force = false,
+    required bool criticalOnly,
+  }) async {
+    if (criticalOnly) {
+      if (_criticalRunning && !force) return;
+      _criticalRunning = true;
+    } else {
+      if (_fullRunning && !force) return;
+      _fullRunning = true;
+    }
     try {
       await FirebaseBootstrap.ensureInitialized();
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
 
-      // Doc raiz + doação (paths especiais) em paralelo leve.
-      unawaited(
-        ChurchCadastroLoadService.load(seedTenantId: churchId).then(
-          (_) {},
-          onError: (_, __) {},
-        ),
-      );
-      unawaited(
-        ChurchDonationLoadService.load(seedTenantId: churchId).then(
-          (_) {},
-          onError: (_, __) {},
-        ),
-      );
+      if (!criticalOnly) {
+        unawaited(
+          ChurchCadastroLoadService.load(seedTenantId: churchId).then(
+            (_) {},
+            onError: (_, __) {},
+          ),
+        );
+        unawaited(
+          ChurchDonationLoadService.load(seedTenantId: churchId).then(
+            (_) {},
+            onError: (_, __) {},
+          ),
+        );
+      }
 
-      for (final module in TenantModuleKeys.preloadOrder) {
+      for (final module in modules) {
         if (module == TenantModuleKeys.dashboard ||
             module == TenantModuleKeys.masterPanel) {
           continue;
         }
         await _warmModule(churchId, module);
-        await Future<void>.delayed(const Duration(milliseconds: 45));
+        await Future<void>.delayed(
+          Duration(milliseconds: kIsWeb ? 160 : 45),
+        );
       }
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('PanelModulePrefetch[full] $e\n$st');
+        debugPrint(
+          'PanelModulePrefetch[${criticalOnly ? 'critical' : 'full'}] $e\n$st',
+        );
       }
     } finally {
-      _fullRunning = false;
+      if (criticalOnly) {
+        _criticalRunning = false;
+      } else {
+        _fullRunning = false;
+      }
     }
   }
 

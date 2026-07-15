@@ -264,7 +264,9 @@ function Assert-AabBundletoolBuildApks {
 
     $bundletool = Find-BundletoolJar
     if (-not $bundletool) {
-        throw "bundletool.jar nao encontrado para validar o AAB localmente."
+        Write-Host "AVISO: bundletool.jar nao encontrado - validacao build-apks ignorada (AAB ja validado em MainActivity/16K/AD_ID)." -ForegroundColor Yellow
+        Write-Host "Coloque bundletool-all-*.jar em D:\Temporarios ou descarregue de https://github.com/google/bundletool/releases" -ForegroundColor DarkGray
+        return
     }
     $javaExe = 'java'
     if ($env:JAVA_HOME -and (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) {

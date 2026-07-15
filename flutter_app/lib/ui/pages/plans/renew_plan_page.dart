@@ -148,7 +148,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         case 'invalid-argument':
           return e.message ?? 'Verifique os dados e tente novamente.';
         case 'not-found':
-          return 'Plano não encontrado. Tente novamente ou use "Ativar plano (demo)".';
+          return 'Plano não encontrado. Tente novamente ou escolha outro plano.';
         case 'internal':
           final m = e.message ?? e.details?.toString() ?? '';
           if (m.contains('payer') || m.contains('email')) {
@@ -319,6 +319,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         planId: _selected,
         billingCycle:
             _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+        tenantId: ExpressRenewBootstrap.instance.cachedTenantId,
       );
       if (!mounted) return;
       if (_pixPrefetchKey != key) return;
@@ -408,6 +409,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
             ? _expressCardInstallments.clamp(1, 6)
             : 1,
         returnPath: returnPath,
+        tenantId: ExpressRenewBootstrap.instance.cachedTenantId,
       );
       if (!mounted) return;
       if (_prefetchKey != key) return;
@@ -862,28 +864,6 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     );
   }
 
-  Future<void> _activate() async {
-    setState(() { _loading = true; _err = null; });
-    try {
-      await _billing.activatePlanDemo(_selected);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Plano ativado (modo demo).')),
-      );
-      if (widget.embeddedInShell) return;
-      final nav = Navigator.of(context);
-      if (nav.canPop()) {
-        nav.pop(true);
-      } else {
-        nav.pushReplacementNamed('/painel');
-      }
-    } catch (e) {
-      setState(() => _err = _parseBillingError(e));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
   Future<void> _openCardCheckout(MpCheckoutSession session) async {
     if (!session.isValid) throw 'Não foi possível abrir o checkout.';
     if (!mounted) return;
@@ -924,6 +904,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         sku: sku,
         planId: _selected,
         cycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+        tenantId: ExpressRenewBootstrap.instance.cachedTenantId ??
+            await _resolveTenantIdFromClaims(),
       );
       if (!mounted) return;
       if (result.ok) {
@@ -964,6 +946,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           billingCycle: _billingAnnual
               ? BillingCycle.annual
               : BillingCycle.monthly,
+          tenantId: tenantId,
         );
         if (!pix.isValid) throw 'Não foi possível gerar o PIX.';
         if (!mounted) return;
@@ -990,6 +973,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           paymentMethod: PaymentMethod.card,
           installments: installments,
           returnPath: returnPath,
+          tenantId: tenantId,
         );
         await _openCardCheckout(session);
       }
@@ -1610,17 +1594,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                       ),
                     ),
                   ],
-                  if (!widget.expressMode) ...[
-                    const SizedBox(height: 10),
-                    OutlinedButton.icon(
-                      onPressed: _loading ? null : _activate,
-                      icon: const Icon(Icons.check_circle_outline, size: 18),
-                      label: const Text('Ativar plano (demo)'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 46),
-                      ),
-                    ),
-                  ],
+                  // Demo removida da produção — callable activatePlanDemo não existe.
                   const SizedBox(height: 16),
                   Center(
                     child: Text(

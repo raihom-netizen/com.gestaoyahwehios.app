@@ -93,13 +93,55 @@ abstract final class ChurchChatMediaSendService {
       throw StateError(msg);
     }
 
+    // Offline real → fila imediata (Telegram), sem esperar ensureReady.
+    if (!AppConnectivityService.instance.isOnline) {
+      await EcoFireResilientPublish.queueChatMedia(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+        pending: pending,
+        bytes: bytes,
+        localPath: localPath,
+      );
+      pending.offlineQueued = true;
+      EcoFireResilientPublish.scheduleSync(reason: 'chat_media_offline');
+      onProgress?.call(1.0);
+      onSuccess?.call();
+      return;
+    }
+
     try {
+      // Telegram: gate curto — se Firebase atraso, vai para a fila (bolha fica).
       try {
-        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+        await DirectStorageUrlPublish.ensureReady(requireAuth: true)
+            .timeout(const Duration(seconds: 2));
       } catch (e) {
-        if (isFirebaseNoAppError(e)) {
-          await EcoFireDirectFirebase.ensureDefaultApp();
-          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+        if (e is TimeoutException ||
+            isFirebaseNoAppError(e) ||
+            EcoFireResilientPublish.shouldQueueSilently(e) ||
+            EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
+          try {
+            await EcoFireDirectFirebase.ensureDefaultApp();
+            await DirectStorageUrlPublish.ensureReady(requireAuth: true)
+                .timeout(const Duration(seconds: 2));
+          } catch (e2) {
+            if (e2 is TimeoutException ||
+                EcoFireResilientPublish.shouldQueueFeedPublish(e2) ||
+                EcoFireResilientPublish.shouldQueueSilently(e2)) {
+              await EcoFireResilientPublish.queueChatMedia(
+                tenantId: resolvedTenant,
+                threadId: threadId,
+                pending: pending,
+                bytes: bytes,
+                localPath: localPath,
+              );
+              pending.offlineQueued = true;
+              EcoFireResilientPublish.scheduleSync(reason: 'chat_media_gate_queue');
+              onProgress?.call(1.0);
+              onSuccess?.call();
+              return;
+            }
+            rethrow;
+          }
         } else {
           rethrow;
         }
@@ -117,8 +159,8 @@ abstract final class ChurchChatMediaSendService {
       onSuccess?.call();
     } catch (e) {
       // Fila silenciosa: só offline real ou erro que [shouldQueueSilently] aceita.
-      // Timeout online → erro visível + «Tentar de novo» (não sumir bolha).
       final queueSilently = EcoFireResilientPublish.shouldQueueSilently(e) ||
+          EcoFireResilientPublish.shouldQueueFeedPublish(e) ||
           (!AppConnectivityService.instance.isOnline);
       if (queueSilently) {
         try {

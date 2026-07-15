@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatUploadErrorForUser, kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
@@ -88,9 +89,7 @@ abstract final class FinanceComprovanteAttachFlow {
       report(1.0);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Comprovante guardado no aparelho; envio automático quando houver internet.',
-          ),
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
         );
       }
       unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
@@ -103,7 +102,7 @@ abstract final class FinanceComprovanteAttachFlow {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(
-            formatFirebaseErrorForUser(e),
+            formatUploadErrorForUser(e),
             onRetry: () => unawaited(
               attachToLancamento(
                 context: context,
@@ -187,9 +186,7 @@ abstract final class FinanceComprovanteAttachFlow {
       report(1.0);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Comprovante guardado no aparelho; envio automático quando houver internet.',
-          ),
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
         );
       }
       return true;
@@ -197,7 +194,7 @@ abstract final class FinanceComprovanteAttachFlow {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(
-            formatFirebaseErrorForUser(e),
+            formatUploadErrorForUser(e),
             onRetry: () => unawaited(
               attachToCompromisso(
                 context: context,

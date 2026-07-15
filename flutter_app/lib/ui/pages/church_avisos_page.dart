@@ -16,7 +16,12 @@ import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show
+        formatFirebaseErrorForUser,
+        formatUploadErrorForUser,
+        kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -1735,11 +1740,27 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     );
     if (!mounted || files.isEmpty) return;
 
+    Uint8List? lastBytes;
+    String lastName = 'foto.webp';
     for (final f in files.take(remaining)) {
       final b = await f.readAsBytes();
-      if (b.isNotEmpty) _photos.add(b);
+      if (b.isEmpty) continue;
+      _photos.add(b);
+      lastBytes = b;
+      lastName = f.name.trim().isNotEmpty ? f.name.trim() : 'foto.webp';
     }
     setState(() {});
+    if (lastBytes != null && mounted) {
+      final resolution =
+          await ImmediateMediaAttachFeedback.readResolution(lastBytes);
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: lastName,
+        sizeBytes: lastBytes.length,
+        resolution: resolution,
+      );
+    }
   }
 
   Future<void> _pickExpiry() async {
@@ -1759,10 +1780,10 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
   void _openAvisoPhotoZoom({String? url, Uint8List? bytes}) {
     if (!mounted) return;
-    final image = bytes != null
-        ? Image.memory(bytes)
+    final Widget? image = bytes != null
+        ? Image.memory(bytes, fit: BoxFit.contain)
         : url != null
-            ? Image.network(url)
+            ? SafeNetworkImage(imageUrl: url, fit: BoxFit.contain)
             : null;
     if (image == null) return;
     unawaited(
@@ -1786,6 +1807,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     return Material(
       color: Colors.black54,
       shape: const CircleBorder(),
+      elevation: 2,
       child: InkWell(
         onTap: () {
           if (!mounted) return;
@@ -1811,12 +1833,12 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
             }),
           );
         },
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         child: const SizedBox(
-          width: 36,
-          height: 36,
+          width: 48,
+          height: 48,
           child: Center(
-            child: Icon(Icons.close, size: 22, color: Colors.white),
+            child: Icon(Icons.close_rounded, size: 26, color: Colors.white),
           ),
         ),
       ),
@@ -1836,7 +1858,21 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     }
 
     if (_photos.isNotEmpty) {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      try {
+        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      } catch (e) {
+        if (!EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.errorSnackBarWithRetry(
+                formatUploadErrorForUser(e),
+                onRetry: _publish,
+              ),
+            );
+          }
+          return;
+        }
+      }
       if (!mounted) return;
     }
 
@@ -1853,7 +1889,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       setState(() => _publishing = true);
       await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
         context: context,
-        uploadLabel: 'A enviar fotos do aviso…',
+        uploadLabel: 'Enviando foto…',
         saveLabel: 'A gravar aviso…',
         distributeLabel: 'A publicar no mural e no site…',
         successMessage: isEdit
@@ -1894,6 +1930,15 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         },
       );
     } catch (e, st) {
+      if (EcoFireResilientPublish.isQueuedSuccess(e)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+          );
+          Navigator.pop(context, true);
+        }
+        return;
+      }
       debugPrint('ChurchAvisoEditorSheet._publish: $e\n$st');
     } finally {
       if (mounted) setState(() => _publishing = false);
@@ -2042,11 +2087,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                                 onTap: () => _openAvisoPhotoZoom(
                                     url: _existingImageUrls[i]),
                                 child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(16),
                                   child: SafeNetworkImage(
                                     imageUrl: _existingImageUrls[i],
-                                    width: 140,
-                                    height: 140,
+                                    width: 200,
+                                    height: 200,
                                     fit: BoxFit.cover,
                                   ),
                                 ),
@@ -2068,11 +2113,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                                 onTap: () =>
                                     _openAvisoPhotoZoom(bytes: _photos[i]),
                                 child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(16),
                                   child: Image.memory(
                                     _photos[i],
-                                    width: 140,
-                                    height: 140,
+                                    width: 200,
+                                    height: 200,
                                     fit: BoxFit.cover,
                                   ),
                                 ),
@@ -2091,7 +2136,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                                     ImmediateMediaAttachFeedback.formatBytes(
                                         _photos[i].length),
                                     style: const TextStyle(
-                                        color: Colors.white, fontSize: 10),
+                                        color: Colors.white, fontSize: 11),
                                   ),
                                 ),
                               ),
@@ -2109,17 +2154,17 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                             ChurchAvisosService.kMaxPhotos)
                           InkWell(
                             onTap: _publishing ? null : _pickPhotos,
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(16),
                             child: Container(
-                              width: 140,
-                              height: 140,
+                              width: 200,
+                              height: 200,
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(16),
                                 border: Border.all(color: Colors.grey.shade300),
                                 color: Colors.grey.shade50,
                               ),
                               child: const Icon(Icons.add_a_photo_outlined,
-                                  size: 30),
+                                  size: 34),
                             ),
                           ),
                       ],

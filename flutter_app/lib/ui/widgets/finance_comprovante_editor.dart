@@ -124,16 +124,21 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
       _removeExisting = false;
     });
     _notify();
-    ImmediateMediaAttachFeedback.showArquivoAnexado(context, picked.fileName);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '${picked.fileName} selecionado — toque «Salvar» para enviar.',
-          ),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 4),
-        ),
+    if (picked.isPdf) {
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: picked.fileName,
+        sizeBytes: picked.bytes.length,
+      );
+    } else {
+      final resolution =
+          await ImmediateMediaAttachFeedback.readResolution(picked.bytes);
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: picked.fileName,
+        sizeBytes: picked.bytes.length,
+        resolution: resolution,
       );
     }
   }
@@ -244,6 +249,34 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
     _notify();
   }
 
+  Future<void> _confirmClearPending() async {
+    if (_pending == null) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Remover anexo'),
+        content: const Text('Quer cancelar este comprovante selecionado?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) _clearPending();
+  }
+
   static String _formatBytes(int n) {
     if (n < 1000) return '$n bytes';
     if (n < 1024 * 1024) return '${(n / 1024).toStringAsFixed(1)} KB';
@@ -253,24 +286,24 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
   Widget _pendingPreview(FinanceComprovanteAttachment pending) {
     if (pending.isPdf) {
       return Container(
-        width: 52,
-        height: 52,
+        width: 160,
+        height: 160,
         decoration: BoxDecoration(
           color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Icon(
           Icons.picture_as_pdf_rounded,
           color: ThemeCleanPremium.primary,
-          size: 28,
+          size: 48,
         ),
       );
     }
     return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(16),
       child: SizedBox(
-        width: 52,
-        height: 52,
+        width: 160,
+        height: 160,
         child: Image.memory(
           pending.bytes,
           fit: BoxFit.cover,
@@ -446,9 +479,11 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
               ),
               IconButton(
                 tooltip: 'Cancelar novo anexo',
-                onPressed: _clearPending,
+                onPressed: _confirmClearPending,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                 icon: Icon(
-                  Icons.delete_outline_rounded,
+                  Icons.close_rounded,
+                  size: 26,
                   color: Colors.red.shade400,
                 ),
               ),

@@ -834,7 +834,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       }
     });
     final panelSnap = results.$1;
-    if (panelSnap != null) {
+    // Web: não aquecer bytes de Storage no open (CORS/banda) — só aplicar URLs.
+    if (!kIsWeb && panelSnap != null) {
       unawaited(
         ChurchGalleryPhotoWarmup.warmBytesForPanel(
           tenantId: resolved,
@@ -850,7 +851,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         raw: prefetchRaw,
         tenantData: igSnapData,
       );
-      if (prefetchRaw != null && prefetchRaw.isNotEmpty) {
+      if (!kIsWeb && prefetchRaw != null && prefetchRaw.isNotEmpty) {
         await ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(
           resolved,
           prefetchRaw,
@@ -5869,28 +5870,25 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   return deduped;
 }
 
-/// Pré-aquece programação no painel (RAM + Firestore cache) — menos cartão de erro na web.
+/// Pré-aquece programação no painel (RAM + Firestore) — um range só (evita ×3 loads).
 void _prewarmPanelProgramacao(String tenantId) {
   final tid = tenantId.trim();
   if (tid.isEmpty) return;
-  for (final days in const [7, 15, 30]) {
-    unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(tid, days));
-  }
+  const days = 15;
+  unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(tid, days));
   final now = DateTime.now();
-  for (final days in const [7, 15, 30]) {
-    unawaited(
-      PanelProgramacaoLoader.loadResilient(
-        tenantId: tid,
-        rangeDays: days,
-        loader: () => _loadEventosComFixos(
-          tid,
-          now,
-          now.add(Duration(days: days)),
-          apenasRotinaGerada: true,
-        ),
+  unawaited(
+    PanelProgramacaoLoader.loadResilient(
+      tenantId: tid,
+      rangeDays: days,
+      loader: () => _loadEventosComFixos(
+        tid,
+        now,
+        now.add(const Duration(days: days)),
+        apenasRotinaGerada: true,
       ),
-    );
-  }
+    ),
+  );
 }
 
 void _showPainelProgramacaoEventoPreview(

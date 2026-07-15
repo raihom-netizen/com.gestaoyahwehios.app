@@ -22,7 +22,11 @@ import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser;
+    show
+        formatFirebaseErrorForUser,
+        formatUploadErrorForUser,
+        kFeedPublishQueuedUserMessage;
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -245,12 +249,30 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     );
   }
 
-  void clearPhotoSlot(int idx) {
+  Future<void> clearPhotoSlot(int idx) async {
     if (!widget.canRemovePhotos) {
       _showSemPermissaoSnack();
       return;
     }
     if (idx < 0 || idx >= PatrimonioItemPhotosEditor.maxPhotos) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remover foto'),
+        content: Text('Quer remover a foto ${idx + 1}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
     setState(() {
       _slotUrls[idx] = '';
       _slotPaths[idx] = '';
@@ -260,6 +282,19 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     _notifyChanged();
     // Controle Total: remoção só persiste ao Guardar/Salvar (evita write Firestore
     // imediato na web com listeners activos → INTERNAL ASSERTION).
+  }
+
+  Future<void> _showFotoAnexadaSnack(String fileName, Uint8List bytes) async {
+    if (!mounted) return;
+    final resolution =
+        await ImmediateMediaAttachFeedback.readResolution(bytes);
+    if (!mounted) return;
+    ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+      context,
+      fileName: fileName,
+      sizeBytes: bytes.length,
+      resolution: resolution,
+    );
   }
 
   Future<void> pickForSlot(int slot) async {
@@ -295,15 +330,12 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       });
       _notifyChanged();
       if (mounted) {
-        ImmediateMediaAttachFeedback.showArquivoAnexado(
-          context,
-          _slotPendingNames[slot],
-        );
+        unawaited(_showFotoAnexadaSnack(_slotPendingNames[slot], bytes));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+          SnackBar(content: Text(formatUploadErrorForUser(e))),
         );
       }
     } finally {
@@ -399,10 +431,26 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       }
       if (anexadas == 0 || !mounted) return;
       if (mounted) {
-        ImmediateMediaAttachFeedback.showArquivoAnexado(
-          context,
-          anexadas == 1 ? (ultimoNome ?? 'foto') : '$anexadas fotos',
-        );
+        Uint8List? lastBytes;
+        for (var i = _slotPending.length - 1; i >= 0; i--) {
+          final b = _slotPending[i];
+          if (b != null && b.isNotEmpty) {
+            lastBytes = b;
+            break;
+          }
+        }
+        if (lastBytes != null) {
+          unawaited(_showFotoAnexadaSnack(
+            anexadas == 1 ? (ultimoNome ?? 'foto') : '$anexadas fotos',
+            lastBytes,
+          ));
+        } else {
+          ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+            context,
+            fileName:
+                anexadas == 1 ? (ultimoNome ?? 'foto') : '$anexadas fotos',
+          );
+        }
       }
       if (list.length > anexadas) _showLimiteFotosSnack();
       widget.onChanged?.call();
@@ -412,7 +460,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           SnackBar(
             content: Text(
               'Não foi possível abrir a galeria: '
-              '${formatFirebaseErrorForUser(e)}',
+              '${formatUploadErrorForUser(e)}',
             ),
           ),
         );
@@ -455,10 +503,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         }
       });
       if (mounted) {
-        ImmediateMediaAttachFeedback.showArquivoAnexado(
-          context,
-          file.name.isNotEmpty ? file.name : 'camera.webp',
-        );
+        final name = file.name.isNotEmpty ? file.name : 'camera.webp';
+        unawaited(_showFotoAnexadaSnack(name, bytes));
       }
       widget.onChanged?.call();
     } catch (e) {
@@ -467,7 +513,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           SnackBar(
             content: Text(
               'Não foi possível abrir a câmera: '
-              '${formatFirebaseErrorForUser(e)}',
+              '${formatUploadErrorForUser(e)}',
             ),
           ),
         );
@@ -845,16 +891,25 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                           ),
                         if (canRemove && _slotHasContent(slot))
                           Positioned(
-                            right: 8,
-                            top: 8,
+                            right: 4,
+                            top: 4,
                             child: Material(
-                              color: Colors.white.withValues(alpha: 0.92),
+                              color: Colors.black54,
                               shape: const CircleBorder(),
-                              child: IconButton(
-                                tooltip: 'Remover foto ${slot + 1}',
-                                icon: Icon(Icons.delete_outline_rounded,
-                                    color: Colors.red.shade400),
-                                onPressed: () => clearPhotoSlot(slot),
+                              child: InkWell(
+                                onTap: () => unawaited(clearPhotoSlot(slot)),
+                                borderRadius: BorderRadius.circular(24),
+                                child: const SizedBox(
+                                  width: 48,
+                                  height: 48,
+                                  child: Center(
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 26,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -895,10 +950,10 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                                   ),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 200),
-                                    width: 64,
-                                    height: 64,
+                                    width: 120,
+                                    height: 120,
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
                                         color: _carouselIndex == slot
                                             ? cor
@@ -1042,9 +1097,17 @@ class _PatrimonioItemPhotosEditorPageState
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
+      if (EcoFireResilientPublish.isQueuedSuccess(e) ||
+          EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+        );
+        Navigator.pop(context, true);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          formatFirebaseErrorForUser(e),
+          formatUploadErrorForUser(e),
         ),
       );
     } finally {

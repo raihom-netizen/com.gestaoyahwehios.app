@@ -7,27 +7,24 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
-/// Pré-carregamento — dashboard imediato + **todos** os módulos em background.
+/// Pré-carregamento — dashboard imediato + módulos críticos em background.
 abstract final class TenantIntelligentPreload {
   TenantIntelligentPreload._();
 
   static bool _dashboardRunning = false;
 
-  /// Após Dashboard visível — contadores + prefetch completo (Hive + Firestore cache).
+  /// Após Dashboard visível — contadores + prefetch crítico (Hive + Firestore).
+  /// Módulos restantes aquecem on-demand ao abrir no menu.
   static void scheduleAfterDashboard(String tenantIdRaw) {
     final tid = ChurchRepository.churchId(tenantIdRaw.trim());
     if (tid.isEmpty) return;
     unawaited(_runDashboardOnly(tid));
-    ChurchPanelModulePrefetchService.scheduleFullPrefetch(tid);
+    ChurchPanelModulePrefetchService.scheduleCriticalPrefetch(tid);
     unawaited(ChurchAprovacoesLoadService.warmPendentes(tid));
-    unawaited(
-      ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
-    );
   }
 
   /// Ao abrir um módulo do menu — garante aquecimento daquele módulo.

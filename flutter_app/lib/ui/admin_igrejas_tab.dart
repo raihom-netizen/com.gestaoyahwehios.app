@@ -1755,8 +1755,10 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 10),
-                              leading: Icon(Icons.church_rounded,
-                                  color: ThemeCleanPremium.primary, size: 32),
+                              leading: _MasterChurchListLogo(
+                                churchId: igrejaId,
+                                data: ig,
+                              ),
                               title: isNarrow
                                   ? Column(
                                       crossAxisAlignment:
@@ -1918,4 +1920,54 @@ class _BenchmarkTenant {
     required this.avgApprovalHours,
     required this.totalPublicSignups,
   });
+}
+
+/// Miniatura da logo na lista Master (path canónico `igrejas/{id}/…`).
+class _MasterChurchListLogo extends StatelessWidget {
+  const _MasterChurchListLogo({
+    required this.churchId,
+    required this.data,
+  });
+
+  final String churchId;
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = ChurchBrandService.logoPathFromData(
+      data,
+      churchId: churchId,
+    );
+    final url = (data['logoUrl'] ?? data['urlLogo'] ?? '').toString().trim();
+    final hasUrl = url.startsWith('http');
+    final hasPath = path != null && path.trim().isNotEmpty;
+
+    final placeholder = CircleAvatar(
+      radius: 22,
+      backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+      child: Icon(
+        Icons.church_rounded,
+        color: ThemeCleanPremium.primary,
+        size: 26,
+      ),
+    );
+
+    if (!hasPath && !hasUrl) return placeholder;
+
+    return ClipOval(
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: StableStorageImage(
+          storagePath: hasPath ? path : null,
+          imageUrl: hasUrl ? url : null,
+          fit: BoxFit.cover,
+          width: 44,
+          height: 44,
+          placeholder: placeholder,
+          errorWidget: placeholder,
+        ),
+      ),
+    );
+  }
 }

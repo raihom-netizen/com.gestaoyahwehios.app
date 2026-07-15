@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
@@ -70,11 +72,21 @@ class MediaHandlerService {
       );
       return null;
     }
-    if (!await YahwehModuleMediaGate.ensureReadyForPick(
-      context: context,
-      module: module,
-    )) {
-      return null;
+    // Telegram: no chat, não bloquear o picker (Firebase aquece em BG).
+    if (module != YahwehMediaModule.chat) {
+      if (!await YahwehModuleMediaGate.ensureReadyForPick(
+        context: context,
+        module: module,
+      )) {
+        return null;
+      }
+    } else {
+      unawaited(
+        YahwehModuleMediaGate.ensureReadyForPick(
+          context: null,
+          module: module,
+        ).catchError((_) => false),
+      );
     }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
@@ -122,11 +134,20 @@ class MediaHandlerService {
     BuildContext? context,
     int maxCount = kChatMaxImagesPerPick,
   }) async {
-    if (!await YahwehModuleMediaGate.ensureReadyForPick(
-      context: context,
-      module: module,
-    )) {
-      return [];
+    if (module != YahwehMediaModule.chat) {
+      if (!await YahwehModuleMediaGate.ensureReadyForPick(
+        context: context,
+        module: module,
+      )) {
+        return [];
+      }
+    } else {
+      unawaited(
+        YahwehModuleMediaGate.ensureReadyForPick(
+          context: null,
+          module: module,
+        ).catchError((_) => false),
+      );
     }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();

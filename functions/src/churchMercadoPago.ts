@@ -528,7 +528,8 @@ export async function tryHandleChurchDonationPayment(payment: any): Promise<bool
 
   if (!tenantId) {
     console.warn("church_donation webhook: tenantId ausente", { pid, preference_id: payment?.preference_id });
-    return true;
+    // Não engolir o evento — deixa o webhook tentar o ramo de licença / retornar NO_TENANT.
+    return false;
   }
 
   const status = String(payment.status || "").toLowerCase();
@@ -1127,7 +1128,12 @@ export const createChurchDonationPreference = functions
       auto_return: "approved",
       payment_methods: {
         installments: maxInstallments,
+        // Cartão/PIX na página MP da igreja — exclui boleto/ATM; PIX permanece
+        // (o painel usa createChurchDonationPix para QR nativo quando o doador escolhe PIX).
         excluded_payment_types: [{ id: "ticket" }, { id: "atm" }],
+        ...(String(data?.paymentMethod || "").toLowerCase() === "card"
+          ? { excluded_payment_methods: [{ id: "pix" }] }
+          : {}),
       },
       statement_descriptor: "DOACAO IGREJA".slice(0, 13),
     };

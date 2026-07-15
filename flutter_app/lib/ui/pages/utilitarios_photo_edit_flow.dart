@@ -31,10 +31,10 @@ enum _PhotoPageMode { editor, collage }
 
 enum _PhotoTool {
   none,
-  enhance,
   manualBlur,
   faces,
   crop,
+  caption,
 }
 
 enum _CropAspectPreset {
@@ -94,7 +94,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   bool _blurWorkspaceOpen = false;
   bool _chromeVisible = true;
   bool _showingOriginal = false;
-  bool _enhanceSheetOpen = false;
+  bool _captionSheetOpen = false;
   bool _previewPanelOpen = false;
   bool _previewOpenForSave = false;
   _CropAspectPreset _cropAspect = _CropAspectPreset.free;
@@ -104,6 +104,17 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Offset? _dragCurrent;
   double _blurIntensity = 0.45;
   UtilPhotoBlurMode _blurMode = UtilPhotoBlurMode.gaussian;
+  final List<UtilPhotoCaptionOverlay> _captions = [];
+  String? _selectedCaptionId;
+  final TextEditingController _captionInputCtrl = TextEditingController();
+  UtilPhotoCaptionStyle _captionStyle = UtilPhotoCaptionStyle.bold;
+  int _captionColor = 0xFF0F172A;
+  int _captionBoxBg = 0xFFFFFFFF;
+  int _captionBorder = 0xFFFBBF24;
+  bool _captionUseBox = true;
+  bool _captionUseBorder = false;
+  double _captionScale = 1.45;
+  bool _captionBold = true;
   String? _statusBadge;
   Timer? _statusBadgeTimer;
 
@@ -186,7 +197,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   void _toggleChrome() {
-    if (_blurWorkspaceOpen || _enhanceSheetOpen) return;
+    if (_blurWorkspaceOpen || _captionSheetOpen) return;
     setState(() => _chromeVisible = !_chromeVisible);
   }
 
@@ -204,6 +215,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   @override
   void dispose() {
     _statusBadgeTimer?.cancel();
+    _captionInputCtrl.dispose();
     _viewerCtrl.dispose();
     super.dispose();
   }
@@ -223,7 +235,173 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       _regions.clear();
       _selectedId = null;
       _cropRect = null;
-      _enhanceSheetOpen = false;
+      _captionSheetOpen = false;
+    });
+  }
+
+  Future<void> _applyColorEnhance() async {
+    final raw = _image;
+    if (raw == null) return;
+    await _withBusy('Realçando cores…', () async {
+      final out = await UtilitariosPhotoService.enhanceColorsFast(raw);
+      await _setImage(out);
+      if (mounted) _flashStatus('Cores realçadas');
+      _hapticLight();
+    });
+  }
+
+  void _openCaptionTool() {
+    setState(() {
+      _captionSheetOpen = true;
+      _chromeVisible = true;
+      _tool = _PhotoTool.caption;
+      _blurWorkspaceOpen = false;
+    });
+  }
+
+  void _addCaptionFromInput([String? preset]) {
+    final text = (preset ?? _captionInputCtrl.text).trim();
+    if (text.isEmpty) return;
+    final id = _uuid.v4();
+    setState(() {
+      _captions.add(
+        UtilPhotoCaptionOverlay(
+          id: id,
+          text: text,
+          nx: 0.5,
+          ny: 0.82,
+          style: _captionStyle,
+          scale: _captionScale,
+          colorArgb: _captionColor,
+          boxBgArgb: _captionUseBox ? _captionBoxBg : 0,
+          borderArgb: _captionUseBorder ? _captionBorder : 0,
+          bold: _captionBold,
+        ),
+      );
+      _selectedCaptionId = id;
+      if (preset == null) _captionInputCtrl.clear();
+    });
+    _hapticLight();
+  }
+
+  void _applyCaptionStyle(UtilPhotoCaptionStyle style) {
+    setState(() {
+      _captionStyle = style;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(style: style);
+    });
+  }
+
+  void _applyCaptionColor(int colorArgb) {
+    setState(() {
+      _captionColor = colorArgb;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(colorArgb: colorArgb);
+    });
+  }
+
+  void _applyCaptionBoxBg(int colorArgb) {
+    setState(() {
+      _captionBoxBg = colorArgb;
+      _captionUseBox = true;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(boxBgArgb: colorArgb);
+    });
+  }
+
+  void _applyCaptionBorder(int colorArgb) {
+    setState(() {
+      _captionBorder = colorArgb;
+      _captionUseBorder = true;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(borderArgb: colorArgb);
+    });
+  }
+
+  void _toggleCaptionBox(bool on) {
+    setState(() {
+      _captionUseBox = on;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(
+        boxBgArgb: on ? _captionBoxBg : 0,
+      );
+    });
+  }
+
+  void _toggleCaptionBorder(bool on) {
+    setState(() {
+      _captionUseBorder = on;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(
+        borderArgb: on ? _captionBorder : 0,
+      );
+    });
+  }
+
+  void _applyCaptionScale(double scale) {
+    setState(() {
+      _captionScale = scale;
+      final id = _selectedCaptionId;
+      if (id == null) return;
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx < 0) return;
+      _captions[idx] = _captions[idx].copyWith(scale: scale);
+    });
+  }
+
+  Future<void> _burnCaptionsToImage() async {
+    final raw = _image;
+    if (raw == null || _captions.isEmpty) {
+      throw StateError('Adicione texto ou emoji antes de fixar.');
+    }
+    await _withBusy('Fixando legenda…', () async {
+      final out = await UtilitariosPhotoService.burnCaptionOverlays(
+        raw,
+        List<UtilPhotoCaptionOverlay>.from(_captions),
+      );
+      await _setImage(out);
+      if (!mounted) return;
+      setState(() {
+        _captions.clear();
+        _selectedCaptionId = null;
+        _captionSheetOpen = false;
+        _tool = _PhotoTool.none;
+      });
+      _flashStatus('Legenda aplicada');
+      _hapticLight();
+    });
+  }
+
+  /// Salva/compartilha: grava overlays de texto na imagem se ainda não fixados.
+  Future<void> _ensureCaptionsCommitted() async {
+    if (_image == null || _captions.isEmpty) return;
+    await _burnCaptionsToImage();
+  }
+
+  void _removeSelectedCaption() {
+    final id = _selectedCaptionId;
+    if (id == null) return;
+    setState(() {
+      _captions.removeWhere((c) => c.id == id);
+      _selectedCaptionId = null;
     });
   }
 
@@ -264,7 +442,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     );
   }
 
-  bool get _hasUnsavedWork => _historyIndex > 0 || _regions.isNotEmpty;
+  bool get _hasUnsavedWork =>
+      _historyIndex > 0 || _regions.isNotEmpty || _captions.isNotEmpty;
 
   void _clearPhotoState() {
     _image = null;
@@ -273,11 +452,13 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     _historyIndex = -1;
     _regions.clear();
     _selectedId = null;
+    _captions.clear();
+    _selectedCaptionId = null;
     _tool = _PhotoTool.none;
     _blurWorkspaceOpen = false;
     _chromeVisible = true;
     _showingOriginal = false;
-    _enhanceSheetOpen = false;
+    _captionSheetOpen = false;
     _cropAspect = _CropAspectPreset.free;
     _cropRect = null;
     _aspect = 1.0;
@@ -384,7 +565,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     await _withBusy('Carregando foto…', () async {
       Uint8List? bytes;
       String name = 'foto.jpg';
-      if (camera && !kIsWeb) {
+      if (camera) {
         final x = await _picker.pickImage(
           source: ImageSource.camera,
           imageQuality: 92,
@@ -410,7 +591,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         _fileName = name;
         _tool = _PhotoTool.none;
         _blurWorkspaceOpen = false;
-        _enhanceSheetOpen = false;
+        _captionSheetOpen = false;
         _chromeVisible = true;
         _pageMode = _PhotoPageMode.editor;
       });
@@ -418,28 +599,6 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     });
   }
 
-  Future<void> _runEnhance() async {
-    setState(() {
-      _enhanceSheetOpen = true;
-      _chromeVisible = true;
-      _tool = _PhotoTool.enhance;
-    });
-  }
-
-  Future<void> _applyEnhance(UtilPhotoEnhanceTarget target) async {
-    final raw = _image;
-    if (raw == null) return;
-    setState(() => _enhanceSheetOpen = false);
-    await _withBusy('Melhorando para ${target.label}…', () async {
-      final out = await UtilitariosPhotoService.enhanceQuality(
-        raw,
-        target: target,
-      );
-      await _setImage(out);
-      if (mounted) _flashStatus('${target.label} aplicado');
-      _hapticLight();
-    });
-  }
 
   Future<void> _runRotate() async {
     final raw = _image;
@@ -497,7 +656,18 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     await _withBusy('Detectando rostos…', () async {
       final found = await UtilitariosPhotoService.detectFaces(raw);
       if (found.isEmpty) {
-        throw StateError('Nenhum rosto encontrado. Marque manualmente.');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Nenhum rosto automático — marque a área com o dedo em Borrar.',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        _openBlurWorkspace(mode: _PhotoTool.manualBlur);
+        return;
       }
       setState(() {
         _regions
@@ -538,6 +708,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   Future<void> _savePhotoLocal() async {
+    await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
     final ok = await utilitariosSaveOrShareBytes(
@@ -561,6 +732,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   Future<void> _sharePhoto() async {
+    await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
     final ok = await utilitariosSaveOrShareBytes(
@@ -642,12 +814,13 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   Future<void> _openPreview({bool openForSave = false}) async {
+    await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
     setState(() {
       _previewPanelOpen = true;
       _previewOpenForSave = openForSave;
-      _enhanceSheetOpen = false;
+      _captionSheetOpen = false;
       _tool = _PhotoTool.none;
       _chromeVisible = true;
     });
@@ -700,6 +873,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   Future<void> _confirmSave() async {
+    await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
     final base = (_fileName ?? 'foto')
@@ -910,8 +1084,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         ),
         if (_historyStack.length > 1) _buildHistoryStrip(),
         if (_tool == _PhotoTool.crop) _buildCropFloatingBar(),
-        if (_enhanceSheetOpen) _buildEnhanceSheet(),
-        if (_chromeVisible && !_enhanceSheetOpen && _tool != _PhotoTool.crop)
+        if (_captionSheetOpen) _buildCaptionSheet(),
+        if (_chromeVisible && !_captionSheetOpen && _tool != _PhotoTool.crop)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
             child: _buildFloatingDock(),
@@ -1199,91 +1373,399 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     );
   }
 
-  Widget _buildEnhanceSheet() {
-    final maxH = MediaQuery.sizeOf(context).height * 0.42;
+  /// Atualiza a legenda selecionada (ou cria) com o rascunho atual — estilo Lens/WhatsApp.
+  void _syncLiveCaptionFromDraft({bool createIfNeeded = true}) {
+    final text = _captionInputCtrl.text.trim();
+    if (text.isEmpty) return;
+    final id = _selectedCaptionId;
+    if (id != null) {
+      final idx = _captions.indexWhere((x) => x.id == id);
+      if (idx >= 0) {
+        _captions[idx] = _captions[idx].copyWith(
+          text: text,
+          style: _captionStyle,
+          scale: _captionScale,
+          colorArgb: _captionColor,
+          boxBgArgb: _captionUseBox ? _captionBoxBg : 0,
+          borderArgb: _captionUseBorder ? _captionBorder : 0,
+          bold: _captionBold,
+        );
+        return;
+      }
+    }
+    if (!createIfNeeded) return;
+    final newId = _uuid.v4();
+    _captions.add(
+      UtilPhotoCaptionOverlay(
+        id: newId,
+        text: text,
+        nx: 0.5,
+        ny: 0.78,
+        style: _captionStyle,
+        scale: _captionScale,
+        colorArgb: _captionColor,
+        boxBgArgb: _captionUseBox ? _captionBoxBg : 0,
+        borderArgb: _captionUseBorder ? _captionBorder : 0,
+        bold: _captionBold,
+      ),
+    );
+    _selectedCaptionId = newId;
+  }
+
+  void _cancelCaptionSheet() {
+    setState(() {
+      _captionSheetOpen = false;
+      if (_captions.isEmpty) {
+        _tool = _PhotoTool.none;
+      }
+    });
+  }
+
+  void _confirmCaptionSheet() {
+    final text = _captionInputCtrl.text.trim();
+    setState(() {
+      if (text.isNotEmpty) {
+        _syncLiveCaptionFromDraft(createIfNeeded: true);
+      }
+      _captionSheetOpen = false;
+      if (_captions.isEmpty) {
+        _tool = _PhotoTool.none;
+      }
+    });
+    _hapticLight();
+  }
+
+  Widget _buildCaptionSheet() {
+    const emojis = [
+      '😀', '😁', '😂', '🤣', '😊', '😍', '🥰', '😘',
+      '😎', '🤩', '😇', '🙂', '😉', '😭', '😤', '🔥',
+      '❤️', '💕', '💯', '✨', '⭐', '🌟', '✅', '✔️',
+      '📌', '📍', '🎉', '🎊', '💪', '👍', '👏', '🙏',
+      '📸', '🎯', '🚀', '💎', '🏆', '⚡', '🌈', '🌸',
+    ];
+    const textColors = [
+      0xFFFFFFFF,
+      0xFF0F172A,
+      0xFFFBBF24,
+      0xFF38BDF8,
+      0xFFF472B6,
+      0xFF34D399,
+      0xFFA78BFA,
+      0xFFF87171,
+    ];
+    const boxColors = [
+      0xFF0F172A,
+      0xFFE2E8F0,
+      0xFFF97316,
+      0xFFDB2777,
+      0xFF2563EB,
+      0xFF0D9488,
+      0xFF7C3AED,
+    ];
+    const borderColors = [
+      0xFF0F172A,
+      0xFFFFFFFF,
+      0xFFA78BFA,
+      0xFF14B8A6,
+      0xFFF97316,
+      0xFFEF4444,
+    ];
+    const sizePresets = <(String, double)>[
+      ('Pequena', 0.75),
+      ('Média', 1.0),
+      ('Grande', 1.45),
+    ];
+    // Ordem visual do print moderno.
+    const styleOrder = <UtilPhotoCaptionStyle>[
+      UtilPhotoCaptionStyle.clean,
+      UtilPhotoCaptionStyle.classic,
+      UtilPhotoCaptionStyle.bold,
+      UtilPhotoCaptionStyle.neon,
+    ];
+    final maxH = MediaQuery.sizeOf(context).height * 0.82;
+    final draft = _captionInputCtrl.text.trim();
+    final previewText = draft.isEmpty ? 'Digite a legenda…' : draft;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       child: Material(
         color: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: maxH),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.97),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 24,
-                  offset: const Offset(0, -4),
-                ),
-              ],
+              color: const Color(0xFF0B1220).withValues(alpha: 0.98),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 12, 16),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Row(
                     children: [
-                      const Expanded(
-                        child: Text(
-                          'Melhorar imagem',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _busy ? null : _cancelCaptionSheet,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFFBBF24),
+                            side: const BorderSide(
+                              color: Color(0xFFFBBF24),
+                              width: 1.6,
+                            ),
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                       ),
-                      IconButton(
-                        onPressed: _busy
-                            ? null
-                            : () => setState(() {
-                                  _enhanceSheetOpen = false;
-                                  _tool = _PhotoTool.none;
-                                }),
-                        icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                        tooltip: 'Fechar',
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : _confirmCaptionSheet,
+                          icon: const Icon(Icons.check_rounded, size: 20),
+                          label: const Text('Confirmar'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF22C55E),
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(0, 48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  // Preview ao vivo (como no print moderno).
+                  Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(minHeight: 110),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 22,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: _captionPreviewStyledText(previewText, isHint: draft.isEmpty),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _captionInputCtrl,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Digite legenda…',
+                      hintStyle: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.45),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.08),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onChanged: (_) {
+                      setState(() {
+                        _syncLiveCaptionFromDraft(createIfNeeded: true);
+                      });
+                    },
+                    onSubmitted: (_) => _confirmCaptionSheet(),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final s in sizePresets)
+                        _modernPill(
+                          label: s.$1,
+                          selected: (_captionScale - s.$2).abs() < 0.05,
+                          onTap: () => setState(() {
+                            _captionScale = s.$2;
+                            _syncLiveCaptionFromDraft(createIfNeeded: true);
+                          }),
+                        ),
+                      _modernPill(
+                        label: 'Negrito',
+                        selected: _captionBold,
+                        onTap: () => setState(() {
+                          _captionBold = !_captionBold;
+                          _syncLiveCaptionFromDraft(createIfNeeded: true);
+                        }),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   Text(
-                    'Escolha a resolução — processamento local e rápido.',
+                    'Estilo / formato',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w800,
                       fontSize: 12,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  LayoutBuilder(
-                    builder: (context, c) {
-                      final stacked = c.maxWidth < 360;
-                      final cards = UtilPhotoEnhanceTarget.values
-                          .map((t) => _enhanceResolutionCard(t))
-                          .toList();
-                      if (stacked) {
-                        return Column(
-                          children: [
-                            for (var i = 0; i < cards.length; i++) ...[
-                              cards[i],
-                              if (i < cards.length - 1) const SizedBox(height: 10),
-                            ],
-                          ],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          Expanded(child: cards[0]),
-                          const SizedBox(width: 10),
-                          Expanded(child: cards[1]),
-                        ],
-                      );
-                    },
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final style in styleOrder)
+                        _modernPill(
+                          label: style.label,
+                          selected: _captionStyle == style,
+                          onTap: () => setState(() {
+                            _captionStyle = style;
+                            if (style == UtilPhotoCaptionStyle.bold) {
+                              _captionUseBox = true;
+                              if (_captionBoxBg == 0) {
+                                _captionBoxBg = 0xFFFFFFFF;
+                              }
+                            }
+                            _syncLiveCaptionFromDraft(createIfNeeded: true);
+                          }),
+                        ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Cor da letra',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _colorDotsRow(textColors, _captionColor, (c) {
+                    setState(() {
+                      _captionColor = c;
+                      _syncLiveCaptionFromDraft(createIfNeeded: true);
+                    });
+                  }),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Fundo',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _colorDotsRowWithNone(
+                    colors: boxColors,
+                    selected: _captionUseBox ? _captionBoxBg : 0,
+                    noneSelected: !_captionUseBox,
+                    onNone: () => setState(() {
+                      _captionUseBox = false;
+                      _syncLiveCaptionFromDraft(createIfNeeded: true);
+                    }),
+                    onPick: (c) => setState(() {
+                      _captionBoxBg = c;
+                      _captionUseBox = true;
+                      _syncLiveCaptionFromDraft(createIfNeeded: true);
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Borda',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _colorDotsRowWithNone(
+                    colors: borderColors,
+                    selected: _captionUseBorder ? _captionBorder : 0,
+                    noneSelected: !_captionUseBorder,
+                    onNone: () => setState(() {
+                      _captionUseBorder = false;
+                      _syncLiveCaptionFromDraft(createIfNeeded: true);
+                    }),
+                    onPick: (c) => setState(() {
+                      _captionBorder = c;
+                      _captionUseBorder = true;
+                      _syncLiveCaptionFromDraft(createIfNeeded: true);
+                    }),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Emojis',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      for (final e in emojis)
+                        ActionChip(
+                          label: Text(e, style: const TextStyle(fontSize: 20)),
+                          backgroundColor: Colors.white.withValues(alpha: 0.1),
+                          onPressed: _busy
+                              ? null
+                              : () {
+                                  final cur = _captionInputCtrl.text;
+                                  _captionInputCtrl.text = '$cur$e';
+                                  _captionInputCtrl.selection =
+                                      TextSelection.collapsed(
+                                    offset: _captionInputCtrl.text.length,
+                                  );
+                                  setState(() {
+                                    _syncLiveCaptionFromDraft(
+                                      createIfNeeded: true,
+                                    );
+                                  });
+                                },
+                        ),
+                    ],
+                  ),
+                  if (_selectedCaptionId != null) ...[
+                    const SizedBox(height: 6),
+                    TextButton.icon(
+                      onPressed: _busy ? null : _removeSelectedCaption,
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: Color(0xFFF87171),
+                      ),
+                      label: const Text(
+                        'Remover selecionado',
+                        style: TextStyle(color: Color(0xFFF87171)),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1293,69 +1775,179 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     );
   }
 
-  Widget _enhanceResolutionCard(UtilPhotoEnhanceTarget target) {
-    final is4k = target == UtilPhotoEnhanceTarget.fourK;
-    final accent = is4k ? const Color(0xFF059669) : const Color(0xFF2563EB);
+  Widget _captionPreviewStyledText(String text, {required bool isHint}) {
+    final fontSize = (22.0 * _captionScale).clamp(14.0, 36.0);
+    final weight = _captionBold ? FontWeight.w900 : FontWeight.w600;
+    Color color = Color(_captionColor);
+    if (isHint) color = color.withValues(alpha: 0.35);
+    List<Shadow>? shadows;
+    switch (_captionStyle) {
+      case UtilPhotoCaptionStyle.clean:
+        shadows = const [
+          Shadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+        ];
+      case UtilPhotoCaptionStyle.classic:
+        shadows = const [
+          Shadow(color: Colors.black, blurRadius: 0, offset: Offset(-1, -1)),
+          Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, 1)),
+        ];
+      case UtilPhotoCaptionStyle.neon:
+        shadows = [
+          Shadow(color: color.withValues(alpha: 0.7), blurRadius: 10),
+        ];
+      case UtilPhotoCaptionStyle.bold:
+        shadows = null;
+    }
+    final showBox = _captionUseBox || _captionStyle == UtilPhotoCaptionStyle.bold;
+    return Container(
+      padding: showBox || _captionUseBorder
+          ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
+          : EdgeInsets.zero,
+      decoration: BoxDecoration(
+        color: _captionUseBox
+            ? Color(_captionBoxBg)
+            : (_captionStyle == UtilPhotoCaptionStyle.bold
+                ? const Color(0xCC0F172A)
+                : null),
+        borderRadius: BorderRadius.circular(12),
+        border: _captionUseBorder
+            ? Border.all(color: Color(_captionBorder), width: 2.5)
+            : null,
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: _captionUseBox &&
+                  _captionBoxBg == 0xFFFFFFFF &&
+                  color.value == 0xFFFFFFFF
+              ? const Color(0xFF0F172A)
+              : color,
+          shadows: shadows,
+        ),
+      ),
+    );
+  }
+
+  Widget _modernPill({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
     return Material(
-      color: accent.withValues(alpha: 0.16),
-      borderRadius: BorderRadius.circular(16),
+      color: selected
+          ? const Color(0xFF7C3AED)
+          : Colors.white.withValues(alpha: 0.1),
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: _busy ? null : () => _applyEnhance(target),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: accent.withValues(alpha: 0.55)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.22),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  is4k ? Icons.hd_rounded : Icons.high_quality_rounded,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      target.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${target.longEdge}px · nitidez + luz',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.78),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: accent.withValues(alpha: 0.9)),
-            ],
+        borderRadius: BorderRadius.circular(14),
+        onTap: _busy ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+              fontSize: 13,
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _colorDotsRowWithNone({
+    required List<int> colors,
+    required int selected,
+    required bool noneSelected,
+    required VoidCallback onNone,
+    required void Function(int) onPick,
+  }) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: _busy ? null : onNone,
+            child: Container(
+              width: 34,
+              height: 34,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: noneSelected
+                      ? Colors.white
+                      : Colors.white24,
+                  width: noneSelected ? 3 : 1,
+                ),
+              ),
+              child: const Icon(
+                Icons.block,
+                size: 18,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+          for (final c in colors) ...[
+            GestureDetector(
+              onTap: _busy ? null : () => onPick(c),
+              child: Container(
+                width: 34,
+                height: 34,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Color(c),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: !noneSelected && selected == c
+                        ? Colors.white
+                        : Colors.white24,
+                    width: !noneSelected && selected == c ? 3 : 1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _colorDotsRow(
+    List<int> colors,
+    int selected,
+    void Function(int) onPick,
+  ) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final c in colors) ...[
+            GestureDetector(
+              onTap: _busy ? null : () => onPick(c),
+              child: Container(
+                width: 34,
+                height: 34,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: Color(c),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected == c
+                        ? const Color(0xFF22C55E)
+                        : Colors.white24,
+                    width: selected == c ? 3 : 1,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1404,10 +1996,18 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 final narrow = c.maxWidth < 380;
                 final tools = <Widget>[
                   _dockTool(
-                    icon: Icons.auto_fix_high_rounded,
-                    label: 'Melhorar',
+                    icon: Icons.palette_rounded,
+                    label: 'Cores',
                     accent: const Color(0xFF34D399),
-                    onTap: _busy ? null : _runEnhance,
+                    onTap: _busy ? null : _applyColorEnhance,
+                    expanded: !narrow,
+                  ),
+                  _dockTool(
+                    icon: Icons.text_fields_rounded,
+                    label: 'Texto',
+                    accent: const Color(0xFFF59E0B),
+                    selected: _tool == _PhotoTool.caption,
+                    onTap: _busy ? null : _openCaptionTool,
                     expanded: !narrow,
                   ),
                   _dockTool(
@@ -1432,13 +2032,6 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     label: 'Rostos',
                     accent: const Color(0xFF818CF8),
                     onTap: _busy ? null : _detectFaces,
-                    expanded: !narrow,
-                  ),
-                  _dockTool(
-                    icon: Icons.visibility_rounded,
-                    label: 'Ver',
-                    accent: const Color(0xFF38BDF8),
-                    onTap: _busy ? null : () => _openPreview(),
                     expanded: !narrow,
                   ),
                 ];
@@ -1667,19 +2260,21 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
 
   Widget _buildBlurWorkspaceBody() {
     final radiusLabel = (6 + _blurIntensity * 34).round();
+    final canApply = !_busy && _regions.isNotEmpty;
     return Material(
       color: _immersiveBg,
       child: SafeArea(
         child: Column(
           children: [
+            // Header compacto — mais espaço para a foto.
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 2, 8, 0),
+              padding: const EdgeInsets.fromLTRB(6, 0, 10, 0),
               child: Row(
                 children: [
                   IconButton(
                     onPressed: _busy ? null : _closeBlurWorkspace,
-                    icon: const Icon(Icons.close_rounded, color: Colors.white),
-                    tooltip: 'Fechar borrar',
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    tooltip: 'Fechar',
                   ),
                   Expanded(
                     child: Text(
@@ -1687,18 +2282,21 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
                       ),
                     ),
                   ),
                   TextButton(
-                    onPressed: _busy || _regions.isEmpty ? null : _applyBlur,
-                    child: const Text(
-                      'Aplicar',
+                    onPressed: canApply ? _applyBlur : null,
+                    child: Text(
+                      'Confirmar',
                       style: TextStyle(
-                        color: Color(0xFF38BDF8),
+                        color: canApply
+                            ? const Color(0xFF4ADE80)
+                            : Colors.white38,
                         fontWeight: FontWeight.w900,
+                        fontSize: 14,
                       ),
                     ),
                   ),
@@ -1706,100 +2304,91 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
               child: Text(
                 _tool == _PhotoTool.faces
-                    ? 'Rostos destacados — confira e toque em Aplicar.'
-                    : 'Arraste na foto para marcar o que deseja borrar.',
+                    ? 'Rostos destacados — confira e confirme.'
+                    : 'Arraste na foto para marcar a área.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.72),
-                  fontSize: 12,
+                  color: Colors.white.withValues(alpha: 0.65),
+                  fontSize: 11.5,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-            const SizedBox(height: 6),
+            // Foto o maior possível (painel baixo e discreto).
             Expanded(child: _buildPhotoCanvas(blurMode: true)),
-            LayoutBuilder(
-              builder: (context, c) {
-                final stacked = c.maxWidth < 420;
-                final controls = Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF111827),
-                    border: Border(
-                      top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                    ),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF0B1220).withValues(alpha: 0.97),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
                     children: [
                       Text(
                         'Intensidade $radiusLabel',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.85),
+                          color: Colors.white.withValues(alpha: 0.7),
                           fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                          fontSize: 11,
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      Slider(
-                        value: _blurIntensity,
-                        min: 0.05,
-                        max: 1.0,
-                        activeColor: const Color(0xFFDB2777),
-                        inactiveColor: Colors.white.withValues(alpha: 0.15),
-                        onChanged: _busy
-                            ? null
-                            : (v) => setState(() => _blurIntensity = v),
-                      ),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final mode in UtilPhotoBlurMode.values)
-                            SizedBox(
-                              width: stacked ? double.infinity : null,
-                              child: TextButton(
-                                onPressed: _busy
-                                    ? null
-                                    : () => setState(() => _blurMode = mode),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  backgroundColor: _blurMode == mode
-                                      ? const Color(0xFFDB2777)
-                                      : Colors.white.withValues(alpha: 0.08),
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  minimumSize: const Size(0, 42),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                child: Text(
-                                  mode.label,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
+                      Expanded(
+                        child: SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            trackHeight: 3,
+                            thumbShape: const RoundSliderThumbShape(
+                              enabledThumbRadius: 8,
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      if (stacked) ...[
-                        FilledButton.icon(
-                          onPressed: _busy || _regions.isEmpty ? null : _applyBlur,
-                          icon: const Icon(Icons.check_rounded, size: 18),
-                          label: Text('Aplicar (${_regions.length})'),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(46),
-                            backgroundColor: const Color(0xFFDB2777),
+                            overlayShape: const RoundSliderOverlayShape(
+                              overlayRadius: 14,
+                            ),
+                          ),
+                          child: Slider(
+                            value: _blurIntensity,
+                            min: 0.05,
+                            max: 1.0,
+                            activeColor: const Color(0xFFA78BFA),
+                            inactiveColor: Colors.white.withValues(alpha: 0.12),
+                            onChanged: _busy
+                                ? null
+                                : (v) => setState(() => _blurIntensity = v),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Pills discretas (estilo moderno).
+                  Row(
+                    children: [
+                      for (final mode in UtilPhotoBlurMode.values) ...[
+                        Expanded(
+                          child: _blurModePill(
+                            label: mode.label,
+                            selected: _blurMode == mode,
+                            onTap: _busy
+                                ? null
+                                : () => setState(() => _blurMode = mode),
+                          ),
+                        ),
+                        if (mode != UtilPhotoBlurMode.values.last)
+                          const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
                           onPressed: _busy || _selectedId == null
                               ? null
                               : () => setState(() {
@@ -1808,64 +2397,121 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                                     );
                                     _selectedId = null;
                                   }),
-                          icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                          label: const Text('Remover'),
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
+                            foregroundColor: Colors.white60,
                             side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.25),
+                              color: Colors.white.withValues(alpha: 0.2),
                             ),
-                            minimumSize: const Size.fromHeight(46),
+                            minimumSize: const Size(0, 44),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'Remover',
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
-                      ] else
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _busy || _selectedId == null
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: Material(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          child: InkWell(
+                            onTap: canApply ? _applyBlur : null,
+                            borderRadius: BorderRadius.circular(12),
+                            child: Ink(
+                              height: 44,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                gradient: canApply
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF16A34A),
+                                          Color(0xFF22C55E),
+                                        ],
+                                      )
+                                    : null,
+                                color: canApply
                                     ? null
-                                    : () => setState(() {
-                                          _regions.removeWhere(
-                                            (r) => r.id == _selectedId,
-                                          );
-                                          _selectedId = null;
-                                        }),
-                                icon: const Icon(Icons.delete_outline_rounded,
-                                    size: 18),
-                                label: const Text('Remover'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white70,
-                                  side: BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.25),
+                                    : Colors.white.withValues(alpha: 0.08),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.check_rounded,
+                                    size: 18,
+                                    color: canApply
+                                        ? Colors.white
+                                        : Colors.white38,
                                   ),
-                                  minimumSize: const Size(0, 42),
-                                ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _regions.isEmpty
+                                        ? 'Confirmar'
+                                        : 'Confirmar (${_regions.length})',
+                                    style: TextStyle(
+                                      color: canApply
+                                          ? Colors.white
+                                          : Colors.white38,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 13.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              flex: 2,
-                              child: FilledButton.icon(
-                                onPressed:
-                                    _busy || _regions.isEmpty ? null : _applyBlur,
-                                icon: const Icon(Icons.check_rounded, size: 18),
-                                label: Text('Aplicar (${_regions.length})'),
-                                style: FilledButton.styleFrom(
-                                  minimumSize: const Size(0, 42),
-                                  backgroundColor: const Color(0xFFDB2777),
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
+                      ),
                     ],
                   ),
-                );
-                return controls;
-              },
+                ],
+              ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _blurModePill({
+    required String label,
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: selected
+                ? const Color(0xFF7C3AED).withValues(alpha: 0.22)
+                : Colors.white.withValues(alpha: 0.05),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFFA78BFA)
+                  : Colors.white.withValues(alpha: 0.14),
+              width: selected ? 1.4 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : Colors.white70,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              fontSize: 12.5,
+            ),
+          ),
         ),
       ),
     );
@@ -1980,39 +2626,67 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Melhore, corte, borre rostos ou monte colagens.',
+                'Realce cores, texto com caixa/borda/cor, corte, borre rostos ou monte colagens.',
                 textAlign: TextAlign.center,
                 style: ModernModuleUI.moduleSubtitleStyle(context),
               ),
               const SizedBox(height: 24),
-              ModernModuleUI.centeredPickButton(
-                gradient: _gradient,
-                icon: Icons.photo_library_rounded,
-                label: 'Galeria',
-                onPressed: _busy ? null : () => _pickImage(),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _busy ? null : () => _pickImage(),
+                  icon: const Icon(Icons.photo_library_rounded),
+                  label: const Text(
+                    'Galeria',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF16A34A),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(54),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                ),
               ),
-              if (!kIsWeb) ...[
-                const SizedBox(height: 10),
-                ModernModuleUI.centeredPickButton(
-                  gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
-                  icon: Icons.photo_camera_rounded,
-                  label: 'Câmera',
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
                   onPressed: _busy ? null : () => _pickImage(camera: true),
-                  secondary: true,
+                  icon: const Icon(Icons.photo_camera_rounded),
+                  label: const Text(
+                    'Câmera',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF22C55E),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(54),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
                 ),
-              ],
+              ),
               const SizedBox(height: 14),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _onCloseEditor,
-                icon: const Icon(Icons.close_rounded, size: 20),
-                label: const Text(
-                  'Cancelar',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                style: _photoOutlinedActionStyle().copyWith(
-                  minimumSize: const WidgetStatePropertyAll(Size(0, 48)),
-                  padding: const WidgetStatePropertyAll(
-                    EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _onCloseEditor,
+                  icon: const Icon(Icons.close_rounded, size: 20),
+                  label: const Text(
+                    'Cancelar',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF16A34A),
+                    side: const BorderSide(color: Color(0xFF16A34A), width: 1.5),
+                    minimumSize: const Size.fromHeight(48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
                 ),
               ),
@@ -2045,7 +2719,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     return ColoredBox(
       color: blurMode ? _immersiveBg : _immersiveBg,
       child: Padding(
-        padding: EdgeInsets.all(blurMode ? 6 : 2),
+        padding: EdgeInsets.all(blurMode ? 0 : 2),
         child: LayoutBuilder(
           builder: (context, c) {
             final maxW = c.maxWidth;
@@ -2056,14 +2730,19 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
               h = maxH;
               w = h * _aspect;
             }
-            final canDrag = blurMode || _tool == _PhotoTool.crop;
+            final canDragRegion = blurMode || _tool == _PhotoTool.crop;
+            final captionMode =
+                _tool == _PhotoTool.caption || _captions.isNotEmpty;
             return Center(
               child: InteractiveViewer(
                 transformationController: _viewerCtrl,
                 minScale: 0.7,
                 maxScale: 5,
+                // No modo texto o pan/zoom do viewer compete com o arraste da legenda.
+                panEnabled: !captionMode && !canDragRegion,
+                scaleEnabled: !captionMode && !canDragRegion,
                 child: GestureDetector(
-                  onPanStart: canDrag
+                  onPanStart: canDragRegion
                       ? (d) {
                           final box = _canvasKey.currentContext
                               ?.findRenderObject() as RenderBox?;
@@ -2075,7 +2754,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                           });
                         }
                       : null,
-                  onPanUpdate: canDrag
+                  onPanUpdate: canDragRegion
                       ? (d) {
                           final box = _canvasKey.currentContext
                               ?.findRenderObject() as RenderBox?;
@@ -2085,7 +2764,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                           });
                         }
                       : null,
-                  onPanEnd: canDrag
+                  onPanEnd: canDragRegion
                       ? (_) {
                           final start = _dragStart;
                           final end = _dragCurrent;
@@ -2125,6 +2804,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                           ..._cropOverlay(_cropRect!, w, h),
                         if (_tool != _PhotoTool.crop)
                           ..._regions.map((r) => _regionOverlay(r, w, h)),
+                        if (_tool != _PhotoTool.crop && _captions.isNotEmpty)
+                          ..._captions.map((c) => _captionOverlay(c, w, h)),
                         if (_dragStart != null && _dragCurrent != null)
                           Positioned.fromRect(
                             rect: Rect.fromPoints(_dragStart!, _dragCurrent!),
@@ -2220,6 +2901,111 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       Offset(crop.left, crop.center.dy),
       Offset(crop.right, crop.center.dy),
     ];
+  }
+
+  Widget _captionOverlay(UtilPhotoCaptionOverlay c, double w, double h) {
+    final selected = c.id == _selectedCaptionId;
+    final fontSize = (w * 0.045 * c.scale).clamp(16.0, 42.0);
+    final weight = c.bold ? FontWeight.w900 : FontWeight.w600;
+    final color = Color(c.colorArgb);
+    TextStyle style;
+    switch (c.style) {
+      case UtilPhotoCaptionStyle.clean:
+        style = TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+          shadows: const [
+            Shadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 2)),
+          ],
+        );
+      case UtilPhotoCaptionStyle.bold:
+        style = TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+        );
+      case UtilPhotoCaptionStyle.neon:
+        style = TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+          shadows: [
+            Shadow(color: color.withValues(alpha: 0.85), blurRadius: 12),
+          ],
+        );
+      case UtilPhotoCaptionStyle.classic:
+        style = TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+          shadows: const [
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(-1, -1)),
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, 1)),
+          ],
+        );
+    }
+  final textPainter = TextPainter(
+      text: TextSpan(text: c.text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: w * 0.9);
+    final tw = textPainter.width;
+    final th = textPainter.height;
+    final left = (c.nx * w - tw / 2).clamp(0.0, w - tw);
+    final top = (c.ny * h - th / 2).clamp(0.0, h - th);
+    return Positioned(
+      left: left,
+      top: top,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() {
+          _selectedCaptionId = c.id;
+          _captionStyle = c.style;
+          _captionColor = c.colorArgb;
+          _captionScale = c.scale;
+          _captionBold = c.bold;
+          _captionUseBox = c.boxBgArgb != 0;
+          _captionUseBorder = c.borderArgb != 0;
+          if (c.boxBgArgb != 0) _captionBoxBg = c.boxBgArgb;
+          if (c.borderArgb != 0) _captionBorder = c.borderArgb;
+          _captionInputCtrl.text = c.text;
+          _tool = _PhotoTool.caption;
+          _captionSheetOpen = true;
+        }),
+        onPanUpdate: (d) {
+          setState(() {
+            final idx = _captions.indexWhere((x) => x.id == c.id);
+            if (idx < 0) return;
+            final nx = ((c.nx * w + d.delta.dx) / w).clamp(0.05, 0.95);
+            final ny = ((c.ny * h + d.delta.dy) / h).clamp(0.05, 0.95);
+            _captions[idx] = c.copyWith(nx: nx, ny: ny);
+            _selectedCaptionId = c.id;
+            _tool = _PhotoTool.caption;
+          });
+        },
+        child: Container(
+          padding: (c.boxBgArgb != 0 ||
+                  c.borderArgb != 0 ||
+                  c.style == UtilPhotoCaptionStyle.bold)
+              ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6)
+              : EdgeInsets.zero,
+          decoration: BoxDecoration(
+            color: c.boxBgArgb != 0
+                ? Color(c.boxBgArgb)
+                : (c.style == UtilPhotoCaptionStyle.bold
+                    ? Colors.black.withValues(alpha: 0.55)
+                    : null),
+            borderRadius: BorderRadius.circular(10),
+            border: c.borderArgb != 0
+                ? Border.all(color: Color(c.borderArgb), width: 2.5)
+                : (selected
+                    ? Border.all(color: const Color(0xFFF59E0B), width: 2)
+                    : null),
+          ),
+          child: Text(c.text, style: style, textAlign: TextAlign.center),
+        ),
+      ),
+    );
   }
 
   Widget _regionOverlay(UtilPhotoEditRegion r, double w, double h) {
@@ -2457,62 +3243,131 @@ class _PhotoFinishSheet extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onFinish;
 
+  Widget _gradientAction({
+    required IconData icon,
+    required String label,
+    required List<Color> colors,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          height: 52,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: colors),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: colors.last.withValues(alpha: 0.32),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        borderRadius: BorderRadius.circular(20),
+        color: dark ? const Color(0xFF0F172A) : Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: dark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'Concluir edição',
-            style: ModernModuleUI.moduleTitleStyle(context, fontSize: 17),
+            'Foto pronta',
+            style: ModernModuleUI.moduleTitleStyle(context, fontSize: 18),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 6),
           Text(
             editSteps > 0
-                ? '$editSteps alteração(ões). Pré-visualize antes de exportar.'
-                : 'Pré-visualize ou exporte a foto.',
+                ? '$editSteps alteração(ões). Salve ou compartilhe.'
+                : 'Salve no aparelho ou compartilhe agora.',
             textAlign: TextAlign.center,
             style: ModernModuleUI.moduleSubtitleStyle(context, fontSize: 13),
           ),
-          const SizedBox(height: 14),
-          FilledButton.icon(
+          const SizedBox(height: 16),
+          _gradientAction(
+            icon: Icons.download_rounded,
+            label: 'Salvar no aparelho',
+            colors: const [Color(0xFF1D4ED8), Color(0xFF38BDF8)],
+            onTap: onSave,
+          ),
+          const SizedBox(height: 10),
+          _gradientAction(
+            icon: Icons.share_rounded,
+            label: 'Compartilhar',
+            colors: const [Color(0xFF16A34A), Color(0xFF22C55E)],
+            onTap: onShare,
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
             onPressed: onPreview,
-            icon: const Icon(Icons.visibility_rounded),
-            label: const Text('Pré-visualizar'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(46),
-              backgroundColor: const Color(0xFF2563EB),
+            icon: const Icon(Icons.visibility_rounded, size: 18),
+            label: const Text(
+              'Pré-visualizar',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              foregroundColor: dark ? Colors.white70 : const Color(0xFF334155),
+              side: BorderSide(
+                color: dark
+                    ? Colors.white.withValues(alpha: 0.22)
+                    : const Color(0xFFCBD5E1),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
           ),
           const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onSave,
-            icon: const Icon(Icons.download_rounded),
-            label: const Text('Salvar no aparelho'),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: onShare,
-            icon: const Icon(Icons.share_rounded),
-            label: const Text('Compartilhar'),
-          ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
+          TextButton(
             onPressed: onFinish,
-            icon: const Icon(Icons.check_rounded),
-            label: const Text('Concluir e voltar'),
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(46),
-              backgroundColor: const Color(0xFFDB2777),
+            child: const Text(
+              'Concluir e voltar',
+              style: TextStyle(fontWeight: FontWeight.w800),
             ),
           ),
         ],

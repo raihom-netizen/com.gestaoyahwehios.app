@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -444,10 +445,10 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       if (mounted) {
         setState(() {
           _gerando = false;
-          _erro = '$e';
+          _erro = formatFirebaseErrorForUser(e);
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e')),
+          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
         );
       }
     }
@@ -500,6 +501,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'maxInstallments': _parcelas,
         'donationKind': _donationKind,
         'donationObs': _obsCtrl.text.trim(),
+        'paymentMethod': 'card',
       })
           .timeout(
         const Duration(seconds: 50),
@@ -526,10 +528,10 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       if (mounted) {
         setState(() {
           _gerando = false;
-          _erro = '$e';
+          _erro = formatFirebaseErrorForUser(e);
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e')),
+          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
         );
       }
     }

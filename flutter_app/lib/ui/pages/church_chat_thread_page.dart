@@ -26,7 +26,9 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show isFirebaseNoAppError;
+    show formatUploadErrorForUser, isFirebaseNoAppError, kFeedPublishQueuedUserMessage;
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
@@ -55,7 +57,8 @@ import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    hide formatUploadErrorForUser;
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
@@ -1792,13 +1795,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    // Telegram: aquecer Firebase em BG — não bloquear a câmara/galeria.
     _warmChatFirebaseForPicker();
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      _showChatAttachmentError(
-        'Firebase ainda não está pronto. Aguarde e tente de novo.',
-      );
-      return;
-    }
     final x = source == ImageSource.camera
         ? await MediaHandlerService.instance.pickAndProcessFromCamera(
             module: YahwehMediaModule.chat,
@@ -1810,27 +1808,34 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           );
     if (x == null) return;
     if (mounted) {
-      ImmediateMediaAttachFeedback.showArquivoAnexado(
+      final bytes = await x.readAsBytes();
+      if (!mounted) return;
+      final resolution = bytes.isNotEmpty
+          ? await ImmediateMediaAttachFeedback.readResolution(
+              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+            )
+          : null;
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
-        x.name.isNotEmpty ? x.name : 'foto.jpg',
+        fileName: x.name.isNotEmpty ? x.name : 'foto.jpg',
+        sizeBytes: bytes.length,
+        resolution: resolution,
       );
     }
+    // Envio imediato (sem modal de confirmação) — ritmo Telegram.
     unawaited(_sendPickedImageFile(
       x,
-      previewBeforeSend: kIsWeb || source == ImageSource.camera,
+      previewBeforeSend: false,
     ));
   }
 
   Future<void> _pickImagesFromGallery() async {
     _warmChatFirebaseForPicker();
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      _showChatAttachmentError(
-        'Firebase ainda não está pronto. Aguarde e tente de novo.',
-      );
-      return;
-    }
-    final list =
-        await MediaHandlerService.instance.pickAndProcessMultipleImages();
+    final list = await MediaHandlerService.instance.pickAndProcessMultipleImages(
+      module: YahwehMediaModule.chat,
+      context: context,
+    );
     if (list.isEmpty) return;
     if (list.length > kChatMaxImagesPerPick) {
       if (mounted) {
@@ -1842,28 +1847,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final capped = list.take(kChatMaxImagesPerPick).toList();
     if (capped.isEmpty || !mounted) return;
 
-    // Preview estilo galeria (1 ou várias) — confirmar antes de enviar.
-    final confirmed = await confirmChatImageBatchPreview(context, capped);
-    if (confirmed == null || confirmed.isEmpty || !mounted) return;
-
-    final albumId = _newAlbumGroupIdIfBatch(confirmed.length);
-    if (confirmed.length > 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('A enviar ${confirmed.length} foto(s)…'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
+    if (mounted) {
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: capped.length == 1
+            ? (capped.first.name.isNotEmpty ? capped.first.name : 'foto.jpg')
+            : '${capped.length} fotos',
       );
     }
-    for (var i = 0; i < confirmed.length; i++) {
+
+    final albumId = _newAlbumGroupIdIfBatch(capped.length);
+    for (var i = 0; i < capped.length; i++) {
       if (!mounted) return;
       unawaited(_sendPickedImageFile(
-        confirmed[i],
+        capped[i],
         previewBeforeSend: false,
         albumGroupId: albumId,
         albumIndex: i,
-        albumCount: confirmed.length,
+        albumCount: capped.length,
       ));
     }
   }
@@ -2341,6 +2342,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String? fileName,
   }) {
     if (p.failed) return p.errorMessage ?? 'Falha no envio';
+    if (p.offlineQueued) return 'Na fila — envia ao voltar online';
     final clamped = progress.clamp(0.0, 1.0);
     if (clamped >= 1) return 'Enviado';
     if (clamped >= 0.9) return 'A finalizar…';
@@ -2460,6 +2462,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
+    // Outbox cedo (kill-safe) — estilo Telegram: nunca perder o anexo.
+    unawaited(
+      ChurchChatMediaOutboxService.registerJob(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        localId: pending.localId,
+        kind: pending.kind,
+        fileName: pending.fileName,
+        mime: pending.mime,
+        localPath: localPath ?? pending.localPath,
+        bytes: bytes != null
+            ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
+            : pending.previewBytes,
+      ).catchError((_) {}),
+    );
     unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
     unawaited(_runPendingMediaUpload(
       pending: pending,
@@ -2505,6 +2522,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     var repaintedVideoPreview = false;
+    final progressLabel = pending.kind == 'audio'
+        ? 'Enviando áudio…'
+        : pending.kind == 'image'
+            ? 'Enviando foto…'
+            : 'Enviando ficheiro…';
+    GlobalUploadProgress.instance.start(progressLabel);
     unawaited(
       ChurchChatFastSendService.sendMedia(
         tenantId: _tid,
@@ -2514,6 +2537,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         localPath: localPath,
         replyTo: replyTo,
         onProgress: (p) {
+          GlobalUploadProgress.instance.update(p);
           _setPendingProgress(pending.localId, p);
           if (!repaintedVideoPreview &&
               pending.kind == 'video' &&
@@ -2525,18 +2549,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         },
         onSuccess: () {
+          GlobalUploadProgress.instance.end();
           if (pending.offlineQueued) {
+            pending.errorMessage = null;
+            pending.failed = false;
+            _setPendingProgress(pending.localId, 1.0);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Sem rede — o ficheiro ficou na fila e será enviado ao voltar online.',
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  duration: Duration(seconds: 4),
-                ),
+                ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
               );
+              setState(() {});
             }
+            // Mantém bolha local até o outbox sincronizar — não remove.
+            return;
           }
           if (mounted && pending.albumIndex == 0) {
             setState(() => _replyDraft = null);
@@ -2545,6 +2570,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
         },
         onError: (msg) {
+          GlobalUploadProgress.instance.end();
           final i =
               _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
           if (i >= 0) {
@@ -2554,13 +2580,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         },
       ).catchError((Object e, StackTrace st) {
+        GlobalUploadProgress.instance.end();
         YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
         if (i >= 0) {
           _pendingOutbound[i].failed = true;
           _pendingOutbound[i].errorMessage =
-              ChatThreadOperations.formatInstantSendError(e);
+              formatUploadErrorForUser(e);
           if (mounted) setState(() {});
         }
       }),
@@ -2628,12 +2655,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickDocument() async {
     _warmChatFirebaseForPicker();
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      _showChatAttachmentError(
-        'Firebase ainda não está pronto. Aguarde e tente de novo.',
-      );
-      return;
-    }
     final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2648,12 +2669,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     if (files.length > 1 && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('A enviar ${files.length} ficheiro(s)…'),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: '${files.length} ficheiros',
       );
     }
     for (var i = 0; i < files.length; i++) {
@@ -2673,21 +2691,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _showChatAttachmentError(docBlocked);
         continue;
       }
-      await _sendPickedPlatformFile(f);
-      if (i < files.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-      }
+      unawaited(_sendPickedPlatformFile(f));
     }
   }
 
   Future<void> _pickAudioFile() async {
     _warmChatFirebaseForPicker();
-    if (!await _ensureChatFirebaseReadyForMedia()) {
-      _showChatAttachmentError(
-        'Firebase ainda não está pronto. Aguarde e tente de novo.',
-      );
-      return;
-    }
     final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2707,6 +2716,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (r.files.length > files.length && mounted) {
       _showChatAttachmentError(
         'Só os primeiros $kChatMaxAudioFilesPerPick áudios serão enviados.',
+      );
+    }
+    if (mounted) {
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: files.length == 1
+            ? (files.first.name.isNotEmpty ? files.first.name : 'audio.m4a')
+            : '${files.length} áudios',
       );
     }
     for (var i = 0; i < files.length; i++) {
@@ -2906,6 +2923,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       body = ChurchChatPendingVoiceBubble(
         progressListenable: p.progressListenable,
         failed: p.failed,
+        offlineQueued: p.offlineQueued,
         localPath: p.localPath,
         errorMessage: p.errorMessage,
         durationMs: p.voiceDurationMs,
@@ -3069,14 +3087,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       valueListenable: p.progressListenable,
       builder: (context, progress, _) {
         final clamped = progress.clamp(0.0, 1.0);
-        final sending = !p.failed && clamped < 1;
+        final sending = !p.failed && !p.offlineQueued && clamped < 1;
         final pct = (clamped * 100).round().clamp(0, 100);
         final sizeLabel = (p.byteSize != null && p.byteSize! > 0)
             ? ChurchChatAttachmentUtils.formatFileSize(p.byteSize!)
             : '';
         final status = p.failed
             ? (p.errorMessage ?? 'Falha no envio')
-            : (sending ? 'A enviar... $pct%' : 'A processar...');
+            : (p.offlineQueued
+                ? 'Na fila — envia ao voltar online'
+                : (sending ? 'A enviar... $pct%' : 'A processar...'));
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3287,11 +3307,32 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecordingImpl() async {
+    // UI optimista imediata (Telegram) — reverte se o microfone falhar.
+    if (mounted) {
+      setState(() {
+        _voiceRecording = true;
+        _voiceElapsed = Duration.zero;
+        _voiceSlideCancel = false;
+        _voiceSlideOffset = 0;
+      });
+    }
+    unawaited(
+      ChatThreadOperations.setTypingActive(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        active: true,
+        displayLabel: ChatThreadOperations.typingLabelRecording,
+      ),
+    );
     try {
       unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
       final startedPath = await _chatAudio.startRecording();
       if (startedPath == null) {
         if (mounted) {
+          setState(() {
+            _voiceRecording = false;
+            _voiceElapsed = Duration.zero;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -3304,9 +3345,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
           );
         }
+        unawaited(
+          ChatThreadOperations.clearTypingForMe(
+            tenantId: _tid,
+            threadId: widget.threadId,
+          ),
+        );
         return;
       }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _voiceRecording = false;
+          _voiceElapsed = Duration.zero;
+        });
+      }
+      unawaited(
+        ChatThreadOperations.clearTypingForMe(
+          tenantId: _tid,
+          threadId: widget.threadId,
+        ),
+      );
       final msg = e.toString();
       final micDenied = _isMicrophonePermissionError(msg);
       if (mounted) {
@@ -3317,7 +3376,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   ? (kIsWeb
                       ? 'Microfone bloqueado no navegador. Autorize e tente novamente.'
                       : 'Microfone bloqueado no iPhone. Ative em Ajustes > Privacidade e Segurança > Microfone.')
-                  : 'Não foi possível gravar: $e',
+                  : 'Não foi possível gravar: ${formatUploadErrorForUser(e)}',
             ),
             behavior: SnackBarBehavior.floating,
             action: micDenied
@@ -3331,21 +3390,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       }
       return;
     }
-
-    setState(() {
-      _voiceRecording = true;
-      _voiceElapsed = Duration.zero;
-      _voiceSlideCancel = false;
-      _voiceSlideOffset = 0;
-    });
-    unawaited(
-      ChatThreadOperations.setTypingActive(
-        tenantId: _tid,
-        threadId: widget.threadId,
-        active: true,
-        displayLabel: ChatThreadOperations.typingLabelRecording,
-      ),
-    );
 
     _voiceTicker?.cancel();
     _voiceTicker = Timer.periodic(const Duration(seconds: 1), (_) {

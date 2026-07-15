@@ -50,8 +50,10 @@ abstract final class ImmediateMediaAttachFeedback {
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
-    final parts = <String>[
-      shortFileName(fileName),
+    final name = shortFileName(fileName);
+    final lines = <String>[
+      '✓ Foto adicionada com sucesso',
+      'Nome: $name',
       if (sizeBytes != null) formatBytes(sizeBytes),
       if (resolution != null && resolution.isNotEmpty) resolution,
     ];
@@ -59,13 +61,14 @@ abstract final class ImmediateMediaAttachFeedback {
     messenger.showSnackBar(
       SnackBar(
         content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Foto adicionada com sucesso\n${parts.join('  •  ')}',
-                style: const TextStyle(color: Colors.white, height: 1.25),
+                lines.join('\n'),
+                style: const TextStyle(color: Colors.white, height: 1.35),
               ),
             ),
           ],

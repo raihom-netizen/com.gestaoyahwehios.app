@@ -7,14 +7,18 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/constants/utilitarios_module_icons.dart';
 import 'package:gestao_yahweh/services/utilitarios_daily_quota_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
+import 'package:gestao_yahweh/services/utilitarios_photo_text_extract_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_video_compress_service.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/utils/home_shell_layout.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_camera_pdf_flow.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_pdf_tools_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_photo_text_extract_flow.dart';
 
 /// Módulo Utilitários — conversões, compressores e editores locais (sem servidor).
+/// Espelho do Controle Total; API GY: [isAdmin] em vez de UserProfile.
 class UtilitariosScreen extends StatefulWidget {
   final String uid;
   final bool isAdmin;
@@ -141,6 +145,24 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         n.endsWith('.avi') ||
         n.endsWith('.mkv') ||
         n.endsWith('.webm');
+  }
+
+  /// Galeria iOS/Android às vezes vem sem extensão no nome — usa [PlatformFile.extension].
+  static bool _isVideoPlatformFile(PlatformFile f) {
+    var ext = (f.extension ?? '').toLowerCase().trim();
+    if (ext == 'jpeg') ext = 'jpg';
+    if (const {
+      'mp4',
+      'mov',
+      'm4v',
+      'avi',
+      'mkv',
+      'webm',
+      '3gp',
+    }.contains(ext)) {
+      return true;
+    }
+    return _isVideoFileName(f.name);
   }
 
   Future<void> _afterResult({
@@ -388,12 +410,11 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     });
   }
 
-  Future<void> _imagesToPdf({required bool pngOnly}) async {
+  Future<void> _imagesToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy(pngOnly ? 'PNG → PDF…' : 'JPEG/PNG → PDF…', () async {
+    await _runBusy('Imagens → PDF…', () async {
       final picked = await utilitariosPickMultipleFileBytes(
-        allowedExtensions:
-            pngOnly ? const ['png'] : const ['jpg', 'jpeg', 'png', 'webp'],
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
         preferBytes: true,
       );
       final images = <Uint8List>[];
@@ -409,21 +430,15 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
       await _afterResult(
         bytes: out,
-        fileName: pngOnly
-            ? 'png_controle_total.pdf'
-            : 'imagens_controle_total.pdf',
+        fileName: 'imagens_controle_total.pdf',
         mimeType: 'application/pdf',
         okMessage:
-            'PDF criado localmente com ${images.length} imagem(ns)${pngOnly ? ' PNG' : ''}.',
+            'PDF criado localmente com ${images.length} imagem(ns) (JPEG/PNG).',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
       );
     });
   }
-
-  Future<void> _jpegToPdf() => _imagesToPdf(pngOnly: false);
-
-  Future<void> _pngToPdf() => _imagesToPdf(pngOnly: true);
 
   Future<void> _wordToPdf() async {
     if (!await _ensureLightQuota()) return;
@@ -527,7 +542,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     '3gp',
   ];
 
-  Future<PlatformFile?> _pickVideoFile() async {
+  Future<({PlatformFile file, String path})?> _pickVideoFile() async {
     final files = await utilitariosPickPlatformFiles(
       allowedExtensions: _videoPickerExtensions,
       forceStream: true,
@@ -535,11 +550,11 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     if (files.isEmpty) return null;
     final f = files.first;
     try {
-      await utilitariosResolvePlatformFilePath(f);
+      final path = await utilitariosResolvePlatformFilePath(f);
+      return (file: f, path: path);
     } catch (e) {
       throw StateError(utilitariosFormatPickError(e));
     }
-    return f;
   }
 
   Future<UtilitariosVideoConvertOptions?> _pickVideoConvertOptions() async {
@@ -881,9 +896,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     if (options == null || !mounted) return;
 
     await _runBusy('Convertendo para MP4…', () async {
-      final f = await _pickVideoFile();
-      if (f == null) return;
-      final inputPath = await utilitariosResolvePlatformFilePath(f);
+      final picked = await _pickVideoFile();
+      if (picked == null) return;
+      final f = picked.file;
+      final inputPath = picked.path;
       final before = await utilitariosFileSizeAtPath(inputPath);
       final converted = await utilitariosConvertVideoToMp4(
         inputPath: inputPath,
@@ -934,9 +950,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     if (format == null || !mounted) return;
 
     await _runBusy('Extraindo áudio…', () async {
-      final f = await _pickVideoFile();
-      if (f == null) return;
-      final inputPath = await utilitariosResolvePlatformFilePath(f);
+      final picked = await _pickVideoFile();
+      if (picked == null) return;
+      final f = picked.file;
+      final inputPath = picked.path;
       final before = await utilitariosFileSizeAtPath(inputPath);
       final extracted = await utilitariosExtractAudioFromVideo(
         inputPath: inputPath,
@@ -1267,7 +1284,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       late final String mimeType;
       late final int before;
 
-      if (_isVideoFileName(name)) {
+      if (_isVideoPlatformFile(f)) {
         if (!utilitariosVideoCompressSupported) {
           throw StateError(
             'Compressão de vídeo disponível no app Android e iPhone.',
@@ -1719,9 +1736,49 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     });
   }
 
+  Future<void> _openPhotoCameraPdf() async {
+    if (!await _ensureLightQuota()) return;
+    if (!mounted) return;
+    final result = await openUtilitariosPhotoCameraPdfFlow(context);
+    if (result == null || !mounted) return;
+    final prebuilt = result.pdfBytes;
+    final pages = result.pages;
+    if (prebuilt == null && pages.isEmpty) return;
+
+    // PDF já vem montado do fluxo da câmera — só compartilha (sem segunda espera).
+    Future<void> deliver(Uint8List pdf, int pageCount) async {
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      if (!mounted) return;
+      await _afterResult(
+        bytes: pdf,
+        fileName: 'foto_camera_controle_total.pdf',
+        mimeType: 'application/pdf',
+        okMessage:
+            'PDF com $pageCount página(s) — pronto para compartilhar.',
+        preferShareFirst: true,
+        shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
+      );
+    }
+
+    if (prebuilt != null) {
+      await deliver(prebuilt, pages.isEmpty ? 1 : pages.length);
+      return;
+    }
+
+    await _runBusy('Gerando PDF…', () async {
+      final pdf = await UtilitariosLocalService.imagesToPdf(pages);
+      await deliver(pdf, pages.length);
+    });
+  }
+
   Future<void> _openPhotoTextExtract() async {
     if (!await _ensureLightQuota()) return;
     if (!mounted) return;
+    // Pré-aquece ML Kit já no toque do card (antes da tela abrir).
+    unawaited(UtilitariosPhotoTextExtractService.warmUp());
     await openUtilitariosPhotoTextExtractFlow(
       context,
       quotaUid: _quotaUid,
@@ -1729,6 +1786,25 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     );
     if (!mounted) return;
     await _refreshQuota();
+  }
+
+  Future<void> _openPhotoEditor() async {
+    if (!await _ensureHeavyQuota()) return;
+    if (!mounted) return;
+    final result = await openUtilitariosPhotoEditFlow(context);
+    if (result == null || !mounted) return;
+    await UtilitariosDailyQuotaService.consumeHeavy(
+      _quotaUid,
+      isAdmin: _isAdmin,
+    );
+    await _afterResult(
+      bytes: result.bytes,
+      fileName: result.fileName,
+      mimeType: 'image/jpeg',
+      okMessage: result.message,
+      preferShareFirst: true,
+      shareButtonLabel: 'Compartilhar foto',
+    );
   }
 
   Future<void> _openPdfTool(UtilitariosPdfToolMode mode) async {
@@ -1801,6 +1877,14 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   final narrow = c.maxWidth < 520;
                   final cards = [
                     _ToolTile(
+                      icon: UtilitariosModuleIcons.photoCameraPdf,
+                      gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
+                      title: 'Foto/Câmera para PDF',
+                      subtitle:
+                          'Câmera do aparelho · até 20 fotos · PDF rápido',
+                      onTap: lightOk ? _openPhotoCameraPdf : null,
+                    ),
+                    _ToolTile(
                       icon: UtilitariosModuleIcons.pdfWord,
                       gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
                       title: 'PDF → Word',
@@ -1824,16 +1908,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     _ToolTile(
                       icon: UtilitariosModuleIcons.jpegPdf,
                       gradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
-                      title: 'JPEG → PDF',
-                      subtitle: 'Uma ou várias fotos',
-                      onTap: lightOk ? _jpegToPdf : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pngPdf,
-                      gradient: const [Color(0xFFDB2777), Color(0xFFF472B6)],
-                      title: 'PNG → PDF',
-                      subtitle: 'Uma ou várias PNGs',
-                      onTap: lightOk ? _pngToPdf : null,
+                      title: 'Imagens → PDF',
+                      subtitle: 'JPEG, PNG ou WebP · uma ou várias',
+                      onTap: lightOk ? _imagesToPdf : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.wordPdf,
@@ -2007,8 +2084,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     _ToolTile(
                       icon: UtilitariosModuleIcons.photoTextExtract,
                       gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
-                      title: 'Extração de texto em foto',
-                      subtitle: 'Lens · preview editável · Word e PDF',
+                      title: 'Controletotalapp extração de texto',
+                      subtitle: 'OCR rápido · editar · Word e PDF',
                       onTap: lightOk ? _openPhotoTextExtract : null,
                     ),
                     _ToolTile(
@@ -2017,6 +2094,13 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       title: 'Compactar arquivos',
                       subtitle: 'ZIP · ZIP máximo · RAR (local)',
                       onTap: lightOk ? _compactarArquivos : null,
+                    ),
+                    _ToolTile(
+                      icon: UtilitariosModuleIcons.photoEdit,
+                      gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
+                      title: 'Editor de Foto',
+                      subtitle: 'Melhorar · cortar · borrar · colagem',
+                      onTap: heavyOk ? _openPhotoEditor : null,
                     ),
                   ];
                   if (narrow) {

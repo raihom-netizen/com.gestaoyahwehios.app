@@ -95,11 +95,11 @@ abstract final class PublicSiteMediaPrefetchService {
                 .toList()
             : const <Map<String, dynamic>>[]);
 
-    for (final row in rows.take(12)) {
+    for (final row in rows.take(6)) {
       add((row['feedCoverUrl'] ?? '').toString());
       final photos = row['photoUrls'];
       if (photos is List) {
-        for (final p in photos.take(4)) {
+        for (final p in photos.take(2)) {
           add(p?.toString());
         }
       }
@@ -107,7 +107,7 @@ abstract final class PublicSiteMediaPrefetchService {
     }
 
     if (!context.mounted || urls.isEmpty) return;
-    await preloadNetworkImages(context, urls, maxItems: 40);
+    await preloadNetworkImages(context, urls, maxItems: 14);
   }
 
   /// Callable para visitante anónimo (após [PublicSiteMediaAuth]).
@@ -138,6 +138,8 @@ abstract final class PublicSiteMediaPrefetchService {
   }
 
   /// Abertura do site: aquece servidor em background + pré-carrega quando há cache.
+  static final Set<String> _openPrefetchScheduled = {};
+
   static void scheduleOnPublicSiteOpen(
     BuildContext context,
     String tenantId, {
@@ -145,6 +147,12 @@ abstract final class PublicSiteMediaPrefetchService {
   }) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
+    if (_openPrefetchScheduled.contains(tid)) return;
+    _openPrefetchScheduled.add(tid);
+    // Libera reentrada após navegação longa.
+    Future<void>.delayed(const Duration(seconds: 45), () {
+      _openPrefetchScheduled.remove(tid);
+    });
     unawaited(warmFromCallableIfStale(tid));
     unawaited(() async {
       final meta = await readPrefetchMeta(tid);

@@ -1,4 +1,5 @@
-# Sincroniza módulo Utilitários CT → Gestão Yahweh (imports + paths GY).
+# Sincroniza módulo Utilitários CT → Gestão Yahweh (rewrite total = Controle Total).
+# Mantém: isAdmin (GY), ModernModuleUI compat, YahwehFilePicker, branding GY.
 $ErrorActionPreference = "Stop"
 $ctRoot = "C:\Controletotalapp_Independente\flutter_app\lib"
 $gyRoot = "C:\gestao_yahweh_premium_final\flutter_app\lib"
@@ -35,6 +36,7 @@ $pairs = @(
     @{ src = "$ctRoot\screens\utilitarios_photo_edit_flow.dart"; dst = "$gyRoot\ui\pages\utilitarios_photo_edit_flow.dart"; screen = $true },
     @{ src = "$ctRoot\screens\utilitarios_photo_collage_flow.dart"; dst = "$gyRoot\ui\pages\utilitarios_photo_collage_flow.dart"; screen = $true },
     @{ src = "$ctRoot\screens\utilitarios_photo_text_extract_flow.dart"; dst = "$gyRoot\ui\pages\utilitarios_photo_text_extract_flow.dart"; screen = $true },
+    @{ src = "$ctRoot\screens\utilitarios_photo_camera_pdf_flow.dart"; dst = "$gyRoot\ui\pages\utilitarios_photo_camera_pdf_flow.dart"; screen = $true },
     @{ src = "$ctRoot\services\utilitarios_local_service.dart"; dst = "$gyRoot\services\utilitarios_local_service.dart"; screen = $false },
     @{ src = "$ctRoot\services\utilitarios_photo_service.dart"; dst = "$gyRoot\services\utilitarios_photo_service.dart"; screen = $false },
     @{ src = "$ctRoot\services\utilitarios_photo_text_extract_service.dart"; dst = "$gyRoot\services\utilitarios_photo_text_extract_service.dart"; screen = $false },
@@ -47,44 +49,47 @@ $pairs = @(
     @{ src = "$ctRoot\utils\utilitarios_web_io_web.dart"; dst = "$gyRoot\utils\utilitarios_web_io_web.dart"; screen = $false },
     @{ src = "$ctRoot\utils\utilitarios_web_io_stub.dart"; dst = "$gyRoot\utils\utilitarios_web_io_stub.dart"; screen = $false },
     @{ src = "$ctRoot\utils\home_shell_layout.dart"; dst = "$gyRoot\utils\home_shell_layout.dart"; screen = $false },
-    @{ src = "$ctRoot\services\smart_input_image_ocr_service.dart"; dst = "$gyRoot\services\smart_input_image_ocr_service.dart"; screen = $false }
+    @{ src = "$ctRoot\services\smart_input_image_ocr_service.dart"; dst = "$gyRoot\services\smart_input_image_ocr_service.dart"; screen = $false },
+    @{ src = "$ctRoot\constants\utilitarios_export_page_format.dart"; dst = "$gyRoot\constants\utilitarios_export_page_format.dart"; screen = $false }
 )
 
 foreach ($p in $pairs) {
     if (-not (Test-Path $p.src)) { throw "Falta origem: $($p.src)" }
     $raw = Get-Content -Path $p.src -Raw -Encoding UTF8
     $out = Transform-UtilitariosContent -content $raw -IsScreen:$p.screen
+    $dstDir = Split-Path $p.dst -Parent
+    if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
     Set-Content -Path $p.dst -Value $out -Encoding UTF8 -NoNewline
     Write-Host "OK $($p.dst)"
 }
 
-# utilitarios_screen: API Gestão Yahweh (isAdmin em vez de UserProfile)
+# utilitarios_screen: API Gestão Yahweh (isAdmin em vez de UserProfile) — SEM remover tools do CT
 $screenPath = "$gyRoot\ui\pages\utilitarios_screen.dart"
 $screen = Get-Content -Path $screenPath -Raw -Encoding UTF8
 $screen = $screen -replace "import 'package:gestao_yahweh/models/user_profile\.dart';`r?`n", ""
-$screen = $screen -replace "final UserProfile profile;`r?`n\s*", ""
-$screen = $screen -replace "required this\.profile,`r?`n\s*", ""
+$screen = $screen -replace "(?m)^\s*final UserProfile profile;\r?\n", ""
+$screen = $screen -replace "(?m)^\s*required this\.profile,\r?\n", ""
 $screen = $screen -replace "bool get _isAdmin => widget\.profile\.isAdmin;", "bool get _isAdmin => widget.isAdmin;"
 if ($screen -notmatch 'final bool isAdmin') {
-    $screen = $screen -replace '(final String uid;)', "`$1`n  final bool isAdmin;"
+    $screen = $screen -replace '(?m)^(  final String uid;)', "`$1`r`n  final bool isAdmin;"
 }
 if ($screen -notmatch 'this\.isAdmin') {
-    $screen = $screen -replace '(required this\.uid,)', "`$1`n    this.isAdmin = false,"
+    $screen = $screen -replace '(required this\.uid,)', "required this.uid,`r`n    this.isAdmin = false,"
 }
-# Gestão Yahweh: sem Editor de Foto no módulo Utilitários (removido a pedido).
-$screen = $screen -replace "import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow\.dart';`r?`n", ""
-$screen = $screen -replace "(?s)  Future<void> _openPhotoEditor\(\) async \{.*?\n  \}\r?\n\r?\n", ""
-$screen = $screen -replace "(?s),\s*_ToolTile\(\s*icon: UtilitariosModuleIcons\.photoEdit,.*?\),\s*", ",`n                    "
+# Doc + ensure constructor has isAdmin even if order differs
+if ($screen -match 'class UtilitariosScreen' -and $screen -notmatch 'this\.isAdmin = false') {
+    $screen = $screen -replace '(required this\.uid,)', "required this.uid,`r`n    this.isAdmin = false,"
+}
 Set-Content -Path $screenPath -Value $screen -Encoding UTF8 -NoNewline
-Write-Host "OK Editor de Foto removido (Gestao Yahweh)"
+Write-Host "OK utilitarios_screen isAdmin (tools CT intactos)"
 
-# Ícones: manter nav Yahweh (widgets_rounded)
+# Ícones: CT completo + nav Gestão Yahweh
 $iconsPath = "$gyRoot\constants\utilitarios_module_icons.dart"
 $icons = @"
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 
-/// Ícones do módulo Utilitários (menu + cards) — alinhado CT + nav Gestão Yahweh.
+/// Ícones do módulo Utilitários — espelho Controle Total + nav Gestão Yahweh.
 abstract final class UtilitariosModuleIcons {
   UtilitariosModuleIcons._();
 
@@ -106,6 +111,7 @@ abstract final class UtilitariosModuleIcons {
   static const IconData editPdf = Icons.draw_rounded;
   static const IconData archiveZip = Icons.folder_zip_rounded;
   static const IconData photoEdit = Icons.auto_awesome_rounded;
+  static const IconData photoCameraPdf = Icons.camera_alt_rounded;
   static const IconData photoTextExtract = Icons.document_scanner_rounded;
 }
 "@
@@ -125,16 +131,21 @@ if (Test-Path $fileIo) {
     Write-Host "OK utilitarios_file_io YahwehFilePicker"
 }
 
-# smart_input OCR: Cloud Vision via ChurchFunctionsService (fallback Textify)
+# smart_input OCR: Cloud Vision via ChurchFunctionsService
 $ocrPath = "$gyRoot\services\smart_input_image_ocr_service.dart"
 if (Test-Path $ocrPath) {
     $ocr = Get-Content -Path $ocrPath -Raw -Encoding UTF8
-    $ocr = $ocr -replace "return null; // Cloud Vision:.*", "return await ChurchFunctionsService.ocrImageForSmartInput(base64: b64, mimeType: mime);"
     if ($ocr -notmatch 'church_functions_service') {
-        $ocr = $ocr -replace "import 'package:gestao_yahweh/core/firebase_bootstrap.dart';", "import 'package:gestao_yahweh/core/firebase_bootstrap.dart';`nimport 'package:gestao_yahweh/services/church_functions_service.dart';"
+        if ($ocr -match 'firebase_bootstrap') {
+            $ocr = $ocr -replace "import 'package:gestao_yahweh/core/firebase_bootstrap.dart';", "import 'package:gestao_yahweh/core/firebase_bootstrap.dart';`nimport 'package:gestao_yahweh/services/church_functions_service.dart';"
+        } else {
+            $ocr = "import 'package:gestao_yahweh/services/church_functions_service.dart';`n" + $ocr
+        }
     }
+    $ocr = $ocr -replace "return null; // Cloud Vision:.*", "return await ChurchFunctionsService.ocrImageForSmartInput(base64: b64, mimeType: mime);"
+    $ocr = $ocr -replace "FunctionsService\(\)\.ocrImageForSmartInput", "ChurchFunctionsService.ocrImageForSmartInput"
     Set-Content -Path $ocrPath -Value $ocr -Encoding UTF8 -NoNewline
     Write-Host "OK smart_input_image_ocr_service"
 }
 
-Write-Host "`nSincronização Utilitários CT → GY concluída."
+Write-Host "`nSincronização Utilitários CT → GY (rewrite total) concluída."

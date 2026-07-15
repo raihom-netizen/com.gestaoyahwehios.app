@@ -76,6 +76,7 @@ class GooglePlayPaymentsGate {
     required String sku,
     required String planId,
     required BillingCycle cycle,
+    String? tenantId,
   }) async {
     if (!await isAvailable()) {
       return const GooglePlayPurchaseResult.failed(
@@ -109,7 +110,12 @@ class GooglePlayPaymentsGate {
         );
       }
       final purchase = await completer.future.timeout(const Duration(minutes: 5));
-      return await _verifyAndActivate(purchase, planId: planId, cycle: cycle);
+      return await _verifyAndActivate(
+        purchase,
+        planId: planId,
+        cycle: cycle,
+        tenantId: tenantId,
+      );
     } catch (e) {
       return GooglePlayPurchaseResult.failed('Erro na compra: $e');
     } finally {
@@ -121,6 +127,7 @@ class GooglePlayPaymentsGate {
     PurchaseDetails purchase, {
     required String planId,
     required BillingCycle cycle,
+    String? tenantId,
   }) async {
     if (purchase.status != PurchaseStatus.purchased &&
         purchase.status != PurchaseStatus.restored) {
@@ -130,17 +137,23 @@ class GooglePlayPaymentsGate {
     }
     try {
       final functions =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
       final callable = functions.httpsCallable(
         'verifyPlayPurchase',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
       );
-      final res = await callable.call({
+      final payload = <String, dynamic>{
         'planId': planId,
         'billingCycle': cycle == BillingCycle.annual ? 'annual' : 'monthly',
         'productId': purchase.productID,
         'purchaseToken': purchase.verificationData.serverVerificationData,
-      });
+      };
+      final tid = tenantId?.trim() ?? '';
+      if (tid.isNotEmpty) {
+        payload['tenantId'] = tid;
+        payload['igrejaId'] = tid;
+      }
+      final res = await callable.call(payload);
       final data = res.data as Map? ?? {};
       if (data['ok'] == true) {
         if (purchase.pendingCompletePurchase) {

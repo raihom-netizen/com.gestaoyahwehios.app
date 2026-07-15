@@ -25,7 +25,8 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/ui/widgets/storage_upload_progress_indicator.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    hide formatUploadErrorForUser;
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
@@ -57,6 +58,11 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show
+        formatUploadErrorForUser,
+        isFirebaseNoAppError,
+        kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -6960,11 +6966,26 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final attachSize = kIsWeb
         ? (webBytes?.length ?? 0)
         : (mobilePath != null ? File(mobilePath).lengthSync() : 0);
-    ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
-      context,
-      fileName: displayName,
-      sizeBytes: attachSize,
-    );
+    unawaited(() async {
+      String? resolution;
+      try {
+        final bytes = kIsWeb
+            ? webBytes
+            : (mobilePath != null && File(mobilePath).existsSync()
+                ? await File(mobilePath).readAsBytes()
+                : null);
+        if (bytes != null && bytes.isNotEmpty) {
+          resolution = await ImmediateMediaAttachFeedback.readResolution(bytes);
+        }
+      } catch (_) {}
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: displayName,
+        sizeBytes: attachSize,
+        resolution: resolution,
+      );
+    }());
   }
 
   void _removePendingEventPhotoFromLists({
@@ -7201,7 +7222,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     });
   }
 
-  /// Botão remover (X) com área tátil ampla e confirmação opcional.
+  /// Botão remover (X) — área tátil ≥48px + confirmação.
   Widget _mediaRemoveButton({
     required VoidCallback onRemove,
     String confirmMessage = 'Remover esta foto?',
@@ -7209,6 +7230,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return Material(
       color: Colors.black54,
       shape: const CircleBorder(),
+      elevation: 2,
       child: InkWell(
         onTap: () {
           if (!mounted) return;
@@ -7238,12 +7260,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             }),
           );
         },
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(24),
         child: const SizedBox(
-          width: 30,
-          height: 30,
+          width: 48,
+          height: 48,
           child: Center(
-            child: Icon(Icons.close, size: 20, color: Colors.white),
+            child: Icon(Icons.close_rounded, size: 26, color: Colors.white),
           ),
         ),
       ),
@@ -8790,18 +8812,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       return;
     }
-    if (!AppConnectivityService.instance.isOnline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Sem ligação à internet. Conecte-se ao Wi‑Fi ou dados móveis para publicar o evento.',
-          ),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
+    // Offline: permite publicar (fila local → sync automático).
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
@@ -8811,15 +8822,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     try {
       await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ThemeCleanPremium.showErrorSnackBarWithRetry(
-          context,
-          formatUploadErrorForUser(e),
-          onRetry: _save,
-        );
+      // Offline / bootstrap frágil → segue para compressão + fila local.
+      if (!EcoFireResilientPublish.shouldQueueFeedPublish(e) &&
+          AppConnectivityService.instance.isOnline) {
+        if (mounted) {
+          setState(() => _saving = false);
+          ThemeCleanPremium.showErrorSnackBarWithRetry(
+            context,
+            formatUploadErrorForUser(e),
+            onRetry: _save,
+          );
+        }
+        return;
       }
-      return;
+      ChurchPublishFlowLog.logCatch(e, StackTrace.current, label: 'evento_gate_soft');
     }
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
@@ -8891,7 +8907,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       try {
         await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
           context: context,
-          uploadLabel: 'A enviar capa e fotos…',
+          uploadLabel: 'Enviando foto…',
           saveLabel: 'A gravar evento…',
           distributeLabel: 'A notificar e publicar no site…',
           successMessage: isNewDoc
@@ -8943,6 +8959,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _clearPendingEventPhotosAfterPublish();
         unawaited(IosPublishMemory.releaseAfterHeavyWork());
       } catch (e, st) {
+        if (EcoFireResilientPublish.isQueuedSuccess(e) ||
+            EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+          _clearPendingEventPhotosAfterPublish();
+          EventosPublishVerificationService.clearLastError();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+            );
+            Navigator.pop(context, true);
+          }
+          return;
+        }
         EventosPublishVerificationService.rememberLastError(e);
         await CrashlyticsService.record(e, st, reason: 'eventos_publish');
         await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
@@ -8958,10 +8986,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       }
     } catch (e, st) {
-      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+      if (EcoFireResilientPublish.treatAsSilentSuccess(e) ||
+          EcoFireResilientPublish.isQueuedSuccess(e)) {
         _clearPendingEventPhotosAfterPublish();
         EventosPublishVerificationService.clearLastError();
-        await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+          );
+          Navigator.pop(context, true);
+        }
         return;
       }
       ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
@@ -9043,33 +9077,70 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     try {
-      await EventoCreatePublishService.ensureReady(logLabel: 'evento_draft');
-      await runFirebaseBackgroundTask(() async {
-      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      double? aspectRatio;
-      if (existingUrls.isNotEmpty) {
-        final prev = widget.doc?.data()?['media_info'];
-        if (prev is Map) {
-          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) aspectRatio = oar.toDouble();
-        }
+      try {
+        await EventoCreatePublishService.ensureReady(logLabel: 'evento_draft');
+      } catch (e) {
+        if (!EcoFireResilientPublish.shouldQueueFeedPublish(e)) rethrow;
       }
-      final payload = _buildEventCorePayload(
-        allUrls: existingUrls,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-      );
-      await FeedMediaPublishService.saveDraft(
-        docRef: docRef,
-        payload: payload,
-        isNewDoc: isNewDoc,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Rascunho guardado'),
+      // Persiste fotos/vídeo locais no cache + payload (título/data/descrição).
+      List<Uint8List> draftPhotos = const [];
+      try {
+        draftPhotos = await _prepareCompressedEventPhotosForPublish();
+      } catch (_) {}
+      final ctx = await _prepareEventoPublishContext();
+      final publishTenantId = ctx.igrejaId;
+      if (draftPhotos.isNotEmpty) {
+        await MuralPostPendingMediaCache.put(
+          tenantId: publishTenantId,
+          postId: docRef.id,
+          images: draftPhotos,
         );
-        Navigator.pop(context, true);
       }
+      final localVideo = _pendingLocalVideoPath();
+      final hasLocalVideo = localVideo != null && localVideo.isNotEmpty;
+      if (hasLocalVideo) {
+        await MuralPublishOutboxService.registerJob(
+          tenantId: publishTenantId,
+          postId: docRef.id,
+          postType: 'evento',
+          existingUrls: dedupeImageRefsByStorageIdentity(_existingUrls),
+          startSlotIndex: _existingUrls.length,
+          hasVideo: true,
+          localPaths: FeedEditorMediaService.existingValidPaths(_newImagePaths),
+        );
+      }
+      await runFirebaseBackgroundTask(() async {
+        final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+        double? aspectRatio;
+        if (existingUrls.isNotEmpty) {
+          final prev = widget.doc?.data()?['media_info'];
+          if (prev is Map) {
+            final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+            if (oar is num) aspectRatio = oar.toDouble();
+          }
+        }
+        final payload = _buildEventCorePayload(
+          allUrls: existingUrls,
+          aspectRatio: aspectRatio,
+          isNewDoc: isNewDoc,
+        );
+        payload['draftHasLocalPhotos'] = draftPhotos.isNotEmpty;
+        payload['draftHasLocalVideo'] = hasLocalVideo;
+        await FeedMediaPublishService.saveDraft(
+          docRef: docRef,
+          payload: payload,
+          isNewDoc: isNewDoc,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              draftPhotos.isNotEmpty || hasLocalVideo
+                  ? 'Rascunho guardado (texto + mídia local).'
+                  : 'Rascunho guardado',
+            ),
+          );
+          Navigator.pop(context, true);
+        }
       }, debugLabel: 'event_draft');
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_draft'));
@@ -9096,21 +9167,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             initialIndex: idx,
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             child: SafeNetworkImage(
                 imageUrl: _existingUrls[idx],
-                width: 160,
-                height: 160,
+                width: 220,
+                height: 220,
                 fit: BoxFit.cover,
                 placeholder: Container(
-                    width: 160,
-                    height: 160,
+                    width: 220,
+                    height: 220,
                     color: Colors.grey.shade200,
                     child: const Center(
                         child: CircularProgressIndicator(strokeWidth: 2))),
                 errorWidget: Container(
-                    width: 160,
-                    height: 160,
+                    width: 220,
+                    height: 220,
                     color: Colors.grey.shade300,
                     child: const Icon(Icons.broken_image_rounded,
                         color: Colors.grey))),
@@ -9131,12 +9202,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ? feedEditorLocalPhotoThumb(
               webBytes: _newImages[idx],
               mobilePath: null,
-              size: 160,
+              size: 220,
             )
           : feedEditorLocalPhotoThumb(
               webBytes: null,
               mobilePath: _newImagePaths[idx],
-              size: 160,
+              size: 220,
             );
       final sizeLabel = idx < _newSizes.length
           ? ImmediateMediaAttachFeedback.formatBytes(_newSizes[idx])

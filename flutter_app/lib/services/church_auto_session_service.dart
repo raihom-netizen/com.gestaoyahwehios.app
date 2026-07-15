@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_web_origin.dart';
 import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
@@ -92,10 +92,8 @@ class ChurchAutoSessionService {
       tid = churchId;
     }
 
-    unawaited(
-      ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
-    );
-    ChurchPanelModulePrefetchService.scheduleFullPrefetch(tid);
+    // Prefetch crítico só — full prefetch + OfflineWarmup pesado saturavam a Web.
+    ChurchPanelModulePrefetchService.scheduleCriticalPrefetch(tid);
     final results = await Future.wait<dynamic>([
       PanelDashboardSnapshotService.warmFromCallableIfStale(tid),
       MembersDirectorySnapshotService.warmFromCallableIfStale(tid),
@@ -104,12 +102,14 @@ class ChurchAutoSessionService {
     final panel = results[0] as PanelDashboardSnapshot;
     final prefetchRaw = results[2] as Map<String, dynamic>?;
     await PanelMediaPrefetchService.applyToUrlCaches(tid, raw: prefetchRaw);
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tid, prefetchRaw),
-    );
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesForPanel(tenantId: tid, panel: panel),
-    );
+    if (!kIsWeb) {
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tid, prefetchRaw),
+      );
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesForPanel(tenantId: tid, panel: panel),
+      );
+    }
   }
 
   /// Delega ao coordenador — uma onda de callable por tenant/sessão.

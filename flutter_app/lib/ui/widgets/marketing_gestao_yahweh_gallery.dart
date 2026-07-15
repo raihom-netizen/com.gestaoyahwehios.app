@@ -1107,7 +1107,7 @@ class _MarketingImageLightboxDialog extends StatefulWidget {
 
 class _MarketingImageLightboxDialogState
     extends State<_MarketingImageLightboxDialog> {
-  static const int _maxBytes = 18 * 1024 * 1024;
+  static const int _maxBytes = 6 * 1024 * 1024;
   late Future<Uint8List?> _future;
 
   @override

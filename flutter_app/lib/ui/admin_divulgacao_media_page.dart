@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -19,8 +20,10 @@ import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
 /// Evita maps read-only do snapshot e falhas de interop na web ao gravar `items`.
 List<Map<String, dynamic>> _cloneGalleryItemMaps(List<Map<String, dynamic>> items) {
@@ -359,12 +362,13 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
 
   Future<void> _pickAndUpload() async {
     if (_uploading) return;
-    if (!await YahwehModuleMediaGate.ensureReadyForPick(
-      context: context,
-      module: YahwehMediaModule.divulgacao,
-    )) {
-      return;
-    }
+    // Master: aquecer Firebase sem bloquear o picker (ritmo do painel igreja).
+    unawaited(
+      YahwehModuleMediaGate.ensureReadyForPick(
+        context: null,
+        module: YahwehMediaModule.divulgacao,
+      ).catchError((_) => false),
+    );
     final result = await YahwehFilePicker.pickFiles(
       withData: true,
       type: FileType.custom,
@@ -394,6 +398,20 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
 
     final ext = _extOf(picked.name);
     final kind = _kindFromExt(ext);
+    if (kind == 'image' && mounted) {
+      final resolution = bytes.isNotEmpty
+          ? await ImmediateMediaAttachFeedback.readResolution(
+              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+            )
+          : null;
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: picked.name,
+        sizeBytes: bytes.length,
+        resolution: resolution,
+      );
+    }
     final suggestedTitle = _baseNameNoExt(picked.name);
     final form = await _showCmsMaterialFormDialog(
       suggestedTitle: suggestedTitle,
@@ -411,6 +429,9 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
       _uploading = true;
       _uploadProgress = 0;
     });
+    GlobalUploadProgress.instance.start(
+      kind == 'image' ? 'Enviando imagem…' : 'Enviando ficheiro…',
+    );
     try {
       final isImage = kind == 'image';
       final ChurchCanonicalUploadResult uploaded;
@@ -421,6 +442,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
           gateModule: YahwehMediaModule.divulgacao,
           logLabel: 'admin_divulgacao_upload',
           onProgress: (p) {
+            GlobalUploadProgress.instance.update(p);
             if (!mounted) return;
             setState(() => _uploadProgress = p);
           },
@@ -433,6 +455,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
           gateModule: YahwehMediaModule.divulgacao,
           logLabel: 'admin_divulgacao_upload',
           onProgress: (p) {
+            GlobalUploadProgress.instance.update(p);
             if (!mounted) return;
             setState(() => _uploadProgress = p);
           },
@@ -466,9 +489,14 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
       await YahwehModuleMediaGate.recoverNoAppAfterPublishError(e);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao enviar mídia: $e')),
+        SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     } finally {
+      GlobalUploadProgress.instance.end();
       if (mounted) {
         setState(() {
           _uploading = false;

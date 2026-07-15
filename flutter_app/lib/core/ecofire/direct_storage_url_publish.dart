@@ -4,8 +4,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
 /// Upload direto Storage → URL https — padrão Wisdom / Controle Total / EcoFire.
@@ -26,17 +24,24 @@ abstract final class DirectStorageUrlPublish {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(
-            Duration(milliseconds: 100 + 100 * attempt),
+            Duration(milliseconds: 120 + 120 * attempt),
           );
           await EcoFireDirectFirebase.ensureDefaultApp();
         }
+        // Pipeline único: bootstrap Storage+Auth (anti core/no-app).
+        await FirebaseBootstrapService.ensureReadyForStorageUpload(
+          requireAuth: requireAuth,
+        );
         await EcoFireDirectFirebase.ensureForStoragePut(
           requireAuth: requireAuth,
         );
         return;
       } catch (e) {
         last = e;
-        if (attempt < maxAttempts - 1 && isFirebaseNoAppError(e)) {
+        final retryable = isFirebaseNoAppError(e) ||
+            e.toString().toLowerCase().contains('unavailable') ||
+            e.toString().toLowerCase().contains('network');
+        if (attempt < maxAttempts - 1 && retryable) {
           continue;
         }
         rethrow;

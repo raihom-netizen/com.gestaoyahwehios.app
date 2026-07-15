@@ -13,12 +13,14 @@ import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser;
+    show formatUploadErrorForUser;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -1232,11 +1234,22 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       if (picked == null || !mounted) return;
       final bytes = await picked.readAsBytes();
-      if (mounted) setState(() => _gPhotoBytes = bytes);
+      if (!mounted || bytes.isEmpty) return;
+      setState(() => _gPhotoBytes = bytes);
+      final resolution =
+          await ImmediateMediaAttachFeedback.readResolution(bytes);
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: picked.name.trim().isNotEmpty ? picked.name : 'foto_gestor.webp',
+        sizeBytes: bytes.length,
+        resolution: resolution,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao escolher foto: $e'));
+            ThemeCleanPremium.feedbackSnackBar(
+                'Erro ao escolher foto: ${formatUploadErrorForUser(e)}'));
       }
     }
   }
@@ -1759,27 +1772,34 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         });
         _logoEditorKey.currentState?.resetAfterSave();
       } else if (_canEdit && _logoSnap.pendingBytes != null) {
-        final published = await ChurchLogoUpdateService.publishLogoStrict(
-          churchIdHint: resolvedId,
-          rawBytes: _logoSnap.pendingBytes!,
-          previousStoragePath: _logoStoragePath,
-        );
-        if (!mounted) return;
-        setState(() {
-          _logoUrl = YahwehMediaCacheBust.apply(
-            published.downloadUrl,
-            published.cacheRevision,
+        GlobalUploadProgress.instance.start('Enviando logo…');
+        try {
+          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+          final published = await ChurchLogoUpdateService.publishLogoStrict(
+            churchIdHint: resolvedId,
+            rawBytes: _logoSnap.pendingBytes!,
+            previousStoragePath: _logoStoragePath,
+            onProgress: (p) => GlobalUploadProgress.instance.update(p),
           );
-          _logoStoragePath = published.storagePath;
-          _tenantLiveData = {
-            ..._tenantLiveData,
-            'logoUrl': published.downloadUrl,
-            'logoPath': published.downloadUrl,
-            'logoStoragePath': published.storagePath,
-            'logoCacheRevision': published.cacheRevision,
-          };
-        });
-        _logoEditorKey.currentState?.resetAfterSave();
+          if (!mounted) return;
+          setState(() {
+            _logoUrl = YahwehMediaCacheBust.apply(
+              published.downloadUrl,
+              published.cacheRevision,
+            );
+            _logoStoragePath = published.storagePath;
+            _tenantLiveData = {
+              ..._tenantLiveData,
+              'logoUrl': published.downloadUrl,
+              'logoPath': published.downloadUrl,
+              'logoStoragePath': published.storagePath,
+              'logoCacheRevision': published.cacheRevision,
+            };
+          });
+          _logoEditorKey.currentState?.resetAfterSave();
+        } finally {
+          GlobalUploadProgress.instance.end();
+        }
       }
       final slugRaw = _slugCtrl.text
           .trim()
@@ -1989,7 +2009,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted) return;
       final msg = FirestoreWebGuard.isInternalAssertionError(e)
           ? 'Firestore instável na web. Aguarde 3 segundos e toque em Salvar novamente.'
-          : formatFirebaseErrorForUser(e);
+          : formatUploadErrorForUser(e);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(msg),
       );

@@ -581,17 +581,31 @@ Future<void> precacheHostedVideosFromFeed(
 
 /// Pré-carrega imagens e aquece primeiros bytes dos vídeos hospedados (feed tipo Instagram).
 /// Os **3 primeiros** posts têm prioridade no pré-fetch de imagens (avisos instantâneos ao abrir).
+String? _feedWarmLastKey;
+DateTime? _feedWarmLastAt;
+
 Future<void> scheduleFeedMediaWarmup(
   BuildContext context,
   List<Map<String, dynamic>> docMaps, {
   int maxDocs = 8,
 }) async {
-  if (!context.mounted) return;
+  if (!context.mounted || docMaps.isEmpty) return;
+  final capped = maxDocs.clamp(1, 6);
+  final leadId = (docMaps.first['id'] ?? docMaps.first['docId'] ?? '').toString();
+  final warmKey = '$leadId|${docMaps.length}|$capped';
+  final now = DateTime.now();
+  if (_feedWarmLastKey == warmKey &&
+      _feedWarmLastAt != null &&
+      now.difference(_feedWarmLastAt!) < const Duration(seconds: 10)) {
+    return;
+  }
+  _feedWarmLastKey = warmKey;
+  _feedWarmLastAt = now;
   final imageUrls = <String>[];
   final leadImageUrls = <String>[];
   final videoUrls = <String>[];
   var docIndex = 0;
-  for (final m in docMaps.take(maxDocs)) {
+  for (final m in docMaps.take(capped)) {
     void addPhotosTo(List<String> bucket) {
       for (final p in eventNoticiaPhotoUrls(m)) {
         final s = sanitizeImageUrl(p);

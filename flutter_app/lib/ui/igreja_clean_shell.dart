@@ -859,19 +859,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void _schedulePostTenantWarmups() {
     final tid = _moduleTenantId.trim();
     if (tid.isEmpty) return;
+    // Uma onda só: cache local + prefetch crítico + mídia do dashboard.
+    // (Evita OfflineWarmup + FullPrefetch + footer a saturar Firestore Web.)
     YahwehCacheBootstrap.scheduleTenantWarm(tid);
-    unawaited(ChurchTenantOfflineWarmupService.instance
-        .scheduleWarmupAfterLogin(tid));
     TenantIntelligentPreload.scheduleAfterDashboard(tid);
     unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
       context,
       tid,
     ));
-    // Pré-aquece atalhos do rodapé (dados já em produção).
-    for (final idx in ChurchShellLazyModulePolicy.mobileFooterIndices) {
-      if (!_canAccessItem(idx)) continue;
-      _prefetchShellModuleData(idx);
-    }
   }
 
   Widget _buildShellGateBody() {

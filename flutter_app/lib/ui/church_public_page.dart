@@ -336,7 +336,7 @@ class _ChurchPublicMuralStreamSliverState
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(scheduleFeedMediaWarmup(context, local, maxDocs: 8));
+        unawaited(scheduleFeedMediaWarmup(context, local, maxDocs: 4));
       });
     }
 
@@ -374,7 +374,7 @@ class _ChurchPublicMuralStreamSliverState
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        unawaited(scheduleFeedMediaWarmup(context, seedRows, maxDocs: 8));
+        unawaited(scheduleFeedMediaWarmup(context, seedRows, maxDocs: 4));
       });
     } else if (_items == null && seedRows.isEmpty) {
       setState(() {
@@ -412,7 +412,7 @@ class _ChurchPublicMuralStreamSliverState
             _didWarmup = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              unawaited(scheduleFeedMediaWarmup(context, rows, maxDocs: 8));
+              unawaited(scheduleFeedMediaWarmup(context, rows, maxDocs: 4));
             });
           }
         },
@@ -456,7 +456,7 @@ class _ChurchPublicMuralStreamSliverState
             unawaited(scheduleFeedMediaWarmup(
               context,
               warm,
-              maxDocs: 8,
+              maxDocs: 4,
             ));
           });
         }
@@ -5321,11 +5321,11 @@ class _ChurchTenantFallback extends StatelessWidget {
                     .toList();
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (!context.mounted) return;
-                  preloadNetworkImages(context, preloadUrls, maxItems: 12);
+                  preloadNetworkImages(context, preloadUrls, maxItems: 8);
                   unawaited(scheduleFeedMediaWarmup(
                     context,
                     items.map((e) => e.data()).toList(),
-                    maxDocs: 12,
+                    maxDocs: 4,
                   ));
                 });
                 if (items.isEmpty)
@@ -5956,9 +5956,7 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
       _bootTenant = _churchPublicTenantFromResolved(peek);
     }
     unawaited(PublicSiteMediaAuth.ensurePublicVisitorMediaAccess());
-    unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
-      module: YahwehMediaModule.eventos,
-    ));
+    // Um único warm de mídia pública (avisos cobre o pipeline Storage compartilhado).
     unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
       module: YahwehMediaModule.avisos,
     ));
@@ -5994,9 +5992,8 @@ class _ChurchPublicPageState extends State<ChurchPublicPage> {
           refreshServerCacheInBackground: true,
         ),
       );
-      for (final days in const [7, 15, 30]) {
-        unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(next.id, days));
-      }
+      // Uma janela de programação no first paint (15d) — evita 3 hydrates em paralelo.
+      unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(next.id, 15));
       unawaited(PublicChurchSlugResolver.resolveEnrich(slug, seed: fast));
     } catch (_) {}
   }

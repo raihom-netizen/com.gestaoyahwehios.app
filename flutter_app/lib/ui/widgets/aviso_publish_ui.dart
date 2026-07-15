@@ -1,10 +1,15 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatUploadErrorForUser, isFirebaseNoAppError;
+    show
+        formatUploadErrorForUser,
+        isFirebaseNoAppError,
+        kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -12,8 +17,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 abstract final class EcofirePublishProgressUi {
   EcofirePublishProgressUi._();
 
-  /// Publicação estilo WhatsApp: fecha o editor de imediato e mostra barra global
-  /// ([GlobalUploadProgress] / [StorageUploadProgressIndicator] no feed).
+  /// Publicação estilo WhatsApp: garante Firebase → fecha editor → barra global.
   static Future<T> runInBackgroundNonBlocking<T>({
     required BuildContext context,
     required String uploadLabel,
@@ -25,9 +29,9 @@ abstract final class EcofirePublishProgressUi {
     String Function(Object error)? formatError,
   }) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
-    closeEditor();
     GlobalUploadProgress.instance.start(uploadLabel);
     var phaseLabel = uploadLabel;
+    var editorClosed = false;
 
     void reportProgress(double p) {
       final next = p < 0.78
@@ -42,14 +46,45 @@ abstract final class EcofirePublishProgressUi {
       GlobalUploadProgress.instance.update(p);
     }
 
+    void closeOnce() {
+      if (editorClosed) return;
+      editorClosed = true;
+      closeEditor();
+    }
+
     try {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      // Gate ANTES de fechar o editor — evita perder o formulário se sync falhar.
+      var gateSoftOffline = false;
+      try {
+        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      } catch (gateErr) {
+        if (EcoFireResilientPublish.shouldQueueFeedPublish(gateErr)) {
+          gateSoftOffline = true;
+          if (kDebugMode) {
+            debugPrint('publish_gate_soft_offline: $gateErr');
+          }
+        } else {
+          rethrow;
+        }
+      }
+      closeOnce();
       final result = await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
-        ThemeCleanPremium.successSnackBar(successMessage),
+        ThemeCleanPremium.successSnackBar(
+          gateSoftOffline ? kFeedPublishQueuedUserMessage : successMessage,
+        ),
       );
       return result;
     } catch (e) {
+      if (EcoFireResilientPublish.isQueuedSuccess(e)) {
+        closeOnce();
+        messenger?.showSnackBar(
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+        );
+        // Propaga para o chamador tratar como sucesso local (sem snack vermelho).
+        rethrow;
+      }
+      // Editor permanece aberto se o gate falhou antes do closeOnce.
       final msg = formatError?.call(e) ?? formatUploadErrorForUser(e);
       messenger?.showSnackBar(
         SnackBar(

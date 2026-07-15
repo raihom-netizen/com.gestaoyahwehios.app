@@ -144,13 +144,27 @@ abstract final class EventoPublishService {
           await DirectStorageUrlPublish.ensureReady(requireAuth: true);
           continue;
         }
-        if (EcoFireResilientPublish.shouldQueueSilently(e)) {
+        if (EcoFireResilientPublish.shouldQueueFeedPublish(e)) {
           ChurchPublishFlowLog.logCatch(
             e,
             StackTrace.current,
-            label: 'evento_offline',
+            label: 'evento_offline_queue',
           );
-          rethrow;
+          await EcoFireResilientPublish.queueFeedPublish(
+            churchId: churchId,
+            docId: docRef.id,
+            postType: 'evento',
+            docRef: docRef,
+            corePayload: payload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlotIndex,
+            hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
+            bytesList: newImagesBytes,
+            localPaths: newImagePaths,
+          );
+          EcoFireResilientPublish.scheduleSync(reason: 'evento_queued');
+          throw ResilientPublishQueuedException('evento:${docRef.id}');
         }
         rethrow;
       }

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
@@ -368,15 +367,6 @@ Future<Uint8List> utilitariosReadPlatformFileBytes(PlatformFile f) async {
   }
 
   if (kIsWeb) {
-    final path = _normalizePickPath(f.path);
-    if (path != null && path.isNotEmpty) {
-      try {
-        final raw = await XFile(path).readAsBytes();
-        if (raw.isNotEmpty) {
-          return Uint8List.fromList(raw);
-        }
-      } catch (_) {}
-    }
     throw StateError(
       'Não foi possível ler o arquivo no navegador. Tente outro arquivo ou use o app no celular.',
     );

@@ -181,6 +181,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         'maxInstallments': _parcelas,
         'donationKind': _donationKind,
         'donationObs': _obsCtrl.text.trim(),
+        'paymentMethod': 'card',
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final url = (data['init_point'] ?? '').toString().trim();

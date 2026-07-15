@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/utilitarios_photo_service.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow.dart';
 
 /// Painel de colagem — prévia instantânea na UI; exportação em alta qualidade.

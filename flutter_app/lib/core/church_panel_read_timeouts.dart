@@ -24,9 +24,9 @@ abstract final class ChurchPanelReadTimeouts {
   static Duration get warmCap =>
       kIsWeb ? const Duration(seconds: 60) : const Duration(seconds: 22);
 
-  /// Prefetch completo pós-login (não bloqueia UI).
+  /// Prefetch pós-login (não bloqueia UI) — cap curto para não enfileirar reads.
   static Duration get prefetchCap =>
-      kIsWeb ? const Duration(seconds: 100) : const Duration(seconds: 50);
+      kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 22);
 
   /// Doc raiz da igreja (cadastro).
   static Duration get churchDocCap =>

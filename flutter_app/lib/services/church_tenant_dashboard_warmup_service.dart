@@ -72,7 +72,7 @@ abstract final class ChurchTenantDashboardWarmupService {
           context: context,
           tenantId: tenantId,
           directory: membersDir,
-          maxMembers: 120,
+          maxMembers: 40,
         );
       }
 

@@ -515,8 +515,8 @@ class _MembersPageState extends State<MembersPage> {
   /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
   static const int _membersPageSize = YahwehPerformanceV4.defaultPageSize;
-  /// Lista completa via `_panel_cache/members_directory` (62+ membros) — não paginar na UI.
-  static const int _membersListInstantCap = 500;
+  /// Primeiro paint — no máx. 2 páginas; resto via «Carregar mais».
+  static const int _membersListInstantCap = 40;
   /// Leitura Firestore inicial — evita baixar 500 docs pesados na abertura.
   static const int _membersFirestoreInitialLimit =
       YahwehPerformanceV4.blindListPageSize;

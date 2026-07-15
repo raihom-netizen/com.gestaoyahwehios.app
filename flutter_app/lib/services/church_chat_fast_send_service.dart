@@ -24,12 +24,20 @@ abstract final class ChurchChatFastSendService {
       return Future<void>.value();
     }
     _warmInFlight ??= DirectStorageUrlPublish.ensureReady(requireAuth: true)
-        .whenComplete(() {
+        .then((_) {
       _lastWarm = DateTime.now();
+    }).catchError((_) {
+      // Mantém _lastWarm nulo para forçar retry no próximo warm.
+    }).whenComplete(() {
       _warmInFlight = null;
     });
     return _warmInFlight!;
   }
+
+  /// True se o gate Ecofire aquceu há pouco — envio de mídia pode saltar ensureReady.
+  static bool get isPipelineWarm =>
+      _lastWarm != null &&
+      DateTime.now().difference(_lastWarm!) < const Duration(seconds: 45);
 
   /// Texto — UI optimista instantânea; Firestore em background.
   static Future<void> sendText({

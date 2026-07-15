@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
 /// Estado local — publicação strict no «Salvar igreja».
 class ChurchLogoEditorSnapshot {
@@ -157,18 +158,21 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
         _removeExisting = false;
       });
       _notify();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Logo selecionada em alta resolução — toque «Salvar igreja» para publicar.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
+      final resolution =
+          await ImmediateMediaAttachFeedback.readResolution(bytes);
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: file.name.trim().isNotEmpty ? file.name : 'logo.webp',
+        sizeBytes: bytes.length,
+        resolution: resolution,
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro ao selecionar logo: $e'),
+        ThemeCleanPremium.feedbackSnackBar(
+          'Erro ao selecionar logo: $e',
+        ),
       );
     }
   }
@@ -191,6 +195,15 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
         _removeExisting = false;
       });
       _notify();
+      final resolution =
+          await ImmediateMediaAttachFeedback.readResolution(bytes);
+      if (!mounted) return;
+      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
+        context,
+        fileName: file.name.trim().isNotEmpty ? file.name : 'logo_camera.webp',
+        sizeBytes: bytes.length,
+        resolution: resolution,
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

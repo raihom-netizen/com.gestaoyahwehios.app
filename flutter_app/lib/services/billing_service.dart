@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+
 /// Ciclo de cobrança: mensal ou anual.
 enum BillingCycle { monthly, annual }
 
@@ -37,14 +38,14 @@ class MpPixSession {
 
 class BillingService {
   final FirebaseFunctions _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
+  /// Removido da UI de produção — a callable [activatePlanDemo] não existe no backend.
+  @Deprecated('Usar PIX, cartão Mercado Pago ou Google Play.')
   Future<void> activatePlanDemo(String planId) async {
-    final callable = _functions.httpsCallable(
-      'activatePlanDemo',
-      options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+    throw StateError(
+      'Ativação demo indisponível. Use PIX, cartão ou Google Play para ativar a licença.',
     );
-    await callable.call({'planId': planId});
   }
 
   /// Cria preferência de pagamento no Mercado Pago.
@@ -59,6 +60,8 @@ class BillingService {
     int installments = 10,
     /// Só [createMpPreapproval]: volta do MP para esta rota (ex. `/atualizar-plano`).
     String? returnPath,
+    /// Igreja a licenciar (fallback se claims Auth estiverem vazios).
+    String? tenantId,
   }) async {
     final callable = _functions.httpsCallable(
       'createMpPreapproval',
@@ -69,6 +72,11 @@ class BillingService {
       'billingCycle': billingCycle == BillingCycle.annual ? 'annual' : 'monthly',
       'paymentMethod': paymentMethod == PaymentMethod.card ? 'card' : 'pix',
     };
+    final tid = tenantId?.trim() ?? '';
+    if (tid.isNotEmpty) {
+      payload['tenantId'] = tid;
+      payload['igrejaId'] = tid;
+    }
     // Sempre enviar parcelas no cartão (1–6 anual, 1 mensal) para o backend não assumir default errado.
     if (paymentMethod == PaymentMethod.card) {
       final n = installments.clamp(1, 12);
@@ -92,15 +100,22 @@ class BillingService {
   Future<MpPixSession> createMpPixPayment({
     required String planId,
     BillingCycle billingCycle = BillingCycle.monthly,
+    String? tenantId,
   }) async {
     final callable = _functions.httpsCallable(
       'createMpPixPayment',
       options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
     );
-    final res = await callable.call({
+    final payload = <String, dynamic>{
       'planId': planId,
       'billingCycle': billingCycle == BillingCycle.annual ? 'annual' : 'monthly',
-    });
+    };
+    final tid = tenantId?.trim() ?? '';
+    if (tid.isNotEmpty) {
+      payload['tenantId'] = tid;
+      payload['igrejaId'] = tid;
+    }
+    final res = await callable.call(payload);
     final data = res.data as Map? ?? {};
     return MpPixSession(
       paymentId: (data['payment_id'] ?? data['paymentId'] ?? '').toString(),
@@ -116,4 +131,3 @@ class BillingService {
     return s.initPoint;
   }
 }
-

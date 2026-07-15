@@ -11,7 +11,9 @@ import 'package:gestao_yahweh/services/utilitarios_photo_text_extract_service.da
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 
-/// Abre o fluxo «Extração de texto em foto» (estilo Google Lens).
+const String _kPhotoTextExtractTitle = 'Controletotalapp extração de texto';
+
+/// Abre o fluxo de extração de texto em foto (Controletotalapp).
 Future<void> openUtilitariosPhotoTextExtractFlow(
   BuildContext context, {
   required String quotaUid,
@@ -26,6 +28,30 @@ Future<void> openUtilitariosPhotoTextExtractFlow(
       ),
     ),
   );
+}
+
+class _ParaFormatStyle {
+  const _ParaFormatStyle({
+    this.isHeading = false,
+    this.isBold = false,
+    this.isBullet = false,
+  });
+
+  final bool isHeading;
+  final bool isBold;
+  final bool isBullet;
+
+  _ParaFormatStyle copyWith({
+    bool? isHeading,
+    bool? isBold,
+    bool? isBullet,
+  }) {
+    return _ParaFormatStyle(
+      isHeading: isHeading ?? this.isHeading,
+      isBold: isBold ?? this.isBold,
+      isBullet: isBullet ?? this.isBullet,
+    );
+  }
 }
 
 class _PhotoTextExtractPage extends StatefulWidget {
@@ -56,8 +82,15 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   bool _busy = false;
   String? _busyLabel;
   Uint8List? _previewImage;
-  List<UtilPhotoTextParagraph> _paragraphs = const [];
+  List<_ParaFormatStyle> _paraStyles = const [];
   String? _sourceName;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pré-aquece ML Kit enquanto o usuário escolhe Tirar foto / Galeria.
+    unawaited(UtilitariosPhotoTextExtractService.warmUp());
+  }
 
   @override
   void dispose() {
@@ -68,6 +101,42 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   }
 
   bool get _hasText => _textCtrl.text.trim().isNotEmpty;
+
+  int get _paragraphCount {
+    final t = _textCtrl.text.trim();
+    if (t.isEmpty) return 0;
+    return t.split(RegExp(r'\n\s*\n')).where((p) => p.trim().isNotEmpty).length;
+  }
+
+  int _paragraphIndexAtCursor() {
+    final text = _textCtrl.text;
+    final sel = _textCtrl.selection.baseOffset.clamp(0, text.length);
+    final before = text.substring(0, sel);
+    if (before.trim().isEmpty) return 0;
+    return before.split(RegExp(r'\n\s*\n')).length - 1;
+  }
+
+  void _syncParaStyles() {
+    final count = _paragraphCount;
+    if (count == _paraStyles.length) return;
+    final next = List<_ParaFormatStyle>.from(_paraStyles);
+    while (next.length < count) {
+      next.add(const _ParaFormatStyle());
+    }
+    if (next.length > count) {
+      next.removeRange(count, next.length);
+    }
+    _paraStyles = next;
+  }
+
+  void _applyParaStyle(_ParaFormatStyle Function(_ParaFormatStyle s) mutate) {
+    _syncParaStyles();
+    if (_paraStyles.isEmpty) return;
+    final idx = _paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1);
+    final updated = List<_ParaFormatStyle>.from(_paraStyles);
+    updated[idx] = mutate(updated[idx]);
+    setState(() => _paraStyles = updated);
+  }
 
   Future<void> _withBusy(String label, Future<void> Function() fn) async {
     setState(() {
@@ -97,18 +166,25 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   }
 
   Future<void> _pickAndExtract(ImageSource source) async {
-    await _withBusy('Abrindo…', () async {
-      Uint8List bytes;
-      String name;
-      if (source == ImageSource.camera) {
+    if (_busy) return;
+    // Câmera/galeria nativa SEM overlay — só “Lendo…” depois do disparo.
+    Uint8List bytes = Uint8List(0);
+    String name = 'foto.jpg';
+    String? path;
+    try {
+      if (source == ImageSource.camera || (!kIsWeb && source == ImageSource.gallery)) {
         final x = await _picker.pickImage(
-          source: ImageSource.camera,
-          imageQuality: 92,
-          maxWidth: 4096,
+          source: source,
+          // Sem maxWidth: evita 2º reencode no picker (demora no Android).
+          // quality 70 já deixa o JPEG leve para o ML Kit.
+          imageQuality: 70,
+          requestFullMetadata: false,
+          preferredCameraDevice: CameraDevice.rear,
         );
         if (x == null) return;
-        bytes = await x.readAsBytes();
         name = x.name;
+        path = x.path;
+        // NÃO readAsBytes aqui — ML Kit usa o arquivo direto.
       } else {
         final files = await utilitariosPickPlatformFiles(
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
@@ -118,40 +194,79 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
         final f = files.first;
         bytes = await utilitariosReadPlatformFileBytes(f);
         name = f.name;
+        path = f.path;
+        if (bytes.isEmpty) throw StateError('Imagem vazia.');
       }
-      if (bytes.isEmpty) throw StateError('Imagem vazia.');
-      await _runExtraction(bytes, sourceName: name);
-    });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    await _runExtraction(bytes, sourceName: name, filePath: path);
   }
 
-  Future<void> _runExtraction(Uint8List bytes, {String? sourceName}) async {
-    setState(() {
-      _busy = true;
-      _busyLabel = 'Extraindo texto (IA local)…';
-    });
-    try {
-      final quotaErr = await UtilitariosDailyQuotaService.checkLight(
-        widget.quotaUid,
-        isAdmin: widget.isAdmin,
-      );
-      if (quotaErr != null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(quotaErr), behavior: SnackBarBehavior.floating),
-        );
-        return;
-      }
-      final r = await UtilitariosPhotoTextExtractService.extractFromImage(bytes);
-      if (!mounted) return;
+  Future<void> _runExtraction(
+    Uint8List bytes, {
+    String? sourceName,
+    String? filePath,
+  }) async {
+    // Só “Lendo…” — OCR no path nativo (sem decode Flutter no hot path).
+    if (mounted) {
       setState(() {
-        _previewImage = r.sourcePreview;
-        _paragraphs = r.paragraphs;
+        _busy = true;
+        _busyLabel = 'Lendo…';
+        if (bytes.isNotEmpty) _previewImage = bytes;
+        _sourceName = sourceName;
+      });
+    }
+    try {
+      final r = await UtilitariosPhotoTextExtractService.extractFromImage(
+        bytes,
+        filePath: filePath,
+      );
+      if (!mounted) return;
+      final styles = r.paragraphs
+          .map(
+            (p) => _ParaFormatStyle(
+              isHeading: p.isHeading,
+              isBold: p.isBold,
+              isBullet: p.isBullet,
+            ),
+          )
+          .toList();
+      setState(() {
+        if (r.sourcePreview.isNotEmpty) {
+          _previewImage = r.sourcePreview;
+        }
+        _paraStyles = styles;
         _sourceName = sourceName;
         _textCtrl.text = r.plainText;
       });
-      await UtilitariosDailyQuotaService.consumeLight(
-        widget.quotaUid,
-        isAdmin: widget.isAdmin,
+      // Preview e cota fora do hot path — libera a UI na hora.
+      if ((_previewImage == null || _previewImage!.isEmpty) &&
+          filePath != null &&
+          filePath.isNotEmpty) {
+        unawaited(
+          UtilitariosPhotoTextExtractService.loadPreviewBytes(filePath).then((
+            preview,
+          ) {
+            if (!mounted || preview == null || preview.isEmpty) return;
+            setState(() => _previewImage = preview);
+          }),
+        );
+      }
+      unawaited(
+        UtilitariosDailyQuotaService.consumeLight(
+          widget.quotaUid,
+          isAdmin: widget.isAdmin,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -174,23 +289,23 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   }
 
   List<UtilPhotoTextParagraph> _paragraphsFromEditedText() {
-    final text = _textCtrl.text.trim();
-    if (text.isEmpty) return const [];
-    final headingByText = {
-      for (final p in _paragraphs) p.text.trim(): p.isHeading,
-    };
-    return text
+    _syncParaStyles();
+    final parts = _textCtrl.text
         .split(RegExp(r'\n\s*\n'))
         .map((p) => p.trim())
         .where((p) => p.isNotEmpty)
-        .map(
-          (p) => UtilPhotoTextParagraph(
-            text: p,
-            isHeading:
-                headingByText[p] ?? UtilitariosLocalService.looksLikeDocumentHeading(p),
-          ),
-        )
         .toList();
+    return [
+      for (var i = 0; i < parts.length; i++)
+        UtilPhotoTextParagraph(
+          text: parts[i],
+          isHeading: i < _paraStyles.length
+              ? _paraStyles[i].isHeading
+              : UtilitariosLocalService.looksLikeDocumentHeading(parts[i]),
+          isBold: i < _paraStyles.length ? _paraStyles[i].isBold : false,
+          isBullet: i < _paraStyles.length ? _paraStyles[i].isBullet : false,
+        ),
+    ];
   }
 
   String _exportStem() {
@@ -219,7 +334,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   Future<void> _exportPdf() async {
     if (!_hasText) return;
     await _withBusy('Gerando PDF…', () async {
-      final bytes = await UtilitariosPhotoTextExtractService.buildPdf(_textCtrl.text);
+      final paras = _paragraphsFromEditedText();
+      final bytes = await UtilitariosPhotoTextExtractService.buildPdf(paras);
       if (!mounted) return;
       await _showExportSheet(
         bytes: bytes,
@@ -315,19 +431,26 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
   void _resetToPicker() {
     setState(() {
       _previewImage = null;
-      _paragraphs = const [];
+      _paraStyles = const [];
       _sourceName = null;
       _textCtrl.clear();
     });
   }
 
+  String _wordCountLabel(int words) =>
+      words == 1 ? '1 palavra' : '$words palavras';
+
   @override
   Widget build(BuildContext context) {
-    final hasPreview = _previewImage != null && _hasText;
+    final hasPreview = _hasText;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Extração de texto em foto'),
+        title: Text(
+          _kPhotoTextExtractTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: _busy ? null : () => Navigator.pop(context),
@@ -360,11 +483,13 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: _gradient.map((c) => c.withValues(alpha: 0.12)).toList(),
+                colors: _gradient.map((c) => c.withValues(alpha: 0.1)).toList(),
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(22),
               border: Border.all(
-                color: _gradient.first.withValues(alpha: 0.25),
+                color: _gradient.first.withValues(alpha: 0.22),
               ),
             ),
             child: Column(
@@ -376,7 +501,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: _gradient.first.withValues(alpha: 0.35),
+                        color: _gradient.first.withValues(alpha: 0.32),
                         blurRadius: 18,
                         offset: const Offset(0, 8),
                       ),
@@ -390,14 +515,13 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Estilo Google Lens',
-                  style: ModernModuleUI.moduleTitleStyle(context, fontSize: 20),
+                  _kPhotoTextExtractTitle,
+                  style: ModernModuleUI.moduleTitleStyle(context, fontSize: 19),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Tire uma foto ou escolha da galeria. O app extrai o texto, '
-                  'mostra um preview editável e gera Word ou PDF.',
+                  'Câmera do aparelho → texto na hora (ML Kit / Lens). Edite e exporte Word ou PDF.',
                   textAlign: TextAlign.center,
                   style: ModernModuleUI.moduleSubtitleStyle(context),
                 ),
@@ -422,7 +546,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
           if (kIsWeb) ...[
             const SizedBox(height: 14),
             Text(
-              'Na web o OCR usa visão em nuvem (login) ou Textify local.',
+              'Na web o OCR usa visão em nuvem (login) ou motor local.',
               textAlign: TextAlign.center,
               style: ModernModuleUI.moduleSubtitleStyle(context, fontSize: 12),
             ),
@@ -432,22 +556,129 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     );
   }
 
+  Widget _buildFormatToolbar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _gradient.first.withValues(alpha: 0.18)),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _formatChip(
+              icon: Icons.title_rounded,
+              label: 'Título',
+              active: _paraStyles.isNotEmpty &&
+                  _paragraphIndexAtCursor() < _paraStyles.length &&
+                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                      .isHeading,
+              onTap: _busy || !_hasText
+                  ? null
+                  : () => _applyParaStyle(
+                        (s) => s.copyWith(isHeading: !s.isHeading, isBold: false),
+                      ),
+            ),
+            _formatChip(
+              icon: Icons.format_bold_rounded,
+              label: 'Negrito',
+              active: _paraStyles.isNotEmpty &&
+                  _paragraphIndexAtCursor() < _paraStyles.length &&
+                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                      .isBold,
+              onTap: _busy || !_hasText
+                  ? null
+                  : () => _applyParaStyle(
+                        (s) => s.copyWith(isBold: !s.isBold, isHeading: false),
+                      ),
+            ),
+            _formatChip(
+              icon: Icons.format_list_bulleted_rounded,
+              label: 'Lista',
+              active: _paraStyles.isNotEmpty &&
+                  _paragraphIndexAtCursor() < _paraStyles.length &&
+                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                      .isBullet,
+              onTap: _busy || !_hasText
+                  ? null
+                  : () => _applyParaStyle(
+                        (s) => s.copyWith(isBullet: !s.isBullet),
+                      ),
+            ),
+            _formatChip(
+              icon: Icons.notes_rounded,
+              label: 'Parágrafo',
+              active: false,
+              onTap: _busy || !_hasText
+                  ? null
+                  : () => _applyParaStyle(
+                        (_) => const _ParaFormatStyle(),
+                      ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _formatChip({
+    required IconData icon,
+    required String label,
+    required bool active,
+    required VoidCallback? onTap,
+  }) {
+    final c = active ? _gradient.last : _gradient.first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Material(
+        color: active ? c.withValues(alpha: 0.14) : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18, color: c),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                    color: c,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPreviewBody() {
     final chars = _textCtrl.text.length;
     final words = _textCtrl.text.trim().isEmpty
         ? 0
         : _textCtrl.text.trim().split(RegExp(r'\s+')).length;
+    final headings = _paraStyles.where((s) => s.isHeading).length;
 
     return Column(
       children: [
         Container(
           margin: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-          height: 110,
+          height: 100,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
+                color: Colors.black.withValues(alpha: 0.07),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
               ),
@@ -459,14 +690,14 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
               if (_previewImage != null)
                 Image.memory(
                   _previewImage!,
-                  width: 110,
-                  height: 110,
+                  width: 100,
+                  height: 100,
                   fit: BoxFit.cover,
                 ),
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  color: _gradient.first.withValues(alpha: 0.08),
+                  color: _gradient.first.withValues(alpha: 0.07),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -474,13 +705,13 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                       Row(
                         children: [
                           Icon(
-                            Icons.auto_awesome_rounded,
+                            Icons.text_fields_rounded,
                             size: 18,
                             color: _gradient.last,
                           ),
                           const SizedBox(width: 6),
                           const Text(
-                            'Texto extraído',
+                            'Texto pronto',
                             style: TextStyle(
                               fontWeight: FontWeight.w900,
                               fontSize: 14,
@@ -490,8 +721,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$chars caracteres · $words palavras'
-                        '${_paragraphs.where((p) => p.isHeading).isNotEmpty ? ' · ${_paragraphs.where((p) => p.isHeading).length} títulos' : ''}',
+                        '$chars caracteres · ${_wordCountLabel(words)}'
+                        '${headings > 0 ? ' · $headings títulos' : ''}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade700,
@@ -500,7 +731,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Edite abaixo antes de exportar.',
+                        'Formate o parágrafo do cursor e exporte.',
                         style: TextStyle(
                           fontSize: 11.5,
                           color: Colors.grey.shade600,
@@ -513,6 +744,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
             ],
           ),
         ),
+        _buildFormatToolbar(),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
@@ -547,16 +779,9 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: _gradient.first.withValues(alpha: 0.22),
+                color: _gradient.first.withValues(alpha: 0.2),
                 width: 1.2,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: _gradient.last.withValues(alpha: 0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
             ),
             child: Scrollbar(
               controller: _scrollCtrl,
@@ -569,8 +794,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                   maxLines: null,
                   keyboardType: TextInputType.multiline,
                   style: const TextStyle(
-                    fontSize: 15,
-                    height: 1.55,
+                    fontSize: 15.5,
+                    height: 1.6,
                     fontWeight: FontWeight.w500,
                     letterSpacing: 0.1,
                   ),
@@ -578,7 +803,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                     border: InputBorder.none,
                     hintText: 'Texto extraído aparecerá aqui…',
                   ),
-                  onChanged: (_) => setState(() {}),
+                  onChanged: (_) => setState(() => _syncParaStyles()),
                 ),
               ),
             ),
@@ -659,17 +884,17 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
 
   Widget _buildBusyOverlay() {
     return Container(
-      color: Colors.black54,
+      color: Colors.black45,
       alignment: Alignment.center,
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 40),
-        padding: const EdgeInsets.all(26),
+        margin: const EdgeInsets.symmetric(horizontal: 36),
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: _gradient),
+          color: Theme.of(context).colorScheme.surface,
           borderRadius: BorderRadius.circular(22),
           boxShadow: [
             BoxShadow(
-              color: _gradient.last.withValues(alpha: 0.45),
+              color: _gradient.last.withValues(alpha: 0.2),
               blurRadius: 24,
               offset: const Offset(0, 8),
             ),
@@ -678,20 +903,20 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(
-              width: 36,
-              height: 36,
+            SizedBox(
+              width: 40,
+              height: 40,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
-                color: Colors.white,
+                color: _gradient.last,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Text(
               _busyLabel ?? 'Processando…',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontWeight: FontWeight.w800,
                 fontSize: 15,
               ),

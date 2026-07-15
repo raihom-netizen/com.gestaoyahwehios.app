@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
-import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -66,11 +65,12 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupDoneThisSession) return;
 
     _warmupDoneThisSession = true;
+    // Só light no login — heavy (20+ coleções) competia com o dashboard na Web.
     unawaited(_runWarmup(tidIn, light: true));
-    if (!_heavyWarmupScheduled) {
+    if (!_heavyWarmupScheduled && !kIsWeb) {
       _heavyWarmupScheduled = true;
       Future<void>.delayed(
-        Duration(seconds: kIsWeb ? 6 : 4),
+        const Duration(seconds: 45),
         () {
           if (_sessionTenant != tidIn) return;
           unawaited(_runWarmup(tidIn, light: false));
@@ -106,9 +106,11 @@ class ChurchTenantOfflineWarmupService {
         }
       }
 
-      unawaited(
-        ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
-      );
+      if (!light) {
+        unawaited(
+          ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
+        );
+      }
 
       final membrosLimit = kIsWeb ? (light ? 16 : 40) : (light ? 24 : 80);
       final avisosLimit = light ? 20 : 50;
@@ -187,9 +189,7 @@ class ChurchTenantOfflineWarmupService {
       } else {
         await Future.wait(tasks);
       }
-      if (!light) {
-        ChurchPanelModulePrefetchService.scheduleFullPrefetch(tenantId);
-      }
+      // Não disparar full prefetch aqui — já coberto por scheduleCriticalPrefetch.
     } finally {
       _setWarmupRunning(false);
     }

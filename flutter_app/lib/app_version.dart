@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2104: Deploy completo — painel/chat Telegram, utilitários CT, pagamentos PIX/Play/doações, master/site mídia, regras/functions/web/AAB/iOS.
 /// 11.2.305+2094: Deploy completo — Firestore recovery, YahwehChat resiliente e exclusão de avisos/eventos antigos.
 /// 11.2.305+2082: Deploy completo — eventos (galeria, partilha, evento fixo capa web), chat, financeiro, patrimônio, web+AAB+iOS.
 /// 11.2.305+2081: Deploy completo — eventos (galeria, partilha sem foto duplicada), evento fixo capa web, chat/escala/aprovações.
@@ -463,7 +464,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2103';
+const String appBuildNumber = '2106';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

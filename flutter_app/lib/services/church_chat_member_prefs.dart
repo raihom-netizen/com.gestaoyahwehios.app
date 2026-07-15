@@ -663,6 +663,23 @@ class ChurchChatMemberPrefs {
   }
 
   /// DM: não enviar se bloqueou o interlocutor.
+  static final Map<String, ({bool allowed, DateTime at})> _canSendCache = {};
+  static final Map<String, ({ChurchChatMemberPrefsModel prefs, DateTime at})>
+      _prefsHotCache = {};
+
+  static Future<ChurchChatMemberPrefsModel> _loadPrefsHot(String tenantId) async {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final key = '${tenantId.trim()}#$uid';
+    final hit = _prefsHotCache[key];
+    if (hit != null &&
+        DateTime.now().difference(hit.at) < const Duration(minutes: 2)) {
+      return hit.prefs;
+    }
+    final prefs = await load(tenantId).timeout(const Duration(seconds: 2));
+    _prefsHotCache[key] = (prefs: prefs, at: DateTime.now());
+    return prefs;
+  }
+
   static Future<bool> canSendToDmThread({
     required String tenantId,
     required String threadId,
@@ -670,25 +687,61 @@ class ChurchChatMemberPrefs {
     if (!threadId.startsWith('dm_')) return true;
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
+    final cacheKey = '${tenantId.trim()}#$threadId#$uid';
+    final hit = _canSendCache[cacheKey];
+    if (hit != null &&
+        DateTime.now().difference(hit.at) < const Duration(minutes: 2)) {
+      return hit.allowed;
+    }
     try {
       final churchId = ChurchRepository.churchId(tenantId.trim());
       if (churchId.isEmpty) return true;
+      final prefs = await _loadPrefsHot(tenantId);
+      // Caminho feliz Telegram: sem bloqueios → não tocar no thread doc.
+      if (prefs.blockedPeerUids.isEmpty) {
+        _canSendCache[cacheKey] = (allowed: true, at: DateTime.now());
+        return true;
+      }
+      // Extrair peer do threadId dm_uidA_uidB quando possível.
+      final parts = threadId.split('_');
+      if (parts.length >= 3) {
+        for (final p in parts.skip(1)) {
+          if (p.isNotEmpty && p != uid && prefs.isBlockedPeer(p)) {
+            _canSendCache[cacheKey] = (allowed: false, at: DateTime.now());
+            return false;
+          }
+        }
+        final looksLikeTwoUids = parts.length == 3 &&
+            parts[1].isNotEmpty &&
+            parts[2].isNotEmpty;
+        if (looksLikeTwoUids) {
+          _canSendCache[cacheKey] = (allowed: true, at: DateTime.now());
+          return true;
+        }
+      }
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
       }
       final thread = await FirestoreWebGuard.runWithWebRecovery(
         () => ChurchUiCollections.chats(churchId).doc(threadId).get(),
-        maxAttempts: kIsWeb ? 4 : 2,
-      ).timeout(const Duration(seconds: 10));
+        maxAttempts: 2,
+      ).timeout(const Duration(seconds: 2));
       final peers = thread.data()?['participantUids'];
-      if (peers is! List) return true;
+      if (peers is! List) {
+        _canSendCache[cacheKey] = (allowed: true, at: DateTime.now());
+        return true;
+      }
       var peer = '';
       for (final p in peers) {
         if (p.toString() != uid) peer = p.toString();
       }
-      if (peer.isEmpty) return true;
-      final prefs = await load(tenantId);
-      return !prefs.isBlockedPeer(peer);
+      if (peer.isEmpty) {
+        _canSendCache[cacheKey] = (allowed: true, at: DateTime.now());
+        return true;
+      }
+      final allowed = !prefs.isBlockedPeer(peer);
+      _canSendCache[cacheKey] = (allowed: allowed, at: DateTime.now());
+      return allowed;
     } catch (_) {
       // Falha de rede/SDK — não bloquear envio de mídia/texto por timeout de prefs.
       return true;

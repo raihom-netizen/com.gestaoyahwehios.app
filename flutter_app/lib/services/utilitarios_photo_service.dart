@@ -1,10 +1,14 @@
 ﻿import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' show Rect;
+import 'dart:ui' as ui
+    show ImageByteFormat, PaintingStyle, PictureRecorder, instantiateImageCodec;
 
+import 'package:flutter/material.dart'
+    show Canvas, Color, Colors, Offset, Paint, Rect, RRect, Radius, Shadow, TextAlign, TextDirection, TextPainter, TextSpan, TextStyle;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, compute, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/painting.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
@@ -99,6 +103,73 @@ enum UtilPhotoBlurMode {
   const UtilPhotoBlurMode(this.label, this.subtitle);
   final String label;
   final String subtitle;
+}
+
+/// Estilo moderno de legenda (texto / emoji) na foto.
+enum UtilPhotoCaptionStyle {
+  clean('Clássico', 'Limpo · sombra suave'),
+  classic('Contorno', 'Contorno · legível'),
+  bold('Caixa', 'Caixa · negrito'),
+  neon('Neon', 'Cor viva · brilho');
+
+  const UtilPhotoCaptionStyle(this.label, this.subtitle);
+  final String label;
+  final String subtitle;
+}
+
+/// Legenda arrastável sobre a foto (posição normalizada 0–1).
+class UtilPhotoCaptionOverlay {
+  const UtilPhotoCaptionOverlay({
+    required this.id,
+    required this.text,
+    required this.nx,
+    required this.ny,
+    this.style = UtilPhotoCaptionStyle.clean,
+    this.scale = 1.0,
+    this.colorArgb = 0xFFFFFFFF,
+    this.boxBgArgb = 0,
+    this.borderArgb = 0,
+    this.bold = true,
+  });
+
+  final String id;
+  final String text;
+  final double nx;
+  final double ny;
+  final UtilPhotoCaptionStyle style;
+  final double scale;
+  final int colorArgb;
+  /// Fundo da caixa (0 = sem caixa dedicada).
+  final int boxBgArgb;
+  /// Cor da borda (0 = sem borda).
+  final int borderArgb;
+  /// Negrito (visual + burn).
+  final bool bold;
+
+  UtilPhotoCaptionOverlay copyWith({
+    double? nx,
+    double? ny,
+    double? scale,
+    String? text,
+    UtilPhotoCaptionStyle? style,
+    int? colorArgb,
+    int? boxBgArgb,
+    int? borderArgb,
+    bool? bold,
+  }) {
+    return UtilPhotoCaptionOverlay(
+      id: id,
+      text: text ?? this.text,
+      nx: nx ?? this.nx,
+      ny: ny ?? this.ny,
+      style: style ?? this.style,
+      scale: scale ?? this.scale,
+      colorArgb: colorArgb ?? this.colorArgb,
+      boxBgArgb: boxBgArgb ?? this.boxBgArgb,
+      borderArgb: borderArgb ?? this.borderArgb,
+      bold: bold ?? this.bold,
+    );
+  }
 }
 
 /// Alvo de melhoria de resolução.
@@ -271,6 +342,126 @@ abstract final class UtilitariosPhotoService {
     );
   }
 
+  /// Realce rápido de cor/contraste — sem upscale (editor Utilitários).
+  static Future<Uint8List> enhanceColorsFast(Uint8List raw) {
+    return compute(_enhanceColorsFastIsolate, raw);
+  }
+
+  /// Grava legendas (texto + emoji) na imagem.
+  static Future<Uint8List> burnCaptionOverlays(
+    Uint8List raw,
+    List<UtilPhotoCaptionOverlay> overlays,
+  ) async {
+    if (overlays.isEmpty) return raw;
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) throw StateError('Imagem inválida.');
+    final oriented = img.bakeOrientation(decoded);
+    final w = oriented.width;
+    final h = oriented.height;
+    final baseBytes = Uint8List.fromList(img.encodeJpg(oriented, quality: 94));
+    final codec = await ui.instantiateImageCodec(baseBytes);
+    final frame = await codec.getNextFrame();
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawImage(frame.image, Offset.zero, Paint());
+    for (final o in overlays) {
+      final text = o.text.trim();
+      if (text.isEmpty) continue;
+      final style = _captionTextStyle(o, w);
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: w * 0.92);
+      final dx = (o.nx * w - painter.width / 2).clamp(4.0, w - painter.width - 4);
+      final dy = (o.ny * h - painter.height / 2).clamp(4.0, h - painter.height - 4);
+      final padH = 12.0 * o.scale;
+      final padV = 8.0 * o.scale;
+      final hasCustomBox = o.boxBgArgb != 0;
+      final hasBorder = o.borderArgb != 0;
+      final useBoldBox = o.style == UtilPhotoCaptionStyle.bold && !hasCustomBox;
+      if (hasCustomBox || useBoldBox || hasBorder) {
+        final rrect = RRect.fromRectAndRadius(
+          Rect.fromLTWH(
+            dx - padH,
+            dy - padV,
+            painter.width + padH * 2,
+            painter.height + padV * 2,
+          ),
+          Radius.circular(10 * o.scale),
+        );
+        if (hasCustomBox) {
+          canvas.drawRRect(rrect, Paint()..color = Color(o.boxBgArgb));
+        } else if (useBoldBox) {
+          canvas.drawRRect(
+            rrect,
+            Paint()..color = const Color(0xCC0F172A),
+          );
+        }
+        if (hasBorder) {
+          canvas.drawRRect(
+            rrect,
+            Paint()
+              ..color = Color(o.borderArgb)
+              ..style = ui.PaintingStyle.stroke
+              ..strokeWidth = (2.5 * o.scale).clamp(1.5, 5.0),
+          );
+        }
+      }
+      painter.paint(canvas, Offset(dx, dy));
+    }
+    final picture = recorder.endRecording();
+    final outImg = await picture.toImage(w, h);
+    final data = await outImg.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) throw StateError('Não foi possível gravar o texto na foto.');
+    final png = data.buffer.asUint8List();
+    final flat = img.decodeImage(png);
+    if (flat == null) throw StateError('Imagem inválida após legenda.');
+    return Uint8List.fromList(img.encodeJpg(flat, quality: 93));
+  }
+
+  static TextStyle _captionTextStyle(UtilPhotoCaptionOverlay o, int imgW) {
+    final base = (imgW * 0.045 * o.scale).clamp(18.0, 72.0);
+    final color = Color(o.colorArgb);
+    final weight = o.bold ? FontWeight.w900 : FontWeight.w600;
+    return switch (o.style) {
+      UtilPhotoCaptionStyle.clean => TextStyle(
+          fontSize: base,
+          fontWeight: weight,
+          color: color,
+          shadows: const [
+            Shadow(color: Colors.black54, blurRadius: 6, offset: Offset(0, 2)),
+          ],
+        ),
+      UtilPhotoCaptionStyle.bold => TextStyle(
+          fontSize: base,
+          fontWeight: weight,
+          color: color,
+          letterSpacing: 0.3,
+        ),
+      UtilPhotoCaptionStyle.neon => TextStyle(
+          fontSize: base,
+          fontWeight: weight,
+          color: color,
+          shadows: [
+            Shadow(color: color.withValues(alpha: 0.85), blurRadius: 14),
+            const Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 2)),
+          ],
+        ),
+      UtilPhotoCaptionStyle.classic => TextStyle(
+          fontSize: base,
+          fontWeight: weight,
+          color: color,
+          shadows: const [
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(-1, -1)),
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, -1)),
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(-1, 1)),
+            Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, 1)),
+          ],
+        ),
+    };
+  }
+
   /// Recorta área normalizada da imagem.
   static Future<Uint8List> cropImage(
     Uint8List raw, {
@@ -298,6 +489,16 @@ abstract final class UtilitariosPhotoService {
   /// Redimensiona foto grande uma vez (editor/colagem mais rápido).
   static Future<Uint8List> preparePhotoForEditor(Uint8List raw) {
     return compute(_preparePhotoForEditorIsolate, raw);
+  }
+
+  /// Orientação + limite de pixels para OCR (rápido, sem upscale pesado).
+  static Future<Uint8List> normalizeForOcr(Uint8List raw) {
+    return compute(_normalizePhotoForMlKitIsolate, raw);
+  }
+
+  /// OCR estilo Lens: resize leve (1600px) — bem mais rápido que [normalizeForOcr].
+  static Future<Uint8List> normalizeForOcrFast(Uint8List raw) {
+    return compute(_normalizePhotoForFastOcrIsolate, raw);
   }
 
   /// Aspecto largura/altura sem bloquear a UI.
@@ -341,32 +542,125 @@ abstract final class UtilitariosPhotoService {
     );
   }
 
-  /// Detecta rostos (Android/iOS) para borrar.
+  /// Detecta rostos (Android/iOS) para borrar — multi-pass + colagens.
   static Future<List<UtilPhotoEditRegion>> detectFaces(Uint8List jpeg) async {
     if (!mlKitFaceSupported) return const [];
-    final decoded = img.decodeImage(jpeg);
+    final normalized = await compute(_normalizePhotoForMlKitIsolate, jpeg);
+    final decoded = img.decodeImage(normalized);
     if (decoded == null) return const [];
 
-    final tmp = await _writeTempJpeg(jpeg);
-    FaceDetector? detector;
+    final tmp = await _writeTempJpeg(normalized);
+    final w = decoded.width.toDouble();
+    final h = decoded.height.toDouble();
+
+    final merged = <String, UtilPhotoEditRegion>{};
+
+    void absorb(List<UtilPhotoEditRegion> found) {
+      for (final r in found) {
+        final key =
+            '${(r.nx * 100).round()}_${(r.ny * 100).round()}_${(r.nw * 100).round()}';
+        merged.putIfAbsent(key, () => r);
+      }
+    }
+
     try {
-      detector = FaceDetector(
-        options: FaceDetectorOptions(
-          performanceMode: FaceDetectorMode.fast,
-          minFaceSize: 0.12,
+      absorb(
+        await _detectFacesOnFile(
+          tmp.path,
+          w,
+          h,
+          FaceDetectorOptions(
+            performanceMode: FaceDetectorMode.accurate,
+            minFaceSize: 0.05,
+          ),
         ),
       );
-      final faces = await detector.processImage(
-        InputImage.fromFilePath(tmp.path),
-      );
-      final w = decoded.width.toDouble();
-      final h = decoded.height.toDouble();
+      if (merged.isEmpty) {
+        absorb(
+          await _detectFacesOnFile(
+            tmp.path,
+            w,
+            h,
+            FaceDetectorOptions(
+              performanceMode: FaceDetectorMode.fast,
+              minFaceSize: 0.035,
+            ),
+          ),
+        );
+      }
+
+      if (merged.isEmpty) {
+        const crops = <(double, double, double, double)>[
+          (0.0, 0.0, 0.62, 1.0),
+          (0.38, 0.0, 0.62, 1.0),
+          (0.0, 0.0, 1.0, 0.62),
+          (0.0, 0.38, 1.0, 0.62),
+          (0.18, 0.18, 0.64, 0.64),
+        ];
+        for (var i = 0; i < crops.length; i++) {
+          final c = crops[i];
+          final cropBytes = await compute(
+            _cropImageIsolate,
+            _CropArgs(raw: normalized, nx: c.$1, ny: c.$2, nw: c.$3, nh: c.$4),
+          );
+          final cropFile = await _writeTempJpeg(cropBytes);
+          final cropDecoded = img.decodeImage(cropBytes);
+          if (cropDecoded == null) continue;
+          final cw = cropDecoded.width.toDouble();
+          final ch = cropDecoded.height.toDouble();
+          final partial = await _detectFacesOnFile(
+            cropFile.path,
+            cw,
+            ch,
+            FaceDetectorOptions(
+              performanceMode: FaceDetectorMode.accurate,
+              minFaceSize: 0.06,
+            ),
+          );
+          for (final r in partial) {
+            absorb([
+              UtilPhotoEditRegion(
+                id: 'face_crop_${i}_${r.id}',
+                nx: (c.$1 + r.nx * c.$3).clamp(0.0, 1.0),
+                ny: (c.$2 + r.ny * c.$4).clamp(0.0, 1.0),
+                nw: (r.nw * c.$3).clamp(0.05, 1.0),
+                nh: (r.nh * c.$4).clamp(0.05, 1.0),
+                label: 'Rosto',
+                kind: 'face',
+              ),
+            ]);
+          }
+          try {
+            if (await cropFile.exists()) await cropFile.delete();
+          } catch (_) {}
+          if (merged.isNotEmpty) break;
+        }
+      }
+    } finally {
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+    }
+
+    return merged.values.toList();
+  }
+
+  static Future<List<UtilPhotoEditRegion>> _detectFacesOnFile(
+    String path,
+    double w,
+    double h,
+    FaceDetectorOptions options,
+  ) async {
+    FaceDetector? detector;
+    try {
+      detector = FaceDetector(options: options);
+      final faces = await detector.processImage(InputImage.fromFilePath(path));
       final out = <UtilPhotoEditRegion>[];
       var i = 0;
       for (final face in faces) {
         final box = face.boundingBox;
         if (box.width <= 0 || box.height <= 0) continue;
-        const pad = 0.08;
+        const pad = 0.12;
         final nx = ((box.left / w) - pad).clamp(0.0, 1.0);
         final ny = ((box.top / h) - pad).clamp(0.0, 1.0);
         final nw = ((box.width / w) + pad * 2).clamp(0.05, 1.0 - nx);
@@ -390,9 +684,6 @@ abstract final class UtilitariosPhotoService {
     } finally {
       try {
         await detector?.close();
-      } catch (_) {}
-      try {
-        if (await tmp.exists()) await tmp.delete();
       } catch (_) {}
     }
   }
@@ -659,7 +950,7 @@ double _photoAspectRatioIsolate(Uint8List raw) {
 Uint8List _preparePhotoForEditorIsolate(Uint8List raw) {
   final decoded = img.decodeImage(raw);
   if (decoded == null) throw StateError('Imagem inválida.');
-  var work = decoded;
+  var work = img.bakeOrientation(decoded);
   if (work.numChannels == 4) {
     final flat = img.Image(width: work.width, height: work.height);
     img.fill(flat, color: img.ColorRgb8(255, 255, 255));
@@ -678,6 +969,94 @@ Uint8List _preparePhotoForEditorIsolate(Uint8List raw) {
     );
   }
   return Uint8List.fromList(img.encodeJpg(work, quality: 86));
+}
+
+Uint8List _normalizePhotoForMlKitIsolate(Uint8List raw) {
+  final decoded = img.decodeImage(raw);
+  if (decoded == null) return raw;
+  var work = img.bakeOrientation(decoded);
+  if (work.numChannels == 4) {
+    final flat = img.Image(width: work.width, height: work.height);
+    img.fill(flat, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(flat, work);
+    work = flat;
+  }
+  const maxDim = 2048;
+  final md = math.max(work.width, work.height);
+  if (md > maxDim) {
+    final scale = maxDim / md;
+    work = img.copyResize(
+      work,
+      width: (work.width * scale).round(),
+      height: (work.height * scale).round(),
+      interpolation: img.Interpolation.linear,
+    );
+  }
+  return Uint8List.fromList(img.encodeJpg(work, quality: 90));
+}
+
+  /// Pré-processamento mínimo para OCR instantâneo (máx. 1280 / JPEG 78).
+Uint8List _normalizePhotoForFastOcrIsolate(Uint8List raw) {
+  final decoded = img.decodeImage(raw);
+  if (decoded == null) return raw;
+  var work = img.bakeOrientation(decoded);
+  if (work.numChannels == 4) {
+    final flat = img.Image(width: work.width, height: work.height);
+    img.fill(flat, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(flat, work);
+    work = flat;
+  }
+  const maxDim = 1280;
+  final md = math.max(work.width, work.height);
+  if (md > maxDim) {
+    final scale = maxDim / md;
+    work = img.copyResize(
+      work,
+      width: (work.width * scale).round(),
+      height: (work.height * scale).round(),
+      interpolation: img.Interpolation.linear,
+    );
+  } else if (md <= maxDim && work.numChannels != 4) {
+    // Já pequeno: só reencode barato se JPEG; evita decode/encode se ok.
+    // Sempre reencode após bakeOrientation (EXIF).
+  }
+  return Uint8List.fromList(img.encodeJpg(work, quality: 78));
+}
+
+Uint8List _enhanceColorsFastIsolate(Uint8List raw) {
+  final decoded = img.decodeImage(raw);
+  if (decoded == null) throw StateError('Imagem inválida.');
+  var work = img.bakeOrientation(decoded);
+  if (work.numChannels == 4) {
+    final flat = img.Image(width: work.width, height: work.height);
+    img.fill(flat, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(flat, work);
+    work = flat;
+  }
+
+  final stats = _photoAnalyzeStats(work);
+  final brightness = stats.avgLuminance < 95
+      ? 1.0 + ((95 - stats.avgLuminance) / 255 * 0.12).clamp(0.0, 0.10)
+      : stats.avgLuminance > 205
+          ? 1.0 - ((stats.avgLuminance - 205) / 255 * 0.08).clamp(0.0, 0.06)
+          : 1.02;
+  final saturation = stats.avgSaturation < 38
+      ? 1.16
+      : stats.avgSaturation > 78
+          ? 1.04
+          : 1.10;
+  final contrast = stats.luminanceSpread < 40 ? 1.08 : 1.05;
+
+  work = img.adjustColor(
+    work,
+    contrast: contrast,
+    saturation: saturation,
+    brightness: brightness,
+    gamma: stats.avgLuminance < 108 ? 0.94 : 0.98,
+  );
+  work = _photoVibranceMild(work, boost: 1.09);
+  work = _photoSharpen(work, strength: 0.11);
+  return Uint8List.fromList(img.encodeJpg(work, quality: 92));
 }
 
 void _pasteCover(
