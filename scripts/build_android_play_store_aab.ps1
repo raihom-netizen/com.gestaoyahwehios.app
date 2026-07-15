@@ -20,7 +20,7 @@ param(
     [switch] $SkipPubGet
 )
 
-$ErrorActionPreference = "Stop"
+    $ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
 $BumpBuildScript = Join-Path $RepoRoot "scripts\bump_build.ps1"

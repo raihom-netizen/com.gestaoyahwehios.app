@@ -249,7 +249,10 @@ else {
         $ErrorActionPreference = $prevEap
     }
     $env:FUNCTIONS_DISCOVERY_TIMEOUT = "120"
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     firebase deploy --only functions --project $Project --force 2>&1 | Out-Host
+    $ErrorActionPreference = $prevEap
     $funcExit = $LASTEXITCODE
     Pop-Location
     if ($funcExit -ne 0) { exit $funcExit }

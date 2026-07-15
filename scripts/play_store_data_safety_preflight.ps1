@@ -9,7 +9,7 @@ param(
     [switch] $Quiet
 )
 
-$ErrorActionPreference = "Stop"
+    $ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Pubspec = Join-Path $RepoRoot "flutter_app\pubspec.yaml"
 $Doc = Join-Path $RepoRoot "docs\PLAY_STORE_SEGURANCA_DADOS_EMAIL.md"

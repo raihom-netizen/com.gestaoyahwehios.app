@@ -8,7 +8,7 @@ param(
     [int] $Increment = 1
 )
 
-$ErrorActionPreference = "Stop"
+    $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 $appDir = Join-Path $root "flutter_app"
 $pubspecFile = Join-Path $appDir "pubspec.yaml"
