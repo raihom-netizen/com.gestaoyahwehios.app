@@ -32,16 +32,15 @@ class GooglePlayPaymentsGate {
     }
   }
 
-  /// planId (app) -> SKU do Google Play. Deve coincidir com o Play Console.
-  static const Map<String, String> planSku = <String, String>{
-    'plan_mensal': 'gy_plan_mensal',
-    'plan_anual': 'gy_plan_anual',
-    'plano_mensal': 'gy_plan_mensal',
-    'plano_anual': 'gy_plan_anual',
-    'inicial': 'gy_plan_mensal',
-  };
+  /// SKUs do Google Play (um por ciclo de cobrança). Devem coincidir com o
+  /// Play Console. O preço do produto é definido lá; o plano da igreja (planId)
+  /// é ativado no backend a partir do [planId] escolhido no app.
+  static const String skuMensal = 'gy_plan_mensal';
+  static const String skuAnual = 'gy_plan_anual';
 
-  static String? skuForPlan(String planId) => planSku[planId.trim()];
+  /// SKU conforme o ciclo selecionado (mensal/anual), independente do plano.
+  static String skuForCycle(BillingCycle cycle) =>
+      cycle == BillingCycle.annual ? skuAnual : skuMensal;
 
   /// Verifica se o Play Billing está disponível e configurado neste dispositivo.
   static Future<bool> isAvailable() async {

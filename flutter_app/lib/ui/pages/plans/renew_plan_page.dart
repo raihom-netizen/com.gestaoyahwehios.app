@@ -907,9 +907,11 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   Future<void> _startPlayPurchase() async {
     if (!_playAvailable) return;
-    final sku = GooglePlayPaymentsGate.skuForPlan(_selected);
-    if (sku == null || sku.isEmpty) {
-      setState(() => _playMsg = 'Plano sem produto Google Play configurado.');
+    final sku = GooglePlayPaymentsGate.skuForCycle(
+      _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+    );
+    if (sku.isEmpty) {
+      setState(() => _playMsg = 'Produto Google Play não configurado.');
       return;
     }
     setState(() {
