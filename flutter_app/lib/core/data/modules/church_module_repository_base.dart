@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_result.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 
 /// Base para repositórios de módulo — CRUD + listagem unificada.
 abstract class ChurchModuleRepositoryBase {
@@ -150,11 +151,11 @@ abstract class ChurchModuleRepositoryBase {
   }) async {
     final id = churchId(churchIdHint);
     final col = ChurchFirestoreAccess.collectionRef(id, subcollection);
-    final ref = await col.add({
+    final ref = await col.add(sanitizeFirestoreData({
       ...data,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }) as Map<String, dynamic>);
     return ref.id;
   }
 

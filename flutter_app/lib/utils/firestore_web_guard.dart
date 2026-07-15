@@ -1,3 +1,5 @@
+import 'dart:async' show Completer;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -16,6 +18,32 @@ class FirestoreWebGuard {
 
   /// Web: evita dezenas de `snapshots()` paralelos (INTERNAL ASSERTION Firestore 11.x).
   static bool get disableLiveSnapshotsOnWeb => kIsWeb;
+
+  /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
+  /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
+  /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo justo (FIFO).
+  static const int _maxWebConcurrentReads = 4;
+  static int _webReadsInFlight = 0;
+  static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
+
+  static Future<T> webGetLimited<T>(Future<T> Function() fn) async {
+    if (!kIsWeb) return fn();
+    while (_webReadsInFlight >= _maxWebConcurrentReads) {
+      final waiter = Completer<void>();
+      _webReadWaiters.add(waiter);
+      await waiter.future;
+    }
+    _webReadsInFlight++;
+    try {
+      return await fn();
+    } finally {
+      _webReadsInFlight--;
+      if (_webReadWaiters.isNotEmpty) {
+        final next = _webReadWaiters.removeAt(0);
+        if (!next.isCompleted) next.complete();
+      }
+    }
+  }
 
   static bool isInternalAssertionError(Object e) {
     final msg = e.toString();

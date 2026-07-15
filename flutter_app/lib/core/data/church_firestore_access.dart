@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// **Único** gateway Firestore da camada de dados.
@@ -188,10 +189,12 @@ abstract final class ChurchFirestoreAccess {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
-    final payload = ChurchTenantFields.stamp(
-      churchId.trim(),
-      Map<String, dynamic>.from(data),
-    );
+    final payload = sanitizeFirestoreData(
+      ChurchTenantFields.stamp(
+        churchId.trim(),
+        Map<String, dynamic>.from(data),
+      ),
+    ) as Map<String, dynamic>;
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,
@@ -210,10 +213,12 @@ abstract final class ChurchFirestoreAccess {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final col = collectionRef(churchId, subcollectionName);
-    final payload = ChurchTenantFields.stamp(
-      churchId.trim(),
-      Map<String, dynamic>.from(data),
-    );
+    final payload = sanitizeFirestoreData(
+      ChurchTenantFields.stamp(
+        churchId.trim(),
+        Map<String, dynamic>.from(data),
+      ),
+    ) as Map<String, dynamic>;
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,

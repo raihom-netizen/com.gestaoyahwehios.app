@@ -1993,19 +1993,19 @@ export const createMpPreapproval = functions
       }
     }
 
-    const payload = {
-      reason: `Gestao YAHWEH - ${plan.name || planId} (${isAnnual ? "Anual" : "Mensal"})`,
+    // Pagamento ÚNICO (não recorrente) via Checkout Pro — o gestor informa os
+    // dados do cartão manualmente na página do Mercado Pago (ou PIX). Sem
+    // `auto_recurring`: não há cobrança automática mensal/anual recorrente.
+    const prefBody: any = {
+      items: [
+        {
+          title: `Gestao YAHWEH - ${plan.name || planId} (${isAnnual ? "Anual" : "Mensal"})`.slice(0, 127),
+          quantity: 1,
+          unit_price: Number(price.toFixed(2)),
+          currency_id: "BRL",
+        },
+      ],
       external_reference: tenantId,
-      notification_url: notificationUrl,
-      /** Obrigatório Mercado Pago (erro 400 "back_url is required") — retorno após PIX/cartão. */
-      back_url: backUrl,
-      payer_email: payerEmail,
-      auto_recurring: {
-        frequency: isAnnual ? 12 : 1,
-        frequency_type: "months",
-        transaction_amount: price,
-        currency_id: "BRL",
-      },
       metadata: {
         tenantId: String(tenantId),
         planId: String(planId),
@@ -2013,14 +2013,26 @@ export const createMpPreapproval = functions
         paymentMethod: paymentMethod === "card" ? "card" : "pix",
         installments: String(paymentMethod === "card" ? installments : 1),
       },
+      notification_url: notificationUrl,
+      back_urls: {
+        success: backUrl,
+        failure: backUrl,
+        pending: backUrl,
+      },
+      auto_return: "approved",
+      payment_methods: {
+        installments: paymentMethod === "card" ? installments : 1,
+      },
+      statement_descriptor: "GESTAO YAHWEH".slice(0, 13),
     };
 
     try {
-      const res = await mpPost("/preapproval", payload);
+      const pref = await mpPost("/checkout/preferences", prefBody);
+      const prefId = String(pref?.id || "").trim();
       return {
         ok: true,
-        init_point: res.init_point || res.sandbox_init_point || "",
-        id: res.id || "",
+        init_point: String(pref?.init_point || pref?.sandbox_init_point || ""),
+        id: prefId,
         /** App embute o checkout e usa isto para detectar retorno pós-pagamento. */
         back_url: backUrl,
       };

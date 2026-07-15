@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -46,15 +47,19 @@ abstract final class AppGlobalFirestoreAccess {
 
   static Future<void> mergeUser(String uid, Map<String, dynamic> data) =>
       runFirestorePublishWithRecovery(
-        () => userDoc(uid).set(data, SetOptions(merge: true)),
+        () => userDoc(uid).set(
+          sanitizeFirestoreData(data) as Map<String, dynamic>,
+          SetOptions(merge: true),
+        ),
       );
 
   static Future<DocumentReference<Map<String, dynamic>>> addSuggestion(
     Map<String, dynamic> data,
   ) async {
     late DocumentReference<Map<String, dynamic>> ref;
+    final safe = sanitizeFirestoreData(data) as Map<String, dynamic>;
     await runFirestorePublishWithRecovery(() async {
-      ref = await suggestions.add(data);
+      ref = await suggestions.add(safe);
     });
     return ref;
   }
@@ -72,6 +77,9 @@ abstract final class AppGlobalFirestoreAccess {
 
   static Future<void> setPlanItem(String planId, Map<String, dynamic> data) =>
       runFirestorePublishWithRecovery(
-        () => planItems().doc(planId.trim()).set(data, SetOptions(merge: true)),
+        () => planItems().doc(planId.trim()).set(
+              sanitizeFirestoreData(data) as Map<String, dynamic>,
+              SetOptions(merge: true),
+            ),
       );
 }

@@ -103,9 +103,11 @@ class FirestoreReadResilience {
             } catch (_) {}
           }
         }
-        final snap = await ref
-            .get(GetOptions(source: _networkSourceForPlatform()))
-            .timeout(perAttempt);
+        final snap = await FirestoreWebGuard.webGetLimited(
+          () => ref
+              .get(GetOptions(source: _networkSourceForPlatform()))
+              .timeout(perAttempt),
+        );
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
       } catch (e) {
@@ -134,9 +136,11 @@ class FirestoreReadResilience {
     _bgDocRefreshInFlight.add(key);
     Future<void>(() async {
       try {
-        final snap = await ref
-            .get(GetOptions(source: _networkSourceForPlatform()))
-            .timeout(attemptTimeout);
+        final snap = await FirestoreWebGuard.webGetLimited(
+          () => ref
+              .get(GetOptions(source: _networkSourceForPlatform()))
+              .timeout(attemptTimeout),
+        );
         if (snap.exists) {
           _lastDocByKey[key] = snap;
         }
@@ -202,9 +206,11 @@ class FirestoreReadResilience {
             } catch (_) {}
           }
         }
-        final snap = await query
-            .get(GetOptions(source: _networkSourceForPlatform()))
-            .timeout(perAttempt);
+        final snap = await FirestoreWebGuard.webGetLimited(
+          () => query
+              .get(GetOptions(source: _networkSourceForPlatform()))
+              .timeout(perAttempt),
+        );
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;
       } catch (e) {
@@ -233,9 +239,11 @@ class FirestoreReadResilience {
     _bgRefreshInFlight.add(key);
     Future<void>(() async {
       try {
-        final snap = await query
-            .get(GetOptions(source: _networkSourceForPlatform()))
-            .timeout(attemptTimeout);
+        final snap = await FirestoreWebGuard.webGetLimited(
+          () => query
+              .get(GetOptions(source: _networkSourceForPlatform()))
+              .timeout(attemptTimeout),
+        );
         if (snap.docs.isNotEmpty) {
           _lastGoodByKey[key] = snap;
         }

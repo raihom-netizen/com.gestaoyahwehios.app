@@ -115,7 +115,9 @@ class FirestoreStreamUtils {
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 4));
         } catch (_) {
-          return await query.get().timeout(ChurchPanelReadTimeouts.queryCap);
+          return await FirestoreWebGuard.webGetLimited(
+            () => query.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          );
         }
       });
 
@@ -155,7 +157,9 @@ class FirestoreStreamUtils {
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 4));
         } catch (_) {
-          return await ref.get().timeout(ChurchPanelReadTimeouts.queryCap);
+          return await FirestoreWebGuard.webGetLimited(
+            () => ref.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          );
         }
       });
 
@@ -241,7 +245,9 @@ class FirestoreStreamUtils {
       if (WebPanelStability.isSessionExpired) return;
       try {
         yield await FirestoreWebGuard.runWithWebRecovery(
-          () => query.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          () => FirestoreWebGuard.webGetLimited(
+            () => query.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          ),
         );
       } catch (_) {}
     }
@@ -255,7 +261,9 @@ class FirestoreStreamUtils {
       if (WebPanelStability.isSessionExpired) return;
       try {
         yield await FirestoreWebGuard.runWithWebRecovery(
-          () => ref.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          () => FirestoreWebGuard.webGetLimited(
+            () => ref.get().timeout(ChurchPanelReadTimeouts.queryCap),
+          ),
         );
       } catch (_) {}
     }
