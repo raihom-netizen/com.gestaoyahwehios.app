@@ -1,4 +1,4 @@
-import 'dart:async' show Completer;
+import 'dart:async' show Completer, TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -22,16 +22,26 @@ class FirestoreWebGuard {
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
   /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo justo (FIFO).
-  static const int _maxWebConcurrentReads = 6;
+  static const int _maxWebConcurrentReads = 10;
   static int _webReadsInFlight = 0;
   static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
+
+  /// Espera máx. na fila — evita starvation (módulos com queryCap 14s sem slot).
+  static const Duration _webReadQueueWait = Duration(seconds: 6);
 
   static Future<T> webGetLimited<T>(Future<T> Function() fn) async {
     if (!kIsWeb) return fn();
     while (_webReadsInFlight >= _maxWebConcurrentReads) {
       final waiter = Completer<void>();
       _webReadWaiters.add(waiter);
-      await waiter.future;
+      try {
+        await waiter.future.timeout(_webReadQueueWait);
+      } on TimeoutException {
+        _webReadWaiters.remove(waiter);
+        throw TimeoutException(
+          'Tempo esgotado ao carregar dados do painel.',
+        );
+      }
     }
     _webReadsInFlight++;
     try {

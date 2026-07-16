@@ -504,24 +504,15 @@ abstract final class ChurchSchedulesLoadService {
     );
     if (primary.docs.isNotEmpty) return primary;
 
-    if (primary.softError == null) {
-      unawaited(
-        _hydrateTemplatesFromEscalas(
-          seedTenantId: seedTenantId,
-          limit: limit,
-          forceRefresh: false,
-        ),
-      );
-      return primary;
-    }
-
-    final hydrated = await _hydrateTemplatesFromEscalas(
-      seedTenantId: seedTenantId,
-      limit: limit,
-      forceRefresh: false,
+    // SoftError ou vazio: hydrate em background — não bloquear hot path / semáforo web.
+    unawaited(
+      _hydrateTemplatesFromEscalas(
+        seedTenantId: seedTenantId,
+        limit: limit,
+        forceRefresh: false,
+      ),
     );
-    if (hydrated.docs.isEmpty) return primary;
-    return hydrated;
+    return primary;
   }
 
   /// Recupera modelos referenciados por `templateId` nas escalas geradas.
@@ -634,7 +625,7 @@ abstract final class ChurchSchedulesLoadService {
 
     if (!forceRefresh && !forceServer) {
       final ramHit = _peekRam(ramMap, ramKey);
-      if (ramHit != null) {
+      if (ramHit != null && ramHit.isNotEmpty) {
         return ChurchSchedulesLoadResult(
           churchId: churchId,
           docs: ramHit,

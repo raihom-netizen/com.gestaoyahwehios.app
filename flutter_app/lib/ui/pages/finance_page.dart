@@ -2349,18 +2349,23 @@ class _ResumoTabState extends State<_ResumoTab> {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
-    final l = await ChurchFinanceLoadService.loadLancamentos(
-      seedTenantId: tid,
-      limit: limit,
-      forceRefresh: forceFresh,
-      forceServer: forceServer,
-    );
-    final c = await ChurchFinanceLoadService.loadContas(
-      seedTenantId: tid,
-      forceRefresh: forceFresh,
-      forceServer: forceServer,
-    );
-    final s = await FinanceTenantSettings.load(tid);
+    final results = await Future.wait<Object>([
+      ChurchFinanceLoadService.loadLancamentos(
+        seedTenantId: tid,
+        limit: limit,
+        forceRefresh: forceFresh,
+        forceServer: forceServer,
+      ),
+      ChurchFinanceLoadService.loadContas(
+        seedTenantId: tid,
+        forceRefresh: forceFresh,
+        forceServer: forceServer,
+      ),
+      FinanceTenantSettings.load(tid),
+    ]);
+    final l = results[0] as ChurchFinanceLoadResult;
+    final c = results[1] as ChurchFinanceLoadResult;
+    final s = results[2] as FinanceTenantSettings;
     unawaited(
       FinanceComprovantePublishService.reconcileStuckComprovantes(
         tenantId: tid,
@@ -2454,8 +2459,15 @@ class _ResumoTabState extends State<_ResumoTab> {
           fresh[2],
         ]);
         _fetching = false;
-        _showingStaleCache = false;
-        _loadHint = null;
+        // Preservar softError de _loadFinanceBundle — não apagar se rede falhou/vazio.
+        final stillEmpty = (_seedFinanceDocs?.isEmpty ?? true) &&
+            (_seedContasDocs?.isEmpty ?? true);
+        if (!stillEmpty) {
+          _showingStaleCache = false;
+          _loadHint = null;
+        } else if (_loadHint == null || _loadHint!.trim().isEmpty) {
+          _showingStaleCache = false;
+        }
       });
     }).catchError((e) {
       if (!mounted) return;

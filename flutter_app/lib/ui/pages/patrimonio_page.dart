@@ -3403,11 +3403,27 @@ class _BensTabState extends State<_BensTab> {
         _applyPatrimonioSort(docs);
 
         if (allDocs.isEmpty) {
+          final loadFailed = _lastLoadHint != null &&
+              (_lastLoadHint!.toLowerCase().contains('tempo esgotado') ||
+                  _lastLoadHint!.toLowerCase().contains('erro') ||
+                  _lastLoadHint!.toLowerCase().contains('falha') ||
+                  _lastLoadHint!.toLowerCase().contains('rede') ||
+                  _lastLoadHint!.toLowerCase().contains('permission'));
           return CustomScrollView(
             primary: false,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               ..._bensTabHeaderSlivers(),
+              if (loadFailed)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: ChurchPanelErrorBody(
+                    title: 'Erro ao carregar patrimônio',
+                    error: _lastLoadHint!,
+                    onRetry: () => refresh(forceServer: true),
+                  ),
+                )
+              else
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(

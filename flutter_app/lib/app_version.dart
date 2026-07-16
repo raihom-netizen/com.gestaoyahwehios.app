@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2113: Web painel — semáforo reads 10+fila timeout, finance paralelo, Hive vazio não mascara, escalas sem hang, msg timeout leitura.
 /// 11.2.305+2112: Fix path painel — avisosFeed real, churchId hint-first, chat bootstrap sem skeleton eterno, Hive sem clear vazio.
 /// 11.2.305+2111: Fix patrimônio cadastro (sem deleteField em set sem merge) + AAB/ZIP iOS; web 2110 já online com o fix.
 /// 11.2.305+2110: Fix patrimônio — cadastro novo sem FieldValue.delete em foto01 (set sem merge); web+AAB+iOS.
@@ -470,7 +471,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2112';
+const String appBuildNumber = '2113';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -105,7 +105,17 @@ String formatFirebaseErrorForUser(
   }
   if (raw.contains('Sessão expirada')) return raw;
   if (raw.contains('Tempo esgotado')) {
-    return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
+    final low = raw.toLowerCase();
+    final isUploadContext = low.contains('envio') ||
+        low.contains('upload') ||
+        low.contains('mídia') ||
+        low.contains('midia') ||
+        low.contains('publicar') ||
+        low.contains('storage');
+    if (isUploadContext) {
+      return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
+    }
+    return 'Tempo esgotado ao carregar. Verifique a rede e toque em Tentar de novo.';
   }
   if (raw.contains('Future not completed')) {
     return 'Demorou demais a carregar. Verifique a rede e toque em Tentar de novo.';

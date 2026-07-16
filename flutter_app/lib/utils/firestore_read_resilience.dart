@@ -239,11 +239,10 @@ class FirestoreReadResilience {
     _bgRefreshInFlight.add(key);
     Future<void>(() async {
       try {
-        final snap = await FirestoreWebGuard.webGetLimited(
-          () => query
-              .get(GetOptions(source: _networkSourceForPlatform()))
-              .timeout(attemptTimeout),
-        );
+        // Refresh BG fora do semáforo — não roubar slots dos módulos abertos.
+        final snap = await query
+            .get(GetOptions(source: _networkSourceForPlatform()))
+            .timeout(attemptTimeout);
         if (snap.docs.isNotEmpty) {
           _lastGoodByKey[key] = snap;
         }

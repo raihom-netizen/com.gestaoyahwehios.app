@@ -449,7 +449,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         forceServer: forceServer,
         forceRefresh: forceRefresh,
       ).timeout(PanelResilientLoad.queryCap),
-      maxAttempts: 4,
+      maxAttempts: kIsWeb ? 2 : 4,
     );
     await ChurchSchedulesLoadService.persistTemplates(r);
     if (mounted) {
@@ -881,6 +881,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       _templatesFetching = true;
       _templatesLoadHint = null;
     });
+    _startWebLoadingCap();
     unawaited(
       _fetchTemplates(tid, forceServer: false, forceRefresh: true).then((snap) {
         if (!mounted) return;
@@ -888,6 +889,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           _templatesDocs = snap.docs;
           _templatesFetching = false;
           _templatesFuture = Future.value(snap);
+          if (snap.docs.isEmpty && _templatesLoadHint == null) {
+            // Mantém hint se _fetchTemplates já definiu softError via setState interno.
+          }
         });
       }).catchError((e) {
         if (!mounted) return;
@@ -900,6 +904,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             );
           }
         });
+      }).whenComplete(() {
+        if (mounted && _templatesFetching) {
+          setState(() => _templatesFetching = false);
+        }
       }),
     );
   }

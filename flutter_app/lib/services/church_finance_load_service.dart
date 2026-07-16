@@ -427,8 +427,7 @@ abstract final class ChurchFinanceLoadService {
         if (hiveHit != null) {
           var docs = hiveHit.docs;
           if (sortDocs != null) docs = sortDocs(docs);
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs) ||
-              hiveModule == TenantModuleKeys.financeiro) {
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
             _putRam(ramMap, ramKey, docs);
             if (hiveHit.migratedFromLegacy) {
               unawaited(_persistHive(churchId, hiveModule, docs));
