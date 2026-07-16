@@ -250,15 +250,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   ValueKey _shellPageKey(int index) =>
       ValueKey('page_${index}_$_moduleTenantId');
 
-  /// Sempre doc canônico — nunca slug legado nos módulos do shell.
+  /// Doc canónico `igrejas/{churchId}` — hint do shell/operacional primeiro (padrão Membros).
   String get _moduleTenantId {
-    final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
-    if (ctx.isNotEmpty) return _forceCanonicalTenantId(ctx);
     final op = (_operationalTenantId ?? '').trim();
     if (op.isNotEmpty) {
       return ChurchPanelTenant.resolve(_forceCanonicalTenantId(op));
     }
-    return ChurchPanelTenant.resolve(_forceCanonicalTenantId(widget.tenantId));
+    final fromWidget =
+        ChurchPanelTenant.resolve(_forceCanonicalTenantId(widget.tenantId));
+    if (fromWidget.isNotEmpty) return fromWidget;
+    final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
+    if (ctx.isNotEmpty) return _forceCanonicalTenantId(ctx);
+    return '';
   }
 
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).

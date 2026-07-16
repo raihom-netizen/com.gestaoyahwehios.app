@@ -114,13 +114,19 @@ abstract final class ChurchContextService {
 
 
 
-  /// ID do painel — contexto bound ou hint do shell (com mapa BPC/slug síncrono).
+  /// ID do painel — hint do shell / mapa BPC primeiro (padrão Membros); bound só fallback.
   static String panelChurchId([String? shellTenantId]) {
-    final ctx = currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) {
-      return _canonicalizePanelId(ctx);
+    final hint = shellTenantId?.trim() ?? '';
+    if (hint.isNotEmpty) {
+      final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
+      if (mapped != null && mapped.isNotEmpty) return mapped;
+      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(hint)) return hint;
+      final canon = _canonicalizePanelId(hint);
+      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(canon)) return canon;
     }
-    return _canonicalizePanelId(shellTenantId ?? '');
+    final ctx = currentChurchId?.trim() ?? '';
+    if (ctx.isNotEmpty) return _canonicalizePanelId(ctx);
+    return _canonicalizePanelId(hint);
   }
 
   static String _canonicalizePanelId(String raw) {

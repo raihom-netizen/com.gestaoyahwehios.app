@@ -139,14 +139,13 @@ class TenantResolverService {
   }
 
   /// Subcoleções do painel — path directo `igrejas/{churchId}/…` (sem alias/cluster).
+  /// Hint do shell / mapa BPC primeiro (padrão Membros); bound só fallback.
   static Future<String> resolveModuleReadTenantId(
     String seedId, {
     String? userUid,
   }) async {
     final seed = seedId.trim();
     if (seed.isEmpty) return seed;
-    final bound = ChurchContextService.currentChurchId?.trim() ?? '';
-    if (bound.isNotEmpty) return bound;
     final panel = ChurchContextService.panelChurchId(seed);
     final op = panel.isNotEmpty ? panel : seed;
     rememberModuleReadTenantId(seed, op, userUid: userUid);

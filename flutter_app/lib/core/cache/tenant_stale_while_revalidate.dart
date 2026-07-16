@@ -41,7 +41,8 @@ abstract final class TenantStaleWhileRevalidate {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     if (snap.docs.isEmpty) {
-      await TenantModuleHiveCache.clearModule(tid, module);
+      // Não limpar Hive: empty pode ser path/ID errado ou query vazia temporária.
+      // Limpar envenenaria cache bom e deixaria módulos sem dados reais.
       return;
     }
     await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);

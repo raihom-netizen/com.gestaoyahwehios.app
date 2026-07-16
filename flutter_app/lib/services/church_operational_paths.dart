@@ -149,12 +149,14 @@ abstract final class ChurchOperationalPaths {
     String seed, {
     String? userUid,
   }) {
-    final ctx = ChurchContextService.currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) {
+    final hint = seed.trim();
+    final id = ChurchRepository.churchId(hint.isNotEmpty ? hint : null);
+    if (id.isNotEmpty) return Future.value(id);
+    final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
+    if (ctx.isNotEmpty) {
       return Future.value(ChurchPanelTenant.resolve(ctx));
     }
-    final id = ChurchRepository.churchId(seed);
-    return Future.value(id.isNotEmpty ? id : seed.trim());
+    return Future.value(hint);
   }
 
   /// Painel master/igreja — uma igreja = um doc (sem cluster).

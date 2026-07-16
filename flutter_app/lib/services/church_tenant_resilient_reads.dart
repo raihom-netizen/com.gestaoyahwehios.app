@@ -49,14 +49,14 @@ abstract final class ChurchTenantResilientReads {
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       ChurchRepository.churchDoc(tenantId);
 
-  /// Doc canónico em `igrejas/{churchId}` — ID directo (sem resolver/alias no painel).
+  /// Doc canónico em `igrejas/{churchId}` — padrão Membros: hint do shell primeiro.
   static Future<String> _readTenantId(String tenantId, {String? userUid}) async {
-    final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    if (bound.isNotEmpty) return bound;
     final hint = tenantId.trim();
-    if (hint.isEmpty) return '';
-    final id = ChurchRepository.churchId(hint);
-    return id.isNotEmpty ? id : hint;
+    final id = ChurchRepository.churchId(hint.isNotEmpty ? hint : null);
+    if (id.isNotEmpty) return id;
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return ChurchRepository.churchId(bound);
+    return hint;
   }
 
   /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
@@ -204,9 +204,10 @@ abstract final class ChurchTenantResilientReads {
   }) async {
     final churchId = ChurchRepository.churchId(tenantId.trim());
     if (churchId.isEmpty) {
-      return ChurchUiCollections.avisos(churchId).limit(0).get();
+      return ChurchUiCollections.avisos('_empty').limit(0).get();
     }
-    return ChurchUiCollections.avisos(churchId).limit(0).get();
+    // Path real: igrejas/{churchId}/avisos — nunca limit(0) com churchId válido.
+    return _avisosFeedQueryResilient(churchId, limit: limit);
   }
 
   static DateTime? _avisoCreatedAt(Map<String, dynamic> data) {
