@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_incremental_sync.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Banco local Hive — snapshots JSON por tenant/módulo (sobrevive a reinício).
@@ -86,7 +87,8 @@ abstract final class TenantModuleHiveCache {
     final box = _box;
     if (box == null) return;
     try {
-      final encoded = jsonEncode(docs);
+      // Infinity/NaN/Timestamp em docs Firestore → crash JsonCodec.encode (iOS).
+      final encoded = safeJsonEncode(docs);
       if (encoded.length > 2000000) return;
       await box.put(_dataKey(tid, module), encoded);
       await box.put(

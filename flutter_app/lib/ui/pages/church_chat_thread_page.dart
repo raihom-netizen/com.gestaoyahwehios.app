@@ -1905,18 +1905,34 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         }
         return;
       }
-      unawaited(_uploadAndSendFromPath(
-        mat,
-        name,
-        mime,
-        kind,
-        fileSizeBytes: !kIsWeb && File(mat).existsSync()
-            ? File(mat).lengthSync()
-            : null,
-        albumGroupId: albumGroupId,
-        albumIndex: albumIndex,
-        albumCount: albumCount,
-      ));
+      // Bytes-first (igual Web) — evita falha do path efémero no Android.
+      try {
+        final bytes = await File(mat).readAsBytes();
+        if (bytes.isEmpty) {
+          if (mounted) {
+            _showChatAttachmentError(
+              'Foto vazia. Tente outra imagem.',
+            );
+          }
+          return;
+        }
+        unawaited(_uploadAndSend(
+          bytes,
+          name,
+          mime,
+          kind,
+          fileSizeBytes: bytes.length,
+          albumGroupId: albumGroupId,
+          albumIndex: albumIndex,
+          albumCount: albumCount,
+        ));
+      } catch (_) {
+        if (mounted) {
+          _showChatAttachmentError(
+            'Não foi possível ler a foto. Tente outra imagem.',
+          );
+        }
+      }
       return;
     }
     final bytes = await x.readAsBytes();

@@ -1,5 +1,6 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import { isForbiddenTestChurchId } from "./forbiddenTestChurchIds";
 import { refreshPublicFeedCacheForTenant } from "./churchPerformancePack";
 import { recomputePublicSiteMediaPrefetch } from "./publicSiteMediaPrefetch";
 import { syncPublicChurchSlugIndexForChurch } from "./publicChurchSlugIndex";
@@ -19,6 +20,7 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
 export async function mirrorPublicSitePanelCache(tenantId: string): Promise<void> {
   const tid = String(tenantId || "").trim();
   if (!tid) return;
+  if (isForbiddenTestChurchId(tid)) return;
 
   const db = admin.firestore();
   const churchRef = db.collection("igrejas").doc(tid);
@@ -27,6 +29,13 @@ export async function mirrorPublicSitePanelCache(tenantId: string): Promise<void
     churchRef.get(),
     churchRef.collection("_performance_cache").doc("public_feed").get(),
   ]);
+
+  if (!churchSnap.exists) {
+    functions.logger.warn("mirrorPublicSitePanelCache: skip — raiz inexistente", {
+      tenantId: tid,
+    });
+    return;
+  }
 
   const church = (churchSnap.data() ?? {}) as Record<string, unknown>;
   const perf = (perfSnap.data() ?? {}) as Record<string, unknown>;

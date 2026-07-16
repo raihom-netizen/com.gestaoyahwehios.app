@@ -181,14 +181,8 @@ class ChurchTenantOfflineWarmupService {
         ]);
       }
 
-      if (kIsWeb) {
-        for (final t in tasks) {
-          await t;
-          await Future<void>.delayed(const Duration(milliseconds: 120));
-        }
-      } else {
-        await Future.wait(tasks);
-      }
+      // Web = mobile: paralelo (semáforo FirestoreWebGuard limita concorrência).
+      await Future.wait(tasks);
       // Não disparar full prefetch aqui — já coberto por scheduleCriticalPrefetch.
     } finally {
       _setWarmupRunning(false);

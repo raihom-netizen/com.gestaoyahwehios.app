@@ -27,12 +27,16 @@ abstract final class ChurchFeedMediaStorageFields {
     List<String>? newImagePaths,
     void Function(double batchProgress01)? onBatchProgress,
   }) async {
-    if (kIsWeb) {
-      final images = newImagesBytes ?? const <Uint8List>[];
-      if (images.isEmpty) return const [];
+    // Web = Android = iOS: bytes primeiro (putData). Paths só fallback legado.
+    final images = <Uint8List>[
+      for (final b in (newImagesBytes ?? const <Uint8List>[]))
+        if (b.isNotEmpty) b,
+    ];
+    if (images.isNotEmpty) {
       if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-        await FastMediaPublishBootstrap.warmForFeedPublish()
-            .timeout(const Duration(seconds: 12));
+        await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
+          Duration(seconds: kIsWeb ? 12 : 18),
+        );
       }
       final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, images.length);
       return FeedPostMediaUpload.uploadParallel<FeedPhotoSlotResult>(
@@ -50,6 +54,8 @@ abstract final class ChurchFeedMediaStorageFields {
         ).timeout(_photoSlotTimeout),
       ).timeout(_batchTimeout);
     }
+
+    if (kIsWeb) return const [];
 
     final paths = newImagePaths
             ?.map((p) => p.trim())
@@ -73,19 +79,14 @@ abstract final class ChurchFeedMediaStorageFields {
         if (!await f.exists()) {
           throw StateError('Foto ${i + 1} não encontrada no aparelho.');
         }
-        Uint8List? bytes;
-        if (!IosPublishImagePipeline.useIosLightweightPublish) {
-          bytes = await IosPublishImagePipeline.compressForPublishFromPath(
-            localPath,
-          );
-        }
+        final bytes =
+            await IosPublishImagePipeline.compressForPublishFromPath(localPath);
         return ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
           tenantId: tenantId,
           postType: postType,
           postId: postId,
           slotIndex: startSlotIndex + i,
-          bytes: bytes,
-          localPath: localPath,
+          bytes: bytes.isNotEmpty ? bytes : await f.readAsBytes(),
           onProgress: report,
         ).timeout(_photoSlotTimeout);
       },
@@ -136,7 +137,9 @@ abstract final class ChurchFeedMediaStorageFields {
         patch['imageVariants'] = capaImageVariants;
       }
       patch['media_info'] = <String, dynamic>{
-        'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+        'aspect_ratio': aspectRatio.isFinite
+            ? aspectRatio.clamp(0.45, 1.9)
+            : 1.0,
         'tipo': hasVideo ? 'video' : 'image',
       };
       // URLs https gravadas pelo pipeline linear — não apagar campos de URL.

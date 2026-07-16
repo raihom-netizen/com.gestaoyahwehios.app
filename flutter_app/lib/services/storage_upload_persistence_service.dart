@@ -71,6 +71,48 @@ abstract final class StorageUploadPersistenceService {
     }
   }
 
+  /// Fila a partir de bytes em memória (Web/Android/iOS) — grava em Documents
+  /// (não Temporary) e enfileira putData no worker.
+  static Future<void> enqueueBytesJob({
+    required String storagePath,
+    required List<int> bytes,
+    required String contentType,
+  }) async {
+    if (kIsWeb || bytes.isEmpty) return;
+    final id = DateTime.now().millisecondsSinceEpoch.toString();
+    final dest = p.join((await _dir()).path, '$id.bin');
+    await File(dest).writeAsBytes(bytes, flush: true);
+
+    final prefs = await SharedPreferences.getInstance();
+    final list = _readManifest(prefs);
+    list.add({
+      'id': id,
+      'storagePath': storagePath,
+      'localPath': dest,
+      'contentType': contentType,
+    });
+    await prefs.setString(_manifestKey, jsonEncode(list));
+    BackgroundUploadWorker.scheduleDrain(reason: 'pending_upload_bytes');
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      final tenant =
+          PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);
+      if (tenant != null && tenant.isNotEmpty) {
+        unawaited(
+          PendingUploadsFirestoreService.enqueue(
+            tenantId: tenant,
+            module: PendingUploadsFirestoreService.moduleFromStoragePath(
+              storagePath,
+            ).name,
+            storagePath: storagePath,
+            localPath: dest,
+            contentType: contentType,
+            meta: const {'source': 'bytes_manifest'},
+          ),
+        );
+      }
+    }
+  }
+
   static List<Map<String, dynamic>> _readManifest(SharedPreferences prefs) {
     final raw = prefs.getString(_manifestKey);
     if (raw == null || raw.isEmpty) return [];

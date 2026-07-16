@@ -17,28 +17,37 @@ abstract final class PatrimonioPhotoFields {
   static List<String> get legacyKeysToDelete =>
       ChurchCanonicalMediaContract.patrimonioLegacyKeysToDelete;
 
-  static void stripLegacyPhotoFields(Map<String, dynamic> payload) =>
-      ChurchCanonicalMediaContract.patrimonioStripLegacyFields(payload);
+  static void stripLegacyPhotoFields(
+    Map<String, dynamic> payload, {
+    bool allowDeleteSentinels = true,
+  }) =>
+      ChurchCanonicalMediaContract.patrimonioStripLegacyFields(
+        payload,
+        allowDeleteSentinels: allowDeleteSentinels,
+      );
 
   static void applyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
     List<String> slotPaths, {
     int? cacheRevision,
+    bool allowDeleteSentinels = true,
   }) =>
       ChurchCanonicalMediaContract.patrimonioApplyIndexedSlots(
         payload,
         slotUrls,
         slotPaths,
         cacheRevision: cacheRevision,
+        allowDeleteSentinels: allowDeleteSentinels,
       );
 
   /// Grava listas ordenadas (foto01 = urls[0]) — slots canónicos apenas.
   static void applyToPayload(
     Map<String, dynamic> payload,
     List<String> urls,
-    List<String> paths,
-  ) {
+    List<String> paths, {
+    bool allowDeleteSentinels = true,
+  }) {
     final cleanUrls = urls
         .map((e) => sanitizeImageUrl(e))
         .where((e) => e.isNotEmpty)
@@ -46,7 +55,12 @@ abstract final class PatrimonioPhotoFields {
         .toList();
     final cleanPaths =
         paths.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    applyIndexedSlots(payload, cleanUrls, cleanPaths);
+    applyIndexedSlots(
+      payload,
+      cleanUrls,
+      cleanPaths,
+      allowDeleteSentinels: allowDeleteSentinels,
+    );
   }
 
   static List<String> urlsFromData(Map<String, dynamic> data) =>

@@ -163,7 +163,6 @@ abstract final class MasterChurchesListService {
 
   /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
   static Future<List<MasterChurchListItem>> loadFast({bool force = false}) async {
-    await MasterAdminFirestore.ensureReady();
     if (force) invalidateMemory();
 
     if (!force &&
@@ -172,6 +171,8 @@ abstract final class MasterChurchesListService {
         DateTime.now().difference(_memCachedAt!) < _memTtl) {
       return _memCache!;
     }
+
+    await MasterAdminFirestore.ensureReady();
 
     // Após licença/bloqueio: ler documentos reais (índice pode estar defasado).
     if (force) {

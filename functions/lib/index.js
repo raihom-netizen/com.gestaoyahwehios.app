@@ -51,6 +51,7 @@ const churchMercadoPago_1 = require("./churchMercadoPago");
 const memberCodigo_1 = require("./memberCodigo");
 const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
 const churchTenantProvisioning_1 = require("./churchTenantProvisioning");
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 const memberAccessPolicy_1 = require("./memberAccessPolicy");
 const churchFirestorePaths_1 = require("./churchFirestorePaths");
 const membersDirectoryCache_1 = require("./membersDirectoryCache");
@@ -573,6 +574,20 @@ async function uploadBucketFileToDrive(drive, storagePath, parentFolderId) {
     return { fileId, webViewLink, directViewUrl, name: safeName, mimeType };
 }
 async function ensureTenantDriveFolders(tenantId) {
+    const tid = String(tenantId || "").trim();
+    if (!tid) {
+        throw new Error("tenantId vazio");
+    }
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tid)) {
+        console.warn(`ensureTenantDriveFolders: skip id de teste «${tid}»`);
+        return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
+    }
+    const churchSnap = await (0, churchFirestorePaths_1.churchDocRef)(db, tid).get();
+    if (!churchSnap.exists) {
+        // Não recriar doc raiz fantasma (bug igrejas_de_teste).
+        console.warn(`ensureTenantDriveFolders: skip — igrejas/${tid} inexistente`);
+        return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
+    }
     const driveRootId = getChurchDriveRootId();
     if (!driveRootId) {
         throw new Error("drive.root_id nao configurado");
@@ -1084,6 +1099,10 @@ exports.onIgrejaCreate = functions
     .firestore.document("igrejas/{churchId}")
     .onCreate(async (_, context) => {
     const tenantId = context.params.churchId;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tenantId)) {
+        console.warn(`onIgrejaCreate: skip id de teste «${tenantId}»`);
+        return;
+    }
     await ensureTenantDriveFolders(tenantId);
     try {
         await (0, churchWelcomeSeed_1.ensureChurchWelcomeSeed)(db, tenantId);
@@ -1204,6 +1223,10 @@ exports.onIgrejaTenantProvision = functions
     const tenantId = String(context.params.tenantId || "").trim();
     if (!tenantId)
         return;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tenantId)) {
+        console.warn(`onIgrejaTenantProvision: skip teste «${tenantId}»`);
+        return;
+    }
     const before = change.before.exists ? change.before.data() : null;
     const slugAfter = String(after.slug || after.slugId || "").trim();
     const slugBefore = before
@@ -3212,9 +3235,17 @@ exports.createChurchAndGestorWithGoogle = functions
 async function finalizeNewChurchForGestorCore(params) {
     const { uid, email, nome, cpfRaw, igrejaNome, igrejaDoc } = params;
     const baseSlug = slugify(igrejaNome);
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(baseSlug) || (0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(slugify(igrejaDoc || ""))) {
+        throw new functions.https.HttpsError("invalid-argument", "Nome/slug de igreja de teste não é permitido. Use o nome real da igreja.");
+    }
     let slug = baseSlug;
     let idx = 0;
     while (true) {
+        if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(slug)) {
+            idx++;
+            slug = `${baseSlug}_${idx}`;
+            continue;
+        }
         const byField = await db.collection("igrejas").where("slug", "==", slug).limit(1).get();
         const byDocId = await db.collection("igrejas").doc(slug).get();
         if (byField.empty && !byDocId.exists) {

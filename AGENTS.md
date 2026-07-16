@@ -2,13 +2,16 @@
 
 Este repositório usa **regras persistentes** em `.cursor/rules/` e o manual **`prompt_mestre_cursor.md`**.
 
+**Memória única (igual Controle Total):** `PONTO_BASE_MEMORIA_2026-07-15_11.2.305+2106.md` + regra `.cursor/rules/ponto-base-memoria-11-2-305-2106.mdc`. Não criar segunda memória; ao atualizar release, substituir este ficheiro e apagar o anterior.
+
 ## Comportamento esperado do agente
 
-1. Ler e seguir **`prompt_mestre_cursor.md`** (arquitetura offline-first, Controle Total / WhatsApp, §0–22).
-2. Aplicar sempre a regra **`prompt-mestre-arquitetura.mdc`** (`alwaysApply: true`).
-3. Evoluir serviços existentes — **não** criar duplicatas (`regra-mestra-projeto.mdc`).
-4. Responder em **português**; alterações **focadas** e mínimas.
-5. **Build/deploy só com pedido explícito ao final** — não publicar nem rodar `deploy_completo.ps1` / hosting / regras por iniciativa própria (`sem-deploy-sem-pedido-explicito.mdc`, `deploy-so-ao-final.mdc`).
+1. Consultar primeiro o **ponto base de memória** (versão atual, painel igreja/master, regras, funções, índices, artefactos).
+2. Ler e seguir **`prompt_mestre_cursor.md`** (arquitetura offline-first, Controle Total / WhatsApp, §0–22).
+3. Aplicar sempre a regra **`prompt-mestre-arquitetura.mdc`** (`alwaysApply: true`).
+4. Evoluir serviços existentes — **não** criar duplicatas (`regra-mestra-projeto.mdc`).
+5. Responder em **português**; alterações **focadas** e mínimas.
+6. **Build/deploy só com pedido explícito ao final** — não publicar nem rodar `deploy_completo.ps1` / hosting / regras por iniciativa própria (`sem-deploy-sem-pedido-explicito.mdc`, `deploy-so-ao-final.mdc`).
 
 ## Referência rápida
 

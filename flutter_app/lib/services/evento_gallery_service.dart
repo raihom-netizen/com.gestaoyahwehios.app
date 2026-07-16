@@ -203,22 +203,26 @@ class EventoGalleryService {
 
   Future<File> _compressPhotoToFullHd(File arquivo) async {
     if (kIsWeb) return arquivo;
-    final dir = await getTemporaryDirectory();
-    final targetPath = p.join(
-      dir.path,
-      '${DateTime.now().millisecondsSinceEpoch}_event_fhd.jpg',
-    );
-    final result = await FlutterImageCompress.compressAndGetFile(
-      arquivo.path,
-      targetPath,
-      quality: _photoQuality,
-      minWidth: _photoMaxWidth,
-      minHeight: _photoMaxHeight,
-    );
-    if (result != null) {
-      final compressedFile = File(result.path);
+    final raw = await arquivo.readAsBytes();
+    if (raw.isEmpty) return arquivo;
+    try {
+      final out = await FlutterImageCompress.compressWithList(
+        raw,
+        quality: _photoQuality,
+        minWidth: _photoMaxWidth,
+        minHeight: _photoMaxHeight,
+        format: CompressFormat.jpeg,
+      );
+      if (out.isEmpty) return arquivo;
+      final dir = await getTemporaryDirectory();
+      final targetPath = p.join(
+        dir.path,
+        '${DateTime.now().millisecondsSinceEpoch}_event_fhd.jpg',
+      );
+      final compressedFile = File(targetPath);
+      await compressedFile.writeAsBytes(out, flush: true);
       if (compressedFile.existsSync()) return compressedFile;
-    }
+    } catch (_) {}
     return arquivo;
   }
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 
@@ -40,15 +39,12 @@ class ImageHelper {
     for (var i = 0; i < 22; i++) {
       if (current.length <= targetMaxBytes) return current;
       try {
-        final next = kIsWeb
-            ? await MediaService.compressImageBytes(
-                current,
-                profile: MediaImageProfile.patrimonio,
-              )
-            : await YahwehHeavyWork.run(
-                _compressWebpPassIsolate,
-                _WebpCompressPass(current, quality),
-              );
+        // FlutterImageCompress = platform channel — NUNCA em compute/isolate.
+        final next = await FlutterImageCompress.compressWithList(
+          current,
+          quality: quality,
+          format: CompressFormat.webp,
+        );
         if (next.isEmpty) break;
         current = Uint8List.fromList(next);
         if (current.length <= targetMaxBytes) return current;
@@ -89,15 +85,14 @@ class ImageHelper {
     for (var i = 0; i < 22; i++) {
       if (current.length <= targetMaxBytes) return current;
       try {
-        final next = kIsWeb
-            ? await MediaService.compressImageBytes(
-                current,
-                profile: MediaImageProfile.feed,
-              )
-            : await YahwehHeavyWork.run(
-                _compressJpegPassIsolate,
-                _JpegCompressPass(current, minSide, quality),
-              );
+        // Platform channel — isolate principal apenas (Android/iOS = Web).
+        final next = await FlutterImageCompress.compressWithList(
+          current,
+          minWidth: minSide,
+          minHeight: minSide,
+          quality: quality,
+          format: CompressFormat.jpeg,
+        );
         if (next.isEmpty) break;
         current = Uint8List.fromList(next);
         if (current.length <= targetMaxBytes) return current;
@@ -160,15 +155,13 @@ class ImageHelper {
   }) async {
     if (list.isEmpty) return list;
     try {
-      final result = kIsWeb
-          ? await MediaService.compressImageBytes(
-              list,
-              profile: MediaImageProfile.chat,
-            )
-          : await YahwehHeavyWork.run(
-              _compressGenericJpegIsolate,
-              _GenericJpegCompressPass(list, minWidth, minHeight, quality),
-            );
+      final result = await FlutterImageCompress.compressWithList(
+        list,
+        minWidth: minWidth,
+        minHeight: minHeight,
+        quality: quality,
+        format: CompressFormat.jpeg,
+      );
       if (result.isNotEmpty) {
         return Uint8List.fromList(result);
       }
@@ -210,82 +203,4 @@ class ImageHelper {
 
   static Future<Uint8List> _fallbackLogoBytes() =>
       GestaoYahwehBrandAssetService.loadPngBytes();
-}
-
-class _WebpCompressPass {
-  const _WebpCompressPass(this.bytes, this.quality);
-  final Uint8List bytes;
-  final int quality;
-}
-
-Future<List<int>> _compressWebpPassIsolate(_WebpCompressPass msg) async {
-  return FlutterImageCompress.compressWithList(
-    msg.bytes,
-    quality: msg.quality,
-    format: CompressFormat.webp,
-  );
-}
-
-class _JpegCompressPass {
-  const _JpegCompressPass(this.bytes, this.minSide, this.quality);
-  final Uint8List bytes;
-  final int minSide;
-  final int quality;
-}
-
-Future<List<int>> _compressJpegPassIsolate(_JpegCompressPass msg) async {
-  return FlutterImageCompress.compressWithList(
-    msg.bytes,
-    minWidth: msg.minSide,
-    minHeight: msg.minSide,
-    quality: msg.quality,
-    format: CompressFormat.jpeg,
-  );
-}
-
-class _PatrimonioCompressPass {
-  const _PatrimonioCompressPass(this.bytes, this.minSide, this.quality);
-  final Uint8List bytes;
-  final int minSide;
-  final int quality;
-}
-
-Future<List<int>> _compressPatrimonioPassIsolate(_PatrimonioCompressPass msg) async {
-  if (msg.minSide > 0) {
-    return FlutterImageCompress.compressWithList(
-      msg.bytes,
-      minWidth: msg.minSide,
-      minHeight: msg.minSide,
-      quality: msg.quality,
-      format: CompressFormat.webp,
-    );
-  }
-  return FlutterImageCompress.compressWithList(
-    msg.bytes,
-    quality: msg.quality,
-    format: CompressFormat.webp,
-  );
-}
-
-class _GenericJpegCompressPass {
-  const _GenericJpegCompressPass(
-    this.bytes,
-    this.minWidth,
-    this.minHeight,
-    this.quality,
-  );
-  final Uint8List bytes;
-  final int minWidth;
-  final int minHeight;
-  final int quality;
-}
-
-Future<List<int>> _compressGenericJpegIsolate(_GenericJpegCompressPass msg) async {
-  return FlutterImageCompress.compressWithList(
-    msg.bytes,
-    minWidth: msg.minWidth,
-    minHeight: msg.minHeight,
-    quality: msg.quality,
-    format: CompressFormat.jpeg,
-  );
 }

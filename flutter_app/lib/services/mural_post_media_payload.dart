@@ -83,12 +83,16 @@ abstract final class MuralPostMediaPayload {
         if (!await f.exists()) {
           throw StateError('Foto ${i + 1} não encontrada no aparelho.');
         }
+        final bytes = await f.readAsBytes();
+        if (bytes.isEmpty) {
+          throw StateError('Foto ${i + 1} vazia — selecione outra imagem.');
+        }
         final slot = await ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
           tenantId: tenantId,
           postType: postType,
           postId: postId,
           slotIndex: startSlotIndex + i,
-          localPath: path,
+          bytes: bytes,
           onProgress: report,
         );
         final url = sanitizeImageUrl(slot.downloadUrl ?? '');

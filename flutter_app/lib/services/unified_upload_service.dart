@@ -66,9 +66,8 @@ abstract final class UnifiedUploadService {
   }
 
   static String? localPathIfAvailable(XFile file) {
-    if (kIsWeb) return null;
-    final p = file.path.trim();
-    return p.isNotEmpty ? p : null;
+    // Não anexar path efémero do picker à fila de retry — só bytes (putData).
+    return null;
   }
 
   static Future<String> uploadImage({

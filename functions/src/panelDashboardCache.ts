@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { isForbiddenTestChurchId } from "./forbiddenTestChurchIds";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
@@ -774,11 +775,22 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
   const db = admin.firestore();
   const tid = String(tenantId || "").trim();
   if (!tid) return;
+  if (isForbiddenTestChurchId(tid)) {
+    functions.logger.warn("panelDashboardCache: skip igreja teste", { tid });
+    return;
+  }
+
+  const churchRef = db.collection("igrejas").doc(tid);
+  const rootSnap = await churchRef.get();
+  if (!rootSnap.exists) {
+    // Não gravar _panel_cache em doc fantasma (mantém ID em listDocuments).
+    functions.logger.warn("panelDashboardCache: skip — raiz inexistente", { tid });
+    return;
+  }
 
   const clusterIds = clusterDocIdsForPanel(tid);
   const scanIds = clusterIds.length > 0 ? clusterIds : [tid];
 
-  const churchRef = db.collection("igrejas").doc(tid);
   const cacheCol = churchRef.collection("_panel_cache");
   const lockRef = cacheCol.doc("_dashboard_recompute_lock");
   const summaryRef = cacheCol.doc("dashboard_summary");
@@ -1261,11 +1273,12 @@ export const warmChurchTenantCaches = functions
 export const scheduledRefreshPanelCaches = functions
   .region("us-central1")
   .runWith({ timeoutSeconds: 540, memory: "1GB" })
-  .pubsub.schedule("every 20 minutes")
+  .pubsub.schedule("every 60 minutes")
   .onRun(async () => {
     const snap = await admin.firestore().collection("igrejas").select().get();
     let n = 0;
     for (const doc of snap.docs) {
+      if (isForbiddenTestChurchId(doc.id)) continue;
       try {
         const cacheRef = doc.ref.collection("_panel_cache").doc("dashboard_summary");
         const cache = await cacheRef.get();

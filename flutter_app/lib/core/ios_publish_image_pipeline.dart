@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, compute, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
@@ -62,47 +62,22 @@ abstract final class IosPublishImagePipeline {
 
   static Future<Uint8List> compressForPublishFromPath(String path) async {
     if (kIsWeb) return Uint8List(0);
-    if (useNativeFastFeedUpload) {
-      return compute(_compressFileIsolate, path);
+    // Bytes-first: ler disco → compressWithList (nunca compressWithFile).
+    final f = File(path);
+    if (!await f.exists()) return Uint8List(0);
+    final raw = await f.readAsBytes();
+    if (raw.isEmpty) return Uint8List(0);
+    if (raw.length > 6 * 1024 * 1024) {
+      throw StateError(
+        'Imagem muito grande. Escolha outra foto ou reduza a resolução.',
+      );
     }
-    return _compressFileInline(path);
+    return compressForPublishBytes(raw);
   }
 
   static Future<Uint8List> compressForPublishBytes(Uint8List raw) async {
     if (raw.isEmpty) return raw;
-    if (useNativeFastFeedUpload) {
-      return compute(_compressBytesIsolate, raw);
-    }
     return _compressBytesInline(raw);
-  }
-
-  static Future<Uint8List> _compressFileInline(String path) async {
-    for (final format in [CompressFormat.jpeg, CompressFormat.webp]) {
-      try {
-        final out = await FlutterImageCompress.compressWithFile(
-          path,
-          quality: publishWebpQuality,
-          minWidth: publishMaxEdge,
-          minHeight: publishMaxEdge,
-          format: format,
-          autoCorrectionAngle: true,
-        );
-        if (out != null && out.isNotEmpty) return Uint8List.fromList(out);
-      } catch (e, st) {
-        await YahwehTelemetry.recordNonFatal(e, st, reason: 'ios_compress_file');
-      }
-    }
-    final f = File(path);
-    if (await f.exists()) {
-      final raw = await f.readAsBytes();
-      if (raw.length > 6 * 1024 * 1024) {
-        throw StateError(
-          'Imagem muito grande. Escolha outra foto ou reduza a resolução.',
-        );
-      }
-      return raw;
-    }
-    return Uint8List(0);
   }
 
   static Future<Uint8List> _compressBytesInline(Uint8List raw) async {
@@ -137,15 +112,23 @@ abstract final class IosPublishImagePipeline {
     void Function(double progress)? onProgress,
   }) async {
     final Uint8List prepared;
-    if (localPath != null && localPath.isNotEmpty) {
-      prepared = await compressForPublishFromPath(localPath);
-    } else if (bytes != null && bytes.isNotEmpty) {
-      // Web: fotos já vêm em WebP do picker — não recomprimir (lentidão + erros).
+    // Bytes primeiro (Web = Android = iOS). Path só se bytes vazios.
+    if (bytes != null && bytes.isNotEmpty) {
       if (kIsWeb && bytesLookLikeWebp(bytes)) {
+        prepared = bytes;
+      } else if (!kIsWeb &&
+          (bytesLookLikeWebp(bytes) ||
+              (bytes.length >= 3 &&
+                  bytes[0] == 0xFF &&
+                  bytes[1] == 0xD8 &&
+                  bytes[2] == 0xFF))) {
+        // Já veio comprimido do attach — não recomprimir (evita falha nativa).
         prepared = bytes;
       } else {
         prepared = await compressForPublishBytes(bytes);
       }
+    } else if (localPath != null && localPath.isNotEmpty) {
+      prepared = await compressForPublishFromPath(localPath);
     } else {
       throw StateError('Sem imagem para enviar.');
     }
@@ -167,7 +150,7 @@ abstract final class IosPublishImagePipeline {
       storagePath: storagePath,
       bytes: prepared,
       contentType: contentType,
-      localPath: localPath,
+      localPath: null,
       module: postType == 'aviso'
           ? YahwehUploadModule.aviso
           : YahwehUploadModule.evento,
@@ -177,14 +160,6 @@ abstract final class IosPublishImagePipeline {
     );
     return (primaryUrl: url, imageVariants: const <String, dynamic>{});
   }
-}
-
-Future<Uint8List> _compressFileIsolate(String path) async {
-  return IosPublishImagePipeline._compressFileInline(path);
-}
-
-Future<Uint8List> _compressBytesIsolate(Uint8List raw) async {
-  return IosPublishImagePipeline._compressBytesInline(raw);
 }
 
 /// Libera RAM de decode após lote de uploads (evita Jetsam no iPhone).

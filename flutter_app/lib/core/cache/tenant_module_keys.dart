@@ -44,9 +44,8 @@ abstract final class TenantModuleKeys {
     fornecedores,
   ];
 
-  /// Pós-login / dashboard — só o essencial (resto on-demand no menu).
+  /// Pós-login / dashboard — só o essencial (membros carrega sozinho na página).
   static const criticalPrefetchOrder = <String>[
-    membros,
     avisos,
     eventos,
     departamentos,

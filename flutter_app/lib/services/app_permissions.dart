@@ -395,6 +395,20 @@ class AppPermissions {
   static bool isRestrictedMember(String role) =>
       ChurchRolePermissions.snapshotFor(role).restrictedNav;
 
+  /// Módulo Membros: só a própria ficha (editar dados, foto e carteirinha).
+  ///
+  /// Aplica-se a membro/visitante e papéis sem direito a ver o diretório.
+  /// Equipe (gestor, pastor, secretário, líder, diácono com lista, `membros_ver`, etc.)
+  /// continua a ver a lista completa.
+  static bool isSelfOnlyMemberAccess(String role, List<String>? permissions) {
+    if (canEditMembersDirectory(role, permissions)) return false;
+    if (hasModulePermission(permissions, 'membros_ver')) return false;
+    final s = ChurchRolePermissions.snapshotFor(role);
+    if (s.viewMemberDirectory || s.editAnyMember) return false;
+    if (canStaffEditAnyMemberProfilePhoto(role)) return false;
+    return true;
+  }
+
   /// Integração Mercado Pago da igreja (PIX/cartão na tesouraria) — **muito restrita**:
   /// só [gestor], [master] da igreja ou administrador (`admin`/`adm`/`administrador*`),
   /// ou permissão granular `configuracoes_banco` concedida pelo gestor.

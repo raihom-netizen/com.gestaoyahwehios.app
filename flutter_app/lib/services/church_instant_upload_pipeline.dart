@@ -185,13 +185,8 @@ abstract final class ChurchInstantUploadPipeline {
           postType: postType,
         );
       }
-    } else {
-      prepared = await prepareImageBytes(
-        prepared,
-        localPath: localPath,
-        postType: postType,
-      );
     }
+    // Bytes já no attach — não recomprimir (MediaHandler / Instant já fez).
     if (prepared == null || prepared.isEmpty) {
       throw StateError('Sem imagem para enviar.');
     }

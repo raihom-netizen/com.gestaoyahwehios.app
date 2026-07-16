@@ -37,6 +37,7 @@ exports.getChurchMembersDirectory = void 0;
 exports.recomputeMembersDirectoryFromDocs = recomputeMembersDirectoryFromDocs;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const DIRECTORY_MAX = 800;
 function pickString(data, keys) {
@@ -183,6 +184,11 @@ function computeMembersSummary(memberDocs) {
 async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCount) {
     const tid = String(tenantId || "").trim();
     if (!tid)
+        return;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tid))
+        return;
+    const churchRef = admin.firestore().collection("igrejas").doc(tid);
+    if (!(await churchRef.get()).exists)
         return;
     const summary = computeMembersSummary(memberDocs);
     const entries = memberDocs

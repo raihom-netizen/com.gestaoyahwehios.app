@@ -1,8 +1,9 @@
 import 'dart:async' show unawaited;
-import 'dart:convert';
+import 'dart:convert' show jsonDecode;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Snapshot genérico — docs + metadados de leitura (padrão WISDOMAPP cache-first).
@@ -151,7 +152,7 @@ class YahwehModuleCacheBase extends ChangeNotifier {
       final payload = docs.take(120).map((d) {
         return <String, dynamic>{'id': d.id, 'data': d.data()};
       }).toList();
-      await prefs.setString(_prefsKey(churchId), jsonEncode(payload));
+      await prefs.setString(_prefsKey(churchId), safeJsonEncode(payload));
     } catch (_) {}
   }
 

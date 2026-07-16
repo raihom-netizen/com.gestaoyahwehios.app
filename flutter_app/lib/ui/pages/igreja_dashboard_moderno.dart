@@ -733,16 +733,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
-          debugPrint('Dashboard _boot ensurePanelReadReady: $e\n$st');
-        });
+        // Não bloquear KPI — gate já memoizado no shell; aquecer em paralelo.
+        unawaited(
+          FirestoreWebGuard.ensurePanelReadReady().then(
+            (_) {},
+            onError: (e, st) {
+              debugPrint('Dashboard _boot ensurePanelReadReady: $e\n$st');
+            },
+          ),
+        );
       }
       Future<DocumentSnapshot<Map<String, dynamic>>> readChurchDoc() =>
           ChurchRepository.churchDoc(effectiveChurchId).get();
       igSnap = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
               readChurchDoc,
-              maxAttempts: 4,
+              maxAttempts: 3,
             ).timeout(PanelResilientLoad.queryCap)
           : await readChurchDoc();
       final id = igSnap.data() ?? {};

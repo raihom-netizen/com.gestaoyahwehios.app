@@ -135,35 +135,21 @@ abstract final class MediaService {
     if (kIsWeb || !file.existsSync()) return null;
     try {
       final tempDir = await getTemporaryDirectory();
-      final edge = _edgeFor(profile);
-      final minH = profile == MediaImageProfile.feed
-          ? edge
-          : (edge * feedImageMaxHeight / feedImageMaxEdge).round();
-      final quality = _qualityFor(profile);
-
-      for (final format in <CompressFormat>[
-        _formatFor(profile),
-        if (_formatFor(profile) != CompressFormat.jpeg) CompressFormat.jpeg,
-      ]) {
-        final ext = format == CompressFormat.webp ? 'webp' : 'jpg';
-        final targetPath =
-            '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
-        final result = await FlutterImageCompress.compressAndGetFile(
-          file.absolute.path,
-          targetPath,
-          quality: quality,
-          minWidth: edge,
-          minHeight: minH,
-          format: format,
-        );
-        if (result != null && result.path.isNotEmpty) {
-          final out = File(result.path);
-          if (out.existsSync() && out.lengthSync() > 0) return out;
-        }
-      }
-
       final raw = await file.readAsBytes();
       if (raw.isEmpty) return null;
+      // Só compressão por bytes (Web = Android = iOS). Sem compressAndGetFile.
+      try {
+        final compressed = await compressImageBytes(raw, profile: profile);
+        if (compressed.isNotEmpty) {
+          final ext = _formatFor(profile) == CompressFormat.webp ? 'webp' : 'jpg';
+          final targetPath =
+              '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
+          final out = File(targetPath);
+          await out.writeAsBytes(compressed, flush: true);
+          if (out.existsSync() && out.lengthSync() > 0) return out;
+        }
+      } catch (_) {}
+
       final fallbackPath =
           '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final fallback = File(fallbackPath);

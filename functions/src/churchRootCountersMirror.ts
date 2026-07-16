@@ -1,4 +1,5 @@
 import * as admin from "firebase-admin";
+import { isForbiddenTestChurchId } from "./forbiddenTestChurchIds";
 
 /** Contadores espelhados no doc raiz `igrejas/{churchId}` (leitura instantânea no app). */
 export type ChurchRootCountersPayload = {
@@ -24,6 +25,17 @@ export async function mirrorChurchCountersToRoot(
   counters: ChurchRootCountersPayload,
   extra?: Record<string, unknown>,
 ): Promise<void> {
+  const id = String(churchRef.id || "").trim();
+  if (isForbiddenTestChurchId(id)) {
+    console.warn(`mirrorChurchCountersToRoot: skip teste «${id}»`);
+    return;
+  }
+  const snap = await churchRef.get();
+  if (!snap.exists) {
+    // Não ressuscitar doc raiz fantasma após purge incompleto / delete.
+    console.warn(`mirrorChurchCountersToRoot: skip — igrejas/${id} inexistente`);
+    return;
+  }
   const ts = admin.firestore.FieldValue.serverTimestamp();
   await churchRef.set(
     {
@@ -106,6 +118,16 @@ export async function mirrorFinanceAggregatesToRoot(
   churchRef: admin.firestore.DocumentReference,
   aggregates: Record<string, unknown>,
 ): Promise<void> {
+  const id = String(churchRef.id || "").trim();
+  if (isForbiddenTestChurchId(id)) {
+    console.warn(`mirrorFinanceAggregatesToRoot: skip teste «${id}»`);
+    return;
+  }
+  const snap = await churchRef.get();
+  if (!snap.exists) {
+    console.warn(`mirrorFinanceAggregatesToRoot: skip — igrejas/${id} inexistente`);
+    return;
+  }
   await churchRef.set(
     {
       financeAggregates: aggregates,

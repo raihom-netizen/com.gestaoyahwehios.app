@@ -6909,37 +6909,33 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   void _notifyAddressPreview() => _addressPreviewTick.value++;
 
-  int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
+  /// Contagem única — Android/iOS guardam bytes (igual Web) + path só para preview.
+  int get _newPhotoCount =>
+      _newImages.isNotEmpty ? _newImages.length : _newImagePaths.length;
 
   Future<void> _addEncodedEventPhoto(XFile encoded) async {
     final displayName = encoded.name.isNotEmpty
         ? encoded.name
         : 'foto.webp';
-    Uint8List? webBytes;
+    Uint8List? preparedBytes;
     String? mobilePath;
     if (kIsWeb) {
-      webBytes = await encoded
+      final raw = await encoded
           .readAsBytes()
           .timeout(const Duration(seconds: 20));
-      webBytes = await ChurchInstantUploadPipeline.prepareImageBytes(
-        webBytes!,
+      preparedBytes = await ChurchInstantUploadPipeline.prepareImageBytes(
+        raw,
         postType: kChurchPostTypeEvento,
       );
       if (!mounted) return;
       setState(() {
-        _newImages.add(webBytes!);
+        _newImages.add(preparedBytes!);
         _newNames.add(displayName);
-        _newSizes.add(webBytes!.length);
+        _newSizes.add(preparedBytes!.length);
       });
     } else {
-      final encodedPath = encoded.path.trim();
-      if (encodedPath.isNotEmpty) {
-        final existing = File(encodedPath);
-        if (existing.existsSync() && existing.lengthSync() > 0) {
-          mobilePath = encodedPath;
-        }
-      }
-      mobilePath ??= await FeedEditorMediaService.persistXFileToTemp(
+      // Sempre copiar para temp estável — path do picker some no Android.
+      mobilePath = await FeedEditorMediaService.persistXFileToTemp(
         encoded,
         prefix: 'gy_event',
       );
@@ -6953,29 +6949,41 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
         return;
       }
+      final raw = await File(mobilePath).readAsBytes();
+      if (raw.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              'Foto vazia. Escolha outra imagem.',
+            ),
+          );
+        }
+        return;
+      }
+      preparedBytes = await ChurchInstantUploadPipeline.prepareImageBytes(
+        raw,
+        postType: kChurchPostTypeEvento,
+      );
+      if (preparedBytes.isEmpty) preparedBytes = raw;
       if (!mounted) return;
       setState(() {
+        _newImages.add(preparedBytes!);
+        // Path só para preview local — publish usa exclusivamente bytes.
         _newImagePaths.add(mobilePath!);
         _newNames.add(
           displayName.isNotEmpty ? displayName : mobilePath!.split('/').last,
         );
-        _newSizes.add(File(mobilePath!).lengthSync());
+        _newSizes.add(preparedBytes!.length);
       });
     }
     if (!mounted) return;
-    final attachSize = kIsWeb
-        ? (webBytes?.length ?? 0)
-        : (mobilePath != null ? File(mobilePath).lengthSync() : 0);
+    final attachSize = preparedBytes?.length ?? 0;
     unawaited(() async {
       String? resolution;
       try {
-        final bytes = kIsWeb
-            ? webBytes
-            : (mobilePath != null && File(mobilePath).existsSync()
-                ? await File(mobilePath).readAsBytes()
-                : null);
-        if (bytes != null && bytes.isNotEmpty) {
-          resolution = await ImmediateMediaAttachFeedback.readResolution(bytes);
+        if (preparedBytes != null && preparedBytes.isNotEmpty) {
+          resolution =
+              await ImmediateMediaAttachFeedback.readResolution(preparedBytes);
         }
       } catch (_) {}
       if (!mounted) return;
@@ -6996,6 +7004,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final i = _newImages.indexOf(webBytes);
       if (i >= 0) {
         _newImages.removeAt(i);
+        if (i < _newImagePaths.length) _newImagePaths.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
         if (i < _newSizes.length) _newSizes.removeAt(i);
       }
@@ -7003,6 +7012,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final i = _newImagePaths.indexOf(mobilePath);
       if (i >= 0) {
         _newImagePaths.removeAt(i);
+        if (i < _newImages.length) _newImages.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
         if (i < _newSizes.length) _newSizes.removeAt(i);
       }
@@ -7212,11 +7222,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   void _removeNewPhotoAt(int index) {
     setState(() {
-      if (kIsWeb) {
-        _newImages.removeAt(index);
-      } else {
-        _newImagePaths.removeAt(index);
-      }
+      if (index < _newImages.length) _newImages.removeAt(index);
+      if (index < _newImagePaths.length) _newImagePaths.removeAt(index);
       if (index < _newNames.length) _newNames.removeAt(index);
       if (index < _newSizes.length) _newSizes.removeAt(index);
     });
@@ -8660,7 +8667,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       startSlotIndex: existingUrls.length,
       hasVideo: hasVideo,
       newImagesBytes: pending.bytes,
-      newImagePaths: pending.paths,
+      newImagePaths: null,
       videoStoragePath: videoPathForPublish,
       localVideoPath: _pendingLocalVideoPath(),
       publicSite: _publicSite,
@@ -8684,38 +8691,36 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  /// Fotos pendentes (só enviadas ao clicar em Publicar).
+  /// Fotos pendentes — sempre bytes (Web = Android = iOS). Sem paths no publish.
   ({List<Uint8List>? bytes, List<String>? paths}) _pendingEventPhotosForPublish() {
-    if (kIsWeb) {
-      if (_newImages.isEmpty) return (bytes: null, paths: null);
+    if (_newImages.isNotEmpty) {
       return (bytes: List<Uint8List>.from(_newImages), paths: null);
     }
-    final paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-    if (paths.isEmpty) return (bytes: null, paths: null);
-    return (bytes: null, paths: paths);
+    return (bytes: null, paths: null);
   }
 
   Future<List<Uint8List>> _prepareCompressedEventPhotosForPublish() async {
     final out = <Uint8List>[];
-    if (kIsWeb) {
+    if (_newImages.isNotEmpty) {
       for (final raw in _newImages) {
-        if (raw.isEmpty) continue;
-        final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
-          raw,
-          postType: kChurchPostTypeEvento,
-        );
-        if (compressed.isNotEmpty) out.add(compressed);
+        if (raw.isNotEmpty) out.add(raw);
       }
       return out;
     }
-    for (final path
-        in FeedEditorMediaService.existingValidPaths(_newImagePaths)) {
-      final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
-        Uint8List(0),
-        localPath: path,
-        postType: kChurchPostTypeEvento,
-      );
-      if (compressed.isNotEmpty) out.add(compressed);
+    // Último recurso: ler temp estável (preview) → bytes — nunca publish por path.
+    if (!kIsWeb) {
+      for (final path
+          in FeedEditorMediaService.existingValidPaths(_newImagePaths)) {
+        try {
+          final raw = await File(path).readAsBytes();
+          if (raw.isEmpty) continue;
+          final prepared = await ChurchInstantUploadPipeline.prepareImageBytes(
+            raw,
+            postType: kChurchPostTypeEvento,
+          );
+          out.add(prepared.isNotEmpty ? prepared : raw);
+        } catch (_) {}
+      }
     }
     return out;
   }
@@ -8927,10 +8932,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               existingUrls: existingUrls,
               startSlotIndex: existingUrls.length,
               hasVideo: hasVideo,
+              // Só bytes — igual Web. Paths no Android duplicavam upload e falhavam.
               newImagesBytes:
                   compressedPhotos.isNotEmpty ? compressedPhotos : null,
-              newImagePaths:
-                  FeedEditorMediaService.existingValidPaths(_newImagePaths),
+              newImagePaths: null,
               videoStoragePath: videoPathForPublish,
               localVideoPath: localVideoPath,
               publicSite: _publicSite,
@@ -9106,7 +9111,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           existingUrls: dedupeImageRefsByStorageIdentity(_existingUrls),
           startSlotIndex: _existingUrls.length,
           hasVideo: true,
-          localPaths: FeedEditorMediaService.existingValidPaths(_newImagePaths),
+          localPaths: const <String>[],
         );
       }
       await runFirebaseBackgroundTask(() async {
@@ -9198,7 +9203,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     for (var i = 0; i < _newPhotoCount; i++) {
       final idx = i;
-      final thumbChild = kIsWeb
+      final hasBytes = idx < _newImages.length && _newImages[idx].isNotEmpty;
+      final thumbChild = hasBytes
           ? feedEditorLocalPhotoThumb(
               webBytes: _newImages[idx],
               mobilePath: null,
@@ -9206,7 +9212,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             )
           : feedEditorLocalPhotoThumb(
               webBytes: null,
-              mobilePath: _newImagePaths[idx],
+              mobilePath:
+                  idx < _newImagePaths.length ? _newImagePaths[idx] : null,
               size: 220,
             );
       final sizeLabel = idx < _newSizes.length
@@ -9217,8 +9224,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           onTap: () => _openEventEditorPhotoLightbox(
             urls: const [],
             initialIndex: idx,
-            localBytes: kIsWeb ? _newImages : null,
-            localPaths: kIsWeb ? null : _newImagePaths,
+            localBytes: _newImages.isNotEmpty ? _newImages : null,
+            localPaths: _newImages.isNotEmpty
+                ? null
+                : (_newImagePaths.isNotEmpty ? _newImagePaths : null),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
@@ -9252,8 +9261,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           bottom: 22,
           left: 4,
           child: _resolutionChip(
-            bytes: kIsWeb ? _newImages[idx] : null,
-            path: kIsWeb ? null : _newImagePaths[idx],
+            bytes: hasBytes ? _newImages[idx] : null,
+            path: hasBytes
+                ? null
+                : (idx < _newImagePaths.length ? _newImagePaths[idx] : null),
           ),
         ),
       ]));

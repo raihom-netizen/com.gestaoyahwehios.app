@@ -2956,7 +2956,7 @@ class ChurchChatService {
     return (url: url, path: path);
   }
 
-  /// Upload por ficheiro no disco (vídeos/PDF grandes — evita `readAsBytes` completo na RAM).
+  /// Upload por ficheiro no disco — lê bytes → putData (paridade Web).
   static Future<({String url, String path})> uploadChatFile({
     required String tenantId,
     required String threadId,
@@ -2979,6 +2979,7 @@ class ChurchChatService {
           kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
+    // putFile → readAsBytes + putBytesFast (sem Storage.putFile nativo).
     final url = await ChurchChatMediaStorage.putFile(
       storagePath: path,
       localPath: localPath,

@@ -112,15 +112,19 @@ abstract final class ChurchPanelModulePrefetchService {
         );
       }
 
-      for (final module in modules) {
-        if (module == TenantModuleKeys.dashboard ||
-            module == TenantModuleKeys.masterPanel) {
-          continue;
+      // Web: paralelo limitado (2) — evita serial + sleep 160ms por módulo.
+      const batchSize = 2;
+      for (var i = 0; i < modules.length; i += batchSize) {
+        final batch = modules.skip(i).take(batchSize).where((module) {
+          return module != TenantModuleKeys.dashboard &&
+              module != TenantModuleKeys.masterPanel;
+        });
+        await Future.wait([
+          for (final module in batch) _warmModule(churchId, module),
+        ]);
+        if (kIsWeb && i + batchSize < modules.length) {
+          await Future<void>.delayed(const Duration(milliseconds: 40));
         }
-        await _warmModule(churchId, module);
-        await Future<void>.delayed(
-          Duration(milliseconds: kIsWeb ? 160 : 45),
-        );
       }
     } catch (e, st) {
       if (kDebugMode) {

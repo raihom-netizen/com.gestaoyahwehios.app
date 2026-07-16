@@ -18,6 +18,7 @@ import {
   migrateAllChurchTenants,
   provisionChurchTenant,
 } from "./churchTenantProvisioning";
+import { isForbiddenTestChurchId } from "./forbiddenTestChurchIds";
 import {
   memberDocIsActive,
   memberDocIsPending,
@@ -579,6 +580,20 @@ async function uploadBucketFileToDrive(
 }
 
 async function ensureTenantDriveFolders(tenantId: string) {
+  const tid = String(tenantId || "").trim();
+  if (!tid) {
+    throw new Error("tenantId vazio");
+  }
+  if (isForbiddenTestChurchId(tid)) {
+    console.warn(`ensureTenantDriveFolders: skip id de teste «${tid}»`);
+    return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
+  }
+  const churchSnap = await churchDocRef(db, tid).get();
+  if (!churchSnap.exists) {
+    // Não recriar doc raiz fantasma (bug igrejas_de_teste).
+    console.warn(`ensureTenantDriveFolders: skip — igrejas/${tid} inexistente`);
+    return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
+  }
   const driveRootId = getChurchDriveRootId();
   if (!driveRootId) {
     throw new Error("drive.root_id nao configurado");
@@ -1198,6 +1213,10 @@ export const onIgrejaCreate = functions
   .firestore.document("igrejas/{churchId}")
   .onCreate(async (_, context) => {
     const tenantId = context.params.churchId;
+    if (isForbiddenTestChurchId(tenantId)) {
+      console.warn(`onIgrejaCreate: skip id de teste «${tenantId}»`);
+      return;
+    }
     await ensureTenantDriveFolders(tenantId);
     try {
       await ensureChurchWelcomeSeed(db, tenantId);
@@ -1345,6 +1364,10 @@ export const onIgrejaTenantProvision = functions
 
     const tenantId = String(context.params.tenantId || "").trim();
     if (!tenantId) return;
+    if (isForbiddenTestChurchId(tenantId)) {
+      console.warn(`onIgrejaTenantProvision: skip teste «${tenantId}»`);
+      return;
+    }
 
     const before = change.before.exists ? change.before.data() : null;
     const slugAfter = String(after.slug || after.slugId || "").trim();
@@ -3857,9 +3880,20 @@ async function finalizeNewChurchForGestorCore(params: {
   const { uid, email, nome, cpfRaw, igrejaNome, igrejaDoc } = params;
 
   const baseSlug = slugify(igrejaNome);
+  if (isForbiddenTestChurchId(baseSlug) || isForbiddenTestChurchId(slugify(igrejaDoc || ""))) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Nome/slug de igreja de teste não é permitido. Use o nome real da igreja.",
+    );
+  }
   let slug = baseSlug;
   let idx = 0;
   while (true) {
+    if (isForbiddenTestChurchId(slug)) {
+      idx++;
+      slug = `${baseSlug}_${idx}`;
+      continue;
+    }
     const byField = await db.collection("igrejas").where("slug", "==", slug).limit(1).get();
     const byDocId = await db.collection("igrejas").doc(slug).get();
     if (byField.empty && !byDocId.exists) {

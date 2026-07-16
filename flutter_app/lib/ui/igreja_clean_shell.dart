@@ -198,6 +198,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Papel efectivo no menu (upgrade se claims atrasados mas e-mail = gestor).
   String? _roleOverride;
 
+  /// Faixa extra do rodapé (Doação/Visitantes/…) acima do rodapé fixo.
+  /// Preferência do utilizador — o rodapé principal (6 atalhos) não é reordenável.
+  bool _footerExtrasOnTop = false;
+  static const _kFooterExtrasOnTopPref = 'church_shell_footer_extras_on_top_v1';
+
   String get _panelRole {
     final override = (_roleOverride ?? '').trim().toLowerCase();
     if (override.isNotEmpty) return override;
@@ -314,8 +319,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    // Rodapé mobile: Início, Agenda, Membros, Avisos, Eventos, YahwehChat.
-    final shortcuts = <_ChurchShellFooterShortcut>[
+
+    // Rodapé estável (não reordenável) — igual Controle Total.
+    final fixed = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
         shortLabel: 'Início',
@@ -346,6 +352,184 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         shortLabel: 'YahwehChat',
         accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
       ),
+    ];
+
+    // Depois do YahwehChat — atalhos extras (roláveis; podem ir para cima).
+    final extras = <_ChurchShellFooterShortcut>[
+      for (final s in [
+        (
+          ChurchShellIndices.doacao,
+          'Doação',
+        ),
+        (
+          ChurchShellIndices.visitantes,
+          'Visitantes',
+        ),
+        (
+          ChurchShellIndices.pedidosOracao,
+          'Orações',
+        ),
+        (
+          ChurchShellIndices.minhaEscala,
+          'Minha Escala',
+        ),
+        (
+          ChurchShellIndices.utilitarios,
+          'Utilitários',
+        ),
+      ])
+        if (_canAccessItem(s.$1))
+          _ChurchShellFooterShortcut(
+            shellIndex: s.$1,
+            shortLabel: s.$2,
+            accent: kChurchShellNavEntries[s.$1].accent,
+          ),
+    ];
+
+    void openModule(int idx) {
+      if (!_canAccessItem(idx)) {
+        _showPanelSnack('Sem acesso a este módulo.', isError: true);
+        return;
+      }
+      _prefetchShellModuleData(idx);
+      TenantIntelligentPreload.scheduleModuleForShellIndex(
+        _moduleTenantId,
+        idx,
+      );
+      if (_pageCache[idx] == null) {
+        _pageCache[idx] = _modulePage(idx);
+      }
+      setState(() => _selectedIndex = idx);
+    }
+
+    Widget fixedRow() {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final count = fixed.length;
+          final slotW = constraints.maxWidth / count;
+          final circleSize = (slotW * 0.50).clamp(28.0, 34.0).toDouble();
+          final glyphSize = (circleSize * 0.44).clamp(13.0, 16.0).toDouble();
+          final labelSize = constraints.maxWidth < 340 ? 8.0 : 8.5;
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+            child: Row(
+              children: [
+                for (final s in fixed)
+                  Expanded(
+                    child: _PremiumShellFooterShortcut(
+                      shellIndex: s.shellIndex,
+                      shortLabel: s.shortLabel,
+                      accent: s.accent,
+                      opensDrawer: false,
+                      icon: _items[s.shellIndex!].icon,
+                      fullTooltip: _items[s.shellIndex!].label,
+                      selected: _selectedIndex == s.shellIndex,
+                      circleSize: circleSize,
+                      iconSize: glyphSize,
+                      labelFontSize: labelSize,
+                      onTap: () => openModule(s.shellIndex!),
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    Widget extrasStrip() {
+      if (extras.isEmpty) return const SizedBox.shrink();
+      const chipW = 68.0;
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onLongPress: () async {
+            final next = !_footerExtrasOnTop;
+            setState(() => _footerExtrasOnTop = next);
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool(_kFooterExtrasOnTopPref, next);
+            } catch (_) {}
+            if (!mounted) return;
+            _showPanelSnack(
+              next
+                  ? 'Atalhos extras no topo do rodapé.'
+                  : 'Atalhos extras abaixo do YahwehChat.',
+            );
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+                child: Row(
+                  children: [
+                    Text(
+                      'Mais atalhos',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Icon(
+                      _footerExtrasOnTop
+                          ? Icons.vertical_align_bottom_rounded
+                          : Icons.vertical_align_top_rounded,
+                      size: 14,
+                      color: Colors.grey.shade500,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'segurar p/ ${_footerExtrasOnTop ? 'baixo' : 'cima'}',
+                      style: TextStyle(
+                        fontSize: 9,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 58,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(8, 2, 8, 2),
+                  itemCount: extras.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 4),
+                  itemBuilder: (context, i) {
+                    final s = extras[i];
+                    return SizedBox(
+                      width: chipW,
+                      child: _PremiumShellFooterShortcut(
+                        shellIndex: s.shellIndex,
+                        shortLabel: s.shortLabel,
+                        accent: s.accent,
+                        opensDrawer: false,
+                        icon: _items[s.shellIndex!].icon,
+                        fullTooltip: _items[s.shellIndex!].label,
+                        selected: _selectedIndex == s.shellIndex,
+                        circleSize: 30,
+                        iconSize: 14,
+                        labelFontSize: 8,
+                        onTap: () => openModule(s.shellIndex!),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final extrasWidget = extrasStrip();
+    final bodyChildren = <Widget>[
+      if (_footerExtrasOnTop && extras.isNotEmpty) extrasWidget,
+      fixedRow(),
+      if (!_footerExtrasOnTop && extras.isNotEmpty) extrasWidget,
     ];
 
     return Material(
@@ -381,73 +565,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ),
                 ],
               ),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final count = shortcuts.length;
-                  final slotW = constraints.maxWidth / count;
-                  // WISDOMAPP — chips compactos no rodapé (6 atalhos).
-                  final circleSize =
-                      (slotW * 0.50).clamp(28.0, 34.0).toDouble();
-                  final glyphSize =
-                      (circleSize * 0.44).clamp(13.0, 16.0).toDouble();
-                  final labelSize =
-                      constraints.maxWidth < 340 ? 8.0 : 8.5;
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
-                    child: Row(
-                      children: [
-                        for (var s = 0; s < shortcuts.length; s++)
-                          Expanded(
-                            child: _PremiumShellFooterShortcut(
-                              shellIndex: shortcuts[s].shellIndex,
-                              shortLabel: shortcuts[s].shortLabel,
-                              accent: shortcuts[s].accent,
-                              opensDrawer: shortcuts[s].opensDrawer,
-                              icon: shortcuts[s].opensDrawer
-                                  ? Icons.menu_rounded
-                                  : _items[shortcuts[s].shellIndex!].icon,
-                              fullTooltip: shortcuts[s].opensDrawer
-                                  ? 'Mais opções (menu lateral)'
-                                  : _items[shortcuts[s].shellIndex!].label,
-                              selected: shortcuts[s].opensDrawer
-                                  ? false
-                                  : _selectedIndex == shortcuts[s].shellIndex,
-                              circleSize: circleSize,
-                              iconSize: glyphSize,
-                              labelFontSize: labelSize,
-                              onTap: () {
-                                if (shortcuts[s].opensDrawer) {
-                                  WidgetsBinding.instance
-                                      .addPostFrameCallback((_) {
-                                    _scaffoldKey.currentState?.openDrawer();
-                                  });
-                                  return;
-                                }
-                                final idx = shortcuts[s].shellIndex!;
-                                if (!_canAccessItem(idx)) {
-                                  _showPanelSnack(
-                                    'Sem acesso a este módulo.',
-                                    isError: true,
-                                  );
-                                  return;
-                                }
-                                _prefetchShellModuleData(idx);
-                                TenantIntelligentPreload
-                                    .scheduleModuleForShellIndex(
-                                  _moduleTenantId,
-                                  idx,
-                                );
-                                if (_pageCache[idx] == null) {
-                                  _pageCache[idx] = _modulePage(idx);
-                                }
-                                setState(() => _selectedIndex = idx);
-                              },
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: bodyChildren,
               ),
             ),
             const ChurchShellBottomVerseStrip(),
@@ -455,6 +575,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         ),
       ),
     );
+  }
+
+  Future<void> _loadFooterExtrasOnTopPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getBool(_kFooterExtrasOnTopPref) ?? false;
+      if (!mounted || v == _footerExtrasOnTop) return;
+      setState(() => _footerExtrasOnTop = v);
+    } catch (_) {}
   }
 
   @override
@@ -480,6 +609,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
     _loadUserPhotoFromFirestore();
+    unawaited(_loadFooterExtrasOnTopPref());
     _lastPaymentTick = PaymentUiFeedbackService.paymentConfirmedTick.value;
     PaymentUiFeedbackService.paymentConfirmedTick
         .addListener(_onPaymentConfirmedTick);
@@ -514,22 +644,25 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         setState(() => _tenantResolveComplete = true);
       }
       unawaited((() async {
-        try {
-          await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+        // Liberta UI já; repair/bootstrap em background (Web = velocidade de gravação).
+        unawaited(
+          ChurchPanelAccessBootstrap.ensureFirestoreAccess(
             churchIdHint: _moduleTenantId,
-          ).timeout(const Duration(seconds: 38));
-        } catch (_) {}
+          )
+              .timeout(const Duration(seconds: 12))
+              .then((_) {}, onError: (_, __) {}),
+        );
         unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
         if (kIsWeb) {
           unawaited(FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}));
         }
         try {
           await _resolveOperationalTenant(forceRefresh: false).timeout(
-            const Duration(seconds: 6),
+            const Duration(seconds: 4),
             onTimeout: () {},
           );
           await _bootstrapShellTenantDoc(forceRefresh: false).timeout(
-            const Duration(seconds: 10),
+            const Duration(seconds: 6),
             onTimeout: () {},
           );
         } catch (_) {}
@@ -2618,10 +2751,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           tenantId: _moduleTenantId,
           role: _panelRole,
           cpf: widget.cpf,
+          permissions: widget.permissions ?? const [],
           embeddedInShell: true,
-          cnhFullscreenOnly:
-              AppPermissions.isRestrictedMember(_panelRole),
-          onNavigateToMembers: AppPermissions.isRestrictedMember(_panelRole)
+          cnhFullscreenOnly: AppPermissions.isSelfOnlyMemberAccess(
+            _panelRole,
+            widget.permissions,
+          ),
+          onNavigateToMembers: AppPermissions.isSelfOnlyMemberAccess(
+            _panelRole,
+            widget.permissions,
+          )
               ? null
               : () => setState(
                     () => _selectedIndex = ChurchShellIndices.membros,

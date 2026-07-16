@@ -1,8 +1,9 @@
-import 'dart:convert';
+import 'dart:convert' show jsonDecode;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cache local do painel igreja — Hive (mobile) + SharedPreferences (Web).
@@ -82,7 +83,7 @@ abstract final class ChurchPanelLocalCache {
     if (kIsWeb) {
       try {
         final p = await SharedPreferences.getInstance();
-        await p.setString(_webKey(id, module), jsonEncode(data));
+        await p.setString(_webKey(id, module), safeJsonEncode(data));
         await p.setInt(
           '${_webKey(id, module)}_ts',
           DateTime.now().millisecondsSinceEpoch,

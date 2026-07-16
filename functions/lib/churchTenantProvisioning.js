@@ -46,6 +46,7 @@ exports.migrateAllChurchTenants = migrateAllChurchTenants;
  */
 const admin = __importStar(require("firebase-admin"));
 const churchStorageStructure_1 = require("./churchStorageStructure");
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 const MIN_PLACEHOLDER_PNG = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
     0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
@@ -126,12 +127,40 @@ async function provisionChurchTenant(docId, options = {}) {
             source,
         };
     }
+    // IDs de teste — nunca provisionar / recriar (voltam sozinhas após delete incompleto).
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(rawId)) {
+        console.warn(`provisionChurchTenant: ignorado id de teste reservado «${rawId}» (source=${source})`);
+        return {
+            ok: false,
+            canonicalId: rawId,
+            docId: rawId,
+            rootPatched: false,
+            aliasesUpserted: 0,
+            storageConfigCreated: false,
+            storageFinanceiroCreated: false,
+            source,
+        };
+    }
     const canonical = rawId;
     const churchRef = db().collection("igrejas").doc(rawId);
+    const snap = await churchRef.get();
     let data = options.data;
     if (!data) {
-        const snap = await churchRef.get();
         data = snap.exists ? (snap.data() ?? {}) : {};
+    }
+    // Doc fantasma (só subcoleções): NÃO recriar raiz — era o bug das igrejas teste.
+    if (!snap.exists && !options.allowCreateRoot) {
+        console.warn(`provisionChurchTenant: skip create fantasma «${rawId}» (source=${source})`);
+        return {
+            ok: true,
+            canonicalId: canonical,
+            docId: rawId,
+            rootPatched: false,
+            aliasesUpserted: 0,
+            storageConfigCreated: false,
+            storageFinanceiroCreated: false,
+            source,
+        };
     }
     let rootPatched = false;
     if (!options.skipRootPatch) {
@@ -173,8 +202,16 @@ async function migrateAllChurchTenants(source = "migrate_church_roots_and_aliase
     const ids = await listAllIgrejaDocIds(db());
     const results = [];
     for (const id of ids) {
+        if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(id)) {
+            console.warn(`migrateAllChurchTenants: skip teste «${id}»`);
+            continue;
+        }
         try {
-            const r = await provisionChurchTenant(id, { source });
+            // Nunca allowCreateRoot aqui — evita ressuscitar docs fantasma.
+            const r = await provisionChurchTenant(id, {
+                source,
+                allowCreateRoot: false,
+            });
             results.push(r);
         }
         catch (e) {

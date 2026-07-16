@@ -16,21 +16,21 @@ abstract final class ChurchPanelReadTimeouts {
   static Duration get queryCap =>
       kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 28);
 
-  /// 1.º carregamento de módulo na Web — inclui callable Admin SDK após repair.
+  /// 1.º carregamento de módulo na Web — alinhado ao [queryCap] (sem esperar callable 32s).
   static Duration get webModuleFirstLoadCap =>
-      kIsWeb ? const Duration(seconds: 32) : const Duration(seconds: 90);
+      kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 90);
 
   /// Pré-aquecimento em background (login / dashboard).
   static Duration get warmCap =>
-      kIsWeb ? const Duration(seconds: 60) : const Duration(seconds: 22);
+      kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 22);
 
   /// Prefetch pós-login (não bloqueia UI) — cap curto para não enfileirar reads.
   static Duration get prefetchCap =>
-      kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 22);
+      kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22);
 
   /// Doc raiz da igreja (cadastro).
   static Duration get churchDocCap =>
-      kIsWeb ? const Duration(seconds: 24) : const Duration(seconds: 40);
+      kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 40);
 
   /// Web: polling periódico em vez de `snapshots()` — paridade com mobile.
   static Duration get webPollInterval =>

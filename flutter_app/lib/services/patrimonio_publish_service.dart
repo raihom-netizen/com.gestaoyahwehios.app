@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -305,13 +306,20 @@ abstract final class PatrimonioPublishService {
     onUploadProgress?.call(0.88);
 
     final payload = Map<String, dynamic>.from(corePayload);
-    PatrimonioPhotoFields.applyIndexedSlots(payload, slotUrls, slotPaths);
+    PatrimonioPhotoFields.applyIndexedSlots(
+      payload,
+      slotUrls,
+      slotPaths,
+      allowDeleteSentinels: !isNewDoc,
+    );
     payload['churchId'] = igrejaId;
     payload['tenantId'] = igrejaId;
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
-    payload['photoUploadError'] = FieldValue.delete();
-    payload['publishState'] = FieldValue.delete();
+    if (!isNewDoc) {
+      payload['photoUploadError'] = FieldValue.delete();
+      payload['publishState'] = FieldValue.delete();
+    }
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) {
       payload['criadoEm'] = FieldValue.serverTimestamp();
@@ -321,6 +329,10 @@ abstract final class PatrimonioPublishService {
 
     await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
 
+    final mergeWrite = FirestoreWriteGuard.effectiveSetMerge(
+      merge: !isNewDoc,
+      data: payload,
+    );
     await AdminFeedFirestoreBridge.upsertTenantDoc(
       churchId: igrejaId,
       collection: 'patrimonio',
@@ -328,7 +340,7 @@ abstract final class PatrimonioPublishService {
       data: payload,
       isNewDoc: isNewDoc,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+        () => docRef.set(payload, SetOptions(merge: mergeWrite)),
       ).timeout(
         const Duration(seconds: 25),
         onTimeout: () => throw TimeoutException(
@@ -395,6 +407,7 @@ abstract final class PatrimonioPublishService {
         payload,
         indexedSlotUrls,
         indexedSlotPaths,
+        allowDeleteSentinels: !isNewDoc,
       );
     } else {
       final urls = existingUrls
@@ -402,18 +415,29 @@ abstract final class PatrimonioPublishService {
           .where((e) => e.isNotEmpty)
           .toList();
       if (urls.isNotEmpty || existingPaths.isNotEmpty) {
-        PatrimonioPhotoFields.applyToPayload(payload, urls, existingPaths);
+        PatrimonioPhotoFields.applyToPayload(
+          payload,
+          urls,
+          existingPaths,
+          allowDeleteSentinels: !isNewDoc,
+        );
       }
     }
     payload['churchId'] = igrejaId;
     payload['tenantId'] = igrejaId;
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
-    payload['photoUploadError'] = FieldValue.delete();
-    payload['publishState'] = FieldValue.delete();
+    if (!isNewDoc) {
+      payload['photoUploadError'] = FieldValue.delete();
+      payload['publishState'] = FieldValue.delete();
+    }
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
 
+    final mergeMeta = FirestoreWriteGuard.effectiveSetMerge(
+      merge: !isNewDoc,
+      data: payload,
+    );
     await AdminFeedFirestoreBridge.upsertTenantDoc(
       churchId: igrejaId,
       collection: 'patrimonio',
@@ -421,7 +445,7 @@ abstract final class PatrimonioPublishService {
       data: payload,
       isNewDoc: isNewDoc,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+        () => docRef.set(payload, SetOptions(merge: mergeMeta)),
       ),
     );
     unawaited(() async {
@@ -455,6 +479,7 @@ abstract final class PatrimonioPublishService {
         payload,
         indexedSlotUrls,
         indexedSlotPaths,
+        allowDeleteSentinels: !isNewDoc,
       );
     }
     payload['churchId'] = igrejaId;
@@ -465,6 +490,10 @@ abstract final class PatrimonioPublishService {
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
 
+    final mergePending = FirestoreWriteGuard.effectiveSetMerge(
+      merge: !isNewDoc,
+      data: payload,
+    );
     await AdminFeedFirestoreBridge.upsertTenantDoc(
       churchId: igrejaId,
       collection: 'patrimonio',
@@ -472,7 +501,7 @@ abstract final class PatrimonioPublishService {
       data: payload,
       isNewDoc: isNewDoc,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+        () => docRef.set(payload, SetOptions(merge: mergePending)),
       ),
     );
     unawaited(() async {

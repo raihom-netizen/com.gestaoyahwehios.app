@@ -39,6 +39,7 @@ exports.recomputePanelPublicSiteCache = recomputePanelPublicSiteCache;
 exports.resolvePublicChurchIdFromInput = resolvePublicChurchIdFromInput;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 const churchPerformancePack_1 = require("./churchPerformancePack");
 const publicSiteMediaPrefetch_1 = require("./publicSiteMediaPrefetch");
 const publicChurchSlugIndex_1 = require("./publicChurchSlugIndex");
@@ -58,12 +59,20 @@ async function mirrorPublicSitePanelCache(tenantId) {
     const tid = String(tenantId || "").trim();
     if (!tid)
         return;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tid))
+        return;
     const db = admin.firestore();
     const churchRef = db.collection("igrejas").doc(tid);
     const [churchSnap, perfSnap] = await Promise.all([
         churchRef.get(),
         churchRef.collection("_performance_cache").doc("public_feed").get(),
     ]);
+    if (!churchSnap.exists) {
+        functions.logger.warn("mirrorPublicSitePanelCache: skip — raiz inexistente", {
+            tenantId: tid,
+        });
+        return;
+    }
     const church = (churchSnap.data() ?? {});
     const perf = (perfSnap.data() ?? {});
     const feed = Array.isArray(perf.data)

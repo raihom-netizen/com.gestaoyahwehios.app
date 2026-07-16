@@ -417,17 +417,25 @@ abstract final class ChurchCanonicalMediaContract {
     'publishState',
   ];
 
-  static void patrimonioStripLegacyFields(Map<String, dynamic> payload) {
+  /// [allowDeleteSentinels] só com `set(..., merge: true)` ou `update`.
+  /// Em doc novo (`set` sem merge / `add`), omitir chaves — senão `invalid-argument`.
+  static void patrimonioStripLegacyFields(
+    Map<String, dynamic> payload, {
+    bool allowDeleteSentinels = true,
+  }) {
+    if (!allowDeleteSentinels) return;
     for (final k in patrimonioLegacyKeysToDelete) {
       payload[k] = FieldValue.delete();
     }
   }
 
+  /// [allowDeleteSentinels] — false em cadastro novo (sem merge).
   static void patrimonioApplyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
     List<String> slotPaths, {
     int? cacheRevision,
+    bool allowDeleteSentinels = true,
   }) {
     final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
     // Path fixo foto_N.jpg (overwrite) — bust na URL para Web/lista verem o ficheiro novo.
@@ -438,14 +446,20 @@ abstract final class ChurchCanonicalMediaContract {
       if (u.isNotEmpty) {
         payload[patrimonioUrlSlotKeys[i]] =
             YahwehMediaCacheBust.apply(u, rev);
-        payload[patrimonioPathSlotKeys[i]] =
-            p.isNotEmpty ? p : FieldValue.delete();
-      } else {
+        if (p.isNotEmpty) {
+          payload[patrimonioPathSlotKeys[i]] = p;
+        } else if (allowDeleteSentinels) {
+          payload[patrimonioPathSlotKeys[i]] = FieldValue.delete();
+        }
+      } else if (allowDeleteSentinels) {
         payload[patrimonioUrlSlotKeys[i]] = FieldValue.delete();
         payload[patrimonioPathSlotKeys[i]] = FieldValue.delete();
       }
     }
-    patrimonioStripLegacyFields(payload);
+    patrimonioStripLegacyFields(
+      payload,
+      allowDeleteSentinels: allowDeleteSentinels,
+    );
   }
 
   // ─── Escrita — outros módulos (reutilizado pelo publish) ─────────────────

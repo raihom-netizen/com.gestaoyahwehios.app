@@ -65,9 +65,11 @@ abstract final class TenantIntelligentPreload {
     _dashboardRunning = true;
     try {
       await FirebaseBootstrap.ensureInitialized();
-      await PanelDashboardSnapshotService.readOnce(tenantId);
-      await PanelStatisticsSnapshotService.readOnce(tenantId);
-      await ChurchTenantDashboardDocService.readOnce(tenantId);
+      await Future.wait([
+        PanelDashboardSnapshotService.readOnce(tenantId),
+        PanelStatisticsSnapshotService.readOnce(tenantId),
+        ChurchTenantDashboardDocService.readOnce(tenantId),
+      ]);
     } catch (e, st) {
       if (kDebugMode) debugPrint('Preload[dashboard] $e\n$st');
     } finally {

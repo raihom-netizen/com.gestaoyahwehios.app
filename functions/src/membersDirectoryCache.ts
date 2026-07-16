@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { isForbiddenTestChurchId } from "./forbiddenTestChurchIds";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 const DIRECTORY_MAX = 800;
@@ -154,6 +155,9 @@ export async function recomputeMembersDirectoryFromDocs(
 ): Promise<void> {
   const tid = String(tenantId || "").trim();
   if (!tid) return;
+  if (isForbiddenTestChurchId(tid)) return;
+  const churchRef = admin.firestore().collection("igrejas").doc(tid);
+  if (!(await churchRef.get()).exists) return;
 
   const summary = computeMembersSummary(memberDocs);
   const entries = memberDocs

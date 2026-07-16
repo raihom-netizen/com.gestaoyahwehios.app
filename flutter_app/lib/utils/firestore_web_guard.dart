@@ -22,7 +22,7 @@ class FirestoreWebGuard {
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
   /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo justo (FIFO).
-  static const int _maxWebConcurrentReads = 4;
+  static const int _maxWebConcurrentReads = 6;
   static int _webReadsInFlight = 0;
   static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
 
@@ -177,15 +177,18 @@ class FirestoreWebGuard {
     return _panelReadReadyOnce!;
   }
 
-  /// Painel Master web — sessão estável antes de qualquer leitura/gravação.
+  /// Painel Master web — sessão estável sem forçar refresh de token (igual painel igreja).
   static Future<void> ensureMasterPanelReady() async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
-    await ensureWebDatabaseConnected(refreshAuth: true);
+    await ensureWebDatabaseConnected(refreshAuth: false).timeout(
+      ChurchPanelReadTimeouts.readReadyCap,
+      onTimeout: () {},
+    );
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && !user.isAnonymous) {
-        await user.getIdToken(true);
+        await user.getIdToken(false);
       }
     } catch (_) {}
   }
@@ -230,7 +233,7 @@ class FirestoreWebGuard {
             await recoverFirestoreWebSession(allowHardReconnect: hard);
           }
           await Future<void>.delayed(
-            Duration(milliseconds: 100 + attempt * 160),
+            Duration(milliseconds: 40 + attempt * 80),
           );
         }
         return await fn();

@@ -58,6 +58,7 @@ class MemberCardPage extends StatefulWidget {
     this.embeddedInShell = false,
     this.cnhFullscreenOnly = false,
     this.onShellBack,
+    this.permissions = const [],
   });
 
   final String tenantId;
@@ -69,6 +70,7 @@ class MemberCardPage extends StatefulWidget {
   final bool embeddedInShell;
   final bool cnhFullscreenOnly;
   final VoidCallback? onShellBack;
+  final List<String> permissions;
 
   @override
   State<MemberCardPage> createState() => _MemberCardPageState();
@@ -136,7 +138,10 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   bool get _canManage {
-    if (AppPermissions.isRestrictedMember(widget.role)) return false;
+    if (AppPermissions.isSelfOnlyMemberAccess(
+        widget.role, widget.permissions)) {
+      return false;
+    }
     final n = ChurchRolePermissions.normalize(widget.role);
     if (n == ChurchRoleKeys.master ||
         n == ChurchRoleKeys.adm ||
@@ -146,9 +151,10 @@ class _MemberCardPageState extends State<MemberCardPage>
     return ChurchRolePermissions.snapshotFor(widget.role).editAnyMember;
   }
 
-  bool get _isRestricted =>
-      widget.role.toLowerCase() == 'membro' ||
-      widget.role.toLowerCase() == 'visitante';
+  bool get _isRestricted => AppPermissions.isSelfOnlyMemberAccess(
+        widget.role,
+        widget.permissions,
+      );
 
   @override
   void initState() {

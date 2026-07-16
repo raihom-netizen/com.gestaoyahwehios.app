@@ -175,8 +175,12 @@ abstract final class ChurchFeedLinearPublishService {
                 .where((p) => p.isNotEmpty)
                 .toList() ??
             const <String>[];
-        final allBytes = <Uint8List>[...images];
-        if (imagePaths.isNotEmpty) {
+        // Paridade Web: se já há bytes preparados, NÃO reler paths (evita duplicar + falha).
+        final allBytes = <Uint8List>[
+          for (final b in images)
+            if (b.isNotEmpty) b,
+        ];
+        if (allBytes.isEmpty && imagePaths.isNotEmpty) {
           if (kIsWeb) {
             throw StateError(
               'As fotos do evento na web devem ser enviadas em memória (bytes).',
@@ -206,6 +210,7 @@ abstract final class ChurchFeedLinearPublishService {
           throw StateError('Inclua pelo menos uma foto no evento.');
         }
 
+        final bytesWerePrepared = images.isNotEmpty;
         var nextSlot = startSlotIndex;
         final batchItems = <ChurchMediaUploadBatchItem>[];
         for (final raw in allBytes) {
@@ -218,7 +223,7 @@ abstract final class ChurchFeedLinearPublishService {
                 nextSlot,
               ),
               logLabel: 'evento_photo',
-              alreadyCompressed: false,
+              alreadyCompressed: bytesWerePrepared,
             ),
           );
           nextSlot++;
@@ -264,8 +269,11 @@ abstract final class ChurchFeedLinearPublishService {
         if (images.isEmpty && imagePaths.isEmpty) {
           throw StateError('Inclua pelo menos uma foto no aviso.');
         }
-        final allBytes = <Uint8List>[...images];
-        if (imagePaths.isNotEmpty) {
+        final allBytes = <Uint8List>[
+          for (final b in images)
+            if (b.isNotEmpty) b,
+        ];
+        if (allBytes.isEmpty && imagePaths.isNotEmpty) {
           if (kIsWeb) {
             throw StateError(
               'As fotos do aviso na web devem ser enviadas em memória (bytes).',
@@ -292,6 +300,7 @@ abstract final class ChurchFeedLinearPublishService {
           allBytes.addAll(readBytes);
         }
 
+        final bytesWerePrepared = images.isNotEmpty;
         var nextSlot = startSlotIndex;
         final batchItems = <ChurchMediaUploadBatchItem>[];
         for (final raw in allBytes) {
@@ -304,7 +313,7 @@ abstract final class ChurchFeedLinearPublishService {
                 nextSlot,
               ),
               logLabel: 'aviso_photo',
-              alreadyCompressed: false,
+              alreadyCompressed: bytesWerePrepared,
             ),
           );
           nextSlot++;

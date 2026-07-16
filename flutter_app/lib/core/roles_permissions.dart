@@ -292,7 +292,9 @@ class ChurchRolePermissions {
       return _obreiroLeve;
     }
     if (n == 'membro' || n == 'visitante') return _membro;
-    return _obreiroLeve;
+    // Cargo desconhecido / sem template → membro comum (só o próprio cadastro).
+    // Não elevar a «obreiro leve» (lista de membros) por defeito.
+    return _membro;
   }
 
   static int badgeColorForKey(String roleKey) => snapshotFor(roleKey).badgeColorArgb;

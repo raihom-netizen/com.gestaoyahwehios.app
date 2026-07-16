@@ -1,5 +1,10 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+2111: Fix patrimônio cadastro (sem deleteField em set sem merge) + AAB/ZIP iOS; web 2110 já online com o fix.
+/// 11.2.305+2110: Fix patrimônio — cadastro novo sem FieldValue.delete em foto01 (set sem merge); web+AAB+iOS.
+/// 11.2.305+2109: Deploy completo — AAB Play 2109 + ZIP iOS; web 2108 (CanvasKit).
+/// 11.2.305+2108: Deploy completo — upload nativo bytes=Web (eventos/avisos/chat/mídia), membro self-only, rodapé atalhos extras, Web/Master load rápido (repair BG, caps 14s).
+/// 11.2.305+2107: Crashlytics iOS — LateInit _deptsFuture + Json Infinity; menos reads membros (sem users listen); panel cache 60min.
 /// 11.2.305+2104: Deploy completo — painel/chat Telegram, utilitários CT, pagamentos PIX/Play/doações, master/site mídia, regras/functions/web/AAB/iOS.
 /// 11.2.305+2094: Deploy completo — Firestore recovery, YahwehChat resiliente e exclusão de avisos/eventos antigos.
 /// 11.2.305+2082: Deploy completo — eventos (galeria, partilha, evento fixo capa web), chat, financeiro, patrimônio, web+AAB+iOS.
@@ -464,7 +469,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2106';
+const String appBuildNumber = '2111';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

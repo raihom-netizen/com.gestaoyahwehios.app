@@ -168,7 +168,10 @@ async function provisionOne(db, docId, dry) {
   const { canonical, aliases } = collectAliases(docId, { ...data, ...patch });
 
   console.log(`\n▶ ${docId} → canónico ${canonical}`);
-  if (!snap.exists) console.log('  ⚠ doc raiz fantasma (sem campos) — será criado');
+  if (!snap.exists) {
+    console.log('  ⏭ doc raiz fantasma — NÃO criar (evita ressuscitar igrejas teste)');
+    return { docId, canonical, aliases: 0, ok: true, skippedGhost: true };
+  }
 
   if (dry) {
     console.log('  [dry-run] root patch:', JSON.stringify(patch, null, 2));

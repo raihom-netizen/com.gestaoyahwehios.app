@@ -1,5 +1,4 @@
 import 'dart:async' show TimeoutException, unawaited;
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -29,8 +28,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isFirebaseStorageHttpUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 /// Financeiro — comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
 /// → URL HTTPS → Firestore (`comprovanteUrl`, `hasComprovante`).
@@ -679,16 +676,9 @@ abstract final class FinanceComprovantePublishService {
   }) async {
     if (!kIsWeb && bytes.isNotEmpty) {
       try {
-        final dir = await getTemporaryDirectory();
-        final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
-        final localPath = p.join(
-          dir.path,
-          'comprovante_${DateTime.now().millisecondsSinceEpoch}.$ext',
-        );
-        await File(localPath).writeAsBytes(bytes, flush: true);
-        await StorageUploadPersistenceService.enqueueFileJob(
+        await StorageUploadPersistenceService.enqueueBytesJob(
           storagePath: storagePath,
-          localFilePath: localPath,
+          bytes: bytes,
           contentType: mimeType,
         );
       } catch (_) {}

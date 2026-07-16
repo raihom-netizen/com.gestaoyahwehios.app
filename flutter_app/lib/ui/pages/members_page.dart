@@ -492,11 +492,21 @@ class _MembersPageState extends State<MembersPage> {
   Set<String> _selectedPendingIds = {};
   List<_DeptItem> _departamentos = [];
   final MembersLimitService _limitService = MembersLimitService();
-  late final Future<MembersLimitResult> _limitFuture;
-  late final Future<void> _deptsFuture;
+  /// Nunca `late` — FutureBuilder pode montar antes/depois de reassign (crash iOS).
+  Future<MembersLimitResult> _limitFuture = Future.value(
+    const MembersLimitResult(
+      currentCount: 0,
+      planLimit: 999999,
+      hardLimit: 999999,
+      planId: 'unknown',
+      planName: '',
+    ),
+  );
+  Future<void> _deptsFuture = Future.value();
 
   /// Uma única leitura pontual (.get()) para evitar INTERNAL ASSERTION FAILED (web/mobile).
-  late Future<List<QuerySnapshot<Map<String, dynamic>>>> _membersDataFuture;
+  Future<List<QuerySnapshot<Map<String, dynamic>>>> _membersDataFuture =
+      Future.value(const <QuerySnapshot<Map<String, dynamic>>>[]);
   final List<StreamSubscription<dynamic>> _membersRealtimeSubs = [];
   Timer? _membersRealtimeDebounce;
   String _membersRealtimeTenant = '';
@@ -905,11 +915,14 @@ class _MembersPageState extends State<MembersPage> {
     _membersRealtimeSubs.clear();
     _membersRealtimeTenant = tenantId;
     _membrosRealtimeSkipInitial = true;
-    final db = firebaseDefaultFirestore;
+
+    // Custo: snapshots em `membros` + `users` geravam milhares de reads/dia.
+    // Com `_panel_cache/members_directory` (1 doc) já temos lista; só escuta
+    // mudanças recentes com limit baixo e SEM query em `users/`.
     _membersRealtimeSubs.add(
-                ChurchUiCollections.membros(tenantId)
+      ChurchUiCollections.membros(tenantId)
           .orderBy('updatedAt', descending: true)
-          .limit(_membersQueryLimit)
+          .limit(12)
           .watchSafe()
           .listen((snap) {
         if (_membrosRealtimeSkipInitial) {
@@ -918,18 +931,6 @@ class _MembersPageState extends State<MembersPage> {
         }
         unawaited(_applyMembrosRealtimeSnapshot(snap));
       }),
-    );
-    // Uma query OR em vez de dois listeners (menos ligações + menos leituras em mudança).
-    _membersRealtimeSubs.add(
-      db
-          .collection('users')
-          .where(Filter.or(
-            Filter('tenantId', isEqualTo: tenantId),
-            Filter('igrejaId', isEqualTo: tenantId),
-          ))
-          .limit(_membersQueryLimit)
-          .watchSafe()
-          .listen((_) => _scheduleMembersAutoRefresh()),
     );
   }
 
@@ -949,21 +950,14 @@ class _MembersPageState extends State<MembersPage> {
     if (cache.hasEntries) {
       _applyDirectoryCacheState(cache);
     }
+    // Uma só chamada — IfStale já chama warmFromCallable quando necessário
+    // (antes: 2 callables/leituras na abertura = custo Crashlytics + Firebase).
     unawaited(
       MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((warmed) {
         if (!mounted || !warmed.hasEntries) return;
         _applyDirectoryCacheState(warmed);
       }),
     );
-    if (!_directoryCache.isCompleteForStats ||
-        !(_directoryCache.summary?.hasCounts ?? false)) {
-      unawaited(
-        MembersDirectorySnapshotService.warmFromCallable(tenantId: tid).then((warmed) {
-          if (!mounted || !warmed.hasEntries) return;
-          _applyDirectoryCacheState(warmed);
-        }),
-      );
-    }
   }
 
   Future<void> _watchMembersDirectoryCache() async {
@@ -1248,9 +1242,11 @@ class _MembersPageState extends State<MembersPage> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterSelfOnlyMemberDocs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
     if (uid == null) return const [];
     final cpfDigits = (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+    final email = (user?.email ?? '').trim().toLowerCase();
     return docs.where((d) {
       if (d.id == uid) return true;
       final data = d.data();
@@ -1263,6 +1259,16 @@ class _MembersPageState extends State<MembersPage> {
             .toString()
             .replaceAll(RegExp(r'\D'), '');
         if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
+      }
+      if (email.isNotEmpty) {
+        final memberEmail = (data['email'] ??
+                data['EMAIL'] ??
+                data['eMail'] ??
+                '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (memberEmail.isNotEmpty && memberEmail == email) return true;
       }
       return false;
     }).toList();
@@ -1296,18 +1302,13 @@ class _MembersPageState extends State<MembersPage> {
       unawaited(_repairMembersAccessInBackground());
       return instant;
     }
-    await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
-      churchIdHint: tid,
-    ).timeout(
-      Duration(seconds: kIsWeb ? 38 : 46),
-      onTimeout: () {},
-    );
+    // Não bloquear lista no repair (Web: 12s+). Load imediato + repair em BG.
+    unawaited(_repairMembersAccessInBackground());
     return _loadMembersDataWithCap();
   }
 
   bool get _selfOnlyMemberList =>
-      AppPermissions.isRestrictedMember(widget.role) &&
-      !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
+      AppPermissions.isSelfOnlyMemberAccess(widget.role, widget.permissions);
 
   Future<List<QuerySnapshot<Map<String, dynamic>>>?>
       _tryInstantMembersSnapshots(String tid) async {
@@ -1322,10 +1323,16 @@ class _MembersPageState extends State<MembersPage> {
       );
     }
 
-    await YahwehModuleCaches.membros.warmUp(tid);
+    await YahwehModuleCaches.membros.warmUp(tid).timeout(
+      const Duration(milliseconds: 400),
+      onTimeout: () {},
+    );
     final moduleDocs = YahwehModuleCaches.membros.docs;
     if (moduleDocs.isNotEmpty) {
-      return _snapshotsFromMemberDocs(moduleDocs);
+      final docs = _selfOnlyMemberList
+          ? _filterSelfOnlyMemberDocs(moduleDocs)
+          : moduleDocs;
+      return _snapshotsFromMemberDocs(docs);
     }
 
     try {
@@ -1401,9 +1408,10 @@ class _MembersPageState extends State<MembersPage> {
       if (!cache.hasEntries) {
         cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
       }
-      final selfOnly = AppPermissions.isRestrictedMember(widget.role) &&
-          !AppPermissions.canEditMembersDirectory(
-              widget.role, widget.permissions);
+      final selfOnly = AppPermissions.isSelfOnlyMemberAccess(
+        widget.role,
+        widget.permissions,
+      );
       if (cache.hasEntries) {
         return _snapshotsFromDirectoryCache(
           cache,
@@ -1431,8 +1439,10 @@ class _MembersPageState extends State<MembersPage> {
     }
     final effectiveId = tenantId.isNotEmpty ? tenantId : originalId;
 
-    final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
-        !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
+    final selfOnlyMemberList = AppPermissions.isSelfOnlyMemberAccess(
+      widget.role,
+      widget.permissions,
+    );
 
     final result = await ChurchMembersLoadService.load(
       seedTenantId: effectiveId,
@@ -2110,7 +2120,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   bool _isSelfMember(_MemberDoc member) {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid;
     if (uid == null) return false;
     if (member.id == uid) return true;
     final authUid = (member.data['authUid'] ?? '').toString().trim();
@@ -2119,6 +2130,21 @@ class _MembersPageState extends State<MembersPage> {
     if (cpfDigits.length == 11) {
       final idDigits = member.id.replaceAll(RegExp(r'\D'), '');
       if (idDigits == cpfDigits) return true;
+      final cpfDoc = (member.data['CPF'] ?? member.data['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+      if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
+    }
+    final email = (user?.email ?? '').trim().toLowerCase();
+    if (email.isNotEmpty) {
+      final memberEmail = (member.data['email'] ??
+              member.data['EMAIL'] ??
+              member.data['eMail'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (memberEmail.isNotEmpty && memberEmail == email) return true;
     }
     return false;
   }
@@ -7170,7 +7196,7 @@ class _MembersPageState extends State<MembersPage> {
                   _MembersLimitBanner(result: limitResult),
                 if (widget.embeddedInShell &&
                     !_canManage &&
-                    AppPermissions.isRestrictedMember(widget.role))
+                    _selfOnlyMemberList)
                   Padding(
                     padding:
                         EdgeInsets.fromLTRB(padding.left, 8, padding.right, 4),
@@ -7189,7 +7215,7 @@ class _MembersPageState extends State<MembersPage> {
                               fontSize: 14),
                         ),
                         subtitle: Text(
-                          'Altere seus dados e foto. Funções (gestor, ADM, etc.) só a equipe pode definir.',
+                          'Pode editar os seus dados, trocar a foto e abrir a sua carteirinha. A lista de outros membros fica só para a equipe.',
                           style: TextStyle(
                               fontSize: 12,
                               height: 1.3,
@@ -7516,7 +7542,7 @@ class _MembersPageState extends State<MembersPage> {
               ),
             );
           } else if (!_canManage &&
-              AppPermissions.isRestrictedMember(widget.role) &&
+              _selfOnlyMemberList &&
               allDocs.isEmpty) {
             emptyListBody = Center(
               child: Padding(

@@ -2,6 +2,7 @@ import 'dart:async' show TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -180,7 +181,10 @@ abstract final class AdminFeedFirestoreBridge {
             subDocId: subDocId,
             data: encodeMap(data),
             create: isNewDoc,
-            merge: !isNewDoc,
+            merge: FirestoreWriteGuard.effectiveSetMerge(
+              merge: !isNewDoc,
+              data: data,
+            ),
             useUpdate: useUpdate,
           ).timeout(
             kWebCfTimeout,

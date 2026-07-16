@@ -79,3 +79,8 @@ dynamic firestoreToJsonSafe(dynamic v) {
   if (v is String || v is bool) return v;
   return v.toString();
 }
+
+/// [jsonEncode] à prova de Infinity/NaN/Timestamp — use em Hive/SharedPreferences.
+String safeJsonEncode(Object? value) {
+  return jsonEncode(firestoreToJsonSafe(value));
+}

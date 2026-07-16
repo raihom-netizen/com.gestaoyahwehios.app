@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
+import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
@@ -1745,8 +1747,13 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     for (final f in files.take(remaining)) {
       final b = await f.readAsBytes();
       if (b.isEmpty) continue;
-      _photos.add(b);
-      lastBytes = b;
+      final prepared = await ChurchInstantUploadPipeline.prepareImageBytes(
+        b,
+        postType: kChurchPostTypeAviso,
+      );
+      final bytes = prepared.isNotEmpty ? prepared : b;
+      _photos.add(bytes);
+      lastBytes = bytes;
       lastName = f.name.trim().isNotEmpty ? f.name.trim() : 'foto.webp';
     }
     setState(() {});

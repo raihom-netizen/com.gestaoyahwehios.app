@@ -1,12 +1,15 @@
 import 'dart:io' show File;
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 
-/// Evita OutOfMemory — comprime no disco antes de carregar original na RAM.
+/// Evita OutOfMemory — comprime bytes na isolate principal (igual Web → putData).
+///
+/// **Proibido:** `compressWithFile` / `FlutterImageCompress` dentro de `compute`
+/// (BinaryMessenger no Android → falha de publish).
 abstract final class SafeImageBytes {
   SafeImageBytes._();
 
@@ -22,29 +25,7 @@ abstract final class SafeImageBytes {
     int quality = defaultQuality,
     Future<Uint8List> Function(Uint8List raw)? extraPass,
   }) async {
-    final path = file.path.trim();
-    if (!kIsWeb && path.isNotEmpty) {
-      final f = File(path);
-      if (await f.exists()) {
-        final len = await f.length();
-        if (len > maxRawReadBytes) {
-          throw StateError(
-            'Imagem demasiado grande (${len ~/ (1024 * 1024)} MB). '
-            'Use outra foto ou reduza a resolução.',
-          );
-        }
-        final compressed = await _compressFromPath(path, maxEdge: maxEdge, quality: quality);
-        if (compressed.isNotEmpty) {
-          return extraPass != null ? await extraPass(compressed) : compressed;
-        }
-      }
-    }
-    final raw = await file.readAsBytes();
-    if (raw.length > maxRawReadBytes) {
-      throw StateError(
-        'Imagem demasiado grande (${raw.length ~/ (1024 * 1024)} MB).',
-      );
-    }
+    final raw = await _readPickerBytes(file);
     var out = await _compressList(raw, maxEdge: maxEdge, quality: quality);
     if (extraPass != null) {
       out = await extraPass(out);
@@ -73,10 +54,33 @@ abstract final class SafeImageBytes {
         'Ficheiro demasiado grande (${len ~/ (1024 * 1024)} MB).',
       );
     }
-    return _compressFromPath(path, maxEdge: maxEdge, quality: quality);
+    final raw = await f.readAsBytes();
+    if (raw.isEmpty) {
+      throw StateError('Não foi possível ler a imagem.');
+    }
+    return _compressList(raw, maxEdge: maxEdge, quality: quality);
   }
 
   static Future<Uint8List> patrimonioFromPicker(XFile file) async {
+    final raw = await _readPickerBytes(file);
+    // MediaHandler já comprimiu (JPEG leve) — 1 compressão só no domínio (padrão CT).
+    if (_looksLikeJpeg(raw) &&
+        raw.length <= ImageHelper.kPatrimonioMaxUploadBytes) {
+      return raw;
+    }
+    return ImageHelper.compressPatrimonioPhotoForUpload(raw);
+  }
+
+  static bool _looksLikeJpeg(Uint8List bytes) {
+    if (bytes.length < 3) return false;
+    return bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+  }
+
+  /// Foto de perfil (membros / chat) — compressão em bytes, sem OOM.
+  static Future<Uint8List> memberProfileFromPicker(XFile file) =>
+      fromPickerFile(file, maxEdge: 1280, quality: 88);
+
+  static Future<Uint8List> _readPickerBytes(XFile file) async {
     final path = file.path.trim();
     if (!kIsWeb && path.isNotEmpty) {
       final f = File(path);
@@ -96,46 +100,10 @@ abstract final class SafeImageBytes {
         'Imagem demasiado grande (${raw.length ~/ (1024 * 1024)} MB).',
       );
     }
-    // MediaHandler já comprimiu (JPEG leve) — 1 compressão só no domínio (padrão CT).
-    if (_looksLikeJpeg(raw) &&
-        raw.length <= ImageHelper.kPatrimonioMaxUploadBytes) {
-      return raw;
-    }
-    return ImageHelper.compressPatrimonioPhotoForUpload(raw);
-  }
-
-  static bool _looksLikeJpeg(Uint8List bytes) {
-    if (bytes.length < 3) return false;
-    return bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
-  }
-
-  /// Foto de perfil (membros / chat) — compressão no disco, sem OOM.
-  static Future<Uint8List> memberProfileFromPicker(XFile file) =>
-      fromPickerFile(file, maxEdge: 1280, quality: 88);
-
-  static Future<Uint8List> _compressFromPath(
-    String path, {
-    required int maxEdge,
-    required int quality,
-  }) async {
-    if (kIsWeb) {
-      final raw = await YahwehHeavyWork.readFileBytes(path);
-      return _compressList(Uint8List.fromList(raw), maxEdge: maxEdge, quality: quality);
-    }
-    for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
-      final result = await YahwehHeavyWork.run(
-        _compressPathIsolate,
-        _CompressPathMessage(path, maxEdge, quality, format),
-      );
-      if (result.isNotEmpty) {
-        return Uint8List.fromList(result);
-      }
-    }
-    final raw = await YahwehHeavyWork.readFileBytes(path);
     if (raw.isEmpty) {
       throw StateError('Não foi possível ler a imagem.');
     }
-    return Uint8List.fromList(raw);
+    return raw;
   }
 
   static Future<Uint8List> _compressList(
@@ -144,58 +112,19 @@ abstract final class SafeImageBytes {
     required int quality,
   }) async {
     if (raw.isEmpty) return raw;
+    // Sempre na isolate principal — plugin nativo não funciona em compute().
     for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
-      final result = kIsWeb
-          ? await FlutterImageCompress.compressWithList(
-              raw,
-              minWidth: maxEdge,
-              minHeight: maxEdge,
-              quality: quality,
-              format: format,
-            )
-          : await YahwehHeavyWork.run(
-              _compressListIsolate,
-              _CompressListMessage(raw, maxEdge, quality, format),
-            );
-      if (result.isNotEmpty) return Uint8List.fromList(result);
+      try {
+        final result = await FlutterImageCompress.compressWithList(
+          raw,
+          minWidth: maxEdge,
+          minHeight: maxEdge,
+          quality: quality,
+          format: format,
+        );
+        if (result.isNotEmpty) return Uint8List.fromList(result);
+      } catch (_) {}
     }
     return raw;
   }
-}
-
-class _CompressPathMessage {
-  const _CompressPathMessage(this.path, this.maxEdge, this.quality, this.format);
-  final String path;
-  final int maxEdge;
-  final int quality;
-  final CompressFormat format;
-}
-
-Future<List<int>> _compressPathIsolate(_CompressPathMessage msg) async {
-  final out = await FlutterImageCompress.compressWithFile(
-    msg.path,
-    minWidth: msg.maxEdge,
-    minHeight: msg.maxEdge,
-    quality: msg.quality,
-    format: msg.format,
-  );
-  return out ?? <int>[];
-}
-
-class _CompressListMessage {
-  const _CompressListMessage(this.bytes, this.maxEdge, this.quality, this.format);
-  final Uint8List bytes;
-  final int maxEdge;
-  final int quality;
-  final CompressFormat format;
-}
-
-Future<List<int>> _compressListIsolate(_CompressListMessage msg) async {
-  return FlutterImageCompress.compressWithList(
-    msg.bytes,
-    minWidth: msg.maxEdge,
-    minHeight: msg.maxEdge,
-    quality: msg.quality,
-    format: msg.format,
-  );
 }

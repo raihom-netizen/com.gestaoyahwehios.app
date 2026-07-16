@@ -1013,11 +1013,11 @@ class _LoginPageState extends State<LoginPage> {
       region: 'us-central1',
     ).httpsCallable(
       'repairMyChurchBinding',
-      options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
     );
     var repairCallSucceeded = false;
     try {
-      await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 46));
+      await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 12));
       repairCallSucceeded = true;
     } on FirebaseFunctionsException catch (e) {
       final code = (e.code).toLowerCase();
@@ -1031,7 +1031,7 @@ class _LoginPageState extends State<LoginPage> {
     if (repairCallSucceeded) {
       await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
     }
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FirebaseAuth.instance.currentUser?.getIdToken(false);
 
     if (_simplifiedGoogleOnlyLogin) {
       final bound = await _userHasChurchBinding(user);

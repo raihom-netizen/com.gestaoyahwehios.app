@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -452,11 +453,12 @@ abstract final class PublicationEngine {
 
     final postType = request.postType;
 
-    if (kIsWeb) {
-      final images = newImagesBytes ?? const <Uint8List>[];
-      if (images.isEmpty) {
-        throw StateError('Não foi possível ler as fotos para enviar.');
-      }
+    // Web = Android = iOS: preferir bytes (igual Events/Avisos).
+    final images = <Uint8List>[
+      for (final b in (newImagesBytes ?? const <Uint8List>[]))
+        if (b.isNotEmpty) b,
+    ];
+    if (images.isNotEmpty) {
       MuralFastPublishService.scheduleBackgroundImageFinalize(
         docRef: docRef,
         tenantId: tenantId,
@@ -480,6 +482,11 @@ abstract final class PublicationEngine {
       return postId;
     }
 
+    if (kIsWeb) {
+      throw StateError('Não foi possível ler as fotos para enviar.');
+    }
+
+    // Legado: paths → bytes → mesmo finalize da Web (sem scheduleBackgroundImageFinalizeFromPaths).
     final paths = newImagePaths
             ?.map((p) => p.trim())
             .where((p) => p.isNotEmpty)
@@ -488,12 +495,22 @@ abstract final class PublicationEngine {
     if (paths.isEmpty) {
       throw StateError('Não foi possível ler as fotos para enviar.');
     }
-    MuralFastPublishService.scheduleBackgroundImageFinalizeFromPaths(
+    final fromPaths = <Uint8List>[];
+    for (final localPath in paths) {
+      final f = File(localPath);
+      if (!await f.exists()) continue;
+      final raw = await f.readAsBytes();
+      if (raw.isNotEmpty) fromPaths.add(raw);
+    }
+    if (fromPaths.isEmpty) {
+      throw StateError('Não foi possível ler as fotos para enviar.');
+    }
+    MuralFastPublishService.scheduleBackgroundImageFinalize(
       docRef: docRef,
       tenantId: tenantId,
       postId: postId,
       postType: postType,
-      localPaths: paths,
+      newImages: fromPaths,
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,

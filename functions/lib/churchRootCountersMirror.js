@@ -38,11 +38,23 @@ exports.mirrorDashboardCacheAlias = mirrorDashboardCacheAlias;
 exports.writeDashboardCacheMain = writeDashboardCacheMain;
 exports.mirrorFinanceAggregatesToRoot = mirrorFinanceAggregatesToRoot;
 const admin = __importStar(require("firebase-admin"));
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 /**
  * Espelha contadores no doc raiz — evita scan de coleções no cliente.
  * Chamado após atualizar `_panel_cache/dashboard_summary` e `finance_summary`.
  */
 async function mirrorChurchCountersToRoot(churchRef, counters, extra) {
+    const id = String(churchRef.id || "").trim();
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(id)) {
+        console.warn(`mirrorChurchCountersToRoot: skip teste «${id}»`);
+        return;
+    }
+    const snap = await churchRef.get();
+    if (!snap.exists) {
+        // Não ressuscitar doc raiz fantasma após purge incompleto / delete.
+        console.warn(`mirrorChurchCountersToRoot: skip — igrejas/${id} inexistente`);
+        return;
+    }
     const ts = admin.firestore.FieldValue.serverTimestamp();
     await churchRef.set({
         membersCount: counters.membersCount,
@@ -97,6 +109,16 @@ async function writeDashboardCacheMain(churchRef, payload) {
 }
 /** Financeiro pré-calculado no doc raiz (complementa `financeAggregates` da CF finance). */
 async function mirrorFinanceAggregatesToRoot(churchRef, aggregates) {
+    const id = String(churchRef.id || "").trim();
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(id)) {
+        console.warn(`mirrorFinanceAggregatesToRoot: skip teste «${id}»`);
+        return;
+    }
+    const snap = await churchRef.get();
+    if (!snap.exists) {
+        console.warn(`mirrorFinanceAggregatesToRoot: skip — igrejas/${id} inexistente`);
+        return;
+    }
     await churchRef.set({
         financeAggregates: aggregates,
         financeAggregatesUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),

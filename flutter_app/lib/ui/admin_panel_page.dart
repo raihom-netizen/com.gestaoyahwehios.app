@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
+import 'package:gestao_yahweh/core/forbidden_test_church_ids.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
@@ -1527,17 +1528,20 @@ class _AdminStatsCardState extends State<_AdminStatsCard> {
 
   Future<void> _refresh() async {
     try {
-      var churches = await MasterChurchesListService.loadFast()
-          .timeout(const Duration(seconds: 20));
-      if (churches.isEmpty) {
-        churches = await MasterChurchesListService.loadFast(force: true)
-            .timeout(const Duration(seconds: 25));
+      final churchesFut = MasterChurchesListService.loadFast()
+          .timeout(const Duration(seconds: 12));
+      final summaryFut = MasterDashboardCacheService.refresh()
+          .timeout(const Duration(seconds: 12));
+      final churches = await churchesFut;
+      final summary = await summaryFut;
+      var list = churches;
+      if (list.isEmpty) {
+        list = await MasterChurchesListService.loadFast(force: true)
+            .timeout(const Duration(seconds: 14));
       }
-      final summary = await MasterDashboardCacheService.refresh()
-          .timeout(const Duration(seconds: 25));
       if (!mounted) return;
       setState(() {
-        _igrejas = churches.isNotEmpty ? churches.length : summary.igrejas;
+        _igrejas = list.isNotEmpty ? list.length : summary.igrejas;
         _receita = summary.receita;
       });
     } catch (e, st) {
@@ -1695,6 +1699,13 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
           .replaceAll(RegExp(r'[^a-z0-9]'), '_')
           .replaceAll(RegExp(r'_+'), '_');
     if (slug.isEmpty) slug = 'igreja_${DateTime.now().millisecondsSinceEpoch}';
+    if (isForbiddenTestChurchId(slug)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              'Slug/nome de igreja de teste não é permitido. Use o nome real.')));
+      return;
+    }
 
     setState(() => _saving = true);
     try {

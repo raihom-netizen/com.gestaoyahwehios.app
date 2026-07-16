@@ -10,8 +10,6 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/media/media_optimization_profile.dart';
-import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
@@ -637,55 +635,31 @@ abstract final class ChurchChatMediaSendService {
         thumbBytes: cached.thumbBytes,
       );
     }
-    if (kIsWeb &&
+    // Bytes primeiro (Web = Android = iOS). Path só se bytes vazios.
+    if ((bytes == null || bytes.isEmpty) &&
         localPath != null &&
-        localPath.isNotEmpty &&
-        (bytes == null || bytes.isEmpty)) {
+        localPath.isNotEmpty) {
       try {
-        final raw = await _readLocalPathBytes(localPath);
-        if (raw.isNotEmpty) {
-          bytes = raw;
-        }
+        final raw = kIsWeb
+            ? await _readLocalPathBytes(localPath)
+            : await File(localPath).readAsBytes();
+        if (raw.isNotEmpty) bytes = raw;
       } catch (_) {}
     }
-    // Telegram/CT: se ainda não comprimiu, envia JPEG leve do path sem bloquear 25s.
-    if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
+    if (bytes != null && bytes.isNotEmpty) {
       try {
-        final quick = await SafeImageBytes.fromPath(
-          localPath,
-          maxEdge: MediaOptimizationLimits.chatMaxEdge,
-          quality: MediaOptimizationLimits.chatQuality,
-        ).timeout(const Duration(seconds: 20));
-        if (quick.isNotEmpty) {
-          return PreparedChatImage(
-            fullBytes: quick,
-            fullMime: 'image/jpeg',
-            fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
-            thumbBytes: null,
-          );
-        }
-      } catch (_) {}
-    }
-    try {
-      return await ChurchChatMediaPrepare.prepareImage(
-        bytes: bytes,
-        localPath: localPath,
-      ).timeout(kPrepareTimeout);
-    } on TimeoutException {
-      if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
-        final raw = await SafeImageBytes.fromPath(
-          localPath,
-          maxEdge: MediaOptimizationLimits.chatMaxEdge,
-          quality: MediaOptimizationLimits.chatQuality,
-        ).timeout(const Duration(seconds: 20));
+        return await ChurchChatMediaPrepare.prepareImage(
+          bytes: bytes,
+          localPath: null,
+        ).timeout(kPrepareTimeout);
+      } on TimeoutException {
         return PreparedChatImage(
-          fullBytes: raw,
+          fullBytes: Uint8List.fromList(bytes),
           fullMime: 'image/jpeg',
           fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
           thumbBytes: null,
         );
-      }
-      if (bytes != null && bytes.isNotEmpty) {
+      } catch (_) {
         return PreparedChatImage(
           fullBytes: Uint8List.fromList(bytes),
           fullMime: 'image/jpeg',
@@ -693,31 +667,7 @@ abstract final class ChurchChatMediaSendService {
           thumbBytes: null,
         );
       }
-      rethrow;
-    } catch (_) {
-      if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
-        final f = File(localPath);
-        if (await f.exists()) {
-          final raw = await f.readAsBytes();
-          if (raw.isNotEmpty) {
-            return PreparedChatImage(
-              fullBytes: Uint8List.fromList(raw),
-              fullMime: 'image/jpeg',
-              fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
-              thumbBytes: null,
-            );
-          }
-        }
-      }
-      if (bytes != null && bytes.isNotEmpty) {
-        return PreparedChatImage(
-          fullBytes: Uint8List.fromList(bytes),
-          fullMime: 'image/jpeg',
-          fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
-          thumbBytes: null,
-        );
-      }
-      rethrow;
     }
+    throw StateError('Sem imagem para enviar no chat.');
   }
 }

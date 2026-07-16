@@ -20,8 +20,8 @@ abstract final class MasterAdminFirestore {
     return q;
   }
 
-  /// Arranque / troca de aba — token + rede + recuperação suave.
-  static Future<void> ensureReady({bool refreshAuth = true}) async {
+  /// Arranque / troca de aba — rede pronta; token force só em gravação.
+  static Future<void> ensureReady({bool refreshAuth = false}) async {
     if (refreshAuth) {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
     }

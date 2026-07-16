@@ -37,6 +37,7 @@ exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.g
 exports.recomputePanelDashboardSummary = recomputePanelDashboardSummary;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const forbiddenTestChurchIds_1 = require("./forbiddenTestChurchIds");
 const membersDirectoryCache_1 = require("./membersDirectoryCache");
 const panelMediaPrefetch_1 = require("./panelMediaPrefetch");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
@@ -772,9 +773,19 @@ async function recomputePanelDashboardSummary(tenantId) {
     const tid = String(tenantId || "").trim();
     if (!tid)
         return;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tid)) {
+        functions.logger.warn("panelDashboardCache: skip igreja teste", { tid });
+        return;
+    }
+    const churchRef = db.collection("igrejas").doc(tid);
+    const rootSnap = await churchRef.get();
+    if (!rootSnap.exists) {
+        // Não gravar _panel_cache em doc fantasma (mantém ID em listDocuments).
+        functions.logger.warn("panelDashboardCache: skip — raiz inexistente", { tid });
+        return;
+    }
     const clusterIds = clusterDocIdsForPanel(tid);
     const scanIds = clusterIds.length > 0 ? clusterIds : [tid];
-    const churchRef = db.collection("igrejas").doc(tid);
     const cacheCol = churchRef.collection("_panel_cache");
     const lockRef = cacheCol.doc("_dashboard_recompute_lock");
     const summaryRef = cacheCol.doc("dashboard_summary");
@@ -1175,11 +1186,13 @@ exports.warmChurchTenantCaches = functions
 exports.scheduledRefreshPanelCaches = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 540, memory: "1GB" })
-    .pubsub.schedule("every 20 minutes")
+    .pubsub.schedule("every 60 minutes")
     .onRun(async () => {
     const snap = await admin.firestore().collection("igrejas").select().get();
     let n = 0;
     for (const doc of snap.docs) {
+        if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(doc.id))
+            continue;
         try {
             const cacheRef = doc.ref.collection("_panel_cache").doc("dashboard_summary");
             const cache = await cacheRef.get();
