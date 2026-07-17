@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_store_download_button.dart';
@@ -310,7 +311,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
   final String tenantId;
   final Map<String, dynamic> churchData;
   final VoidCallback onAcessar;
-  /// Doação PIX/cartão (Mercado Pago) — site público.
+  /// Dízimos/Ofertas PIX/cartão (Mercado Pago) — site público.
   final VoidCallback? onDoacao;
   final Color accentColor;
 
@@ -609,7 +610,9 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
                           color: Colors.white, size: 20),
                       const SizedBox(width: 9),
                       Text(
-                        layoutCompact ? 'Doar' : 'Doação PIX/Cartão',
+                        layoutCompact
+                            ? kChurchDonationPublicCtaCompact
+                            : kChurchDonationPublicCtaFull,
                         style: GoogleFonts.inter(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,

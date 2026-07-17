@@ -94,11 +94,14 @@ class FirestoreReadResilience {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
           if (kIsWeb && attempt >= 1) {
             try {
+              // Hard recovery já no 1.º retry — na web maxAttempts=2, logo
+              // `attempt >= 2` nunca acontecia e o cliente quebrado
+              // (INTERNAL ASSERTION) não era recuperado no caminho de leitura.
+              final err = lastError;
               await FirestoreWebGuard.recoverFirestoreWebSession(
-                allowHardReconnect: attempt >= 2 &&
-                    lastError != null &&
-                    (FirestoreWebGuard.isClientTerminated(lastError!) ||
-                        FirestoreWebGuard.isInternalAssertionError(lastError!)),
+                allowHardReconnect: err != null &&
+                    (FirestoreWebGuard.isClientTerminated(err) ||
+                        FirestoreWebGuard.isInternalAssertionError(err)),
               );
             } catch (_) {}
           }
@@ -197,11 +200,13 @@ class FirestoreReadResilience {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
           if (kIsWeb && attempt >= 1) {
             try {
+              // Hard recovery já no 1.º retry (web maxAttempts=2) — ver nota
+              // em [getDocument].
+              final err = lastError;
               await FirestoreWebGuard.recoverFirestoreWebSession(
-                allowHardReconnect: attempt >= 2 &&
-                    lastError != null &&
-                    (FirestoreWebGuard.isClientTerminated(lastError!) ||
-                        FirestoreWebGuard.isInternalAssertionError(lastError!)),
+                allowHardReconnect: err != null &&
+                    (FirestoreWebGuard.isClientTerminated(err) ||
+                        FirestoreWebGuard.isInternalAssertionError(err)),
               );
             } catch (_) {}
           }

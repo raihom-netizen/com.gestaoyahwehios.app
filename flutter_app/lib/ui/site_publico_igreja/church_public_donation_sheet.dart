@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_toggle_pair.dart';
@@ -494,7 +495,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Doação PIX / Cartão',
+                          kChurchDonationPublicCtaFull,
                           style: TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w800,

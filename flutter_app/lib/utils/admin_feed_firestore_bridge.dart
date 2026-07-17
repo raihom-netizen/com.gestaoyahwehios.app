@@ -28,6 +28,20 @@ abstract final class AdminFeedFirestoreBridge {
 
   static const Object _skip = Object();
 
+  /// SDK Web irrecuperável no processo (assert interno, cliente terminado)
+  /// ou pendurado (timeout) — a CF via HTTP é independente do cliente Firestore.
+  static bool _shouldFallbackToCf(Object e) {
+    if (FirestoreWebGuard.isInternalAssertionError(e) ||
+        FirestoreWebGuard.isClientTerminated(e)) {
+      return true;
+    }
+    if (e is TimeoutException) return true;
+    final msg = e.toString();
+    return msg.contains('INTERNAL ASSERTION') ||
+        msg.contains('WatchChangeAggregator') ||
+        msg.contains('PersistentListenStream');
+  }
+
   static dynamic encodeValue(dynamic value) {
     if (identical(value, FieldValue.serverTimestamp())) return _skip;
     if (identical(value, FieldValue.delete())) return cfDelete;
@@ -96,12 +110,7 @@ abstract final class AdminFeedFirestoreBridge {
         );
         return;
       } catch (directError) {
-        final msg = directError.toString();
-        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
-            msg.contains('INTERNAL ASSERTION') ||
-            msg.contains('WatchChangeAggregator') ||
-            msg.contains('PersistentListenStream');
-        if (!useCf) {
+        if (!_shouldFallbackToCf(directError)) {
           debugPrint(
             'AdminFeedFirestoreBridge: direct church root falhou: $directError',
           );
@@ -158,12 +167,7 @@ abstract final class AdminFeedFirestoreBridge {
         onProgress?.call(0.86);
         return;
       } catch (directError) {
-        final msg = directError.toString();
-        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
-            msg.contains('INTERNAL ASSERTION') ||
-            msg.contains('WatchChangeAggregator') ||
-            msg.contains('PersistentListenStream');
-        if (!useCf) {
+        if (!_shouldFallbackToCf(directError)) {
           debugPrint(
             'AdminFeedFirestoreBridge: direct falhou ($collection/$docId): $directError',
           );
@@ -257,12 +261,7 @@ abstract final class AdminFeedFirestoreBridge {
         );
         return;
       } catch (directError) {
-        final msg = directError.toString();
-        final useCf = FirestoreWebGuard.isInternalAssertionError(directError) ||
-            msg.contains('INTERNAL ASSERTION') ||
-            msg.contains('WatchChangeAggregator') ||
-            msg.contains('PersistentListenStream');
-        if (!useCf) {
+        if (!_shouldFallbackToCf(directError)) {
           debugPrint(
             'AdminFeedFirestoreBridge: direct delete falhou ($collection): $directError',
           );

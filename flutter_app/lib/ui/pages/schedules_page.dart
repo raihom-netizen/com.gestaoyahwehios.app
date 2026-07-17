@@ -601,26 +601,31 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     Object? templatesErr;
     Object? instancesErr;
 
-    try {
-      final snap = await _fetchTemplates(
+    // Paralelo — não serializar modelos+escalas (cada um já passa pelo
+    // semáforo web; em série o 2.º esperava o queryCap do 1.º).
+    final results = await Future.wait<Object?>([
+      _fetchTemplates(
         churchId,
         forceServer: forceFresh,
         forceRefresh: forceFresh,
-      );
-      templates = snap.docs;
-    } catch (e) {
-      templatesErr = e;
+      ).then<Object?>((s) => s).catchError((Object e) => e),
+      _fetchEscalas(
+        churchId,
+        forceServer: forceFresh,
+        forceRefresh: forceFresh,
+      ).then<Object?>((s) => s).catchError((Object e) => e),
+    ]);
+    final tplRaw = results[0];
+    final instRaw = results[1];
+    if (tplRaw is QuerySnapshot<Map<String, dynamic>>) {
+      templates = tplRaw.docs;
+    } else if (tplRaw != null) {
+      templatesErr = tplRaw;
     }
-
-    try {
-      final snap = await _fetchEscalas(
-        churchId,
-        forceServer: forceFresh,
-        forceRefresh: forceFresh,
-      );
-      instances = snap.docs;
-    } catch (e) {
-      instancesErr = e;
+    if (instRaw is QuerySnapshot<Map<String, dynamic>>) {
+      instances = instRaw.docs;
+    } else if (instRaw != null) {
+      instancesErr = instRaw;
     }
 
     if (!mounted) return;

@@ -1785,7 +1785,7 @@ class ChurchChatService {
       ChurchChatMemberPrefs.revealDmThreadOnOutbound(
         tenantId: tid,
         threadId: threadId,
-      ),
+      ).catchError((_) {}),
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
@@ -2409,9 +2409,13 @@ class ChurchChatService {
       )) {
         return (messageId: '', allowed: false);
       }
-      await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-        tenantId: resolvedTenant,
-        threadId: threadId,
+      // Igual ao texto: fire-and-forget — falha aqui não pode abortar a mídia
+      // (leitura SDK quebrava todo o envio com INTERNAL ASSERTION na Web).
+      unawaited(
+        ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+          tenantId: resolvedTenant,
+          threadId: threadId,
+        ).catchError((_) {}),
       );
     }
     if (!skipStorageVerify) {

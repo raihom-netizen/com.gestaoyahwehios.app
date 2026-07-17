@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -246,6 +245,26 @@ class VersionService {
         minVersion,
         minBuildNumber,
       );
+
+      if (kIsWeb) {
+        // Web: «atualizar» = recarregar o bundle do Hosting. Só faz sentido
+        // bloquear se o servidor já tem build >= instalado; senão o utilizador
+        // fica preso num loop de reload sem solução.
+        final installedBuild = int.tryParse(appBuildNumber) ?? 0;
+        final serverBuild = await _reload.fetchServerBuildNumber();
+        if (serverBuild > 0 && serverBuild <= installedBuild) {
+          return const VersionResult();
+        }
+        // Auto-recuperação: 1 hard reload silencioso (SW + CacheStorage +
+        // cache-bust) por alvo antes de mostrar diálogo bloqueante.
+        const flagKey = 'gyh_force_reload_target';
+        final flag = _reload.readLocalFlag(flagKey);
+        if (flag != targetLabel) {
+          _reload.writeLocalFlag(flagKey, targetLabel);
+          await _reload.hardReloadWeb();
+          return const VersionResult();
+        }
+      }
 
       String updateUrl = '';
       if (kIsWeb) {

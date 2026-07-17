@@ -559,12 +559,17 @@ abstract final class ChurchChatMediaOutboxService {
             );
           }
         },
-        onSuccess: () => unawaited(clearJob(
-          tenantId: tenantId,
-          threadId: threadId,
-          localId: localId,
-          uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
-        )),
+        onSuccess: () {
+          // Re-enfileirado silenciosamente (offline/timeout) — o job acabou de
+          // ser re-registado; clearJob aqui apagaria a fila e os bytes em cache.
+          if (pending.offlineQueued) return;
+          unawaited(clearJob(
+            tenantId: tenantId,
+            threadId: threadId,
+            localId: localId,
+            uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+          ));
+        },
         onError: (msg) => throw StateError(msg),
       );
     } catch (e) {

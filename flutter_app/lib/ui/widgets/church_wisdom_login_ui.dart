@@ -9,6 +9,151 @@ const Color kChurchWisdomLoginTeal = Color(0xFF0D9488);
 const Color kChurchWisdomLoginNavy = Color(0xFF0B1B4B);
 const Color kChurchWisdomLoginGold = Color(0xFFD4AF37);
 
+/// Largura máxima do card de autenticação (web/desktop).
+const double kAuthScreenMaxWidth = 420;
+
+/// Centraliza o conteúdo do login/cadastro — evita campos «gigantes» em telas largas.
+///
+/// Centraliza vertical + horizontalmente quando o conteúdo cabe na viewport
+/// (desktop web); quando não cabe (mobile/teclado aberto), rola normalmente.
+class ChurchWisdomAuthCenter extends StatelessWidget {
+  const ChurchWisdomAuthCenter({
+    super.key,
+    required this.child,
+    this.maxWidth = kAuthScreenMaxWidth,
+    this.bottomInset = 28,
+  });
+
+  final Widget child;
+  final double maxWidth;
+  final double bottomInset;
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = EdgeInsets.fromLTRB(
+      ThemeCleanPremium.spaceMd,
+      ThemeCleanPremium.spaceMd,
+      ThemeCleanPremium.spaceMd,
+      bottomInset,
+    );
+    return LayoutBuilder(
+      builder: (context, viewport) {
+        final minHeight = viewport.hasBoundedHeight
+            ? (viewport.maxHeight - padding.vertical).clamp(0.0, double.infinity)
+            : 0.0;
+        return SingleChildScrollView(
+          padding: padding,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Cabeçalho de marca dentro do card branco — logo em destaque + título + subtítulo.
+class ChurchWisdomCardBrandHeader extends StatelessWidget {
+  const ChurchWisdomCardBrandHeader({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.logo,
+    this.logoHeight = 72,
+  });
+
+  final String title;
+  final String? subtitle;
+  /// Logo custom (ex.: logo da igreja). Sem valor → escudo Gestão YAHWEH.
+  final Widget? logo;
+  final double logoHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 4),
+        Center(
+          child: logo ??
+              GestaoYahwehBrandLogo(
+                height: logoHeight,
+                showHeroGlow: true,
+                heroGlowColor: kChurchWisdomLoginGold,
+              ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF0F172A),
+            letterSpacing: -0.3,
+            height: 1.2,
+          ),
+        ),
+        if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            subtitle!,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: const Color(0xFF64748B),
+              height: 1.4,
+            ),
+          ),
+        ],
+        const SizedBox(height: 18),
+      ],
+    );
+  }
+}
+
+/// Campos compactos — altura menor, visual mais moderno.
+InputDecoration authCompactFieldDecoration({
+  String? labelText,
+  String? hintText,
+  String? helperText,
+  Widget? suffixIcon,
+  Widget? prefixIcon,
+}) {
+  return InputDecoration(
+    labelText: labelText,
+    hintText: hintText,
+    helperText: helperText,
+    suffixIcon: suffixIcon,
+    prefixIcon: prefixIcon,
+    isDense: true,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+      borderSide: const BorderSide(color: kChurchWisdomLoginTeal, width: 1.6),
+    ),
+    labelStyle: const TextStyle(fontSize: 13),
+    hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+    helperStyle: TextStyle(fontSize: 11.5, color: Colors.grey.shade600),
+  );
+}
+
 /// Fundo completo do login igreja — gradiente WISDOMAPP.
 class ChurchWisdomLoginBackdrop extends StatelessWidget {
   const ChurchWisdomLoginBackdrop({
@@ -135,17 +280,21 @@ class ChurchWisdomLoginHeroCard extends StatelessWidget {
     required this.logo,
     this.subtitle,
     this.greeting,
+    this.compact = false,
   });
 
   final Widget logo;
   final String? subtitle;
   final String? greeting;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+        borderRadius: BorderRadius.circular(
+          compact ? ThemeCleanPremium.radiusLg : ThemeCleanPremium.radiusXl,
+        ),
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -157,34 +306,40 @@ class ChurchWisdomLoginHeroCard extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: kChurchWisdomLoginTeal.withValues(alpha: 0.35),
-            blurRadius: 28,
-            offset: const Offset(0, 14),
+            color: kChurchWisdomLoginTeal.withValues(alpha: compact ? 0.28 : 0.35),
+            blurRadius: compact ? 20 : 28,
+            offset: Offset(0, compact ? 10 : 14),
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+      padding: EdgeInsets.fromLTRB(
+        compact ? 16 : 20,
+        compact ? 16 : 22,
+        compact ? 16 : 20,
+        compact ? 16 : 20,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
             'GESTÃO YAHWEH',
+            textAlign: TextAlign.center,
             style: GoogleFonts.poppins(
-              fontSize: 13,
+              fontSize: compact ? 11 : 13,
               fontWeight: FontWeight.w800,
-              letterSpacing: 1.4,
+              letterSpacing: compact ? 1.2 : 1.4,
               color: kChurchWisdomLoginGold,
             ),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: compact ? 8 : 12),
           Center(child: logo),
           if (greeting != null && greeting!.trim().isNotEmpty) ...[
-            const SizedBox(height: 14),
+            SizedBox(height: compact ? 10 : 14),
             Text(
               greeting!,
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
-                fontSize: 20,
+                fontSize: compact ? 17 : 20,
                 fontWeight: FontWeight.w800,
                 color: Colors.white,
                 height: 1.2,
@@ -192,12 +347,12 @@ class ChurchWisdomLoginHeroCard extends StatelessWidget {
             ),
           ],
           if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
-            const SizedBox(height: 8),
+            SizedBox(height: compact ? 6 : 8),
             Text(
               subtitle!,
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
-                fontSize: 13,
+                fontSize: compact ? 12 : 13,
                 fontWeight: FontWeight.w500,
                 color: Colors.white.withValues(alpha: 0.88),
                 height: 1.35,
@@ -212,15 +367,17 @@ class ChurchWisdomLoginHeroCard extends StatelessWidget {
 
 /// Card branco do formulário — WISDOMAPP.
 class ChurchWisdomLoginFormCard extends StatelessWidget {
-  const ChurchWisdomLoginFormCard({super.key, required this.child});
+  const ChurchWisdomLoginFormCard({super.key, required this.child, this.padding});
 
   final Widget child;
+  final EdgeInsetsGeometry? padding;
 
   @override
   Widget build(BuildContext context) {
     return YahwehWisdomSectionCard(
       borderTint: kChurchWisdomLoginTeal,
-      padding: const EdgeInsets.all(20),
+      padding: padding ??
+          EdgeInsets.all(ThemeCleanPremium.isMobile(context) ? 18 : 24),
       child: child,
     );
   }

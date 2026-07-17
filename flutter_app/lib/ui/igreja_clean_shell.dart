@@ -8,7 +8,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
@@ -198,11 +197,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Papel efectivo no menu (upgrade se claims atrasados mas e-mail = gestor).
   String? _roleOverride;
 
-  /// Faixa extra do rodapé (Doação/Visitantes/…) acima do rodapé fixo.
-  /// Preferência do utilizador — o rodapé principal (6 atalhos) não é reordenável.
-  bool _footerExtrasOnTop = false;
-  static const _kFooterExtrasOnTopPref = 'church_shell_footer_extras_on_top_v1';
-
   String get _panelRole {
     final override = (_roleOverride ?? '').trim().toLowerCase();
     if (override.isNotEmpty) return override;
@@ -357,12 +351,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
     ];
 
-    // Depois do YahwehChat — atalhos extras (roláveis; podem ir para cima).
+    // Depois do YahwehChat — atalhos extras na MESMA linha (rolável).
     final extras = <_ChurchShellFooterShortcut>[
       for (final s in [
         (
           ChurchShellIndices.doacao,
-          'Doação',
+          'Dízimos',
         ),
         (
           ChurchShellIndices.visitantes,
@@ -374,7 +368,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         ),
         (
           ChurchShellIndices.minhaEscala,
-          'Minha Escala',
+          'Escala',
         ),
         (
           ChurchShellIndices.utilitarios,
@@ -388,6 +382,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             accent: kChurchShellNavEntries[s.$1].accent,
           ),
     ];
+
+    final all = <_ChurchShellFooterShortcut>[...fixed, ...extras];
 
     void openModule(int idx) {
       if (!_canAccessItem(idx)) {
@@ -405,135 +401,50 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       setState(() => _selectedIndex = idx);
     }
 
-    Widget fixedRow() {
+    // Linha ÚNICA rolável (igual Controle Total) — todos os atalhos num só nível.
+    Widget singleRow() {
       return LayoutBuilder(
         builder: (context, constraints) {
-          final count = fixed.length;
-          final slotW = constraints.maxWidth / count;
+          // 6 slots visíveis; o resto rola horizontalmente.
+          const visibleSlots = 6.0;
+          final slotW = (constraints.maxWidth / visibleSlots)
+              .clamp(56.0, 92.0)
+              .toDouble();
           final circleSize = (slotW * 0.50).clamp(28.0, 34.0).toDouble();
           final glyphSize = (circleSize * 0.44).clamp(13.0, 16.0).toDouble();
           final labelSize = constraints.maxWidth < 340 ? 8.0 : 8.5;
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
-            child: Row(
-              children: [
-                for (final s in fixed)
-                  Expanded(
-                    child: _PremiumShellFooterShortcut(
-                      shellIndex: s.shellIndex,
-                      shortLabel: s.shortLabel,
-                      accent: s.accent,
-                      opensDrawer: false,
-                      icon: _items[s.shellIndex!].icon,
-                      fullTooltip: _items[s.shellIndex!].label,
-                      selected: _selectedIndex == s.shellIndex,
-                      circleSize: circleSize,
-                      iconSize: glyphSize,
-                      labelFontSize: labelSize,
-                      onTap: () => openModule(s.shellIndex!),
-                    ),
+          return SizedBox(
+            height: 60,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+              itemCount: all.length,
+              itemBuilder: (context, i) {
+                final s = all[i];
+                return SizedBox(
+                  width: slotW,
+                  child: _PremiumShellFooterShortcut(
+                    shellIndex: s.shellIndex,
+                    shortLabel: s.shortLabel,
+                    accent: s.accent,
+                    opensDrawer: false,
+                    icon: _items[s.shellIndex!].icon,
+                    fullTooltip: _items[s.shellIndex!].label,
+                    selected: _selectedIndex == s.shellIndex,
+                    circleSize: circleSize,
+                    iconSize: glyphSize,
+                    labelFontSize: labelSize,
+                    onTap: () => openModule(s.shellIndex!),
                   ),
-              ],
+                );
+              },
             ),
           );
         },
       );
     }
 
-    Widget extrasStrip() {
-      if (extras.isEmpty) return const SizedBox.shrink();
-      const chipW = 68.0;
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onLongPress: () async {
-            final next = !_footerExtrasOnTop;
-            setState(() => _footerExtrasOnTop = next);
-            try {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(_kFooterExtrasOnTopPref, next);
-            } catch (_) {}
-            if (!mounted) return;
-            _showPanelSnack(
-              next
-                  ? 'Atalhos extras no topo do rodapé.'
-                  : 'Atalhos extras abaixo do YahwehChat.',
-            );
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
-                child: Row(
-                  children: [
-                    Text(
-                      'Mais atalhos',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    const Spacer(),
-                    Icon(
-                      _footerExtrasOnTop
-                          ? Icons.vertical_align_bottom_rounded
-                          : Icons.vertical_align_top_rounded,
-                      size: 14,
-                      color: Colors.grey.shade500,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'segurar p/ ${_footerExtrasOnTop ? 'baixo' : 'cima'}',
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: Colors.grey.shade500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              SizedBox(
-                height: 58,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(8, 2, 8, 2),
-                  itemCount: extras.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 4),
-                  itemBuilder: (context, i) {
-                    final s = extras[i];
-                    return SizedBox(
-                      width: chipW,
-                      child: _PremiumShellFooterShortcut(
-                        shellIndex: s.shellIndex,
-                        shortLabel: s.shortLabel,
-                        accent: s.accent,
-                        opensDrawer: false,
-                        icon: _items[s.shellIndex!].icon,
-                        fullTooltip: _items[s.shellIndex!].label,
-                        selected: _selectedIndex == s.shellIndex,
-                        circleSize: 30,
-                        iconSize: 14,
-                        labelFontSize: 8,
-                        onTap: () => openModule(s.shellIndex!),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final extrasWidget = extrasStrip();
-    final bodyChildren = <Widget>[
-      if (_footerExtrasOnTop && extras.isNotEmpty) extrasWidget,
-      fixedRow(),
-      if (!_footerExtrasOnTop && extras.isNotEmpty) extrasWidget,
-    ];
+    final bodyChildren = <Widget>[singleRow()];
 
     return Material(
       color: Colors.white,
@@ -580,15 +491,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
-  Future<void> _loadFooterExtrasOnTopPref() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final v = prefs.getBool(_kFooterExtrasOnTopPref) ?? false;
-      if (!mounted || v == _footerExtrasOnTop) return;
-      setState(() => _footerExtrasOnTop = v);
-    } catch (_) {}
-  }
-
   @override
   void initState() {
     super.initState();
@@ -612,7 +514,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
     _loadUserPhotoFromFirestore();
-    unawaited(_loadFooterExtrasOnTopPref());
     _lastPaymentTick = PaymentUiFeedbackService.paymentConfirmedTick.value;
     PaymentUiFeedbackService.paymentConfirmedTick
         .addListener(_onPaymentConfirmedTick);

@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -139,7 +140,7 @@ class _ChurchPaymentReceivingSettingsSectionState
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
             'Dízimos e ofertas via Mercado Pago. '
-            'PIX e cartão no módulo Doação do painel '
+            'PIX e cartão no módulo $kChurchDonationModuleLabel do painel '
             '(no iPhone o pagamento abre no Safari).',
             style: TextStyle(
               fontSize: 12.5,

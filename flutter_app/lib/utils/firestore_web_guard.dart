@@ -21,26 +21,29 @@ class FirestoreWebGuard {
 
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
-  /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo justo (FIFO).
+  /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo FIFO com **admissão
+  /// suave**: a fila nunca rejeita a leitura — só suaviza picos. Uma fila que
+  /// lança `TimeoutException` derruba todos os módulos em cascata (regressão
+  /// build 2113: Visitantes/Cargos/Fornecedores/Oração/Escalas em timeout).
   static const int _maxWebConcurrentReads = 10;
   static int _webReadsInFlight = 0;
   static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
 
-  /// Espera máx. na fila — evita starvation (módulos com queryCap 14s sem slot).
-  static const Duration _webReadQueueWait = Duration(seconds: 6);
+  /// Espera máx. na fila; depois a leitura **prossegue mesmo assim**
+  /// (curta para caber no queryCap 14s dos módulos).
+  static const Duration _webReadQueueWait = Duration(milliseconds: 2500);
 
   static Future<T> webGetLimited<T>(Future<T> Function() fn) async {
     if (!kIsWeb) return fn();
-    while (_webReadsInFlight >= _maxWebConcurrentReads) {
+    if (_webReadsInFlight >= _maxWebConcurrentReads) {
       final waiter = Completer<void>();
       _webReadWaiters.add(waiter);
       try {
         await waiter.future.timeout(_webReadQueueWait);
       } on TimeoutException {
+        // Admissão suave: fila cheia não pode reprovar leituras do painel.
+      } finally {
         _webReadWaiters.remove(waiter);
-        throw TimeoutException(
-          'Tempo esgotado ao carregar dados do painel.',
-        );
       }
     }
     _webReadsInFlight++;
@@ -48,9 +51,14 @@ class FirestoreWebGuard {
       return await fn();
     } finally {
       _webReadsInFlight--;
-      if (_webReadWaiters.isNotEmpty) {
+      // Acorda o próximo waiter vivo — waiters expirados são ignorados para
+      // não perder o sinal de libertação (lost wakeup → fila encravada).
+      while (_webReadWaiters.isNotEmpty) {
         final next = _webReadWaiters.removeAt(0);
-        if (!next.isCompleted) next.complete();
+        if (!next.isCompleted) {
+          next.complete();
+          break;
+        }
       }
     }
   }
@@ -113,7 +121,10 @@ class FirestoreWebGuard {
 
   static Future<void>? _recoveryInFlight;
 
-  /// Recuperação Web single-flight — nunca desliga a rede global do Firestore.
+  /// Recuperação Web single-flight — soft: só `enableNetwork` (nunca desliga a
+  /// rede). Hard (INTERNAL ASSERTION / cliente terminado): ciclo
+  /// `disableNetwork` → `enableNetwork` reinicia os watch/write streams do SDK
+  /// JS **sem** `terminate()` (singleton preservado).
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
@@ -123,6 +134,11 @@ class FirestoreWebGuard {
     if (active != null) return active;
     final recovery = () async {
       if (allowHardReconnect) {
+        try {
+          await firebaseDefaultFirestore
+              .disableNetwork()
+              .timeout(const Duration(seconds: 3));
+        } catch (_) {}
         await _reconnectFirestoreAfterTerminated();
         try {
           await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
@@ -226,18 +242,20 @@ class FirestoreWebGuard {
     if (kIsWeb && WebPanelStability.isSessionExpired) {
       return fn();
     }
-    final attempts = kIsWeb ? maxAttempts.clamp(2, 3) : maxAttempts;
+    // Web: até 4 tentativas — INTERNAL ASSERTION precisa de hard recovery
+    // entre retries (disableNetwork/enableNetwork), não só 2 passes curtos.
+    final attempts = kIsWeb ? maxAttempts.clamp(2, 4) : maxAttempts;
     Object? lastError;
     StackTrace? lastStack;
     for (var attempt = 0; attempt < attempts; attempt++) {
       try {
         if (attempt > 0) {
           debugPrint('FirestoreWebGuard: retry $attempt/$attempts…');
-          final hard = lastError != null &&
-              (isClientTerminated(lastError!) ||
-                  isInternalAssertionError(lastError!));
+          final err = lastError;
+          final hard = err != null &&
+              (isClientTerminated(err) || isInternalAssertionError(err));
           if (kIsWeb && attempt == 1 && !WebPanelStability.isSessionExpired) {
-            await ensurePanelReadReady();
+            await ensurePanelReadReady().catchError((_) {});
           }
           if (!WebPanelStability.isSessionExpired) {
             await recoverFirestoreWebSession(allowHardReconnect: hard);
@@ -345,13 +363,15 @@ class FirestoreWebGuard {
     } catch (_) {}
   }
 
-  /// Recuperação após falha no envio do chat — hard reset só se cliente terminado.
+  /// Recuperação após falha no envio do chat — hard reset se cliente terminado
+  /// ou assert interno do SDK (paridade com [runWithWebRecovery]).
   static Future<void> recoverForChatWrite({
     required int attempt,
     Object? lastError,
   }) async {
     if (!kIsWeb) return;
-    final hard = lastError != null && isClientTerminated(lastError);
+    final hard = lastError != null &&
+        (isClientTerminated(lastError) || isInternalAssertionError(lastError));
     if (hard) {
       await recoverFirestoreWebSession(allowHardReconnect: true);
       await ensureWebDatabaseConnected(refreshAuth: true);

@@ -101,7 +101,14 @@ class FirestoreStreamUtils {
   }) async* {
     try {
       yield await FirestoreWebGuard.runWithWebRecovery(fetch);
-    } catch (_) {
+    } catch (e) {
+      // Erro transitório ≠ lista vazia (ver [queryWatchBootstrap]).
+      if (isTransientNetworkError(e) ||
+          isPermissionDenied(e) ||
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e)) {
+        return;
+      }
       yield const MergedFirestoreQuerySnapshot([]);
     }
   }
@@ -131,8 +138,17 @@ class FirestoreStreamUtils {
   }) async* {
     try {
       yield await _queryFirstSnapshot(query);
-    } catch (_) {
-      yield const MergedFirestoreQuerySnapshot([]);
+    } catch (e) {
+      // Falha de rede/SDK ≠ coleção vazia — não pintar lista vazia falsa
+      // (Cargos/Patrimônio mostravam «0 registos» com dados reais no servidor).
+      // Sem 1.ª emissão a UI mantém skeleton/cache; polling (web) ou live
+      // (mobile) abaixo entrega o snapshot real quando a rede recuperar.
+      if (!isTransientNetworkError(e) &&
+          !isPermissionDenied(e) &&
+          !FirestoreWebGuard.isInternalAssertionError(e) &&
+          !FirestoreWebGuard.isClientTerminated(e)) {
+        yield const MergedFirestoreQuerySnapshot([]);
+      }
     }
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
       yield* _webQueryPolling(query);
@@ -218,7 +234,14 @@ class FirestoreStreamUtils {
           return await query.get().timeout(const Duration(seconds: 16));
         }
       });
-    } catch (_) {
+    } catch (e) {
+      // Erro transitório ≠ lista vazia (ver [queryWatchBootstrap]).
+      if (isTransientNetworkError(e) ||
+          isPermissionDenied(e) ||
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e)) {
+        return;
+      }
       yield const MergedFirestoreQuerySnapshot([]);
     }
   }
@@ -269,7 +292,8 @@ class FirestoreStreamUtils {
     }
   }
 
-  /// Em falha transitória, emite snapshot vazio e agenda recuperação Web.
+  /// Em falha transitória agenda recuperação — **não** emite lista vazia falsa
+  /// (isso fazia Cargos/Património/Fornecedores parecerem sem dados).
   static Stream<QuerySnapshot<Map<String, dynamic>>> resilientQuery(
     Stream<QuerySnapshot<Map<String, dynamic>>> source, {
     bool broadcast = true,
@@ -282,7 +306,8 @@ class FirestoreStreamUtils {
               isStreamAlreadyListened(error) ||
               isTransientNetworkError(error)) {
             _scheduleWebRecovery(error);
-            sink.add(const MergedFirestoreQuerySnapshot([]));
+            // Propaga o erro para a UI (banner/retry) em vez de [] silencioso.
+            sink.addError(error, stackTrace);
             return;
           }
           sink.addError(error, stackTrace);

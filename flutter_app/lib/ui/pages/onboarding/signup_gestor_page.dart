@@ -101,147 +101,124 @@ class _SignupGestorPageState extends State<SignupGestorPage> {
         onBack: () => Navigator.of(context).pop(),
       ),
       child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: ThemeCleanPremium.pagePadding(context),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  YahwehSaasVisualShell.hero(
-                    title: 'Criar 1º gestor',
-                    subtitle:
-                        'Plano ${p.name} • até ${p.maxMembers} membros • $price/mês',
-                    logoSize: 80,
-                  ),
-                  const SizedBox(height: 16),
-                  YahwehSaasVisualShell.surfaceCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          'Você está a 1 passo de começar',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Ao concluir, o sistema cria sua igreja, o usuário '
-                          'gestor e uma assinatura TRIAL de 30 dias.',
-                          style: GoogleFonts.inter(
-                            height: 1.35,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                        ),
-                        if (_err != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _err!,
-                            style: const TextStyle(color: Colors.red),
-                          ),
-                        ],
-                        const SizedBox(height: 16),
-                        Text(
-                          'Seus dados',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _nome,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Seu nome',
-                            prefixIcon: Icon(Icons.person_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _cpf,
-                          textInputAction: TextInputAction.next,
-                          keyboardType: TextInputType.number,
-                          decoration: const InputDecoration(
-                            labelText: 'CPF (login)',
-                            prefixIcon: Icon(Icons.badge_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _email,
-                          textInputAction: TextInputAction.next,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: const InputDecoration(
-                            labelText: 'E-mail',
-                            prefixIcon: Icon(Icons.email_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _senha,
-                          textInputAction: TextInputAction.next,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Senha',
-                            prefixIcon: Icon(Icons.lock_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Dados da igreja',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _igrejaNome,
-                          textInputAction: TextInputAction.next,
-                          decoration: const InputDecoration(
-                            labelText: 'Nome da igreja',
-                            prefixIcon: Icon(Icons.church_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _igrejaDoc,
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _submit(),
-                          decoration: const InputDecoration(
-                            labelText: 'CNPJ/CPF da igreja (opcional)',
-                            prefixIcon: Icon(Icons.description_rounded),
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        YahwehSaasVisualShell.primaryButton(
-                          label: 'Criar e iniciar trial',
-                          icon: Icons.rocket_launch_rounded,
-                          loading: _loading,
-                          onPressed: _submit,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Após criar, faça login usando CPF e senha. '
-                          'Se esquecer a senha, você recupera informando o CPF.',
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        YahwehSaasVisualShell.securityFooter(),
-                      ],
+        child: ChurchWisdomAuthCenter(
+          maxWidth: 460,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              YahwehSaasVisualShell.surfaceCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ChurchWisdomCardBrandHeader(
+                      title: 'Criar 1º gestor — teste grátis 30 dias',
+                      subtitle:
+                          'Plano ${p.name} • até ${p.maxMembers} membros • $price/mês',
+                      logo: YahwehSaasVisualShell.brandEmblem(size: 64),
                     ),
-                  ),
-                ],
+                    if (_err != null) ...[
+                      Text(
+                        _err!,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Text(
+                      'Seus dados',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _nome,
+                      textInputAction: TextInputAction.next,
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'Seu nome',
+                        prefixIcon: const Icon(Icons.person_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _cpf,
+                      textInputAction: TextInputAction.next,
+                      keyboardType: TextInputType.number,
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'CPF (login)',
+                        prefixIcon: const Icon(Icons.badge_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _email,
+                      textInputAction: TextInputAction.next,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'E-mail',
+                        prefixIcon: const Icon(Icons.email_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _senha,
+                      textInputAction: TextInputAction.next,
+                      obscureText: true,
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'Senha',
+                        prefixIcon: const Icon(Icons.lock_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Dados da igreja',
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _igrejaNome,
+                      textInputAction: TextInputAction.next,
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'Nome da igreja',
+                        prefixIcon: const Icon(Icons.church_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _igrejaDoc,
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) => _submit(),
+                      decoration: authCompactFieldDecoration(
+                        labelText: 'CNPJ/CPF da igreja (opcional)',
+                        prefixIcon: const Icon(Icons.description_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    YahwehSaasVisualShell.primaryButton(
+                      label: 'Criar e iniciar trial',
+                      icon: Icons.rocket_launch_rounded,
+                      loading: _loading,
+                      onPressed: _submit,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Depois é só entrar com CPF e senha.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                        height: 1.35,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    YahwehSaasVisualShell.securityFooter(),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),

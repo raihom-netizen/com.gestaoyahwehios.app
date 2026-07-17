@@ -1090,8 +1090,8 @@ class FirebaseStorageCleanupService {
 
   static bool _isCanonicalPatrimonioItemFile(String name) {
     final n = name.toLowerCase();
-    /// Canónico atual: `foto_1.jpg` … `foto_4.jpg` (máx. 4 por bem).
-    return RegExp(r'^foto_[1-4]\.(jpg|jpeg|png|webp)$').hasMatch(n);
+    /// Canónico atual: `foto_1.jpg` … `foto_5.jpg` (máx. 5 por bem).
+    return RegExp(r'^foto_[1-5]\.(jpg|jpeg|png|webp)$').hasMatch(n);
   }
 
   /// Remove `galeria_*` e outros legados na pasta do bem — mantém só `foto_1`…`foto_4`.
@@ -1118,7 +1118,7 @@ class FirebaseStorageCleanupService {
             n == 'foto_item.jpeg' ||
             n == 'foto_item.png';
         final isOrphanFotoSlot =
-            RegExp(r'^foto_[5-9]\.(jpg|jpeg|png|webp)$').hasMatch(n);
+            RegExp(r'^foto_[6-9]\.(jpg|jpeg|png|webp)$').hasMatch(n);
         if (!isLegacyGaleria &&
             !isLegacyFotoItem &&
             !isOrphanFotoSlot &&
@@ -1204,7 +1204,7 @@ class FirebaseStorageCleanupService {
           drop = true;
         } else if (RegExp(r'^galeria_\d+\.').hasMatch(n)) {
           drop = true;
-        } else if (RegExp(r'^foto_[5-9]\.').hasMatch(n)) {
+        } else if (RegExp(r'^foto_[6-9]\.').hasMatch(n)) {
           drop = true;
         } else if (n == 'foto_item.jpg' ||
             n == 'foto_item.jpeg' ||

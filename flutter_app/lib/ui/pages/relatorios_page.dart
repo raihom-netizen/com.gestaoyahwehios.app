@@ -294,6 +294,61 @@ class RelatoriosPage extends StatelessWidget {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final padding = ThemeCleanPremium.pagePadding(context);
     final hideAppBarMobile = isMobile && (embeddedInShell || !Navigator.canPop(context));
+    final reportCards = <Widget>[
+      if (_canReportEventosPdf)
+        _ReportCard(
+          icon: Icons.event_rounded,
+          title: 'Relatório de Eventos',
+          subtitle:
+              'Eventos ativos, confirmações de presença (RSVP). Filtros: diário, mensal, anual ou por período. Exportar PDF.',
+          color: const Color(0xFF0EA5E9),
+          onTap: () => _openRelatorioEventos(context),
+        ),
+      if (_canReportMembrosPdf)
+        _ReportCard(
+          icon: Icons.people_rounded,
+          title: 'Relatório de Membros',
+          subtitle: 'Escolha os campos que deseja incluir e exporte em PDF.',
+          color: ThemeCleanPremium.primary,
+          onTap: () => _openRelatorioMembros(context),
+        ),
+      if (_canReportAniversariantesPdf)
+        _ReportCard(
+          icon: Icons.cake_rounded,
+          title: 'Relatório de Aniversariantes',
+          subtitle:
+              'Filtro Hoje/Semana/Mês/Personalizado/Ano, fotos, WhatsApp e PDF mural.',
+          color: const Color(0xFFE11D48),
+          onTap: () => _openRelatorioAniversariantes(context),
+        ),
+      if (_canReportFinanceiroPdf)
+        _ReportCard(
+          icon: Icons.account_balance_wallet_rounded,
+          title: 'Relatório Financeiro',
+          subtitle:
+              'Dashboard com gráficos, tabela paginada, CSV e fechamento de mês em PDF.',
+          color: const Color(0xFF059669),
+          onTap: () => _openRelatorioFinanceiro(context),
+        ),
+      if (_canReportFornecedoresPdf)
+        _ReportCard(
+          icon: Icons.business_center_rounded,
+          title: 'Fornecedores e prestadores',
+          subtitle:
+              'Despesas e receitas por período, gráficos, PDF e exportação CSV.',
+          color: const Color(0xFF0F766E),
+          onTap: () => _openRelatorioGastosFornecedores(context),
+        ),
+      if (_canReportPatrimonioPdf)
+        _ReportCard(
+          icon: Icons.inventory_2_rounded,
+          title: 'Relatório de Patrimônio',
+          subtitle:
+              'Bens ativos, inativos, por status. Exportar PDF completo.',
+          color: const Color(0xFF7C3AED),
+          onTap: () => _openRelatorioPatrimonio(context),
+        ),
+    ];
     return Scaffold(
       primary: !embeddedInShell,
       backgroundColor: ThemeCleanPremium.surfaceVariant,
@@ -312,10 +367,8 @@ class RelatoriosPage extends StatelessWidget {
           child: ListView(
             padding: padding,
             children: [
-              if (isMobile && !embeddedInShell) ...[
-                Text('Relatórios', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
-                const SizedBox(height: ThemeCleanPremium.spaceMd),
-              ],
+              _RelatoriosHeroHeader(totalDisponiveis: reportCards.length),
+              const SizedBox(height: ThemeCleanPremium.spaceLg),
               if (AppPermissions.isRestrictedMember(role) && !_canFullReports) ...[
                 Container(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
@@ -348,71 +401,35 @@ class RelatoriosPage extends StatelessWidget {
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
               ],
-            if (_canReportEventosPdf) ...[
-            _ReportCard(
-              icon: Icons.event_rounded,
-              title: 'Relatório de Eventos',
-              subtitle: 'Eventos ativos, confirmações de presença (RSVP). Filtros: diário, mensal, anual ou por período. Exportar PDF.',
-              color: const Color(0xFF0EA5E9),
-              onTap: () => _openRelatorioEventos(context),
-            ),
-            ],
-            if (_canReportMembrosPdf) ...[
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _ReportCard(
-                icon: Icons.people_rounded,
-                title: 'Relatório de Membros',
-                subtitle: 'Escolha os campos que deseja incluir e exporte em PDF.',
-                color: ThemeCleanPremium.primary,
-                onTap: () => _openRelatorioMembros(context),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const gap = ThemeCleanPremium.spaceMd;
+                  final twoCols = !isMobile && constraints.maxWidth >= 760;
+                  if (!twoCols) {
+                    return Column(
+                      children: [
+                        for (var i = 0; i < reportCards.length; i++) ...[
+                          reportCards[i],
+                          if (i != reportCards.length - 1)
+                            const SizedBox(height: gap),
+                        ],
+                      ],
+                    );
+                  }
+                  final cardWidth = (constraints.maxWidth - gap) / 2;
+                  return Wrap(
+                    spacing: gap,
+                    runSpacing: gap,
+                    children: [
+                      for (final card in reportCards)
+                        SizedBox(width: cardWidth, child: card),
+                    ],
+                  );
+                },
               ),
+              const SizedBox(height: 80),
             ],
-            if (_canReportAniversariantesPdf) ...[
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _ReportCard(
-                icon: Icons.cake_rounded,
-                title: 'Relatório de Aniversariantes',
-                subtitle:
-                    'Filtro Hoje/Semana/Mês/Personalizado/Ano, fotos, WhatsApp e PDF mural.',
-                color: const Color(0xFFE11D48),
-                onTap: () => _openRelatorioAniversariantes(context),
-              ),
-            ],
-            if (_canReportFinanceiroPdf) ...[
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _ReportCard(
-                icon: Icons.account_balance_wallet_rounded,
-                title: 'Relatório Financeiro',
-                subtitle:
-                    'Dashboard com gráficos, tabela paginada, CSV e fechamento de mês em PDF.',
-                color: const Color(0xFF059669),
-                onTap: () => _openRelatorioFinanceiro(context),
-              ),
-            ],
-            if (_canReportFornecedoresPdf) ...[
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _ReportCard(
-                icon: Icons.business_center_rounded,
-                title: 'Fornecedores e prestadores',
-                subtitle:
-                    'Despesas e receitas por período, gráficos, PDF e exportação CSV.',
-                color: const Color(0xFF0F766E),
-                onTap: () => _openRelatorioGastosFornecedores(context),
-              ),
-            ],
-            if (_canReportPatrimonioPdf) ...[
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              _ReportCard(
-                icon: Icons.inventory_2_rounded,
-                title: 'Relatório de Patrimônio',
-                subtitle: 'Bens ativos, inativos, por status. Exportar PDF completo.',
-                color: const Color(0xFF7C3AED),
-                onTap: () => _openRelatorioPatrimonio(context),
-              ),
-            ],
-            const SizedBox(height: 80),
-          ],
-        ),
+          ),
         ),
       ),
     );
@@ -456,6 +473,95 @@ class RelatoriosPage extends StatelessWidget {
   void _openRelatorioEventos(BuildContext context) {
     if (!_canReportEventosPdf) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => _RelatorioEventosPage(tenantId: tenantId)));
+  }
+}
+
+/// Hero premium do hub de Relatórios — gradiente suave alinhado ao dashboard.
+class _RelatoriosHeroHeader extends StatelessWidget {
+  const _RelatoriosHeroHeader({required this.totalDisponiveis});
+
+  final int totalDisponiveis;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    const accent = Color(0xFF6366F1);
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFF7C8AF7)],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.32),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.insert_chart_outlined_rounded,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: ThemeCleanPremium.spaceMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Relatórios',
+                  style: tt.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Exporte PDFs e acompanhe os números da igreja',
+                  style: tt.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$totalDisponiveis',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                totalDisponiveis == 1 ? 'relatório' : 'relatórios',
+                style: tt.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -1280,7 +1386,12 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
         filtradaBusca.skip(pg * _perPage).take(_perPage).toList();
 
     return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => _popUmaRotaRelatorio(context),
@@ -1289,9 +1400,26 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
               minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
                   ThemeCleanPremium.minTouchTarget)),
         ),
-        title: const Text('Aniversariantes'),
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
+        title: const Text(
+          'Aniversariantes',
+          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
+        ),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [_kAniversariantesAccent, _kAniversariantesAccentEnd],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _kAniversariantesAccent.withValues(alpha: 0.28),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: 'Atualizar lista',
@@ -1305,264 +1433,817 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
           ),
         ],
       ),
-      body: SafeArea(
-        child: _loadingMembros && _todosMembros.isEmpty
-            ? const Center(child: ChurchPanelLoadingBody())
-            : _erroMembros != null && _todosMembros.isEmpty
-                ? ChurchPanelResilientLoadBanner(
-                    hasLocalData: false,
-                    isSyncing: false,
-                    errorTitle: 'Não foi possível carregar os membros',
-                    error: _erroMembros,
-                    onRetry: () => _carregarMembros(forceRefresh: true),
-                  )
-                : ListView(
-                    padding: ThemeCleanPremium.pagePadding(context),
-                    children: [
-                      ChurchPanelResilientLoadBanner(
-                        hasLocalData: _todosMembros.isNotEmpty,
-                        isSyncing:
-                            _loadingMembros && _todosMembros.isNotEmpty,
-                        errorTitle: 'Não foi possível carregar os membros',
-                        error: _todosMembros.isEmpty ? _erroMembros : null,
-                        onRetry: () => _carregarMembros(forceRefresh: true),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Filtro inteligente',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: ThemeCleanPremium.onSurface,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: ThemeCleanPremium.churchPanelBodyGradient,
+        ),
+        child: SafeArea(
+          child: _loadingMembros && _todosMembros.isEmpty
+              ? const Center(child: ChurchPanelLoadingBody())
+              : _erroMembros != null && _todosMembros.isEmpty
+                  ? ChurchPanelResilientLoadBanner(
+                      hasLocalData: false,
+                      isSyncing: false,
+                      errorTitle: 'Não foi possível carregar os membros',
+                      error: _erroMembros,
+                      onRetry: () => _carregarMembros(forceRefresh: true),
+                    )
+                  : Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: ThemeCleanPremium.isMobile(context)
+                              ? double.infinity
+                              : 1040,
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      SegmentedButton<int>(
-                        segments: const [
-                          ButtonSegment(
-                              value: 0,
-                              label: Text('Hoje'),
-                              icon: Icon(Icons.wb_sunny_outlined, size: 18)),
-                          ButtonSegment(
-                              value: 1,
-                              label: Text('Semana'),
-                              icon: Icon(Icons.date_range_outlined, size: 18)),
-                          ButtonSegment(
-                              value: 2,
-                              label: Text('Mês'),
-                              icon: Icon(Icons.calendar_month_outlined,
-                                  size: 18)),
-                          ButtonSegment(
-                              value: 3,
-                              label: Text('Personalizado'),
-                              icon: Icon(Icons.tune_rounded, size: 18)),
-                          ButtonSegment(
-                              value: 4,
-                              label: Text('Ano'),
-                              icon: Icon(Icons.calendar_today_outlined,
-                                  size: 18)),
-                        ],
-                        selected: {_filtro},
-                        onSelectionChanged: (s) {
-                          final v = s.first;
-                          setState(() {
-                            _filtro = v;
-                            _page = 0;
-                          });
-                        },
-                        multiSelectionEnabled: false,
-                        emptySelectionAllowed: false,
-                      ),
-                      if (_filtro == 3) ...[
-                        const SizedBox(height: 8),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Data início'),
-                          subtitle: Text(_dataInicio == null
-                              ? 'Toque para escolher'
-                              : DateFormat('dd/MM/yyyy')
-                                  .format(_dataInicio!)),
-                          onTap: () async {
-                            final d = await showDatePicker(
-                              context: context,
-                              initialDate: DateTime.now(),
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2030),
-                            );
-                            if (d != null) {
-                              setState(() {
-                                _dataInicio = d;
-                                _page = 0;
-                              });
-                            }
-                          },
-                        ),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Data fim'),
-                          subtitle: Text(_dataFim == null
-                              ? 'Toque para escolher'
-                              : DateFormat('dd/MM/yyyy').format(_dataFim!)),
-                          onTap: () async {
-                            final d = await showDatePicker(
-                              context: context,
-                              initialDate: _dataFim ?? DateTime.now(),
-                              firstDate: _dataInicio ?? DateTime(2020),
-                              lastDate: DateTime(2030),
-                            );
-                            if (d != null) {
-                              setState(() {
-                                _dataFim = d;
-                                _page = 0;
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: ThemeCleanPremium.spaceMd),
-                      TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Buscar por nome...',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          filled: true,
-                          fillColor: const Color(0xFFF8FAFC),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                          ),
-                        ),
-                        onChanged: (v) => setState(() {
-                          _busca = v;
-                          _page = 0;
-                        }),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '${filtradaBusca.length} aniversariante(s) no filtro',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (slice.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 24),
-                          child: Text(
-                            'Ninguém neste filtro. Ajuste o período ou a busca.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600),
-                          ),
-                        )
-                      else
-                        ...slice.map((m) {
-                          final b = birthDateFromMemberData(m);
-                          final idade = b == null
-                              ? null
-                              : ageInYearsAt(b, DateTime.now());
-                          final mid = (m['id'] ?? '').toString();
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
-                              side: BorderSide(color: Colors.grey.shade200),
-                            ),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 8),
-                              leading: FotoMembroWidget(
-                                size: ThemeCleanPremium.minTouchTarget,
-                                tenantId: widget.tenantId,
-                                memberId: mid.isNotEmpty ? mid : null,
-                                memberData: m,
-                              ),
-                              title: Text(
-                                _nome(m),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w700),
-                              ),
-                              subtitle: Text(
-                                '${_dataNasc(m)}${idade != null ? ' • $idade anos' : ''}',
-                              ),
-                              trailing: IconButton(
-                                tooltip: 'Parabéns no WhatsApp',
-                                icon: Icon(Icons.chat_rounded,
-                                    color: Colors.green.shade600),
-                                style: IconButton.styleFrom(
-                                  minimumSize: const Size(
-                                      ThemeCleanPremium.minTouchTarget,
-                                      ThemeCleanPremium.minTouchTarget),
-                                ),
-                                onPressed: () => _parabensWhatsApp(m),
-                              ),
-                            ),
-                          );
-                        }),
-                      if (totalP > 1)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        child: ListView(
+                          padding: ThemeCleanPremium.pagePadding(context),
                           children: [
-                            IconButton(
-                              onPressed: pg <= 0
-                                  ? null
-                                  : () => setState(() => _page = pg - 1),
-                              icon: const Icon(Icons.chevron_left_rounded),
+                            ChurchPanelResilientLoadBanner(
+                              hasLocalData: _todosMembros.isNotEmpty,
+                              isSyncing:
+                                  _loadingMembros && _todosMembros.isNotEmpty,
+                              errorTitle:
+                                  'Não foi possível carregar os membros',
+                              error:
+                                  _todosMembros.isEmpty ? _erroMembros : null,
+                              onRetry: () =>
+                                  _carregarMembros(forceRefresh: true),
                             ),
-                            Text('Página ${pg + 1} de $totalP'),
-                            IconButton(
-                              onPressed: pg >= totalP - 1
-                                  ? null
-                                  : () => setState(() => _page = pg + 1),
-                              icon: const Icon(Icons.chevron_right_rounded),
+                            const SizedBox(height: 8),
+                            _AniversariantesHeroHeader(
+                              count: filtradaBusca.length,
+                              filtroLabel: _filtroLabel,
                             ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            const Text(
+                              'Filtro inteligente',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.1,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _buildFilterPills(),
+                            if (_filtro == 3) ...[
+                              const SizedBox(height: ThemeCleanPremium.spaceSm),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _BirthdayDateField(
+                                      label: 'Data início',
+                                      value: _dataInicio == null
+                                          ? null
+                                          : DateFormat('dd/MM/yyyy')
+                                              .format(_dataInicio!),
+                                      onTap: () async {
+                                        final d = await showDatePicker(
+                                          context: context,
+                                          initialDate: DateTime.now(),
+                                          firstDate: DateTime(2020),
+                                          lastDate: DateTime(2030),
+                                        );
+                                        if (d != null) {
+                                          setState(() {
+                                            _dataInicio = d;
+                                            _page = 0;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(
+                                      width: ThemeCleanPremium.spaceSm),
+                                  Expanded(
+                                    child: _BirthdayDateField(
+                                      label: 'Data fim',
+                                      value: _dataFim == null
+                                          ? null
+                                          : DateFormat('dd/MM/yyyy')
+                                              .format(_dataFim!),
+                                      onTap: () async {
+                                        final d = await showDatePicker(
+                                          context: context,
+                                          initialDate:
+                                              _dataFim ?? DateTime.now(),
+                                          firstDate:
+                                              _dataInicio ?? DateTime(2020),
+                                          lastDate: DateTime(2030),
+                                        );
+                                        if (d != null) {
+                                          setState(() {
+                                            _dataFim = d;
+                                            _page = 0;
+                                          });
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: ThemeCleanPremium.spaceMd),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: ThemeCleanPremium.cardBackground,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                              ),
+                              child: TextField(
+                                decoration: InputDecoration(
+                                  hintText: 'Buscar por nome...',
+                                  prefixIcon: const Icon(Icons.search_rounded,
+                                      color: _kAniversariantesAccent),
+                                  filled: true,
+                                  fillColor: Colors.transparent,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFE2E8F4)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(
+                                        color: Color(0xFFE2E8F4)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                    borderSide: const BorderSide(
+                                        color: _kAniversariantesAccent,
+                                        width: 1.6),
+                                  ),
+                                ),
+                                onChanged: (v) => setState(() {
+                                  _busca = v;
+                                  _page = 0;
+                                }),
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceMd),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _kAniversariantesAccent
+                                        .withValues(alpha: 0.10),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    '${filtradaBusca.length}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w800,
+                                      color: _kAniversariantesAccent,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'aniversariante(s) no filtro',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            if (slice.isEmpty)
+                              const _BirthdayEmptyState()
+                            else
+                              ...slice.map(_buildBirthdayCard),
+                            if (totalP > 1)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      onPressed: pg <= 0
+                                          ? null
+                                          : () =>
+                                              setState(() => _page = pg - 1),
+                                      icon: const Icon(
+                                          Icons.chevron_left_rounded),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor:
+                                            ThemeCleanPremium.cardBackground,
+                                        minimumSize: const Size(
+                                            ThemeCleanPremium.minTouchTarget,
+                                            ThemeCleanPremium.minTouchTarget),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14),
+                                      child: Text(
+                                        'Página ${pg + 1} de $totalP',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: ThemeCleanPremium.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: pg >= totalP - 1
+                                          ? null
+                                          : () =>
+                                              setState(() => _page = pg + 1),
+                                      icon: const Icon(
+                                          Icons.chevron_right_rounded),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor:
+                                            ThemeCleanPremium.cardBackground,
+                                        minimumSize: const Size(
+                                            ThemeCleanPremium.minTouchTarget,
+                                            ThemeCleanPremium.minTouchTarget),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            PremiumPdfOrientationBar(
+                                landscape: _pdfLandscape,
+                                onChanged: (v) =>
+                                    setState(() => _pdfLandscape = v)),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                FilledButton.icon(
+                                  onPressed:
+                                      _loading ? null : () => _exportPdf(),
+                                  icon: _loading
+                                      ? const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2))
+                                      : const Icon(
+                                          Icons.picture_as_pdf_rounded),
+                                  label: Text(
+                                      _loading ? 'Gerando...' : 'Exportar PDF'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: _kAniversariantesAccent,
+                                    minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 14, horizontal: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                                OutlinedButton.icon(
+                                  onPressed: _loading
+                                      ? null
+                                      : () => _exportPdf(mural: true),
+                                  icon: const Icon(Icons.grid_on_rounded),
+                                  label: const Text('PDF mural (por dia)'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: _kAniversariantesAccent,
+                                    side: BorderSide(
+                                        color: _kAniversariantesAccent
+                                            .withValues(alpha: 0.55)),
+                                    minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 14, horizontal: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 80),
                           ],
                         ),
-                      const SizedBox(height: ThemeCleanPremium.spaceLg),
-                      PremiumPdfOrientationBar(
-                          landscape: _pdfLandscape,
-                          onChanged: (v) => setState(() => _pdfLandscape = v)),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: _loading ? null : () => _exportPdf(),
-                            icon: _loading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2))
-                                : const Icon(Icons.picture_as_pdf_rounded),
-                            label: Text(
-                                _loading ? 'Gerando...' : 'Exportar PDF'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ThemeCleanPremium.primary,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 16),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: _loading
-                                ? null
-                                : () => _exportPdf(mural: true),
-                            icon: const Icon(Icons.grid_on_rounded),
-                            label: const Text('PDF mural (por dia)'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: ThemeCleanPremium.primary,
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 16),
-                            ),
-                          ),
-                        ],
                       ),
-                      const SizedBox(height: 80),
-                    ],
+                    ),
+        ),
+      ),
+    );
+  }
+
+  String get _filtroLabel {
+    switch (_filtro) {
+      case 0:
+        return 'hoje';
+      case 1:
+        return 'nesta semana';
+      case 2:
+        return 'neste mês';
+      case 4:
+        return 'no ano';
+      default:
+        return 'no período';
+    }
+  }
+
+  Widget _buildFilterPills() {
+    const items = <(int, String, IconData)>[
+      (0, 'Hoje', Icons.wb_sunny_outlined),
+      (1, 'Semana', Icons.date_range_outlined),
+      (2, 'Mês', Icons.calendar_month_outlined),
+      (3, 'Personalizado', Icons.tune_rounded),
+      (4, 'Ano', Icons.calendar_today_outlined),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      child: Row(
+        children: [
+          for (final item in items) ...[
+            _BirthdayFilterPill(
+              label: item.$2,
+              icon: item.$3,
+              selected: _filtro == item.$1,
+              onTap: () {
+                ThemeCleanPremium.hapticAction();
+                setState(() {
+                  _filtro = item.$1;
+                  _page = 0;
+                });
+              },
+            ),
+            if (item.$1 != items.last.$1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBirthdayCard(Map<String, dynamic> m) {
+    final b = birthDateFromMemberData(m);
+    final idade = b == null ? null : ageInYearsAt(b, DateTime.now());
+    final mid = (m['id'] ?? '').toString();
+    final now = DateTime.now();
+    final isToday = b != null && b.month == now.month && b.day == now.day;
+    var isThisWeek = false;
+    if (b != null && !isToday) {
+      final bThisYear = DateTime(now.year, b.month, b.day);
+      final end = now.add(const Duration(days: 7));
+      isThisWeek = bThisYear.isAfter(now.subtract(const Duration(days: 1))) &&
+          bThisYear.isBefore(end.add(const Duration(days: 1)));
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(
+          color: isToday
+              ? _kAniversariantesAccent.withValues(alpha: 0.4)
+              : const Color(0xFFEDF0F7),
+          width: isToday ? 1.4 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          FotoMembroWidget(
+            size: 52,
+            tenantId: widget.tenantId,
+            memberId: mid.isNotEmpty ? mid : null,
+            memberData: m,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _nome(m),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                    color: ThemeCleanPremium.onSurface,
                   ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _BirthdayBadge(
+                      label: _dataNasc(m),
+                      icon: Icons.cake_outlined,
+                      background:
+                          _kAniversariantesAccent.withValues(alpha: 0.10),
+                      foreground: _kAniversariantesAccent,
+                    ),
+                    if (idade != null)
+                      Text(
+                        '$idade anos',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    if (isToday)
+                      const _BirthdayBadge(
+                        label: 'Hoje',
+                        icon: Icons.celebration_outlined,
+                        background: Color(0xFFFCE7F3),
+                        foreground: Color(0xFF9D174D),
+                      )
+                    else if (isThisWeek)
+                      const _BirthdayBadge(
+                        label: 'Esta semana',
+                        icon: Icons.star_outline_rounded,
+                        background: Color(0xFFEDE9FE),
+                        foreground: Color(0xFF5B21B6),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Parabéns no WhatsApp',
+            child: Material(
+              color: const Color(0xFFDCFCE7),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: () {
+                  ThemeCleanPremium.hapticAction();
+                  _parabensWhatsApp(m);
+                },
+                child: const SizedBox(
+                  width: ThemeCleanPremium.minTouchTarget,
+                  height: ThemeCleanPremium.minTouchTarget,
+                  child: Icon(
+                    Icons.chat_rounded,
+                    color: Color(0xFF16A34A),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Acento do módulo Aniversariantes (Relatórios) — azul/violeta pastel festivo.
+const Color _kAniversariantesAccent = Color(0xFF6366F1);
+const Color _kAniversariantesAccentEnd = Color(0xFF8B5CF6);
+
+class _AniversariantesHeroHeader extends StatelessWidget {
+  const _AniversariantesHeroHeader({
+    required this.count,
+    required this.filtroLabel,
+  });
+
+  final int count;
+  final String filtroLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            _kAniversariantesAccent,
+            _kAniversariantesAccentEnd,
+            Color(0xFFA78BFA),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: _kAniversariantesAccent.withValues(alpha: 0.32),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.cake_rounded,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: ThemeCleanPremium.spaceMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Aniversariantes',
+                  style: tt.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Celebre cada vida e envie parabéns pelo WhatsApp',
+                  style: tt.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$count',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                filtroLabel,
+                style: tt.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BirthdayFilterPill extends StatelessWidget {
+  const _BirthdayFilterPill({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(
+            minHeight: ThemeCleanPremium.minTouchTarget,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [
+                      _kAniversariantesAccent,
+                      _kAniversariantesAccentEnd,
+                    ],
+                  )
+                : null,
+            color: selected ? null : ThemeCleanPremium.cardBackground,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected
+                  ? Colors.transparent
+                  : const Color(0xFFE2E8F4),
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color:
+                          _kAniversariantesAccent.withValues(alpha: 0.30),
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
+                    ),
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? Colors.white
+                    : ThemeCleanPremium.onSurfaceVariant,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected
+                      ? Colors.white
+                      : ThemeCleanPremium.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BirthdayDateField extends StatelessWidget {
+  const _BirthdayDateField({
+    required this.label,
+    required this.value,
+    required this.onTap,
+  });
+
+  final String label;
+  final String? value;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: ThemeCleanPremium.cardBackground,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            border: Border.all(color: const Color(0xFFE2E8F4)),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.event_outlined,
+                size: 20,
+                color: _kAniversariantesAccent,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value ?? 'Toque para escolher',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: value == null
+                            ? Colors.grey.shade500
+                            : ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BirthdayBadge extends StatelessWidget {
+  const _BirthdayBadge({
+    required this.label,
+    required this.icon,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: foreground),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: foreground,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BirthdayEmptyState extends StatelessWidget {
+  const _BirthdayEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFEDF0F7)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: _kAniversariantesAccent.withValues(alpha: 0.10),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.cake_outlined,
+              size: 34,
+              color: _kAniversariantesAccent,
+            ),
+          ),
+          const SizedBox(height: ThemeCleanPremium.spaceMd),
+          const Text(
+            'Ninguém neste filtro',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+              color: ThemeCleanPremium.onSurface,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Ajuste o período ou a busca para encontrar aniversariantes.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.4,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
       ),
     );
   }

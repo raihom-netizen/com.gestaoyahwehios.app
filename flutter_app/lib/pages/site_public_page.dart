@@ -1161,7 +1161,7 @@ class _PlanCard extends StatelessWidget {
             Text("Anual: ${money(annual)} (12 por 10)", style: const TextStyle(fontSize: 12, color: Colors.black45)),
           const SizedBox(height: 12),
           const Text(
-            "App + Painel Web + Site público\nYAHWEH Chat, eventos, escalas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
+            "App + Painel Web + Site público\nYAHWEH Chat, eventos, escalas, Dízimos/Ofertas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
             style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
           ),
         ],
@@ -1182,6 +1182,10 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (icon: Icons.view_timeline_rounded, label: 'Escalas'),
     (icon: Icons.event_available_rounded, label: 'Agendas'),
     (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
+    (
+      icon: Icons.favorite_rounded,
+      label: 'Dízimos/Ofertas — PIX e cartão (Mercado Pago)',
+    ),
     (
       icon: Icons.chat_rounded,
       label:

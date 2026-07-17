@@ -1,12 +1,14 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/ui/widgets/church_wisdom_login_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_organization_signup_web_page.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_saas_visual_shell.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 /// Após login (Google/Apple/e-mail): 1) nome + CPF como futuro gestor; 2) dados mínimos da igreja.
 /// O cadastro completo (endereço, logo, site público) fica no painel em **Cadastro da Igreja**.
@@ -244,203 +246,204 @@ class _SignupCompletarGestorPageState extends State<SignupCompletarGestorPage> {
 
     final isPerfil = _step == _OnboardingStep.perfil;
 
-    return Scaffold(
-      appBar: AppBar(
-        leading: isPerfil
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: _loading
-                    ? null
-                    : () => setState(() {
-                          _step = _OnboardingStep.perfil;
-                          _error = null;
-                        }),
-              ),
-        title: Text(isPerfil ? 'Seu perfil (gestor)' : 'Dados da igreja'),
+    return ChurchWisdomLoginBackdrop(
+      appBar: ChurchWisdomLoginAppBar(
+        onBack: isPerfil
+            ? () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else {
+                  Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    '/signup',
+                    (_) => false,
+                  );
+                }
+              }
+            : () {
+                if (_loading) return;
+                setState(() {
+                  _step = _OnboardingStep.perfil;
+                  _error = null;
+                });
+              },
         actions: [
           TextButton(
             onPressed: _loading
                 ? null
                 : () => FirebaseAuth.instance.signOut().then((_) {
                       if (!context.mounted) return;
-                      Navigator.pushNamedAndRemoveUntil(context, '/signup', (_) => false);
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        '/signup',
+                        (_) => false,
+                      );
                     }),
-            child: const Text('Sair'),
+            child: const Text('Sair', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
-      body: !_resolvedStep
-          ? const Center(child: CircularProgressIndicator())
-          : Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Card(
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+      child: SafeArea(
+        child: !_resolvedStep
+            ? const Center(child: CircularProgressIndicator())
+            : ChurchWisdomAuthCenter(
+                maxWidth: 460,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ChurchWisdomLoginFormCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            ChurchWisdomCardBrandHeader(
+                              title: isPerfil
+                                  ? 'Seu perfil (gestor)'
+                                  : 'Dados da igreja',
+                              subtitle: isPerfil
+                                  ? 'Nome e CPF — depois os dados da igreja.'
+                                  : 'Só o essencial — o resto você completa no painel.',
+                              logo:
+                                  YahwehSaasVisualShell.brandEmblem(size: 64),
+                            ),
+                            Row(
                               children: [
-                                Row(
-                                  children: [
-                                    SafeCircleAvatarImage(
-                                      imageUrl: user.photoURL,
-                                      radius: 24,
-                                      fallbackIcon: Icons.person_rounded,
-                                      backgroundColor: Colors.grey.shade200,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            user.displayName ??
-                                                user.email ??
-                                                'Sua conta',
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: 16),
-                                          ),
-                                          Text(
-                                            user.email ?? '',
-                                            style: TextStyle(
-                                                fontSize: 13,
-                                                color: Colors.grey.shade600),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                SafeCircleAvatarImage(
+                                  imageUrl: user.photoURL,
+                                  radius: 20,
+                                  fallbackIcon: Icons.person_rounded,
+                                  backgroundColor: Colors.grey.shade200,
                                 ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  isPerfil
-                                      ? 'Primeiro cadastre-se como gestor (nome e CPF). Depois você informa só os dados da igreja — endereço, logo e link do site público você completa no painel.'
-                                      : 'Informe o nome da igreja e, se quiser, o CNPJ ou CPF da instituição. Se for MEI com seu CPF, pode ser o mesmo do seu cadastro pessoal.',
-                                  style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey.shade700,
-                                      height: 1.35),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        user.displayName ??
+                                            user.email ??
+                                            'Sua conta',
+                                        style: GoogleFonts.poppins(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      Text(
+                                        user.email ?? '',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
-                          ),
+                            const SizedBox(height: 14),
+                            if (isPerfil) ...[
+                              TextFormField(
+                                controller: _nome,
+                                decoration: authCompactFieldDecoration(
+                                  labelText: 'Seu nome completo',
+                                ),
+                                validator: (v) => _req(v, 'Informe seu nome'),
+                              ),
+                              const SizedBox(height: 10),
+                              TextFormField(
+                                controller: _cpf,
+                                keyboardType: TextInputType.number,
+                                decoration: authCompactFieldDecoration(
+                                  labelText: 'Seu CPF (11 dígitos)',
+                                  hintText: 'Apenas números',
+                                ),
+                                validator: (v) {
+                                  final msg = _req(v, 'Informe seu CPF');
+                                  if (msg != null) return msg;
+                                  if (_normalizeCpf(v ?? '').length != 11) {
+                                    return 'CPF deve ter 11 dígitos';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ] else ...[
+                              TextFormField(
+                                controller: _igrejaNome,
+                                decoration: authCompactFieldDecoration(
+                                  labelText: 'Nome da igreja',
+                                  hintText: 'Ex.: Igreja Batista Central',
+                                ),
+                                validator: (v) =>
+                                    _req(v, 'Informe o nome da igreja'),
+                              ),
+                              const SizedBox(height: 10),
+                              TextFormField(
+                                controller: _igrejaDoc,
+                                decoration: authCompactFieldDecoration(
+                                  labelText: 'CNPJ ou CPF da igreja (opcional)',
+                                ),
+                              ),
+                            ],
+                            if (_error != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                _error!,
+                                style: TextStyle(
+                                  color: Colors.red.shade700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              height: 48,
+                              child: FilledButton.icon(
+                                onPressed: _loading
+                                    ? null
+                                    : (isPerfil
+                                        ? _submitPerfil
+                                        : _submitIgreja),
+                                icon: _loading
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Icon(
+                                        isPerfil
+                                            ? Icons.arrow_forward_rounded
+                                            : Icons.check_circle_outline,
+                                        size: 20,
+                                      ),
+                                label: Text(
+                                  _loading
+                                      ? 'Aguarde...'
+                                      : (isPerfil
+                                          ? 'Continuar'
+                                          : 'Criar igreja e abrir painel'),
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 24),
-                        if (isPerfil) ...[
-                          const Text('Seus dados',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 16)),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _nome,
-                            decoration: const InputDecoration(
-                              labelText: 'Seu nome completo',
-                              border: OutlineInputBorder(),
-                            ),
-                            validator: (v) => _req(v, 'Informe seu nome'),
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _cpf,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'Seu CPF (11 dígitos)',
-                              border: OutlineInputBorder(),
-                              hintText: 'Apenas números',
-                            ),
-                            validator: (v) {
-                              final msg = _req(v, 'Informe seu CPF');
-                              if (msg != null) return msg;
-                              if (_normalizeCpf(v ?? '').length != 11) {
-                                return 'CPF deve ter 11 dígitos';
-                              }
-                              return null;
-                            },
-                          ),
-                        ] else ...[
-                          const Text('Igreja',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 16)),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _igrejaNome,
-                            decoration: const InputDecoration(
-                              labelText: 'Nome da igreja',
-                              border: OutlineInputBorder(),
-                              hintText: 'Ex.: Igreja Batista Central',
-                            ),
-                            validator: (v) => _req(v, 'Informe o nome da igreja'),
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _igrejaDoc,
-                            decoration: const InputDecoration(
-                              labelText: 'CNPJ ou CPF da igreja (opcional)',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ],
-                        if (_error != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _error!,
-                            style: TextStyle(
-                                color: Colors.red.shade700, fontSize: 13),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          height: 50,
-                          child: FilledButton.icon(
-                            onPressed: _loading
-                                ? null
-                                : (isPerfil ? _submitPerfil : _submitIgreja),
-                            icon: _loading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Icon(
-                                    isPerfil
-                                        ? Icons.arrow_forward_rounded
-                                        : Icons.check_circle_outline),
-                            label: Text(
-                              _loading
-                                  ? 'Aguarde...'
-                                  : (isPerfil
-                                      ? 'Continuar para dados da igreja'
-                                      : 'Criar igreja e abrir painel (30 dias grátis)'),
-                            ),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF2563EB),
-                              textStyle: const TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                      const ChurchWisdomLoginScriptureFooter(),
+                    ],
                   ),
                 ),
               ),
-            ),
+      ),
     );
   }
 }

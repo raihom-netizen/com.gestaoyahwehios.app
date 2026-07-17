@@ -12,6 +12,11 @@ export 'package:gestao_yahweh/ui/widgets/church_wisdom_login_ui.dart'
         ChurchWisdomLoginAppBar,
         ChurchWisdomLoginHeroCard,
         ChurchWisdomLoginFormCard,
+        ChurchWisdomAuthCenter,
+        ChurchWisdomCardBrandHeader,
+        ChurchWisdomLoginScriptureFooter,
+        authCompactFieldDecoration,
+        kAuthScreenMaxWidth,
         kChurchWisdomLoginGold,
         kChurchWisdomLoginNavy,
         kChurchWisdomLoginTeal;

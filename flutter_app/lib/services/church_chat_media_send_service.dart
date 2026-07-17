@@ -154,11 +154,18 @@ abstract final class ChurchChatMediaSendService {
         onProgress: onProgress,
         onReplyCleared: onReplyCleared,
       ));
+      // Firestore confirmado — reenvio de bolha antes enfileirada fecha o ciclo.
+      pending.offlineQueued = false;
       onSuccess?.call();
     } catch (e) {
       // Fila silenciosa: só offline real ou erro que [shouldQueueSilently] aceita.
+      // Mobile: timeout (Storage ou escrita Firestore) com rede instável não é
+      // falha definitiva — a escrita pode já estar na persistence nativa do
+      // Firestore (entrega garantida) e o outbox reenvia de forma idempotente
+      // (mesmo messageId/storagePath). Fila em vez de erro vermelho.
       final queueSilently = EcoFireResilientPublish.shouldQueueSilently(e) ||
           EcoFireResilientPublish.shouldQueueFeedPublish(e) ||
+          (!kIsWeb && e is TimeoutException) ||
           (!AppConnectivityService.instance.isOnline);
       if (queueSilently) {
         try {
@@ -575,6 +582,11 @@ abstract final class ChurchChatMediaSendService {
     Map<String, dynamic>? replyTo,
   }) async {
     Object? last;
+    // Web: direto (22s) + fallback CF (18s) precisam de caber numa tentativa.
+    // Mobile: sem fallback CF — 20s chegam; no timeout a escrita já está na
+    // persistence nativa e o caller enfileira (fila «envia ao voltar online»).
+    final writeTimeout =
+        kIsWeb ? const Duration(seconds: 45) : const Duration(seconds: 20);
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) {
@@ -595,10 +607,10 @@ abstract final class ChurchChatMediaSendService {
           fileSize: fileSize,
           replyTo: replyTo,
         ).timeout(
-          const Duration(seconds: 30),
+          writeTimeout,
           onTimeout: () => throw TimeoutException(
             'Gravação demorou demais. Verifique a rede e tente novamente.',
-            const Duration(seconds: 30),
+            writeTimeout,
           ),
         );
       } catch (e) {

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
@@ -106,7 +107,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Dízimos e ofertas',
+                kChurchDonationModuleLabel,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
@@ -116,7 +117,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
               ),
               const SizedBox(height: 12),
               Text(
-                'Abra o site de $_churchName no app e use o botão de doação (PIX ou cartão Mercado Pago). '
+                'Abra o site de $_churchName no app e use o botão Dízimos/Ofertas (PIX ou cartão Mercado Pago). '
                 'No iPhone o pagamento final pode abrir no Safari, conforme a App Store.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -186,7 +187,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dízimos e ofertas'),
+        title: const Text(kChurchDonationModuleLabel),
         backgroundColor: ThemeCleanPremium.primary,
         foregroundColor: Colors.white,
       ),

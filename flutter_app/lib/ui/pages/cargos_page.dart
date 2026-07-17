@@ -987,6 +987,9 @@ class _CargosPageState extends State<CargosPage> {
           path: path,
           error: result.softError!,
         );
+        // Erro de leitura ≠ coleção vazia — sem isto a UI concluía «0 cargos»
+        // e oferecia recriar os padrões com dados reais no servidor.
+        _cargosLoadSoftError = result.softError;
       } else {
         ChurchModuleQueryProbe.logSuccess(
           module: 'Cargos',
@@ -998,8 +1001,11 @@ class _CargosPageState extends State<CargosPage> {
       return result.snapshot;
     } catch (e) {
       final fallback = _peekInstantCargosSnap();
-      if (fallback != null && fallback.docs.isNotEmpty) return fallback;
-      return const MergedFirestoreQuerySnapshot([]);
+      if (fallback != null && fallback.docs.isNotEmpty) {
+        _cargosLoadSoftError = e.toString();
+        return fallback;
+      }
+      rethrow; // _loadCargosWithCap regista o erro (nunca vazio silencioso).
     }
   }
 
@@ -1913,7 +1919,12 @@ class _CargosPageState extends State<CargosPage> {
                       ? (_peekInstantCargosSnap()?.docs ?? [])
                       : (snap.data?.docs ?? []);
                   if (docs.isEmpty) {
-                    if (_canWrite && !_triedAutoSeed) {
+                    // Auto-seed só com leitura confirmada vazia — nunca após
+                    // erro/timeout (risco de duplicar cargos existentes).
+                    if (_canWrite &&
+                        !_triedAutoSeed &&
+                        !cargosLoadFailed &&
+                        _cargosLoadSoftError == null) {
                       _triedAutoSeed = true;
                       WidgetsBinding.instance.addPostFrameCallback((_) async {
                         await _seedPadroes();

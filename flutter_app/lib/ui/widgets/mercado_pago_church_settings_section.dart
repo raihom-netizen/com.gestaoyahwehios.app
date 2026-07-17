@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -243,9 +244,9 @@ class _MercadoPagoChurchSettingsSectionState
         .requestNavigateToShellIndex(ChurchShellIndices.doacao);
     if (!mounted) return Future.value();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text(
-          'Módulo Doação aberto — gere PIX ou cartão no painel.',
+          'Módulo $kChurchDonationModuleLabel aberto — gere PIX ou cartão no painel.',
         ),
         behavior: SnackBarBehavior.floating,
       ),
@@ -298,7 +299,7 @@ class _MercadoPagoChurchSettingsSectionState
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Gerar doação (PIX e cartão)',
+              'Gerar dízimo/oferta (PIX e cartão)',
               style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
             ),
             const SizedBox(height: 8),
@@ -374,12 +375,12 @@ class _MercadoPagoChurchSettingsSectionState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            'Gerar doação (PIX e cartão)',
+            'Gerar dízimo/oferta (PIX e cartão)',
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
           ),
           const SizedBox(height: 8),
           Text(
-            'Com a integração ativa, use o módulo Doação do menu lateral: '
+            'Com a integração ativa, use o módulo $kChurchDonationModuleLabel do menu lateral: '
             'PIX com QR no painel; cartão abre no navegador (Chrome) com Mercado Pago.',
             style: TextStyle(
               fontSize: 12.5,
@@ -391,7 +392,7 @@ class _MercadoPagoChurchSettingsSectionState
           FilledButton.icon(
             onPressed: _openDonationModuleInShell,
             icon: const Icon(Icons.volunteer_activism_rounded),
-            label: const Text('Abrir módulo Doação — PIX / cartão'),
+            label: Text('Abrir $kChurchDonationModuleLabel — PIX / cartão'),
             style: FilledButton.styleFrom(
               backgroundColor: ThemeCleanPremium.primary,
               padding: const EdgeInsets.symmetric(vertical: 14),

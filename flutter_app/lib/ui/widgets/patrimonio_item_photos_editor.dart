@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -16,6 +17,7 @@ import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_photos_update_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
@@ -153,11 +155,21 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   }
 
   void _hydrateFromData(Map<String, dynamic> data) {
-    final urls = PatrimonioPhotoFields.urlsFromData(data);
-    final paths = PatrimonioPhotoFields.pathsFromData(data);
     for (var i = 0; i < PatrimonioItemPhotosEditor.maxPhotos; i++) {
-      _slotUrls[i] = i < urls.length ? sanitizeImageUrl(urls[i]) : '';
-      _slotPaths[i] = i < paths.length ? paths[i].trim() : '';
+      _slotUrls[i] = '';
+      _slotPaths[i] = '';
+    }
+    // Preservar o índice real do slot (foto01 → slot 1): lista compactada
+    // deslocava fotos quando havia slot vazio no meio.
+    final refs = ChurchCanonicalMediaContract.resolvePatrimonioPhotos(data);
+    for (final r in refs) {
+      final i = r.slotIndex ?? -1;
+      if (i < 0 || i >= PatrimonioItemPhotosEditor.maxPhotos) continue;
+      final raw = r.downloadUrl.isNotEmpty ? r.downloadUrl : '';
+      _slotUrls[i] = sanitizeImageUrl(
+        YahwehMediaCacheBust.applyFromDocRevision(raw, data),
+      );
+      _slotPaths[i] = r.storagePath.trim();
     }
   }
 
@@ -208,18 +220,13 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       final ref = widget.docRef;
       if (ref == null) return;
       final snap = await ref.get();
-      final repairedUrls =
-          PatrimonioPhotoFields.urlsFromData(snap.data() ?? {});
-      final repairedPaths =
-          PatrimonioPhotoFields.pathsFromData(snap.data() ?? {});
-      if (repairedUrls.isEmpty || !mounted) return;
+      final repaired = snap.data() ?? {};
+      if (PatrimonioPhotoFields.urlsFromData(repaired).isEmpty || !mounted) {
+        return;
+      }
       setState(() {
+        _hydrateFromData(repaired);
         for (var i = 0; i < PatrimonioItemPhotosEditor.maxPhotos; i++) {
-          _slotUrls[i] = i < repairedUrls.length
-              ? sanitizeImageUrl(repairedUrls[i])
-              : '';
-          _slotPaths[i] =
-              i < repairedPaths.length ? repairedPaths[i].trim() : '';
           _slotPending[i] = null;
           _slotPendingNames[i] = '';
         }
@@ -613,17 +620,18 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     }
   }
 
-  Future<void> cleanupUnusedSlots(List<String> activePaths) async {
+  /// Apaga Storage só de slots realmente vazios após Salvar.
+  /// Slot com upload novo (bytes pendentes) ainda não tem `slotPath` — se a
+  /// limpeza olhasse só para paths antigos, apagava a foto acabada de enviar.
+  Future<void> cleanupUnusedSlots(PatrimonioItemPhotosSnapshot snap) async {
     final tenantId = widget.churchId.trim();
     final itemDocId = widget.itemId.trim();
     if (tenantId.isEmpty || itemDocId.isEmpty) return;
-    final pathSet =
-        activePaths.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
     await Future.wait([
       for (var s = 0; s < PatrimonioItemPhotosEditor.maxPhotos; s++)
-        if (!pathSet.contains(
-          ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, s),
-        ))
+        if (!snap.uploadsBySlot.containsKey(s) &&
+            snap.slotUrls[s].trim().isEmpty &&
+            snap.slotPaths[s].trim().isEmpty)
           FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
             tenantId: tenantId,
             itemDocId: itemDocId,
@@ -1087,9 +1095,7 @@ class _PatrimonioItemPhotosEditorPageState
           if (mounted) setState(() => _phaseLabel = label);
         },
       );
-      await editor.cleanupUnusedSlots(
-        snap.slotPaths.where((p) => p.trim().isNotEmpty).toList(),
-      );
+      await editor.cleanupUnusedSlots(snap);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar('Fotos do bem actualizadas.'),

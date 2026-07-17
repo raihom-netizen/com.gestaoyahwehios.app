@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -119,6 +118,10 @@ abstract final class ChurchModuleFirestoreListRead {
       }
 
       Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+        // Web: uma query plain (resilience + recovery internos). Cascata
+        // orderBy/plain_retry dentro do queryCap 14s esgotava o slot e
+        // derrubava Visitantes/Cargos/Fornecedores/Oração em timeout.
+        Object? lastError;
         try {
           final plainSnap = await FirestoreReadResilience.getQuery(
             plain(ref),
@@ -126,8 +129,17 @@ abstract final class ChurchModuleFirestoreListRead {
             maxAttempts: kIsWeb ? 2 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
-          if (plainSnap.docs.isNotEmpty) return plainSnap;
-        } catch (_) {}
+          if (plainSnap.docs.isNotEmpty || orderByField == null) {
+            return plainSnap;
+          }
+        } catch (e) {
+          lastError = e;
+          if (kIsWeb &&
+              (FirestoreWebGuard.isInternalAssertionError(e) ||
+                  FirestoreWebGuard.isClientTerminated(e))) {
+            rethrow;
+          }
+        }
 
         final oq = ordered(ref);
         if (oq != null) {
@@ -138,21 +150,27 @@ abstract final class ChurchModuleFirestoreListRead {
               maxAttempts: kIsWeb ? 2 : 3,
               attemptTimeout: ChurchPanelReadTimeouts.attempt,
             );
-          } catch (_) {}
+          } catch (e) {
+            lastError = e;
+          }
         }
 
-        return FirestoreReadResilience.getQuery(
-          plain(ref),
-          cacheKey: '${keyBase}_plain_retry',
-          maxAttempts: kIsWeb ? 2 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
+        try {
+          return await FirestoreReadResilience.getQuery(
+            plain(ref),
+            cacheKey: '${keyBase}_plain_retry',
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+        } catch (e) {
+          throw lastError ?? e;
+        }
       }
 
       final snap = kIsWeb
           ? await FirestoreWebGuard.runWithWebRecovery(
               readServer,
-              maxAttempts: 2,
+              maxAttempts: 3,
             ).timeout(ChurchPanelReadTimeouts.queryCap)
           : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
       return _finalize(snap.docs, sortDocs);

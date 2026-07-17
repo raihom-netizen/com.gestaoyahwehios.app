@@ -7,6 +7,12 @@ const IconData kFornecedoresModuleIcon = Icons.local_shipping_rounded;
 /// Ícone do módulo **Utilitários** (menu + cards).
 const IconData kUtilitariosModuleIcon = Icons.widgets_rounded;
 
+/// Label canónico — módulo dízimos/ofertas (painel, site público, divulgação).
+const String kChurchDonationModuleLabel = 'Dízimos/Ofertas';
+const String kChurchDonationModuleSubtitle = 'PIX e cartão Mercado Pago';
+const String kChurchDonationPublicCtaCompact = 'Dízimos/Ofertas';
+const String kChurchDonationPublicCtaFull = 'Dízimos/Ofertas — PIX/Cartão';
+
 /// Entrada do menu lateral do painel da igreja ([IgrejaCleanShell]).
 /// A ordem define os **índices** (`_selectedIndex`, cache de páginas, etc.).
 /// [accent] — cor do módulo (chips do menu, rodapé, identidade visual moderna).
@@ -160,9 +166,9 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ),
   ChurchShellNavEntry(
     Icons.favorite_rounded,
-    'Doação',
+    kChurchDonationModuleLabel,
     Color(0xFFDC2626),
-    subtitle: 'Contribua com a igreja',
+    subtitle: kChurchDonationModuleSubtitle,
   ),
   ChurchShellNavEntry(
     Icons.forum_rounded,

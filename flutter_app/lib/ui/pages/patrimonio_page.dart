@@ -8561,11 +8561,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         ),
       );
 
-      unawaited(
-        editor?.cleanupUnusedSlots(
-          indexedSlotPaths.where((p) => p.trim().isNotEmpty).toList(),
-        ),
-      );
+      unawaited(editor?.cleanupUnusedSlots(photoSnap));
       unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');

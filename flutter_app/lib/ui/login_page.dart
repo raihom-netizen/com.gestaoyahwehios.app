@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1826,11 +1825,11 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(
-                    minHeight: ThemeCleanPremium.minTouchTarget,
+                    minHeight: 48,
                   ),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 12),
+                        horizontal: 16, vertical: 10),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -1856,7 +1855,7 @@ class _LoginPageState extends State<LoginPage> {
                               : 'Continuar com Google',
                           style: GoogleFonts.inter(
                             fontWeight: FontWeight.w700,
-                            fontSize: 15.5,
+                            fontSize: 14.5,
                             letterSpacing: -0.25,
                             color: const Color(0xFF3C4043),
                           ),
@@ -1870,7 +1869,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         if (_showAppleSignInButtonWeb) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           SizedBox(
             height: 48,
             child: OutlinedButton.icon(
@@ -2532,16 +2531,9 @@ class _LoginPageState extends State<LoginPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          widget.title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
           'Conta já registada neste aparelho. O app tenta reabrir a sessão '
           'automaticamente — use Google ou Apple se precisar.',
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade700,
@@ -2591,14 +2583,6 @@ class _LoginPageState extends State<LoginPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          widget.title,
-          style: const TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-          ),
-        ),
-        const SizedBox(height: 8),
         Text(
           _oauthQuickUnlockReady
               ? 'Conta Google ou Apple já vinculada. Toque em Entrar para '
@@ -2710,32 +2694,29 @@ class _LoginPageState extends State<LoginPage> {
                 )
               : null,
           child: SafeArea(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                ThemeCleanPremium.spaceMd,
-                ThemeCleanPremium.spaceMd,
-                ThemeCleanPremium.spaceMd,
-                showExpress ? 108 : 28,
-              ),
+            child: ChurchWisdomAuthCenter(
+              bottomInset: showExpress ? 108 : 28,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ChurchWisdomLoginHeroCard(
-                    logo: _brandLogoWidget(
-                      height: 120,
-                      maxWidth: MediaQuery.sizeOf(context).width - 80,
-                      fallbackIconColor: Colors.white,
-                      hero: true,
-                    ),
-                    greeting: _hasSavedEmailHint && savedEmail.contains('@')
-                        ? 'Bem-vindo de volta'
-                        : 'Entrar no painel',
-                    subtitle:
-                        'Gestão da igreja — rápido, offline e seguro neste aparelho.',
-                  ),
-                  const SizedBox(height: 18),
                   ChurchWisdomLoginFormCard(
-                    child: _simplifiedGoogleOnlyLogin
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ChurchWisdomCardBrandHeader(
+                          title: _hasSavedEmailHint && savedEmail.contains('@')
+                              ? 'Bem-vindo de volta'
+                              : _displayLoginTitle,
+                          subtitle:
+                              'Gestão da igreja — rápido, offline e seguro.',
+                          logo: _brandLogoWidget(
+                            height: 76,
+                            maxWidth: kAuthScreenMaxWidth - 120,
+                            fallbackIconColor: theme,
+                            hero: true,
+                          ),
+                        ),
+                        _simplifiedGoogleOnlyLogin
                         ? _buildSimplifiedGoogleOnlyBody(
                             theme,
                             usePoppins: isWeb,
@@ -2759,24 +2740,6 @@ class _LoginPageState extends State<LoginPage> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
-                                          Text(
-                                            _displayLoginTitle,
-                                            style: GoogleFonts.poppins(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 17,
-                                              color: const Color(0xFF1E293B),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            'Google ou Apple — ou e-mail salvo offline neste aparelho.',
-                                            style: GoogleFonts.poppins(
-                                              fontSize: 13,
-                                              color: const Color(0xFF64748B),
-                                              height: 1.35,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 14),
                                           _buildChurchOAuthButtons(theme),
                                           if (_errorMessage != null) ...[
                                             const SizedBox(height: 10),
@@ -2846,21 +2809,20 @@ class _LoginPageState extends State<LoginPage> {
                                               keyboardType:
                                                   TextInputType.emailAddress,
                                               autocorrect: false,
-                                              decoration: const InputDecoration(
+                                              decoration:
+                                                  authCompactFieldDecoration(
                                                 labelText: 'E-mail',
                                                 hintText:
                                                     'Preenchido ao entrar com Google/Apple',
-                                                border: OutlineInputBorder(),
                                               ),
                                             ),
-                                            const SizedBox(height: 12),
+                                            const SizedBox(height: 10),
                                             TextField(
                                               controller: _senhaController,
                                               obscureText: _obscure,
-                                              decoration: InputDecoration(
+                                              decoration:
+                                                  authCompactFieldDecoration(
                                                 labelText: 'Senha',
-                                                border:
-                                                    const OutlineInputBorder(),
                                                 suffixIcon: IconButton(
                                                   icon: Icon(
                                                     _obscure
@@ -2868,6 +2830,7 @@ class _LoginPageState extends State<LoginPage> {
                                                             .visibility_off_rounded
                                                         : Icons
                                                             .visibility_rounded,
+                                                    size: 20,
                                                   ),
                                                   onPressed: () => setState(
                                                     () => _obscure = !_obscure,
@@ -2937,6 +2900,8 @@ class _LoginPageState extends State<LoginPage> {
                                           ],
                                         ],
                                       ),
+                      ],
+                    ),
                   ),
                   if (!isWeb && _nativeChurchLogin) ...[
                     const SizedBox(height: 16),
@@ -3145,10 +3110,150 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  /// Login master web — card centralizado, campos compactos.
+  Widget _buildWisdomMasterLogin(BuildContext context) {
+    final theme = ThemeCleanPremium.primary;
+    return Theme(
+      data: ThemeCleanPremium.themeData,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: Color(0xFFF0F9FF),
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        child: ChurchWisdomLoginBackdrop(
+          sessionFinalizing: _sessionFinalizing,
+          appBar: ChurchWisdomLoginAppBar(
+            onBack: _onBackLeadingPressed,
+            actions: const [InstallPwaButton()],
+          ),
+          child: SafeArea(
+            child: ChurchWisdomAuthCenter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ChurchWisdomLoginFormCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const ChurchWisdomCardBrandHeader(
+                          title: 'Entrar no Painel Master',
+                          subtitle: 'Acesso administrativo do sistema.',
+                          logoHeight: 64,
+                        ),
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          autocorrect: false,
+                          decoration: authCompactFieldDecoration(
+                            labelText: 'E-mail',
+                            hintText: 'seu@email.com',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _senhaController,
+                          obscureText: _obscure,
+                          decoration: authCompactFieldDecoration(
+                            labelText: 'Senha',
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_off_rounded
+                                    : Icons.visibility_rounded,
+                                size: 20,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                        ),
+                        ..._senhaClipboardRow(),
+                        if (_errorMessage != null) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        CheckboxListTile(
+                          value: _rememberLogin,
+                          onChanged: (v) =>
+                              setState(() => _rememberLogin = v ?? false),
+                          title: const Text(
+                            'Lembrar usuário e senha',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          visualDensity: VisualDensity.compact,
+                          activeColor: theme,
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 48,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: theme,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: _loading ? null : _onEntrar,
+                            child: _loading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : Text(
+                                    'Entrar',
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _loading ? null : _onResetSenha,
+                          child: const Text(
+                            'Esqueci a senha',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const ChurchWisdomLoginScriptureFooter(),
+                  const SizedBox(height: 8),
+                  const VersionFooter(showVersion: true),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_nativeChurchLogin || (kIsWeb && _isIgrejaPainelLogin)) {
       return _buildWisdomChurchLogin(context, isWeb: kIsWeb);
+    }
+
+    if (kIsWeb && _isMasterAdminLogin) {
+      return _buildWisdomMasterLogin(context);
     }
 
     final theme = ThemeCleanPremium.primary;
