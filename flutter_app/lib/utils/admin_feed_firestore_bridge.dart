@@ -150,7 +150,8 @@ abstract final class AdminFeedFirestoreBridge {
     void Function(double progress)? onProgress,
   }) async {
     if (kIsWeb) {
-      onProgress?.call(0.80);
+      // Não reiniciar a barra em 0.80 (rewind visual + hang «A gravar… 82%»).
+      onProgress?.call(0.90);
       try {
         await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
         await runFirestorePublishWithRecovery(
@@ -164,7 +165,7 @@ abstract final class AdminFeedFirestoreBridge {
             kWebDirectWriteTimeout,
           ),
         );
-        onProgress?.call(0.86);
+        onProgress?.call(0.94);
         return;
       } catch (directError) {
         if (!_shouldFallbackToCf(directError)) {
@@ -197,7 +198,7 @@ abstract final class AdminFeedFirestoreBridge {
               kWebCfTimeout,
             ),
           );
-          onProgress?.call(0.86);
+          onProgress?.call(0.94);
           return;
         } catch (cfError) {
           debugPrint(

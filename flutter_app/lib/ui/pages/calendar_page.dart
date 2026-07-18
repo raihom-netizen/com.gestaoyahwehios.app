@@ -6353,8 +6353,8 @@ class _CalendarPageState extends State<CalendarPage>
                                 ref: _agenda.doc(existing.id),
                                 payload: upd,
                               );
-                              unawaited(
-                                  ChurchAgendaLoadService.invalidate(_churchId));
+                              // updateAgendaEvent já invalida; não forçar refresh
+                              // destrutivo que pode envenenar cache ao trocar de módulo.
                               if (ctx.mounted) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(

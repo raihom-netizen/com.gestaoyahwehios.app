@@ -132,8 +132,10 @@ abstract final class ChurchFornecedoresLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    // Lista vazia não apaga RAM boa (evita sumiço ao voltar ao módulo).
     if (docs.isEmpty) {
-      _ram.remove(key);
+      final hit = _ram[key];
+      if (hit != null && hit.docs.isNotEmpty) return;
       return;
     }
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
@@ -555,6 +557,10 @@ abstract final class ChurchFornecedoresLoadService {
         forceServer: false,
         limit: limit,
       );
+      final hit = _ram[ramKey];
+      if (docs.isEmpty && hit != null && hit.docs.isNotEmpty) {
+        return;
+      }
       _putRam(ramKey, docs);
       await _persistHive(churchId, docs);
     } catch (_) {}
@@ -565,6 +571,13 @@ abstract final class ChurchFornecedoresLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
     try {
+      if (docs.isEmpty) {
+        final existing = await TenantModuleHiveCache.readDocs(
+          churchId,
+          TenantModuleKeys.fornecedores,
+        );
+        if (existing.isNotEmpty) return;
+      }
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
         TenantModuleKeys.fornecedores,

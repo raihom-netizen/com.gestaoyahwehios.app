@@ -31,21 +31,21 @@ const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 const int kChatMaxConcurrentMediaUploads = 4;
 
 /// Timeout para fotos **já compactadas** (≤ ~1 MB).
-/// Mínimo 3 min: redes 4G/igrejas com sinal instável não podem cancelar envio válido.
-const int kStorageUploadCompressedImageMaxSeconds = 180;
+/// 90s: redes 4G lentas ainda cabem; evita hang eterno de 3 min.
+const int kStorageUploadCompressedImageMaxSeconds = 90;
 
-/// Tamanho máximo (bytes) para aplicar timeout curto de 30 s.
+/// Tamanho máximo (bytes) para aplicar timeout curto de imagem compactada.
 const int kStorageUploadCompressedImageMaxBytes = 1024 * 1024;
 
 /// Timeout máximo para uploads de imagem/comprovante (~2–3 MB, ainda não compactadas).
-const int kStorageUploadImageMaxSeconds = 180;
+const int kStorageUploadImageMaxSeconds = 120;
 
 /// Cancela upload se bytes não avançarem neste intervalo (imagens compactadas).
-/// 3 min sem avanço real = upload travado; pausas curtas de rede devem retomar.
-const int kStorageUploadCompressedImageStallSeconds = 180;
+/// 45s sem avanço = upload travado; falhar rápido → «Tentar de novo».
+const int kStorageUploadCompressedImageStallSeconds = 45;
 
 /// Cancela upload se bytes não avançarem neste intervalo (imagens maiores).
-const int kStorageUploadImageStallSeconds = 180;
+const int kStorageUploadImageStallSeconds = 60;
 
 /// Teto alinhado às regras Storage (`storage.rules`) para fotos de feed/perfil/património.
 const int kStorageRulesMaxFeedImageBytes = 10 * 1024 * 1024;

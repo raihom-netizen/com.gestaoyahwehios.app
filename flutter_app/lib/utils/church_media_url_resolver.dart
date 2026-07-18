@@ -78,7 +78,10 @@ abstract final class ChurchMediaUrlResolver {
     if (p.isEmpty) return '';
     try {
       await ensureFirebaseCore(requireAuth: false);
-      return await firebaseDefaultStorage.ref(p).getDownloadURL();
+      return await firebaseDefaultStorage
+          .ref(p)
+          .getDownloadURL()
+          .timeout(const Duration(seconds: 8), onTimeout: () => '');
     } catch (_) {
       return '';
     }

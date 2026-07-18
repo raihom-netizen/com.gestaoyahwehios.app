@@ -17,6 +17,8 @@ import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    show storageDownloadUrlOrNull;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
@@ -537,8 +539,10 @@ abstract final class PatrimonioPublishService {
       );
       futures.add(() async {
         try {
-          final url = await firebaseDefaultStorage.ref(path).getDownloadURL();
-          if (url.trim().isNotEmpty) {
+          final url = await storageDownloadUrlOrNull(
+            firebaseDefaultStorage.ref(path),
+          );
+          if (url != null && url.trim().isNotEmpty) {
             results[slot] = true;
             pathResults[slot] = path;
             urlResults[slot] = sanitizeImageUrl(url);

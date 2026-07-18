@@ -34,9 +34,9 @@ abstract final class EcofirePublishProgressUi {
     var editorClosed = false;
 
     void reportProgress(double p) {
-      final next = p < 0.78
+      final next = p < 0.88
           ? uploadLabel
-          : p < 0.94
+          : p < 0.96
               ? saveLabel
               : distributeLabel;
       if (next != phaseLabel) {
@@ -143,9 +143,9 @@ abstract final class EcofirePublishProgressUi {
     var phaseLabel = uploadLabel;
 
     void reportProgress(double p) {
-      final next = p < 0.78
+      final next = p < 0.88
           ? uploadLabel
-          : p < 0.94
+          : p < 0.96
               ? saveLabel
               : distributeLabel;
       if (next != phaseLabel) {
@@ -236,9 +236,9 @@ abstract final class EcofirePublishProgressUi {
               valueListenable: progress,
               builder: (_, p, __) {
                 final pct = (p * 100).clamp(5, 100).round();
-                final phase = p < 0.78
+                final phase = p < 0.88
                     ? uploadLabel
-                    : p < 0.94
+                    : p < 0.96
                         ? saveLabel
                         : distributeLabel;
                 return Column(

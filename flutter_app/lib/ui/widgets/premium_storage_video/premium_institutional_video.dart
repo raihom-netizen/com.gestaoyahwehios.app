@@ -203,7 +203,7 @@ class _PremiumInstitutionalVideoCardState
     }
     try {
       final ref = firebaseDefaultStorage.ref(path);
-      final u = await ref.getDownloadURL();
+      final u = await ref.getDownloadURL().timeout(const Duration(seconds: 8));
       if (mounted) setState(() => _posterResolved = u);
     } catch (_) {
       if (mounted) setState(() => _posterResolved = null);
@@ -247,7 +247,7 @@ class _PremiumInstitutionalVideoCardState
     }
     Future<void> tryPath() async {
       final ref = firebaseDefaultStorage.ref(path);
-      final u = await ref.getDownloadURL();
+      final u = await ref.getDownloadURL().timeout(const Duration(seconds: 8));
       if (!mounted) return;
       setState(() {
         _resolved = u;

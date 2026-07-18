@@ -96,9 +96,7 @@ abstract final class MemberProfilePhotoSaveService {
         kUploadTimeout,
       ),
     );
-    if (url.trim().isEmpty) {
-      throw StateError('Upload concluiu sem URL.');
-    }
+    // putData OK = objeto no bucket. URL vazia = path-only (UI resolve depois).
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
       tenantId: churchId,
       memberId: storageFolderId,
@@ -186,9 +184,7 @@ abstract final class MemberProfilePhotoSaveService {
           kUploadTimeout,
         ),
       );
-      if (uploadedUrl.trim().isEmpty) {
-        throw StateError('Upload da foto concluiu sem URL de download.');
-      }
+      // putData OK — URL opcional; Firestore grava sempre photoStoragePath.
 
       final revision = YahwehMediaCacheBust.freshRevisionMs();
       final photoUrlRaw = sanitizeImageUrl(uploadedUrl);

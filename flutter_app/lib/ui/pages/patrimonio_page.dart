@@ -837,9 +837,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   late List<String> _categoriasEfetivas;
 
   void _refreshPatrimonioTabs() {
-    _bensTabKey.currentState?.refresh();
-    _dashboardTabKey.currentState?.refresh();
-    _inventarioTabKey.currentState?.refresh();
+    // Soft refresh — não forceFresh (invalidate) após criar bem.
+    _bensTabKey.currentState?.refresh(forceServer: false);
+    _dashboardTabKey.currentState?.refreshSoft();
+    _inventarioTabKey.currentState?.refreshSoft();
   }
 
   void _schedulePatrimonioRealtimeRefresh() {
@@ -5429,6 +5430,11 @@ class _DashboardTabState extends State<_DashboardTab> {
     setState(() => _bindDashboardLoad(forceFresh: true));
   }
 
+  /// Após criar/editar bem — não limpa cache.
+  void refreshSoft() {
+    setState(() => _bindDashboardLoad(forceFresh: false));
+  }
+
   @override
   Widget build(BuildContext context) {
     final statusList = widget.statusList;
@@ -6369,6 +6375,11 @@ class _InventarioTabState extends State<_InventarioTab> {
 
   void refresh() {
     setState(() => _bindInventarioLoad(forceFresh: true));
+  }
+
+  /// Após criar/editar bem — não limpa cache.
+  void refreshSoft() {
+    setState(() => _bindInventarioLoad(forceFresh: false));
   }
 
   Future<void> _marcarConferido(
@@ -8497,7 +8508,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 : 'Patrimônio atualizado — fotos a enviar em segundo plano.',
           ),
         );
-        unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+        // Não invalidate — preserva seedOptimistic/Hive (sumiço ao trocar módulo).
         unawaited(
           PatrimonioSaveService.uploadPhotosInBackground(
             churchIdHint: tenantId,
@@ -8509,7 +8520,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             indexedSlotPaths: indexedSlotPaths,
           ).whenComplete(() {
             PatrimonioPendingPhotosCache.clear(tenantId, itemId);
-            unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
           }),
         );
         return;
@@ -8562,7 +8572,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
 
       unawaited(editor?.cleanupUnusedSlots(photoSnap));
-      unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+      // Sem invalidate pós-save — o pai faz seedOptimistic + refresh soft.
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
@@ -8586,7 +8596,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             'Patrimônio guardado — fotos sincronizam em segundo plano.',
           ),
         );
-        unawaited(ChurchPatrimonioLoadService.invalidate(_churchIdForPublish));
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(

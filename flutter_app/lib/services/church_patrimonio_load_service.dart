@@ -581,6 +581,11 @@ abstract final class ChurchPatrimonioLoadService {
         queryOrderBy: queryOrderBy,
         sortDocs: sortDocs,
       );
+      // Não envenenar RAM/Hive com lista vazia (falso negativo de rede).
+      final existing = _peekRamInMap(ramMap, ramKey);
+      if (docs.isEmpty && existing != null && existing.isNotEmpty) {
+        return;
+      }
       _putRamInMap(ramMap, ramKey, docs);
       await _persistHive(churchId, docs, hiveModule: hiveModule);
     } catch (_) {}
@@ -651,6 +656,11 @@ abstract final class ChurchPatrimonioLoadService {
     {required String hiveModule}
   ) async {
     try {
+      if (docs.isEmpty) {
+        final existing =
+            await TenantModuleHiveCache.readDocs(churchId, hiveModule);
+        if (existing.isNotEmpty) return;
+      }
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
         hiveModule,

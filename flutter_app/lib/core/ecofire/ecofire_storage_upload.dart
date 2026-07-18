@@ -56,9 +56,16 @@ abstract final class EcoFireStorageUpload {
           payloadBytes: bytes.length,
           onProgress: onProgress,
         );
-        final url = await storageDownloadUrlWithRetry(snap.ref);
-        EcoFireFlow.log('STORAGE OK $storagePath');
-        return url;
+        // Bytes confirmados no bucket — NÃO bloquear publish em getDownloadURL
+        // (hang histórico ~82% «A gravar aviso/evento…» / «Enviando áudio…»).
+        onProgress?.call(1.0);
+        final url = await storageDownloadUrlOrNull(snap.ref);
+        if (url != null && url.isNotEmpty) {
+          EcoFireFlow.log('STORAGE OK $storagePath');
+          return url;
+        }
+        EcoFireFlow.log('STORAGE OK path-only $storagePath');
+        return '';
       } catch (e) {
         lastError = e;
         EcoFireFlow.log('STORAGE retry $attempt: $e');
@@ -199,7 +206,8 @@ abstract final class EcoFireStorageUpload {
         logLabel: 'storage_download_url',
         strict: false,
       );
-      return await (await EcoFireDirectFirebase.storageRef(p)).getDownloadURL();
+      final ref = await EcoFireDirectFirebase.storageRef(p);
+      return await storageDownloadUrlOrNull(ref);
     } catch (_) {}
     return null;
   }

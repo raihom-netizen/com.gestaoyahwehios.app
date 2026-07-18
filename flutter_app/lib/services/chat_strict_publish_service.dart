@@ -62,9 +62,16 @@ abstract final class ChatStrictPublishService {
       );
     }
 
-    final resolvedUrl = (mediaUrl ?? '').trim().isNotEmpty
-        ? mediaUrl!.trim()
-        : await DirectStorageUrlPublish.resolveUrl(storagePath);
+    var resolvedUrl = (mediaUrl ?? '').trim();
+    if (resolvedUrl.isEmpty && storagePath.trim().isNotEmpty) {
+      // Best-effort curto — Storage já confirmado; path-only é válido.
+      try {
+        resolvedUrl = await DirectStorageUrlPublish.resolveUrl(storagePath)
+            .timeout(const Duration(seconds: 8), onTimeout: () => '');
+      } catch (_) {
+        resolvedUrl = '';
+      }
+    }
     String? resolvedThumbUrl;
     final thumb = (thumbStoragePath ?? '').trim();
     if (thumb.isNotEmpty) {
@@ -72,8 +79,11 @@ abstract final class ChatStrictPublishService {
         resolvedThumbUrl = thumbUrl!.trim();
       } else {
         try {
-          resolvedThumbUrl = await DirectStorageUrlPublish.resolveUrl(thumb);
-        } catch (_) {}
+          resolvedThumbUrl = await DirectStorageUrlPublish.resolveUrl(thumb)
+              .timeout(const Duration(seconds: 8), onTimeout: () => '');
+        } catch (_) {
+          resolvedThumbUrl = null;
+        }
       }
     }
 
@@ -84,7 +94,7 @@ abstract final class ChatStrictPublishService {
       storagePath: storagePath,
       fileName: fileName,
       thumbStoragePath: thumbStoragePath,
-      mediaUrl: resolvedUrl,
+      mediaUrl: resolvedUrl.isEmpty ? null : resolvedUrl,
       thumbUrl: resolvedThumbUrl,
       fileSize: fileSize,
       kind: kind,

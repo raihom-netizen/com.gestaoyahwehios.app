@@ -292,17 +292,21 @@ abstract final class ChurchBrandService {
         await StorageMediaService.publishableHttpsUrlForFirestore(path) ?? '',
       );
     }
-    if (url.isEmpty) {
-      throw StateError('Não foi possível obter URL https da logo após upload.');
-    }
-
-    final patch = {
-      ...logoPathFirestorePatch(
-        storagePath: path,
-        downloadUrl: url,
-      ),
-      'logoCacheRevision': rev,
-    };
+    // putData já confirmou o objeto — path-only é válido (SafeNetworkImage resolve).
+    final patch = url.isNotEmpty
+        ? {
+            ...logoPathFirestorePatch(
+              storagePath: path,
+              downloadUrl: url,
+            ),
+            'logoCacheRevision': rev,
+          }
+        : <String, dynamic>{
+            'logoStoragePath': path,
+            'logoPath': path,
+            'updatedAt': FieldValue.serverTimestamp(),
+            'logoCacheRevision': rev,
+          };
     await AdminFeedFirestoreBridge.upsertChurchRoot(
       churchId: cid,
       data: patch,
@@ -316,7 +320,12 @@ abstract final class ChurchBrandService {
       ),
     );
     invalidate(churchId: cid);
-    unawaited(ChurchPanelLocalCache.saveLogoPath(churchId: cid, logoPath: url));
+    unawaited(
+      ChurchPanelLocalCache.saveLogoPath(
+        churchId: cid,
+        logoPath: url.isNotEmpty ? url : path,
+      ),
+    );
     TenantResolverService.invalidateRegistrationContextCache(
       seedId: cid,
       userUid: firebaseDefaultAuth.currentUser?.uid,

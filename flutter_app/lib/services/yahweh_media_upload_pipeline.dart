@@ -399,7 +399,9 @@ abstract final class YahwehMediaUploadPipeline {
           onProgress: onProgress,
         );
         onProgress?.call(1.0);
-        return await storageDownloadUrlWithRetry(snap.ref);
+        // putData OK = objeto no bucket. URL é best-effort (não hang 3×60s).
+        final url = await storageDownloadUrlOrNull(snap.ref);
+        return (url != null && url.isNotEmpty) ? url : '';
       } catch (e) {
         lastError = e;
         final isCanceled = e is FirebaseException && e.code == 'canceled';

@@ -1056,7 +1056,10 @@ class _MediaCard extends StatelessWidget {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
-      final url = await firebaseDefaultStorage.ref(path).getDownloadURL();
+      final url = await firebaseDefaultStorage
+          .ref(path)
+          .getDownloadURL()
+          .timeout(const Duration(seconds: 8));
       var u = Uri.tryParse(url);
       if (u == null) return;
       u = _uriForInlinePdfIfNeeded(path, u);

@@ -153,17 +153,29 @@ Future<TaskSnapshot> awaitStorageUploadTask(
   }
 }
 
+/// Resolve URL após `putData` OK. Timeout curto (8s×2) — o objeto já está no
+/// bucket; nunca bloquear publicação 3×60s (era o hang ~82% «A gravar…»).
 Future<String> storageDownloadUrlWithRetry(Reference ref) async {
   Object? last;
-  for (var i = 0; i < 3; i++) {
+  for (var i = 0; i < 2; i++) {
     try {
-      return await ref.getDownloadURL().timeout(const Duration(seconds: 60));
+      return await ref.getDownloadURL().timeout(const Duration(seconds: 8));
     } catch (e) {
       last = e;
-      if (i < 2) {
-        await Future.delayed(Duration(milliseconds: 150 * (i + 1)));
+      if (i < 1) {
+        await Future.delayed(Duration(milliseconds: 200 * (i + 1)));
       }
     }
   }
   throw last ?? StateError('URL do ficheiro indisponível.');
+}
+
+/// Igual a [storageDownloadUrlWithRetry], mas nunca lança — devolve null.
+/// Usar no hot path de publish: objeto confirmado → seguir com `storagePath`.
+Future<String?> storageDownloadUrlOrNull(Reference ref) async {
+  try {
+    return await storageDownloadUrlWithRetry(ref);
+  } catch (_) {
+    return null;
+  }
 }

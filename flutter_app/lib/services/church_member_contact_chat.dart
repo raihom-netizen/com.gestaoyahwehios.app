@@ -335,7 +335,7 @@ abstract final class ChurchMemberContactChat {
     String? draftText,
     bool popSheetBeforeNavigate = false,
   }) async {
-    final myUid = firebaseDefaultAuth.currentUser?.uid?.trim();
+    final myUid = firebaseDefaultAuth.currentUser?.uid.trim();
     final messenger = ScaffoldMessenger.maybeOf(context);
 
     if (popSheetBeforeNavigate && context.mounted) {
@@ -361,12 +361,19 @@ abstract final class ChurchMemberContactChat {
       return;
     }
 
-    final resolved = await resolvePeerForChat(
-      tenantId: operationalTenant,
-      memberData: memberData,
+    // WhatsApp-like: peer do mapa local primeiro — sem esperar Firestore.
+    var peerUid = peerAuthUidFromMember(
+      memberData,
       memberDocId: memberDocId,
-    );
-    final peerUid = resolved.peerUid?.trim();
+    )?.trim();
+    if (peerUid == null || peerUid.isEmpty) {
+      final resolved = await resolvePeerForChat(
+        tenantId: operationalTenant,
+        memberData: memberData,
+        memberDocId: memberDocId,
+      );
+      peerUid = resolved.peerUid?.trim();
+    }
     if (peerUid == null || peerUid.isEmpty) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
@@ -392,7 +399,7 @@ abstract final class ChurchMemberContactChat {
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = (draftText ?? faleComigoDraft()).trim();
 
-    // Navega para o YahwehChat imediatamente (hub consome DM pendente).
+    // Navega na hora — hub abre a conversa sem esperar ensureDm.
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
       tenantId: operationalTenant,
@@ -400,11 +407,11 @@ abstract final class ChurchMemberContactChat {
       displayName: titulo,
       initialDraftText: draft.isEmpty ? null : draft,
     );
-    ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
-    Future<void>.delayed(const Duration(milliseconds: 350), () {
+    // Re-notifica só 1× curto (hub a montar no shell).
+    Future<void>.delayed(const Duration(milliseconds: 120), () {
       ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     });
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
+    Future<void>.delayed(const Duration(milliseconds: 400), () {
       ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     });
 

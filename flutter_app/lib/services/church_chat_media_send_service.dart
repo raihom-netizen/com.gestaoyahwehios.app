@@ -473,12 +473,8 @@ abstract final class ChurchChatMediaSendService {
         throw StateError('Sem dados para enviar.');
       }
 
-    if ((mediaUrl == null || mediaUrl.isEmpty) && storagePath.isNotEmpty) {
-      try {
-        mediaUrl = await DirectStorageUrlPublish.resolveUrl(storagePath);
-      } catch (_) {}
-    }
-
+    // putData já tentou URL (soft-fail). Não repetir getDownloadURL (~16s).
+    // Firestore grava storagePath; a UI resolve na leitura.
     reportProgress(0.9);
     ChurchPublishFlowLog.uploadOk('chat_${pending.kind}');
 

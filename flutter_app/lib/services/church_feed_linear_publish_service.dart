@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -360,14 +360,23 @@ abstract final class ChurchFeedLinearPublishService {
           'Verifique a rede e toque em «Tentar novamente».',
         );
       }
-      if (isEvento && alignedThumbUrls.isEmpty) {
-        final thumbFutures = alignedThumbPaths.map(
-          (tp) => EcoFireFeedPublishService.refsToPlayableUrls([tp]),
-        );
-        final thumbResults = await Future.wait(thumbFutures, eagerError: false);
-        for (final tu in thumbResults) {
-          if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
-        }
+      if (isEvento && alignedThumbUrls.isEmpty && alignedThumbPaths.isNotEmpty) {
+        // Best-effort: não bloquear publish se getDownloadURL dos thumbs falhar.
+        try {
+          final thumbFutures = alignedThumbPaths.map(
+            (tp) => EcoFireFeedPublishService.refsToPlayableUrls([tp]),
+          );
+          final thumbResults = await Future.wait(
+            thumbFutures,
+            eagerError: false,
+          ).timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => <List<String>>[],
+          );
+          for (final tu in thumbResults) {
+            if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
+          }
+        } catch (_) {}
       }
     }
 
@@ -680,7 +689,8 @@ abstract final class ChurchFeedLinearPublishService {
     payload['videoStoragePath'] = path;
 
     try {
-      final videoUrls = await EcoFireFeedPublishService.refsToPlayableUrls([path]);
+      final videoUrls = await EcoFireFeedPublishService.refsToPlayableUrls([path])
+          .timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
       final videoUrl = videoUrls.isNotEmpty ? sanitizeImageUrl(videoUrls.first) : '';
       if (videoUrl.isNotEmpty) {
         payload['videoUrl'] = videoUrl;
@@ -701,7 +711,8 @@ abstract final class ChurchFeedLinearPublishService {
       String thumbUrl = '';
       if (thumbStoragePath.isNotEmpty) {
         final thumbUrls =
-            await EcoFireFeedPublishService.refsToPlayableUrls([thumbStoragePath]);
+            await EcoFireFeedPublishService.refsToPlayableUrls([thumbStoragePath])
+                .timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
         if (thumbUrls.isNotEmpty) {
           thumbUrl = sanitizeImageUrl(thumbUrls.first);
           payload['thumbUrl'] = thumbUrl;

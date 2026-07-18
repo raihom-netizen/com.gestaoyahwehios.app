@@ -550,40 +550,26 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   void _onChatPendingFromBridge() {
-    if (!mounted) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_tryConsumePendingChatThread());
-    });
-  }
-
-  Future<bool> _pendingPeekTenantMatches(
-    String peekTenantRaw,
-    String resolvedTid,
-  ) async {
-    final peekResolved = ChurchPanelTenant.forFirestore(peekTenantRaw);
-    final tidResolved = ChurchPanelTenant.forFirestore(resolvedTid);
-    if (peekResolved.isNotEmpty &&
-        tidResolved.isNotEmpty &&
-        peekResolved == tidResolved) {
-      return true;
-    }
-    final p = peekTenantRaw.trim();
-    if (p.isEmpty || p == resolvedTid) return true;
-    if (ChurchContextService.panelChurchId(p) == resolvedTid) return true;
-    return ChurchPanelTenant.forFirestore(p) == tidResolved ||
-        ChurchRepository.churchId(p) == resolvedTid;
+    // Mesmo frame do toque — abre a DM sem esperar o próximo frame.
+    if (mounted) unawaited(_tryConsumePendingChatThread());
   }
 
   Future<void> _tryConsumePendingChatThread({int attempt = 0}) async {
     if (!mounted || !widget.embeddedInShell) return;
-    const maxAttempts = 48;
-    final tid = _resolvedTenantId;
-    if (tid == null || tid.isEmpty) {
-      final peek =
-          ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
-      if (peek != null && attempt < maxAttempts) {
+    const maxAttempts = 24;
+    final peek =
+        ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
+    if (peek == null) return;
+
+    // Tenant imediato (hint do shell) — não esperar bootstrap completo.
+    final tidHint = ChurchRepository.churchId(widget.tenantId.trim());
+    final tid = (_resolvedTenantId ?? '').trim().isNotEmpty
+        ? _resolvedTenantId!.trim()
+        : (tidHint.isNotEmpty ? tidHint : widget.tenantId.trim());
+    if (tid.isEmpty) {
+      if (attempt < maxAttempts) {
         await Future<void>.delayed(
-          Duration(milliseconds: 100 + attempt * 100),
+          Duration(milliseconds: 50 + attempt * 40),
         );
         if (mounted) {
           return _tryConsumePendingChatThread(attempt: attempt + 1);
@@ -591,14 +577,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
       return;
     }
-    final peek =
-        ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
-    if (peek == null) return;
+
     if (peek.tenantId != null && peek.tenantId!.isNotEmpty) {
-      if (!await _pendingPeekTenantMatches(peek.tenantId!, tid)) {
-        if (attempt < maxAttempts) {
+      final peekResolved = ChurchPanelTenant.forFirestore(peek.tenantId!);
+      final tidResolved = ChurchPanelTenant.forFirestore(tid);
+      if (peekResolved.isNotEmpty &&
+          tidResolved.isNotEmpty &&
+          peekResolved != tidResolved) {
+        if (_resolvedTenantId == null && attempt < maxAttempts) {
           await Future<void>.delayed(
-            Duration(milliseconds: 80 + attempt * 80),
+            Duration(milliseconds: 50 + attempt * 40),
           );
           if (mounted) {
             return _tryConsumePendingChatThread(attempt: attempt + 1);
@@ -611,32 +599,68 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final threadId = peek.threadId.trim();
     if (threadId.isEmpty) return;
 
-    final myUid = firebaseDefaultAuth.currentUser?.uid?.trim();
+    final myUid = firebaseDefaultAuth.currentUser?.uid.trim();
     if (myUid == null || myUid.isEmpty) return;
 
     final isDmPending = threadId.startsWith('dm_');
     final pendingPeer = peek.peerUid?.trim() ?? '';
     final pendingTitle = (peek.displayName ?? '').trim();
 
+    // DM com peer conhecido → abre a conversa na hora (estilo WhatsApp).
     if (isDmPending && pendingPeer.isNotEmpty) {
-      await ChatHubOperations.ensureDmThreadResilient(
-        tenantId: tid,
-        uidA: myUid,
-        uidB: pendingPeer,
-        titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
-        titleB: pendingTitle.isEmpty ? 'Membro' : pendingTitle,
+      final pending =
+          ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+      if (pending == null || pending.threadId != threadId) return;
+      if (!mounted) return;
+
+      final dmTitle = pendingTitle.isEmpty ? 'Membro' : pendingTitle;
+      _openChatThreadPage(
+        tid: tid,
+        threadId: pending.threadId,
+        title: dmTitle,
+        isDepartment: false,
+        peerUid: pendingPeer,
+        initialDraftText: pending.initialDraftText,
       );
+
+      unawaited(
+        ChatHubOperations.ensureDmThreadResilient(
+          tenantId: tid,
+          uidA: myUid,
+          uidB: pendingPeer,
+          titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
+          titleB: dmTitle,
+        ),
+      );
+      if (mounted) {
+        unawaited(_primeConversasListFromFallback(tid));
+        unawaited(_reloadLocalConversations());
+      }
+      return;
     }
 
+    // Sem peer / grupo: precisa do doc (com timeout curto).
     DocumentSnapshot<Map<String, dynamic>>? snap;
     try {
-      snap = await ChatHubOperations.threadRef(tid, threadId).get();
+      snap = await ChatHubOperations.threadRef(tid, threadId)
+          .get()
+          .timeout(const Duration(seconds: 4));
     } catch (_) {
       snap = null;
     }
 
     if (isDmPending) {
-      if ((snap == null || !snap.exists) && pendingPeer.isEmpty) return;
+      if ((snap == null || !snap.exists) && pendingPeer.isEmpty) {
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(
+            Duration(milliseconds: 80 + attempt * 60),
+          );
+          if (mounted) {
+            return _tryConsumePendingChatThread(attempt: attempt + 1);
+          }
+        }
+        return;
+      }
       final pending =
           ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
       if (pending == null || pending.threadId != threadId) return;
@@ -891,6 +915,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
     });
 
+    // Consome atalho YahwehChat já no 1.º frame (antes do warmup).
+    unawaited(_tryConsumePendingChatThread());
     unawaited(_bootstrapAfterTenantBound(effective, uid));
   }
 

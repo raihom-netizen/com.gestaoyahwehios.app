@@ -281,7 +281,10 @@ abstract final class FinanceComprovantePublishService {
     try {
       await ensureFirebaseCore(requireAuth: false);
       Future<String> loadUrl() async {
-        final fresh = await firebaseDefaultStorage.ref(path).getDownloadURL();
+        final fresh = await firebaseDefaultStorage
+            .ref(path)
+            .getDownloadURL()
+            .timeout(const Duration(seconds: 8), onTimeout: () => '');
         return YahwehMediaCacheBust.applyFromDocRevision(fresh, data);
       }
 
@@ -796,7 +799,14 @@ abstract final class FinanceComprovantePublishService {
           final ref = firebaseDefaultStorage.ref(path);
           await ref.getMetadata().timeout(const Duration(seconds: 8));
           foundPath = path;
-          url = await ref.getDownloadURL();
+          url = await ref
+              .getDownloadURL()
+              .timeout(const Duration(seconds: 8), onTimeout: () => '');
+          if (url.isEmpty) {
+            foundPath = null;
+            url = null;
+            continue;
+          }
           break;
         } catch (_) {}
       }

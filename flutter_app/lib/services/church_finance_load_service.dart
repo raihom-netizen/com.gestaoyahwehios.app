@@ -142,6 +142,12 @@ abstract final class ChurchFinanceLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    // Lista vazia não apaga RAM boa (evita sumiço ao voltar ao módulo).
+    if (docs.isEmpty) {
+      final hit = map[key];
+      if (hit != null && hit.docs.isNotEmpty) return;
+      return;
+    }
     map[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
