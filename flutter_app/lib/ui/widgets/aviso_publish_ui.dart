@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
         kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -56,7 +57,7 @@ abstract final class EcofirePublishProgressUi {
       // Gate ANTES de fechar o editor — evita perder o formulário se sync falhar.
       var gateSoftOffline = false;
       try {
-        await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+        await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
       } catch (gateErr) {
         if (EcoFireResilientPublish.shouldQueueFeedPublish(gateErr)) {
           gateSoftOffline = true;
@@ -125,7 +126,7 @@ abstract final class EcofirePublishProgressUi {
     } catch (e) {
       if (!isFirebaseNoAppError(e)) rethrow;
       await EcoFireDirectFirebase.ensureDefaultApp();
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
       return action(reportProgress);
     }
   }
@@ -156,7 +157,7 @@ abstract final class EcofirePublishProgressUi {
     }
 
     try {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
       await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),

@@ -4,12 +4,12 @@ import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
@@ -45,7 +45,7 @@ abstract final class ChurchLogoUpdateService {
       throw StateError('Imagem da logo vazia — selecione outra.');
     }
 
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
     onProgress?.call(0.02);
     final png = await encodeChurchLogoAsPngInIsolate(

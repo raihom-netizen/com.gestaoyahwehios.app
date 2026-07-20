@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -25,7 +26,7 @@ abstract final class FinanceComprovanteUi {
     }
 
     try {
-      await DirectStorageUrlPublish.ensureReady();
+      await ChurchMediaUploadFacade.ensureReady();
       final result = await action(reportProgress);
       if (successMessage != null && successMessage.isNotEmpty) {
         messenger?.showSnackBar(

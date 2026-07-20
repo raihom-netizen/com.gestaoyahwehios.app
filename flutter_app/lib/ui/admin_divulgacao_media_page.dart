@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
@@ -18,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
@@ -369,57 +368,33 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         module: YahwehMediaModule.divulgacao,
       ).catchError((_) => false),
     );
-    final result = await YahwehFilePicker.pickFiles(
-      withData: true,
-      type: FileType.custom,
-      allowedExtensions: const [
-        'jpg',
-        'jpeg',
-        'png',
-        'webp',
-        'gif',
-        'mp4',
-        'mov',
-        'webm',
-        'm4v',
-        'pdf',
-      ],
-    );
-    if (!mounted || result == null || result.files.isEmpty) return;
-    final picked = result.files.first;
-    final bytes = picked.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Não foi possível ler o arquivo selecionado.')),
-      );
-      return;
-    }
+    final pickedCt = await ChurchCtModuleUpload.pickDivulgacaoMedia();
+    if (!mounted || pickedCt == null) return;
+    final bytes = pickedCt.bytes;
+    final pickedName = pickedCt.fileName;
 
-    final ext = _extOf(picked.name);
+    final ext = _extOf(pickedName);
     final kind = _kindFromExt(ext);
     if (kind == 'image' && mounted) {
       final resolution = bytes.isNotEmpty
-          ? await ImmediateMediaAttachFeedback.readResolution(
-              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-            )
+          ? await ImmediateMediaAttachFeedback.readResolution(bytes)
           : null;
       if (!mounted) return;
       ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
-        fileName: picked.name,
+        fileName: pickedName,
         sizeBytes: bytes.length,
         resolution: resolution,
       );
     }
-    final suggestedTitle = _baseNameNoExt(picked.name);
+    final suggestedTitle = _baseNameNoExt(pickedName);
     final form = await _showCmsMaterialFormDialog(
       suggestedTitle: suggestedTitle,
       kind: kind,
     );
     if (!mounted || form == null) return;
 
-    final safeName = _slugifyFileName(picked.name);
+    final safeName = _slugifyFileName(pickedName);
     final storagePath = MarketingStorageLayout.institutionalUploadPath(
       kind,
       '${DateTime.now().millisecondsSinceEpoch}_$safeName',
@@ -433,6 +408,9 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
       kind == 'image' ? 'Enviando imagem…' : 'Enviando ficheiro…',
     );
     try {
+      await ChurchCtModuleUpload.ensureReady(
+        gateModule: YahwehMediaModule.divulgacao,
+      );
       final isImage = kind == 'image';
       final ChurchCanonicalUploadResult uploaded;
       if (isImage) {

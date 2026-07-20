@@ -85,11 +85,9 @@ abstract final class TransactionalMediaPublishPipeline {
   }) async {
     final raw = await MediaService.readXFileBytes(file);
     final profile = profileForModule(module);
+    // Content-type pelo perfil — compressão só uma vez em [compressAndUpload].
     final ct = contentType ??
-        MediaService.contentTypeForProfile(
-          profile,
-          await MediaService.compressImageBytes(raw, profile: profile),
-        );
+        MediaService.contentTypeForProfile(profile, raw);
     return compressAndUpload(
       rawBytes: raw,
       storagePath: storagePath,

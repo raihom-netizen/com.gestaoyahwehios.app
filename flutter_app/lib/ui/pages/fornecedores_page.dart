@@ -1172,8 +1172,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         permissions: widget.permissions,
       );
 
-  bool get _canWrite =>
-      ChurchRolePermissions.isCorporateModuleTeam(widget.role);
+  bool get _canWrite => AppPermissions.canWriteFornecedores(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   void _exitCadastrosSelection() {
     setState(() {
@@ -4558,8 +4560,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 fornecedorRef: _fornecedorRef,
                 tenantId: _tenantId,
                 seedData: cadastro,
-                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                canWrite: AppPermissions.canWriteFornecedores(
                   widget.role,
+                  permissions: widget.permissions,
                 ),
               ),
               if (_showFinanceTab)
@@ -4577,8 +4580,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 tenantId: _tenantId,
                 compCol: _compCol,
                 fornecedorId: widget.fornecedorId,
-                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                canWrite: AppPermissions.canWriteFornecedores(
                   widget.role,
+                  permissions: widget.permissions,
                 ),
               ),
               _FornecedoresCompromissosListaTab(
@@ -4587,8 +4591,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
                 onOpenFornecedor: null,
                 fornecedorIdFilter: widget.fornecedorId,
                 showFornecedorLine: false,
-                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                canWrite: AppPermissions.canWriteFornecedores(
                   widget.role,
+                  permissions: widget.permissions,
                 ),
               ),
             ],

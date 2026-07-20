@@ -438,6 +438,46 @@ service cloud.firestore {
         r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
       );
     }
+    /// Papéis de equipe que podem listar o diretório de membros (alinhado ao app).
+    function isMemberDirectoryStaffRole() {
+      return isPastoralOrSecretariatRole()
+        || isPastorAuxiliarRole()
+        || isDepartmentLeaderRole()
+        || isTreasurer()
+        || isEventosMuralEditorRole()
+        || (
+          role() != null && (
+            role() == 'diacono' || role() == 'DIACONO' || role() == 'Diacono' ||
+            role() == 'diácono' || role() == 'Diácono' ||
+            role() == 'evangelista' || role() == 'EVANGELISTA' || role() == 'Evangelista' ||
+            role() == 'musico' || role() == 'MUSICO' || role() == 'Musico' ||
+            role() == 'músico' || role() == 'Músico'
+          )
+        );
+    }
+    /// Lista completa de membros: staff / permissões de edição / membros_ver (não portaria).
+    function canReadAllMembros(tenantId) {
+      return isMaster()
+        || canStaffEditAnyMemberRecord(tenantId)
+        || (canAccessTenant(tenantId) && (
+          isMemberDirectoryStaffRole()
+          || hasTenantMembrosDirectoryEditPermission(tenantId)
+          || (!isMembroPortariaRole() && hasTenantModulePermission(tenantId, 'membros_ver'))
+        ));
+    }
+    /// O titular pode ler a própria ficha (get por uid/CPF ou query authUid).
+    function canReadOwnMembroDoc(tenantId, memberId) {
+      return isSignedIn() && (
+        memberId == request.auth.uid
+        || ('authUid' in resource.data
+          && resource.data.authUid is string
+          && resource.data.authUid == request.auth.uid)
+        || ('firebaseUid' in resource.data
+          && resource.data.firebaseUid is string
+          && resource.data.firebaseUid == request.auth.uid)
+        || requesterOwnsMemberDoc(tenantId, memberId)
+      );
+    }
     /// Pastor/secretÃ¡rio no token â€” mural (sem presbÃ­tero; certificados usam [isPastoralOrSecretariatRole]).
     function isPastoralOrSecretariatMuralRole() {
       let r = role();
@@ -582,11 +622,18 @@ service cloud.firestore {
       allow write: if isAdminPanel() || canWriteTenant(id);
 
       match /membros/{memberId} {
-        // SÃ³ gestores/membros da igreja (ou master). CPF no site sem login: resolveCpfToChurchPublic (Functions).
-        allow read: if isMaster() || canAccessTenant(id);
+        // Staff / permissões de diretório: lista completa.
+        // Membro comum (portaria): só a própria ficha (uid / authUid / CPF).
+        allow read: if canReadAllMembros(id) || canReadOwnMembroDoc(id, memberId);
 
-        // Cadastro pelo painel (usuÃ¡rio autenticado) ou pÃºblico (sem login) â€” status pendente atÃ© gestor aprovar
-        allow create: if request.auth != null
+        // Cadastro pelo painel (staff) ou pÃºblico (sem login) â€” status pendente atÃ© gestor aprovar.
+        // NÃ£o permitir create genÃ©rico sÃ³ com auth (membro comum nÃ£o cria fichas de terceiros).
+        allow create: if (request.auth != null && (
+              isMaster()
+              || canStaffEditAnyMemberRecord(id)
+              || (canAccessTenant(id) && isDepartmentLeaderRole())
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
+            ))
           || (request.auth == null
           && request.resource.data.PUBLIC_SIGNUP == true
           && request.resource.data.MEMBER_ID == memberId
@@ -634,7 +681,7 @@ service cloud.firestore {
       // Legado: leitura sÃ³ na prÃ³pria igreja (backup se Functions ainda nÃ£o rodaram).
       // Delete alinhado a `membros` â€” o app remove o par ao excluir membro; `write: false` bloqueava o batch inteiro.
       match /members/{memberId} {
-        allow read: if isMaster() || canAccessTenant(id);
+        allow read: if canReadAllMembros(id) || canReadOwnMembroDoc(id, memberId);
         allow create, update: if false;
         allow delete: if request.auth != null
           && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
@@ -661,8 +708,10 @@ service cloud.firestore {
       match /_panel_cache/{docId} {
         allow read: if docId == 'public_site'
           || isMaster()
-          || canAccessTenant(id)
-          || memberLinkedToTenant(id);
+          || (docId == 'members_directory' && canReadAllMembros(id))
+          || (docId != 'members_directory' && (
+            canAccessTenant(id) || memberLinkedToTenant(id)
+          ));
         allow write: if false;
       }
       // Contadores leves da Home (`members`, `avisos`, `eventos`) â€” leitura rÃ¡pida do painel.
@@ -727,32 +776,57 @@ service cloud.firestore {
         allow delete: if isMaster() || canAccessTenant(id);
       }
       match /patrimonio/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow read: if isMaster() || (canAccessTenant(id) && (
+          canManageChurch()
+          || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'patrimonio')
+        ));
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
-          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
+          || (canAccessTenant(id) && (isPastoralOrSecretariatRole() || isTreasurer()));
         // SubcoleÃ§Ãµes do bem (manutenÃ§Ãµes, transferÃªncias) â€” mesmas permissÃµes do documento pai.
         match /manutencoes/{mid} {
-          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow read: if isMaster() || (canAccessTenant(id) && (
+            canManageChurch()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
+            || hasTenantModulePermission(id, 'patrimonio')
+          ));
           allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
-            || (canAccessTenant(id) && isPastoralOrSecretariatRole());
+            || (canAccessTenant(id) && (isPastoralOrSecretariatRole() || isTreasurer()));
         }
         match /transferencias/{tid} {
-          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow read: if isMaster() || (canAccessTenant(id) && (
+            canManageChurch()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
+            || hasTenantModulePermission(id, 'patrimonio')
+          ));
           allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
-            || (canAccessTenant(id) && isPastoralOrSecretariatRole());
+            || (canAccessTenant(id) && (isPastoralOrSecretariatRole() || isTreasurer()));
         }
       }
       // SessÃµes de inventÃ¡rio finalizadas (aba InventÃ¡rio â€” histÃ³rico auditÃ¡vel).
       match /patrimonio_inventario_historico/{hid} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow read: if isMaster() || (canAccessTenant(id) && (
+          canManageChurch()
+          || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'patrimonio')
+        ));
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio')
-          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
+          || (canAccessTenant(id) && (isPastoralOrSecretariatRole() || isTreasurer()));
       }
       // LanÃ§amentos: sem lista fechada de chaves no cliente â€” importaÃ§Ã£o inteligente pode gravar
       // `smartPasteBatchId`, `source`, `parsedSnippet`, etc. (alinhado Controle Total; ver regras de merge no app).
       match /finance/{docId} {
         allow read: if isMaster()
-          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))
+          || (canAccessTenant(id) && (
+            canManageChurch()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
+            || hasTenantModulePermission(id, 'financeiro')
+          ))
           || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
         allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro')
           || (canAccessTenant(id) && isPastoralOrSecretariatRole());
@@ -760,17 +834,42 @@ service cloud.firestore {
       // Auditoria: exclusÃµes e aÃ§Ãµes (somente append; sem ediÃ§Ã£o pelo cliente).
       match /finance_logs/{logId} {
         allow read: if isMaster()
-          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
-        allow create: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+          || (canAccessTenant(id) && (
+            canManageChurch()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
+            || hasTenantModulePermission(id, 'financeiro')
+          ));
+        allow create: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'financeiro');
         allow update, delete: if false;
       }
       match /fornecedores/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores')));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores');
+        allow read: if isMaster() || (canAccessTenant(id) && (
+          canManageChurch()
+          || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'financeiro')
+          || hasTenantModulePermission(id, 'fornecedores')
+        ));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'financeiro')
+          || hasTenantModulePermission(id, 'fornecedores');
       }
       match /fornecedor_compromissos/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+        allow read: if isMaster() || (canAccessTenant(id) && (
+          canManageChurch()
+          || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'financeiro')
+          || hasTenantModulePermission(id, 'fornecedores')
+        ));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
+          || isPastoralOrSecretariatRole()
+          || hasTenantModulePermission(id, 'financeiro')
+          || hasTenantModulePermission(id, 'fornecedores');
       }
       match /categorias_receitas/{docId} {
         allow read: if isMaster() || canAccessTenant(id);

@@ -5,14 +5,15 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/church_logo_update_service.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:image_picker/image_picker.dart';
 
 /// Estado local — publicação strict no «Salvar igreja».
 class ChurchLogoEditorSnapshot {
@@ -146,12 +147,13 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
       return;
     }
     try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromGallery(
-        context: context,
+      final picked = await ChurchCtModuleUpload.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 92,
+        maxWidth: 3840,
       );
-      if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
+      if (picked == null || !mounted) return;
+      final bytes = picked.bytes;
       if (!mounted || bytes.isEmpty) return;
       setState(() {
         _pending = bytes;
@@ -163,7 +165,9 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
       if (!mounted) return;
       ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
-        fileName: file.name.trim().isNotEmpty ? file.name : 'logo.webp',
+        fileName: picked.fileName.trim().isNotEmpty
+            ? picked.fileName
+            : 'logo.webp',
         sizeBytes: bytes.length,
         resolution: resolution,
       );
@@ -171,7 +175,7 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Erro ao selecionar logo: $e',
+          'Erro ao selecionar logo: ${ChurchCtModuleUpload.mensagemAmigavel(e)}',
         ),
       );
     }
@@ -183,12 +187,13 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
       return;
     }
     try {
-      final file =
-          await MediaHandlerService.instance.pickAndProcessLogoFromCamera(
-        context: context,
+      final picked = await ChurchCtModuleUpload.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 92,
+        maxWidth: 3840,
       );
-      if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
+      if (picked == null || !mounted) return;
+      final bytes = picked.bytes;
       if (!mounted || bytes.isEmpty) return;
       setState(() {
         _pending = bytes;
@@ -200,14 +205,18 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
       if (!mounted) return;
       ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
-        fileName: file.name.trim().isNotEmpty ? file.name : 'logo_camera.webp',
+        fileName: picked.fileName.trim().isNotEmpty
+            ? picked.fileName
+            : 'logo_camera.webp',
         sizeBytes: bytes.length,
         resolution: resolution,
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro na câmera: $e'),
+        ThemeCleanPremium.feedbackSnackBar(
+          'Erro na câmera: ${ChurchCtModuleUpload.mensagemAmigavel(e)}',
+        ),
       );
     }
   }

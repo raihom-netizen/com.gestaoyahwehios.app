@@ -102,6 +102,7 @@ import 'package:gestao_yahweh/ui/widgets/keep_alive_tab_child.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_permissions.dart';
+import '../../services/auth_gate_panel_access_service.dart';
 import '../../services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -906,6 +907,8 @@ class _MembersPageState extends State<MembersPage> {
   void _startMembersRealtimeWatch(String tenantIdRaw) {
     final tenantId = tenantIdRaw.trim();
     if (tenantId.isEmpty) return;
+    // Membro comum: sem snapshot da coleção (só vê a própria ficha).
+    if (_selfOnlyMemberList) return;
     if (_membersRealtimeTenant == tenantId && _membersRealtimeSubs.isNotEmpty) {
       return;
     }
@@ -940,6 +943,7 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   Future<void> _hydrateMembersDirectoryCache() async {
+    if (_selfOnlyMemberList) return;
     final resolved = await _resolveEffectiveTenantId();
     final tid = resolved.isNotEmpty
         ? resolved
@@ -1444,6 +1448,14 @@ class _MembersPageState extends State<MembersPage> {
       widget.permissions,
     );
 
+    // Membro comum: só a própria ficha — sem listar o diretório inteiro.
+    if (selfOnlyMemberList) {
+      return _loadSelfOnlyMemberSnapshots(
+        effectiveId,
+        forceServer: forceServer,
+      );
+    }
+
     final result = await ChurchMembersLoadService.load(
       seedTenantId: effectiveId,
       limit: _membersLoadLimit,
@@ -1463,7 +1475,7 @@ class _MembersPageState extends State<MembersPage> {
       if (cache.hasEntries) {
         return _snapshotsFromDirectoryCache(
           cache,
-          selfOnlyMemberList: selfOnlyMemberList,
+          selfOnlyMemberList: false,
         );
       }
       throw StateError(
@@ -1471,10 +1483,6 @@ class _MembersPageState extends State<MembersPage> {
             ? result.softError!.trim()
             : 'Não foi possível carregar os membros.',
       );
-    }
-
-    if (selfOnlyMemberList) {
-      mergedMembers = _filterSelfOnlyMemberDocs(mergedMembers);
     }
 
     if (!forceServer && result.fromCache) {
@@ -1487,6 +1495,85 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     return _snapshotsFromMemberDocs(mergedMembers);
+  }
+
+  /// Carrega apenas a ficha do utilizador autenticado (membro comum).
+  Future<List<QuerySnapshot<Map<String, dynamic>>>>
+      _loadSelfOnlyMemberSnapshots(
+    String churchId, {
+    bool forceServer = false,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return _snapshotsFromMemberDocs(const []);
+    }
+
+    if (!forceServer) {
+      final instant = await _tryInstantMembersSnapshots(churchId);
+      if (instant != null) {
+        unawaited(
+          _loadSelfOnlyMemberSnapshots(churchId, forceServer: true).then((s) {
+            if (!mounted) return;
+            setState(() => _membersDataFuture = Future.value(s));
+          }).catchError((_) {}),
+        );
+        return instant;
+      }
+    }
+
+    try {
+      final binding = await AuthGatePanelAccessService.findMemberForUser(
+        igrejaId: churchId,
+        user: user,
+        userData: {
+          'cpf': widget.linkedCpf ?? '',
+        },
+      );
+      final docId = (binding.memberDocId ?? '').trim();
+      final data = binding.memberData;
+      if (docId.isNotEmpty && data != null && data.isNotEmpty) {
+        return _snapshotsFromMemberDocs([
+          _CachedMemberQueryDoc(id: docId, data: data),
+        ]);
+      }
+    } catch (_) {}
+
+    final col = ChurchUiCollections.membros(churchId);
+    Future<DocumentSnapshot<Map<String, dynamic>>> readDoc(String id) async {
+      Future<DocumentSnapshot<Map<String, dynamic>>> go() =>
+          col.doc(id).get(const GetOptions(source: Source.serverAndCache));
+      if (kIsWeb) {
+        return FirestoreWebGuard.runWithWebRecovery(go, maxAttempts: 3);
+      }
+      return go();
+    }
+
+    try {
+      final byUid = await readDoc(user.uid);
+      if (byUid.exists && byUid.data() != null) {
+        return _snapshotsFromMemberDocs([
+          _CachedMemberQueryDoc(id: byUid.id, data: byUid.data()!),
+        ]);
+      }
+      final cpf = (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+      if (cpf.length == 11) {
+        final byCpf = await readDoc(cpf);
+        if (byCpf.exists && byCpf.data() != null) {
+          return _snapshotsFromMemberDocs([
+            _CachedMemberQueryDoc(id: byCpf.id, data: byCpf.data()!),
+          ]);
+        }
+      }
+    } catch (_) {}
+
+    final cache = await MembersDirectorySnapshotService.readOnce(churchId);
+    if (cache.hasEntries) {
+      return _snapshotsFromDirectoryCache(
+        cache,
+        selfOnlyMemberList: true,
+      );
+    }
+    return _snapshotsFromMemberDocs(const []);
   }
 
   /// Abre a lista em rota fullscreen (root) com botão Voltar aos filtros — melhor no telemóvel.

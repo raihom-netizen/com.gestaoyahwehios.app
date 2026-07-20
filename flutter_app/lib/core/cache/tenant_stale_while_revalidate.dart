@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Stale-while-revalidate — mostra Hive / cache Firestore instantaneamente, atualiza em background.
@@ -74,7 +75,10 @@ abstract final class TenantStaleWhileRevalidate {
     // Web: prioriza produção (server-first) e usa cache apenas como fallback.
     if (kIsWeb && !WebPanelStability.isSessionExpired) {
       try {
-        final fresh = await networkFetch().timeout(ChurchPanelReadTimeouts.attempt);
+        final fresh = await FirestoreSessionGuard.runWithAuthRetry(
+          () => networkFetch().timeout(ChurchPanelReadTimeouts.attempt),
+          maxAttempts: 3,
+        );
         await _persistSnapshot(tid, module, fresh);
         _traceReadSource(
           tenantId: tid,
@@ -82,7 +86,13 @@ abstract final class TenantStaleWhileRevalidate {
           readSource: 'server_first',
         );
         return fresh;
-      } catch (_) {}
+      } catch (e) {
+        // permission-denied / assert: não engolir em silêncio — tenta cache e depois retry loop.
+        if (FirestoreWebGuard.isInternalAssertionError(e) ||
+            FirestoreWebGuard.isClientTerminated(e)) {
+          FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
+        }
+      }
       if (hiveDocs != null && hiveDocs.isNotEmpty) {
         if (refreshInBackground) {
           unawaited(_refresh(tid, module, networkFetch));
@@ -144,8 +154,10 @@ abstract final class TenantStaleWhileRevalidate {
             Duration(milliseconds: 120 + attempt * 180),
           );
         }
-        final snap =
-            await networkFetch().timeout(_networkAttemptTimeout(attempt));
+        final snap = await FirestoreSessionGuard.runWithAuthRetry(
+          () => networkFetch().timeout(_networkAttemptTimeout(attempt)),
+          maxAttempts: 2,
+        );
         await _persistSnapshot(tid, module, snap);
         _traceReadSource(
           tenantId: tid,
@@ -220,7 +232,10 @@ abstract final class TenantStaleWhileRevalidate {
       await TenantModuleHiveCache.clearModule(tid, module);
     }
     try {
-      final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.queryCap);
+      final snap = await FirestoreSessionGuard.runWithAuthRetry(
+        () => networkFetch().timeout(ChurchPanelReadTimeouts.queryCap),
+        maxAttempts: kIsWeb ? 3 : 2,
+      );
       await _persistSnapshot(tid, module, snap);
       _traceReadSource(
         tenantId: tid,
@@ -228,8 +243,13 @@ abstract final class TenantStaleWhileRevalidate {
         readSource: 'fresh_network',
       );
       return snap;
-    } catch (_) {
-      return const MergedFirestoreQuerySnapshot([]);
+    } catch (e) {
+      // Nunca mascarar permission-denied / assert como lista vazia.
+      if (FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e)) {
+        FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
+      }
+      rethrow;
     }
   }
 

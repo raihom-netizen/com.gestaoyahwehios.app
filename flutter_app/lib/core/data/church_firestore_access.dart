@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
+import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// **Único** gateway Firestore da camada de dados.
@@ -49,7 +50,10 @@ abstract final class ChurchFirestoreAccess {
 
   static Future<void> _prepareRead() async {
     if (kIsWeb) {
+      await FirestoreSessionGuard.ensureWriteSession();
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    } else {
+      await FirestoreSessionGuard.ensureWriteSession();
     }
   }
 
@@ -73,16 +77,19 @@ abstract final class ChurchFirestoreAccess {
         module: module,
         churchId: id,
         path: path,
-        run: () => FirestoreWebGuard.runWithWebRecovery(
-          () => FirestoreReadResilience.getQuery(
-            ChurchFirestoreAccess
-                .collectionRef(id, subcollectionName)
-                .limit(capped),
-            cacheKey: key,
-            maxAttempts: kIsWeb ? 2 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        run: () => FirestoreSessionGuard.runWithAuthRetry(
+          () => FirestoreWebGuard.runWithWebRecovery(
+            () => FirestoreReadResilience.getQuery(
+              ChurchFirestoreAccess
+                  .collectionRef(id, subcollectionName)
+                  .limit(capped),
+              cacheKey: key,
+              maxAttempts: kIsWeb ? 2 : 3,
+              attemptTimeout: ChurchPanelReadTimeouts.attempt,
+            ),
+            maxAttempts: kIsWeb ? 2 : 2,
           ),
-          maxAttempts: kIsWeb ? 2 : 2,
+          maxAttempts: kIsWeb ? 3 : 2,
         ),
       ).timeout(ChurchPanelReadTimeouts.queryCap);
       final source = snap.metadata.isFromCache ? 'firestore_cache' : 'server';
@@ -123,13 +130,16 @@ abstract final class ChurchFirestoreAccess {
       module: module,
       churchId: id,
       path: path,
-      run: () => FirestoreWebGuard.runWithWebRecovery(
-        () async {
-          final snap = await collectionRef(id, subcollectionName)
-              .count()
-              .get();
-          return snap.count ?? 0;
-        },
+      run: () => FirestoreSessionGuard.runWithAuthRetry(
+        () => FirestoreWebGuard.runWithWebRecovery(
+          () async {
+            final snap = await collectionRef(id, subcollectionName)
+                .count()
+                .get();
+            return snap.count ?? 0;
+          },
+          maxAttempts: kIsWeb ? 3 : 2,
+        ),
         maxAttempts: kIsWeb ? 3 : 2,
       ),
     );
@@ -150,12 +160,15 @@ abstract final class ChurchFirestoreAccess {
       module: module,
       churchId: id,
       path: path,
-      run: () => FirestoreWebGuard.runWithWebRecovery(
-        () => FirestoreReadResilience.getDocument(
-          collectionRef(id, subcollectionName).doc(docId),
-          cacheKey: cacheKey ?? 'data_doc_${id}_${subcollectionName}_$docId',
+      run: () => FirestoreSessionGuard.runWithAuthRetry(
+        () => FirestoreWebGuard.runWithWebRecovery(
+          () => FirestoreReadResilience.getDocument(
+            collectionRef(id, subcollectionName).doc(docId),
+            cacheKey: cacheKey ?? 'data_doc_${id}_${subcollectionName}_$docId',
+          ),
+          maxAttempts: kIsWeb ? 4 : 2,
         ),
-        maxAttempts: kIsWeb ? 4 : 2,
+        maxAttempts: kIsWeb ? 3 : 2,
       ),
     );
   }
@@ -170,9 +183,12 @@ abstract final class ChurchFirestoreAccess {
       module: 'Cadastro Igreja',
       churchId: id,
       path: ChurchDataPaths.churchRoot(id),
-      run: () => FirestoreWebGuard.runWithWebRecovery(
-        () => firestoreDocumentGetReliable(churchDoc(id)),
-        maxAttempts: kIsWeb ? 4 : 2,
+      run: () => FirestoreSessionGuard.runWithAuthRetry(
+        () => FirestoreWebGuard.runWithWebRecovery(
+          () => firestoreDocumentGetReliable(churchDoc(id)),
+          maxAttempts: kIsWeb ? 4 : 2,
+        ),
+        maxAttempts: kIsWeb ? 3 : 2,
       ),
     );
   }
@@ -260,7 +276,7 @@ abstract final class ChurchFirestoreAccess {
     final query = collectionRef(id, subcollectionName).limit(limit);
     Stream<QuerySnapshot<Map<String, dynamic>>> stream;
     if (kIsWeb) {
-      // Web: polling leve via one-shot reemitido — evita snapshots() no painel.
+      // Web: polling leve via one-shot — evita snapshots() no painel (assert SDK).
       stream = _webPollingStream(
         watchKey: watchKey,
         fetch: () => listOnce(
@@ -271,7 +287,10 @@ abstract final class ChurchFirestoreAccess {
         ),
       );
     } else {
-      stream = query.snapshots();
+      // Mobile: snapshots com retry Auth (permission-denied → estabiliza e reabre).
+      stream = FirestoreSessionGuard.authAwareSnapshots(
+        () => query.snapshots(),
+      );
     }
     final sub = stream.listen(
       onData,
@@ -284,16 +303,42 @@ abstract final class ChurchFirestoreAccess {
     return sub;
   }
 
+  /// Polling Web: nunca trata permission-denied como «lista vazia» (paridade CT).
   static Stream<QuerySnapshot<Map<String, dynamic>>> _webPollingStream({
     required String watchKey,
     required Future<QuerySnapshot<Map<String, dynamic>>> Function() fetch,
   }) async* {
     while (true) {
-      try {
-        yield await fetch();
-      } catch (e) {
-        debugPrint('ChurchFirestoreAccess.poll[$watchKey]: $e');
-        yield const MergedFirestoreQuerySnapshot([]);
+      Object? lastError;
+      var emitted = false;
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (attempt > 0) {
+            await FirestoreSessionGuard.stabilizeAfterAppResume();
+            await Future<void>.delayed(Duration(milliseconds: 220 * attempt));
+          }
+          yield await fetch();
+          emitted = true;
+          break;
+        } catch (e) {
+          lastError = e;
+          debugPrint(
+            'ChurchFirestoreAccess.poll[$watchKey] attempt=$attempt: $e',
+          );
+          if (FirestoreWebGuard.isClientTerminated(e) ||
+              FirestoreWebGuard.isInternalAssertionError(e)) {
+            FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
+            rethrow;
+          }
+          if (!FirestoreSessionGuard.isPermissionLikeError(e)) {
+            // Erro não recuperável por Auth — propaga (UI pode mostrar falha).
+            rethrow;
+          }
+        }
+      }
+      if (!emitted && lastError != null) {
+        // Esgotou retries Auth — propaga; NÃO yield [].
+        throw lastError;
       }
       await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
     }

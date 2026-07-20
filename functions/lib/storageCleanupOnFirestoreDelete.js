@@ -33,10 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = void 0;
+exports.onIgrejaFornecedorCompromissoDeleteCleanupStorage = exports.onIgrejaFinanceDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaAvisoDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = void 0;
 /**
  * Remove objetos do Storage quando o documento Firestore correspondente é apagado.
- * Complementa o cliente (ex.: deleteMemberRelatedFiles): reforço no servidor.
+ * Complementa o cliente — reforço no servidor (padrão Controle Total: gravar/excluir rápido e limpo).
+ *
+ * Cobre: membros, chat, eventos, avisos, património, financeiro, fornecedor_compromissos.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -67,6 +69,36 @@ async function deleteIfExists(path) {
         functions.logger.warn(`storageCleanup: file ${path}`, e);
     }
 }
+function collectStoragePaths(data) {
+    if (!data)
+        return [];
+    const keys = [
+        "storagePath",
+        "comprovanteStoragePath",
+        "photoStoragePath",
+        "fotoPath",
+        "thumbnailStoragePath",
+        "thumbPath",
+        "thumbStoragePath",
+        "bannerStoragePath",
+        "capaStoragePath",
+    ];
+    const paths = new Set();
+    for (const key of keys) {
+        const p = String(data[key] || "").trim();
+        if (p && !p.startsWith("http"))
+            paths.add(p);
+    }
+    for (let i = 1; i <= 8; i++) {
+        const padded = String(i).padStart(2, "0");
+        for (const k of [`foto${padded}Path`, `foto${i}Path`, `gallery${i}Path`]) {
+            const p = String(data[k] || "").trim();
+            if (p && !p.startsWith("http"))
+                paths.add(p);
+        }
+    }
+    return [...paths];
+}
 /** Pasta por membro + ficheiros planos legados `{id}.jpg`. */
 exports.onIgrejaMembroDeleteCleanupStorage = functions
     .region("us-central1")
@@ -93,17 +125,7 @@ exports.onIgrejaChatMessageDeleteCleanupStorage = functions
     .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{msgId}")
     .onDelete(async (snap) => {
     const d = snap.data();
-    const paths = new Set();
-    for (const key of [
-        "storagePath",
-        "thumbnailStoragePath",
-        "thumbPath",
-        "thumbStoragePath",
-    ]) {
-        const p = String(d?.[key] || "").trim();
-        if (p)
-            paths.add(p);
-    }
+    const paths = new Set(collectStoragePaths(d));
     const main = String(d?.storagePath || "").trim();
     if (main) {
         const guess = main.replace(/\.[^./]+$/, "_thumb.webp");
@@ -114,7 +136,7 @@ exports.onIgrejaChatMessageDeleteCleanupStorage = functions
         await deleteIfExists(path);
     }
 });
-/** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
+/** Evento do mural: pasta canónica eventos/{postId}. */
 exports.onIgrejaNoticiaDeleteCleanupStorage = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/eventos/{postId}")
@@ -124,8 +146,17 @@ exports.onIgrejaNoticiaDeleteCleanupStorage = functions
     if (!tenantId || !postId)
         return;
     await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
+});
+/** Aviso do mural: pasta canónica avisos/{postId}. */
+exports.onIgrejaAvisoDeleteCleanupStorage = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/avisos/{postId}")
+    .onDelete(async (_snap, ctx) => {
+    const tenantId = safeSeg(ctx.params.tenantId);
+    const postId = safeSeg(ctx.params.postId);
+    if (!tenantId || !postId)
+        return;
     await deleteByPrefix(`igrejas/${tenantId}/avisos/${postId}`);
-    await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
 });
 /** Património: pasta `patrimonio/{id}/` + ficheiros planos `{id}_{slot}.jpg` (legado). */
 exports.onIgrejaPatrimonioDeleteCleanupStorage = functions
@@ -142,6 +173,70 @@ exports.onIgrejaPatrimonioDeleteCleanupStorage = functions
         await deleteIfExists(`${base}.jpg`);
         for (const suf of ["_thumb", "_card", "_full"]) {
             await deleteIfExists(`${base}${suf}.jpg`);
+        }
+    }
+});
+/**
+ * Financeiro: apaga comprovante no Storage (path canónico + legado).
+ * Espelha o padrão CT de limpeza ao excluir lançamento.
+ */
+exports.onIgrejaFinanceDeleteCleanupStorage = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/finance/{docId}")
+    .onDelete(async (snap, ctx) => {
+    const tenantId = safeSeg(ctx.params.tenantId);
+    const docId = safeSeg(ctx.params.docId);
+    if (!tenantId || !docId)
+        return;
+    const d = snap.data();
+    for (const path of collectStoragePaths(d)) {
+        await deleteIfExists(path);
+    }
+    const base = `igrejas/${tenantId}/financeiro`;
+    for (const ext of ["jpg", "jpeg", "png", "webp", "pdf"]) {
+        await deleteIfExists(`${base}/comprovantes_receitas/${docId}_comprovante.${ext}`);
+        await deleteIfExists(`${base}/comprovantes_despesas/${docId}_comprovante.${ext}`);
+        await deleteIfExists(`${base}/transferencias/${docId}_comprovante.${ext}`);
+    }
+    try {
+        const bucket = admin.storage().bucket();
+        const [files] = await bucket.getFiles({
+            prefix: `${base}/`,
+            maxResults: 200,
+        });
+        const hits = files.filter((f) => {
+            const name = f.name || "";
+            return (name.includes(`/${docId}.`) ||
+                name.includes(`/${docId}_`) ||
+                name.endsWith(`/${docId}`));
+        });
+        await Promise.all(hits.map((f) => f.delete({ ignoreNotFound: true }).catch(() => undefined)));
+    }
+    catch (e) {
+        functions.logger.warn(`storageCleanup finance list ${docId}`, e);
+    }
+});
+/**
+ * Fornecedor compromisso: comprovante em
+ * `fornecedores/{fid}/compromissos/{cid}_comprovante.*`
+ */
+exports.onIgrejaFornecedorCompromissoDeleteCleanupStorage = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/fornecedor_compromissos/{docId}")
+    .onDelete(async (snap, ctx) => {
+    const tenantId = safeSeg(ctx.params.tenantId);
+    const docId = safeSeg(ctx.params.docId);
+    if (!tenantId || !docId)
+        return;
+    const d = snap.data();
+    for (const path of collectStoragePaths(d)) {
+        await deleteIfExists(path);
+    }
+    const fid = safeSeg(String(d?.fornecedorId || d?.fornecedorDocId || ""));
+    if (fid) {
+        const base = `igrejas/${tenantId}/fornecedores/${fid}/compromissos/${docId}_comprovante`;
+        for (const ext of ["jpg", "jpeg", "png", "webp", "pdf"]) {
+            await deleteIfExists(`${base}.${ext}`);
         }
     }
 });

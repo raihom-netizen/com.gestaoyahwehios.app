@@ -72,6 +72,7 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_telegram_text.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_expression_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
@@ -2825,12 +2826,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ),
               ),
             ),
-          Text(
-            t,
-            style: const TextStyle(
-              fontSize: 15,
-              height: 1.35,
-            ),
+          ChurchChatTelegramMessageBody(
+            text: t,
+            mine: true,
           ),
         ],
       );
@@ -4269,7 +4267,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       if (pendingOutgoingTexts.isNotEmpty) {
                         final sender = (m['senderUid'] ?? '').toString();
                         if (sender == uid &&
-                            (m['type'] ?? 'text').toString() == 'text') {
+                            ((m['type'] ?? 'text').toString() == 'text' ||
+                                (m['type'] ?? '').toString() == 'link')) {
                           final txt = (m['text'] ?? '').toString().trim();
                           if (pendingOutgoingTexts.contains(txt)) {
                             return false;
@@ -5122,16 +5121,17 @@ class _MessageBody extends StatelessWidget {
         ],
       );
     }
-    if (type == 'text') {
+    if (type == 'text' || type == 'link') {
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          Text(
-            (data['text'] ?? '').toString(),
-            style: const TextStyle(fontSize: 15, height: 1.35),
+          ChurchChatTelegramMessageBody(
+            text: (data['text'] ?? '').toString(),
+            linkUrl: (data['linkUrl'] ?? data['url'] ?? '').toString(),
+            mine: mine,
           ),
         ],
       );

@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -1241,7 +1242,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
       }
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
-        await DirectStorageUrlPublish.ensureReady(requireAuth: !isPublicVisitor);
+        await ChurchMediaUploadFacade.ensureReady(requireAuth: !isPublicVisitor);
       }
       final ref = editingDocId != null
           ? col.doc(editingDocId)

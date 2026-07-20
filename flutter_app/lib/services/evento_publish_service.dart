@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -34,7 +35,7 @@ abstract final class EventoPublishService {
       );
 
   static Future<void> ensureReady({String logLabel = 'evento_prepare'}) async {
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
   }
 
   /// Gate único — Storage + Auth (padrão Controle Total).
@@ -44,7 +45,7 @@ abstract final class EventoPublishService {
     void Function(double progress)? onProgress,
   }) async {
     onProgress?.call(0.06);
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
     onProgress?.call(0.12);
   }
 
@@ -74,7 +75,7 @@ abstract final class EventoPublishService {
         (newImagePaths?.isNotEmpty ?? false);
     final localVideo = (localVideoPath ?? '').trim();
 
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
     if (isNewDoc && !hasNewPhotos && existingUrls.isEmpty && !hasVideo) {
       throw StateError('Adicione pelo menos uma foto ou um vídeo ao evento.');
@@ -141,7 +142,7 @@ abstract final class EventoPublishService {
             isFirebaseNoAppError(e) || FirestoreWebGuard.isClientTerminated(e);
         if (attempt == 0 && retryable) {
           await EcoFireDirectFirebase.ensureDefaultApp();
-          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+          await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
           continue;
         }
         if (EcoFireResilientPublish.shouldQueueFeedPublish(e)) {

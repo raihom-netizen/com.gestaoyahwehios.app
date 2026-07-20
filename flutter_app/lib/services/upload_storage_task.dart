@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser;
+    show formatUploadErrorForUser;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
-/// Mensagem amigável para SnackBar / «Tentar de novo» — mostra erro real.
-String formatUploadErrorForUser(Object error) =>
-    formatFirebaseErrorForUser(error);
+export 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatUploadErrorForUser;
 
 /// Erros de rede/timeout — manter stub Firestore e reenviar depois.
 bool isRetryableUploadError(Object error) {

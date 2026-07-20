@@ -7,6 +7,8 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
@@ -75,6 +77,14 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
 
   bool get _canManage =>
       ChurchAvisosService.canManage(widget.role, permissions: widget.permissions);
+
+  bool _canDeleteAviso(ChurchAvisoItem item) =>
+      AppPermissions.canDeleteMuralFeedRecord(
+        widget.role,
+        currentUid: firebaseDefaultAuth.currentUser?.uid ?? '',
+        data: item.rawData,
+        permissions: widget.permissions,
+      );
 
   @override
   void initState() {
@@ -273,6 +283,16 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 
   Future<void> _confirmDeleteOne(ChurchAvisoItem item) async {
+    if (!_canDeleteAviso(item)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Sem permissão para excluir este aviso.',
+          ),
+        );
+      }
+      return;
+    }
     final ok = await _showDeleteConfirmDialog(count: 1);
     if (ok != true) return;
     _removeLocalIds({item.id});
@@ -765,6 +785,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                         item: item,
                         dateLabel: _formatDate(item.createdAt),
                         canManage: _canManage,
+                        canDelete: _canDeleteAviso(item),
                         selectionMode: _selectionMode,
                         selected: _selected.contains(item.id),
                         onToggleSelect: () => setState(() {
@@ -1246,6 +1267,7 @@ class _AvisoListCard extends StatefulWidget {
     required this.item,
     required this.dateLabel,
     required this.canManage,
+    required this.canDelete,
     required this.selectionMode,
     required this.selected,
     required this.onToggleSelect,
@@ -1257,6 +1279,7 @@ class _AvisoListCard extends StatefulWidget {
   final ChurchAvisoItem item;
   final String dateLabel;
   final bool canManage;
+  final bool canDelete;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onToggleSelect;
@@ -1421,7 +1444,7 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                           color: tone.secondary,
                         ),
                       ),
-                    if (widget.canManage)
+                    if (widget.canDelete)
                       IconButton.filledTonal(
                         tooltip: 'Excluir',
                         style: IconButton.styleFrom(

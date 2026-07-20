@@ -5,10 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -78,24 +78,19 @@ abstract final class MemberProfilePhotoSaveService {
       churchId,
       storageFolderId,
     );
-    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
     onProgress?.call(0.12);
     final fullBytes = await _prepareFullBytes(rawBytes);
     onProgress?.call(0.18);
-    final mime = _mimeForBytes(fullBytes);
-    final url = await DirectStorageUrlPublish.uploadBytes(
-      storagePath: fullPath,
+    final uploaded = await ChurchMediaUploadFacade.uploadMidia(
       bytes: fullBytes,
-      mimeType: mime,
-      requireAuth: requireAuth,
+      storagePath: fullPath,
+      logLabel: 'membro_foto',
+      alreadyCompressed: true,
       onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
-    ).timeout(
-      kUploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto demorou demais. Verifique a rede.',
-        kUploadTimeout,
-      ),
+      timeout: kUploadTimeout,
     );
+    final url = uploaded.downloadUrl;
     // putData OK = objeto no bucket. URL vazia = path-only (UI resolve depois).
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
       tenantId: churchId,
@@ -163,27 +158,22 @@ abstract final class MemberProfilePhotoSaveService {
     );
 
     try {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+      await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
       onPhase?.call('A enviar…');
       onProgress?.call(0.10);
 
       final fullBytes = await _prepareFullBytes(rawBytes);
       onProgress?.call(0.15);
-      final mime = _mimeForBytes(fullBytes);
 
-      final uploadedUrl = await DirectStorageUrlPublish.uploadBytes(
-        storagePath: fullPath,
+      final uploaded = await ChurchMediaUploadFacade.uploadMidia(
         bytes: fullBytes,
-        mimeType: mime,
-        requireAuth: requireAuth,
+        storagePath: fullPath,
+        logLabel: 'membro_foto',
+        alreadyCompressed: true,
         onProgress: (p) => onProgress?.call(0.15 + p * 0.60),
-      ).timeout(
-        kUploadTimeout,
-        onTimeout: () => throw TimeoutException(
-          'Upload da foto demorou demais. Verifique a rede.',
-          kUploadTimeout,
-        ),
+        timeout: kUploadTimeout,
       );
+      final uploadedUrl = uploaded.downloadUrl;
       // putData OK — URL opcional; Firestore grava sempre photoStoragePath.
 
       final revision = YahwehMediaCacheBust.freshRevisionMs();

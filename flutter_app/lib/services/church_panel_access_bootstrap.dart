@@ -77,8 +77,8 @@ abstract final class ChurchPanelAccessBootstrap {
       await fn.call(<String, dynamic>{}).timeout(
         Duration(seconds: kIsWeb ? 12 : 32),
       );
-      // Happy path: token em cache. Force só se claims ainda falharem nas leituras.
-      await user.getIdToken(false);
+      // Happy path: força token novo na Web (claims alinhados às regras).
+      await user.getIdToken(kIsWeb);
       await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
       _lastOkAt = DateTime.now();
       debugPrint(

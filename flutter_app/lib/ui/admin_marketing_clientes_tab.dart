@@ -3,8 +3,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -12,6 +10,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
@@ -358,39 +357,27 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                               )) {
                                 return;
                               }
-                              final pick = await YahwehFilePicker.pickFiles(
-                                type: FileType.custom,
-                                allowedExtensions: const [
-                                  'jpg',
-                                  'jpeg',
-                                  'png',
-                                  'webp',
-                                ],
-                                withData: true,
+                              final ct = await ChurchCtModuleUpload.pickImage(
+                                imageQuality: 90,
+                                maxWidth: 1920,
                               );
-                              if (pick == null ||
-                                  pick.files.isEmpty ||
-                                  pick.files.first.bytes == null) {
+                              if (ct == null) {
                                 return;
                               }
-                              final raw = pick.files.first.bytes!;
+                              final raw = ct.bytes;
                               setLocal(() {
                                 pendingBytes = raw;
                               });
                               if (ctx.mounted) {
                                 final resolution = raw.isNotEmpty
                                     ? await ImmediateMediaAttachFeedback
-                                        .readResolution(
-                                        raw is Uint8List
-                                            ? raw
-                                            : Uint8List.fromList(raw),
-                                      )
+                                        .readResolution(raw)
                                     : null;
                                 if (!ctx.mounted) return;
                                 ImmediateMediaAttachFeedback
                                     .showFotoAdicionadaSucesso(
                                   ctx,
-                                  fileName: pick.files.first.name,
+                                  fileName: ct.fileName,
                                   sizeBytes: raw.length,
                                   resolution: resolution,
                                 );

@@ -15,8 +15,27 @@ const ALLOWED_FEED_COLLECTIONS = new Set([
   "patrimonio",
   "finance",
   "membros",
+  "fornecedores",
   "fornecedor_compromissos",
   "chats",
+  "agenda",
+  "visitantes",
+  "departamentos",
+  "cargos",
+]);
+
+/** Coleções que o Admin SDK pode apagar em lote (Web rápida — padrão CT). */
+const ALLOWED_ADMIN_DELETE_COLLECTIONS = new Set([
+  "avisos",
+  "eventos",
+  "patrimonio",
+  "finance",
+  "membros",
+  "fornecedores",
+  "fornecedor_compromissos",
+  "agenda",
+  "visitantes",
+  "pedidosOracao",
 ]);
 
 function resolveTenantDocRef(
@@ -325,7 +344,7 @@ export const gyAdminUpsertChurchRoot = functions
     return { ok: true, path: docRef.path };
   });
 
-/** Exclusão em lote de posts aviso/evento (admin). */
+/** Exclusão em lote Admin SDK — qualquer módulo do painel (Web rápida, padrão CT). */
 export const gyAdminDeleteFeedPosts = functions
   .region("us-central1")
   .https.onCall(async (data, context) => {
@@ -337,10 +356,10 @@ export const gyAdminDeleteFeedPosts = functions
       : [];
 
     const auth = await requireChurchAccess(context, churchId);
-    if (!["avisos", "eventos"].includes(collection)) {
+    if (!ALLOWED_ADMIN_DELETE_COLLECTIONS.has(collection)) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "collection deve ser avisos ou eventos.",
+        `collection inválida para exclusão: ${collection}`,
       );
     }
     if (docIds.length === 0) {
@@ -360,7 +379,7 @@ export const gyAdminDeleteFeedPosts = functions
       batch.delete(ref);
     }
     await batch.commit();
-    return { ok: true, deleted: docIds.length };
+    return { ok: true, deleted: docIds.length, collection };
   });
 
 /**

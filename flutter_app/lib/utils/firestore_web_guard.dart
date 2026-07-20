@@ -9,12 +9,15 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
+import 'package:gestao_yahweh/utils/web_page_reload.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
 /// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
 /// Patrimônio, Cartão membro, Mural, etc.).
 class FirestoreWebGuard {
   FirestoreWebGuard._();
+
+  static bool _hardReloadScheduled = false;
 
   /// Web: evita dezenas de `snapshots()` paralelos (INTERNAL ASSERTION Firestore 11.x).
   static bool get disableLiveSnapshotsOnWeb => kIsWeb;
@@ -118,6 +121,47 @@ class FirestoreWebGuard {
     } catch (_) {}
     await Future<void>.delayed(const Duration(milliseconds: 140));
   }
+
+  /// Recuperação **suave** (sem `terminate`) — segura no caminho quente.
+  static Future<void> softRecoverWebSession() async {
+    if (!kIsWeb) return;
+    try {
+      await firebaseDefaultFirestore.enableNetwork();
+    } catch (_) {}
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      try {
+        await user.getIdToken(false);
+      } catch (_) {}
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+  }
+
+  /// Único recovery seguro após assert interno / terminated: F5 forçado (padrão CT).
+  static void hardReloadWebApp({String reason = 'firestore_web'}) {
+    if (!kIsWeb || _hardReloadScheduled) return;
+    _hardReloadScheduled = true;
+    debugPrint('FirestoreWebGuard.hardReloadWebApp: $reason');
+    reloadWebPageHard();
+  }
+
+  /// Se o erro for cliente terminado **ou** assert interno corrompido, agenda reload.
+  static bool handleFatalWebErrorIfNeeded(Object e) {
+    if (!kIsWeb) return false;
+    if (isClientTerminated(e) || isInternalAssertionError(e)) {
+      hardReloadWebApp(
+        reason: isClientTerminated(e)
+            ? 'terminated_client'
+            : 'internal_assertion',
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /// Compat: terminated → reload.
+  static bool handleTerminatedIfNeeded(Object e) =>
+      handleFatalWebErrorIfNeeded(e);
 
   static Future<void>? _recoveryInFlight;
 
@@ -277,6 +321,10 @@ class FirestoreWebGuard {
                         e.code == 'internal' ||
                         e.code == 'unknown'));
         if (!recoverable || attempt >= attempts - 1) {
+          // Padrão CT: assert/terminated irrecuperável → F5 (não deixar SDK semi-morto).
+          if (kIsWeb) {
+            handleFatalWebErrorIfNeeded(e);
+          }
           Error.throwWithStackTrace(e, st);
         }
         debugPrint('FirestoreWebGuard: recuperação suave Web…');

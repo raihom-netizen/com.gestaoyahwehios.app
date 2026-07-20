@@ -165,8 +165,8 @@ class ChurchRolePermissions {
     restrictedNav: false,
     viewFinance: true,
     viewPatrimonio: true,
-    editAnyMember: false,
-    viewMemberDirectory: false,
+    editAnyMember: true,
+    viewMemberDirectory: true,
     editChurchProfile: false,
     editDepartments: true,
     editSchedulesAll: true,
@@ -369,15 +369,31 @@ class ChurchRolePermissions {
           permissions: permissions,
         );
 
-    bool pat() => isCorporateModuleTeam(role);
+    bool pat() {
+      if (_hasGranularModule(permissions, 'patrimonio')) return true;
+      if (memberCanViewPatrimonio == true) return true;
+      return isCorporateModuleTeam(role);
+    }
 
-    bool fornec() => isCorporateModuleTeam(role);
+    bool fornec() {
+      if (_hasGranularModule(permissions, 'fornecedores')) return true;
+      if (_hasGranularModule(permissions, 'financeiro')) return true;
+      if (memberCanViewFornecedores == true) return true;
+      if (memberCanViewFinance == true) return true;
+      return isCorporateModuleTeam(role);
+    }
 
     switch (index) {
       case 0:
         return true;
       case 1:
-        return s.editChurchProfile;
+        // Cadastro da Igreja: só gestão (alinhado a IgrejaCadastroPage + firestore canWriteTenant).
+        return r == ChurchRoleKeys.gestor ||
+            r == ChurchRoleKeys.adm ||
+            r == ChurchRoleKeys.master ||
+            r == 'admin' ||
+            r == 'administrador' ||
+            r == 'administradora';
       case 2:
         return true;
       case 3:

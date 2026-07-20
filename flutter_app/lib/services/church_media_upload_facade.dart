@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 export 'package:gestao_yahweh/services/upload_storage_task.dart'
-    show formatUploadErrorForUser, isRetryableUploadError;
+    show isRetryableUploadError;
 
 /// Sessão de upload cancelável — guarde [task] e chame [cancel] na UI.
 class ChurchCancellableUpload {

@@ -293,9 +293,12 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     if (_masterRole == 'adm' ||
         _masterRole == 'admin' ||
         _masterRole == 'master') return true;
-    // Compatibilidade retroativa: sem permissões explícitas, mantém visível para não quebrar operações atuais.
-    if (_masterPermissions.isEmpty) return true;
-    if (item == AdminMenuItem.sistemaHome) return true;
+    if (item == AdminMenuItem.sistemaHome ||
+        item == AdminMenuItem.commandCenter) {
+      return true;
+    }
+    // Multi-admin sem permissões explícitas: NÃO liberar tudo.
+    if (_masterPermissions.isEmpty) return false;
     const map = <AdminMenuItem, String>{
       AdminMenuItem.commandCenter: 'dashboard',
       AdminMenuItem.igrejasDashboard: 'igrejas',

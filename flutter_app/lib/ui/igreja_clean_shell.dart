@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -88,6 +89,7 @@ import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/widgets/church_notification_bell.dart';
+import 'package:gestao_yahweh/ui/widgets/shell_scroll_to_top_fab.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -166,6 +168,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
+
+  /// Rolagem do rodapé móvel — snap por ícone + setas laterais (paridade Controle Total).
+  late final ScrollController _footerScrollController;
+  bool _footerCanScrollLeft = false;
+  bool _footerCanScrollRight = false;
+  double _footerSlotWidth = 56;
 
   /// Desktop web: menu lateral estreito só com ícones (+ tooltip).
   bool _sidebarCollapsed = false;
@@ -314,15 +322,49 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
+  void _onFooterScroll() {
+    if (!mounted || !_footerScrollController.hasClients) return;
+    final p = _footerScrollController.position;
+    final left = p.pixels > 1.5;
+    final right = p.maxScrollExtent > 1.5 && p.pixels < p.maxScrollExtent - 1.5;
+    if (left != _footerCanScrollLeft || right != _footerCanScrollRight) {
+      setState(() {
+        _footerCanScrollLeft = left;
+        _footerCanScrollRight = right;
+      });
+    }
+  }
+
+  Future<void> _scrollFooterPage(int direction) async {
+    if (!_footerScrollController.hasClients) return;
+    final p = _footerScrollController.position;
+    final slot = _footerSlotWidth <= 0 ? 56.0 : _footerSlotWidth;
+    // Avança ~3 ícones e encaixa no slot (parar no ícone).
+    final step = slot * 3;
+    final raw = p.pixels + (direction * step);
+    final snapped = (raw / slot).round() * slot;
+    final target = snapped.clamp(p.minScrollExtent, p.maxScrollExtent);
+    await _footerScrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
 
-    // Rodapé estável (não reordenável) — igual Controle Total.
+    // Rodapé: Início → Cartão → Agenda → Membros → Avisos → Eventos → Chat (+ extras).
     final fixed = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
         shortLabel: 'Início',
         accent: kChurchShellNavEntries[0].accent,
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: ChurchShellIndices.cartaoMembro,
+        shortLabel: 'Cartão',
+        accent: kChurchShellNavEntries[ChurchShellIndices.cartaoMembro].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.agenda,
@@ -401,7 +443,54 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       setState(() => _selectedIndex = idx);
     }
 
-    // Linha ÚNICA rolável (igual Controle Total) — todos os atalhos num só nível.
+    Widget edgeChevron({
+      required bool show,
+      required bool left,
+      required VoidCallback onTap,
+    }) {
+      return IgnorePointer(
+        ignoring: !show,
+        child: AnimatedOpacity(
+          opacity: show ? 1 : 0,
+          duration: const Duration(milliseconds: 160),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: 28,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: const Color(0xFF64748B).withValues(alpha: 0.22),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  left
+                      ? Icons.chevron_left_rounded
+                      : Icons.chevron_right_rounded,
+                  size: 22,
+                  color: const Color(0xFF475569),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Linha ÚNICA rolável (igual Controle Total) — setas laterais + snap.
     Widget singleRow() {
       return LayoutBuilder(
         builder: (context, constraints) {
@@ -410,34 +499,130 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           final slotW = (constraints.maxWidth / visibleSlots)
               .clamp(56.0, 92.0)
               .toDouble();
+          _footerSlotWidth = slotW;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _onFooterScroll();
+          });
           final circleSize = (slotW * 0.50).clamp(28.0, 34.0).toDouble();
           final glyphSize = (circleSize * 0.44).clamp(13.0, 16.0).toDouble();
           final labelSize = constraints.maxWidth < 340 ? 8.0 : 8.5;
+          final totalItemsWidth = all.length * slotW;
+          final footerFitsWithoutScroll =
+              totalItemsWidth <= constraints.maxWidth + 0.5;
           return SizedBox(
             height: 60,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
-              itemCount: all.length,
-              itemBuilder: (context, i) {
-                final s = all[i];
-                return SizedBox(
-                  width: slotW,
-                  child: _PremiumShellFooterShortcut(
-                    shellIndex: s.shellIndex,
-                    shortLabel: s.shortLabel,
-                    accent: s.accent,
-                    opensDrawer: false,
-                    icon: _items[s.shellIndex!].icon,
-                    fullTooltip: _items[s.shellIndex!].label,
-                    selected: _selectedIndex == s.shellIndex,
-                    circleSize: circleSize,
-                    iconSize: glyphSize,
-                    labelFontSize: labelSize,
-                    onTap: () => openModule(s.shellIndex!),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                NotificationListener<ScrollEndNotification>(
+                  onNotification: (n) {
+                    if (!_footerScrollController.hasClients) return false;
+                    final p = _footerScrollController.position;
+                    final snapped =
+                        (p.pixels / slotW).round() * slotW;
+                    final target =
+                        snapped.clamp(p.minScrollExtent, p.maxScrollExtent);
+                    if ((target - p.pixels).abs() > 0.8) {
+                      unawaited(
+                        _footerScrollController.animateTo(
+                          target,
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
+                        ),
+                      );
+                    }
+                    return false;
+                  },
+                  child: ListView.builder(
+                    controller: _footerScrollController,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+                    physics: footerFitsWithoutScroll
+                        ? const NeverScrollableScrollPhysics()
+                        : const BouncingScrollPhysics(
+                            parent: ClampingScrollPhysics(),
+                          ),
+                    itemCount: all.length,
+                    itemBuilder: (context, i) {
+                      final s = all[i];
+                      return SizedBox(
+                        width: slotW,
+                        child: _PremiumShellFooterShortcut(
+                          shellIndex: s.shellIndex,
+                          shortLabel: s.shortLabel,
+                          accent: s.accent,
+                          opensDrawer: false,
+                          icon: _items[s.shellIndex!].icon,
+                          fullTooltip: _items[s.shellIndex!].label,
+                          selected: _selectedIndex == s.shellIndex,
+                          circleSize: circleSize,
+                          iconSize: glyphSize,
+                          labelFontSize: labelSize,
+                          onTap: () => openModule(s.shellIndex!),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+                if (_footerCanScrollLeft)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IgnorePointer(
+                          child: Container(
+                            width: 28,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.95),
+                                  Colors.white.withValues(alpha: 0),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        edgeChevron(
+                          show: true,
+                          left: true,
+                          onTap: () => unawaited(_scrollFooterPage(-1)),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_footerCanScrollRight)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        edgeChevron(
+                          show: true,
+                          left: false,
+                          onTap: () => unawaited(_scrollFooterPage(1)),
+                        ),
+                        IgnorePointer(
+                          child: Container(
+                            width: 28,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.white.withValues(alpha: 0),
+                                  Colors.white.withValues(alpha: 0.95),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           );
         },
@@ -494,6 +679,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   @override
   void initState() {
     super.initState();
+    _footerScrollController = ScrollController()..addListener(_onFooterScroll);
     final hint = _forceCanonicalTenantId(widget.tenantId);
     if (hint.isNotEmpty) {
       final canonical = ChurchPanelTenant.resolve(hint);
@@ -543,23 +729,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Tenant conhecido → libera módulos no 1.º frame; repair em background.
-      if (mounted && _moduleTenantId.trim().isNotEmpty) {
-        setState(() => _tenantResolveComplete = true);
-      }
       unawaited((() async {
-        // Liberta UI já; repair/bootstrap em background (Web = velocidade de gravação).
-        unawaited(
-          ChurchPanelAccessBootstrap.ensureFirestoreAccess(
-            churchIdHint: _moduleTenantId,
-          )
-              .timeout(const Duration(seconds: 12))
-              .then((_) {}, onError: (_, __) {}),
-        );
-        unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
-        if (kIsWeb) {
-          unawaited(FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}));
-        }
+        // Padrão Controle Total: Auth + vínculo igreja ANTES de montar módulos.
+        await _prepareAuthAndChurchBindingBeforeModules(forceRepair: kIsWeb);
         try {
           await _resolveOperationalTenant(forceRefresh: false).timeout(
             const Duration(seconds: 4),
@@ -570,6 +742,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             onTimeout: () {},
           );
         } catch (_) {}
+        // Só agora libera o conteúdo dos módulos (Web + mobile alinhados).
         if (mounted) setState(() => _tenantResolveComplete = true);
         ChurchTenantConsolidationService.ensureConsolidated(
           _moduleTenantId,
@@ -606,6 +779,43 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         ));
       })());
     });
+  }
+
+  /// Auth + claims + vínculo `users/{uid}` → igreja prontos (paridade Web/Android/iOS).
+  ///
+  /// Na Web: não avança sem `currentUser`; re-tenta stabilize + repair se a 1.ª
+  /// passagem falhar — evita permission-denied mascarado como lista vazia.
+  Future<void> _prepareAuthAndChurchBindingBeforeModules({
+    bool forceRepair = false,
+  }) async {
+    final rounds = kIsWeb ? 3 : 2;
+    for (var round = 0; round < rounds; round++) {
+      try {
+        final user = await FirestoreSessionGuard.waitForCurrentUser(
+          timeout: Duration(seconds: kIsWeb ? 6 : 4),
+        );
+        if (user == null && kIsWeb) {
+          await Future<void>.delayed(Duration(milliseconds: 280 + round * 200));
+          continue;
+        }
+        await FirestoreSessionGuard.stabilizeAfterAppResume();
+        await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+          churchIdHint: _moduleTenantId,
+          force: forceRepair || (kIsWeb && round > 0),
+        ).timeout(Duration(seconds: kIsWeb ? 14 : 12));
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        await ensureFirebaseReadyForPanelRead().catchError((_) {});
+        await FirestoreSessionGuard.ensureWriteSession();
+        if (firebaseDefaultAuth.currentUser != null || !kIsWeb) {
+          return;
+        }
+      } catch (_) {
+        if (round >= rounds - 1) return;
+        await Future<void>.delayed(Duration(milliseconds: 350 + round * 250));
+      }
+    }
   }
 
   /// Cache local do cadastro — pinta o shell no 1.º frame (web cold start).
@@ -672,6 +882,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     HardwareKeyboard.instance.removeHandler(_onShellHardwareKey);
     PaymentUiFeedbackService.paymentConfirmedTick
         .removeListener(_onPaymentConfirmedTick);
+    _footerScrollController.removeListener(_onFooterScroll);
+    _footerScrollController.dispose();
     super.dispose();
   }
 
@@ -991,7 +1203,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         logoUrl: logoUrl.isEmpty ? null : logoUrl,
       );
     }
-    final shellModuleFullBleed = _isMobile && _selectedIndex != 0;
+    // Full screen em telemóvel / web estreita; desktop mantém sidebar + botão Voltar.
+    final shellModuleFullBleed = !_isDesktop && _selectedIndex != 0;
+    final void Function()? moduleBack =
+        _selectedIndex != 0 ? () => setState(() => _selectedIndex = 0) : null;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1033,10 +1248,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               subtitle: _items[_selectedIndex].subtitle.isNotEmpty
                                   ? _items[_selectedIndex].subtitle
                                   : (_isMobile ? _shellUserGreetingName() : null),
-                              onPainelBack: _isMobile && _selectedIndex != 0
-                                  ? () => setState(() => _selectedIndex = 0)
-                                  : null,
-                              variant: _isMobile
+                              onPainelBack: moduleBack,
+                              variant: moduleBack != null
                                   ? ModuleHeaderVariant.wisdomGradient
                                   : ModuleHeaderVariant.card,
                             ),
@@ -1047,14 +1260,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                   'Conteúdo do módulo ${_items[_selectedIndex].label}',
                               child: Padding(
                                 padding: EdgeInsets.zero,
-                                child: SaaSContentViewport(
-                                  maxWidthOverride: _selectedIndex ==
-                                              ChurchShellIndices.patrimonio ||
-                                          _selectedIndex ==
-                                              ChurchShellIndices.chatIgreja
-                                      ? 10000
-                                      : null,
-                                  child: _buildContent(),
+                                child: ShellScrollToTopLayer(
+                                  resetToken: _selectedIndex,
+                                  bottom: _isMobile ? 12 : 16,
+                                  child: SaaSContentViewport(
+                                    maxWidthOverride: _selectedIndex ==
+                                                ChurchShellIndices.patrimonio ||
+                                            _selectedIndex ==
+                                                ChurchShellIndices.chatIgreja
+                                        ? 10000
+                                        : null,
+                                    child: _buildContent(),
+                                  ),
                                 ),
                               ),
                             ),
@@ -1084,9 +1301,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (oldWidget.tenantId != widget.tenantId) {
       final canonical = ChurchPanelTenant.resolve(widget.tenantId);
       _operationalTenantId = canonical.isNotEmpty ? canonical : null;
-      _tenantResolveComplete = canonical.isNotEmpty;
+      // Troca de igreja: bloqueia módulos até Auth + repair + tenant prontos.
+      _tenantResolveComplete = false;
+      if (mounted) setState(() {});
       unawaited(() async {
         try {
+          await _prepareAuthAndChurchBindingBeforeModules(forceRepair: true);
           await _resolveOperationalTenant(forceRefresh: true);
           await _bootstrapShellTenantDoc(forceRefresh: true);
         } finally {
@@ -1102,6 +1322,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
+      unawaited(FirestoreSessionGuard.stabilizeAfterAppResume());
       unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
       unawaited(_resolveOperationalTenant(forceRefresh: false));
       ChurchTenantOfflineWarmupService.instance
@@ -1110,10 +1331,19 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   void _onGlobalSessionResume() {
-    ChurchTenantOfflineWarmupService.instance
-        .scheduleLightRefreshOnResume(_moduleTenantId);
-    unawaited(_resolveOperationalTenant(forceRefresh: false));
-    unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
+    unawaited((() async {
+      await FirestoreSessionGuard.stabilizeAfterAppResume();
+      if (kIsWeb) {
+        await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+          churchIdHint: _moduleTenantId,
+          force: false,
+        ).catchError((_) {});
+      }
+      ChurchTenantOfflineWarmupService.instance
+          .scheduleLightRefreshOnResume(_moduleTenantId);
+      await _resolveOperationalTenant(forceRefresh: false);
+      await ChatPresenceEngine.pingAppWideHeartbeatIfActive();
+    })());
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
@@ -2650,6 +2880,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             cpf: widget.cpf,
             embeddedInShell: true);
       case 13:
+        final selfOnlyCard = AppPermissions.isSelfOnlyMemberAccess(
+          _panelRole,
+          widget.permissions,
+        );
         return MemberCardPage(
           key: _shellPageKey(13),
           tenantId: _moduleTenantId,
@@ -2657,14 +2891,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           cpf: widget.cpf,
           permissions: widget.permissions ?? const [],
           embeddedInShell: true,
-          cnhFullscreenOnly: AppPermissions.isSelfOnlyMemberAccess(
-            _panelRole,
-            widget.permissions,
-          ),
-          onNavigateToMembers: AppPermissions.isSelfOnlyMemberAccess(
-            _panelRole,
-            widget.permissions,
-          )
+          onShellBack: () => setState(() => _selectedIndex = 0),
+          cnhFullscreenOnly: selfOnlyCard,
+          onNavigateToMembers: selfOnlyCard
               ? null
               : () => setState(
                     () => _selectedIndex = ChurchShellIndices.membros,

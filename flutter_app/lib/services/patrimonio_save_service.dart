@@ -2,6 +2,7 @@ import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
@@ -37,7 +38,7 @@ abstract final class PatrimonioSaveService {
 
     final hasSlotUploads = uploadsBySlot.isNotEmpty || newImages.isNotEmpty;
     if (hasSlotUploads) {
-      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+      await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
     }
 
     Future<void> runPublish() async {
@@ -104,7 +105,7 @@ abstract final class PatrimonioSaveService {
         last = e;
         if (attempt < 2 && isFirebaseNoAppError(e)) {
           await EcoFireDirectFirebase.ensureDefaultApp();
-          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+          await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
           await Future<void>.delayed(
             Duration(milliseconds: 120 * (attempt + 1)),
           );

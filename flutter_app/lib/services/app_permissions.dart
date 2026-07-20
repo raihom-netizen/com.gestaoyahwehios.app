@@ -333,6 +333,16 @@ class AppPermissions {
     return ChurchRolePermissions.isCorporateModuleTeam(role);
   }
 
+  /// Criar/editar/excluir fornecedores — corporate, granular `fornecedores` ou `financeiro`.
+  static bool canWriteFornecedores(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (hasModulePermission(permissions, 'fornecedores')) return true;
+    if (hasModulePermission(permissions, 'financeiro')) return true;
+    return ChurchRolePermissions.isCorporateModuleTeam(role);
+  }
+
   /// Hub «Relatórios» financeiros — corpo administrativo (gestor, secretário, tesouraria, pastoral).
   static bool canAccessChurchRelatoriosHub(String role) =>
       ChurchRolePermissions.isFinancePanelTeam(role);
@@ -397,13 +407,16 @@ class AppPermissions {
 
   /// Módulo Membros: só a própria ficha (editar dados, foto e carteirinha).
   ///
-  /// Aplica-se a membro/visitante e papéis sem direito a ver o diretório.
-  /// Equipe (gestor, pastor, secretário, líder, diácono com lista, `membros_ver`, etc.)
+  /// Papel básico (`membro`/`visitante`, `restrictedNav`): **sempre** só o próprio
+  /// cadastro — `membros_ver` herdado de cargo **não** abre o diretório.
+  /// Equipe (gestor, pastor, secretário, líder, diácono, `membros_edicao`, etc.)
   /// continua a ver a lista completa.
   static bool isSelfOnlyMemberAccess(String role, List<String>? permissions) {
     if (canEditMembersDirectory(role, permissions)) return false;
-    if (hasModulePermission(permissions, 'membros_ver')) return false;
     final s = ChurchRolePermissions.snapshotFor(role);
+    // Membro comum: nunca ver lista dos outros (mesmo com permissão granular).
+    if (s.restrictedNav) return true;
+    if (hasModulePermission(permissions, 'membros_ver')) return false;
     if (s.viewMemberDirectory || s.editAnyMember) return false;
     if (canStaffEditAnyMemberProfilePhoto(role)) return false;
     return true;
@@ -626,7 +639,7 @@ class AppPermissions {
   static String muralFeedAuthorUid(Map<String, dynamic> data) =>
       (data['createdByUid'] ?? data['authorUid'] ?? '').toString().trim();
 
-  /// Avisos/eventos: admin/pastoral exclui tudo; líder de departamento só o que criou.
+  /// Avisos/eventos: gestão/pastoral exclui tudo; líder/tesoureiro só o que criou.
   static bool canDeleteMuralFeedRecord(
     String role, {
     required String currentUid,
@@ -634,11 +647,12 @@ class AppPermissions {
     List<String>? permissions,
   }) {
     if (canDeleteAnyChurchRecords(role, permissions: permissions)) return true;
-    if (canManageChurchMuralEventsAgenda(role, permissions: permissions)) {
-      return true;
-    }
     final author = muralFeedAuthorUid(data);
     final uid = currentUid.trim();
+    // Quem gere mural (líder, etc.) só apaga o próprio post — alinhado a firestore.rules.
+    if (canManageChurchMuralEventsAgenda(role, permissions: permissions)) {
+      return author.isNotEmpty && uid.isNotEmpty && author == uid;
+    }
     return author.isNotEmpty && uid.isNotEmpty && author == uid;
   }
 

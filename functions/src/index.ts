@@ -7733,8 +7733,11 @@ export {
 export {
   onIgrejaMembroDeleteCleanupStorage,
   onIgrejaNoticiaDeleteCleanupStorage,
+  onIgrejaAvisoDeleteCleanupStorage,
   onIgrejaPatrimonioDeleteCleanupStorage,
   onIgrejaChatMessageDeleteCleanupStorage,
+  onIgrejaFinanceDeleteCleanupStorage,
+  onIgrejaFornecedorCompromissoDeleteCleanupStorage,
 } from "./storageCleanupOnFirestoreDelete";
 
 export {

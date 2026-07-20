@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leitura canónica de listas tenant — **Web = Android = iOS**.
@@ -76,6 +77,7 @@ abstract final class ChurchModuleFirestoreListRead {
     )? sortDocs,
   }) async {
     if (kIsWeb) {
+      await FirestoreSessionGuard.ensureWriteSession();
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -110,7 +111,7 @@ abstract final class PatrimonioPublishService {
     List<String> existingUrls = const [],
     void Function(double progress)? onUploadProgress,
   }) async {
-    await DirectStorageUrlPublish.ensureReady();
+    await ChurchMediaUploadFacade.ensureReady();
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }

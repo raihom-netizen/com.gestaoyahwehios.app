@@ -45,11 +45,14 @@ abstract final class ChurchChatMediaSendService {
   }
 
   static const Duration kPrepareTimeout = Duration(seconds: 20);
-  static const Duration kStorageImageTimeout = Duration(minutes: 3);
-  static const Duration kStorageThumbTimeout = Duration(seconds: 30);
-  static const Duration kStorageVideoTimeout = Duration(minutes: 3);
-  static const Duration kStorageAudioTimeout = Duration(minutes: 3);
-  static const Duration kStorageDocumentTimeout = Duration(minutes: 3);
+  /// Alinhado a [kStorageUploadCompressedImageMaxSeconds] — evita hang de 3 min.
+  static const Duration kStorageImageTimeout = Duration(seconds: 90);
+  static const Duration kStorageThumbTimeout = Duration(seconds: 25);
+  static const Duration kStorageVideoTimeout = Duration(seconds: 120);
+  static const Duration kStorageAudioTimeout = Duration(seconds: 90);
+  static const Duration kStorageDocumentTimeout = Duration(seconds: 90);
+  /// Gate Firebase online: 8s (antes 2s → fila fantasma e «enviado» sem upload).
+  static const Duration kOnlineGateTimeout = Duration(seconds: 8);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,
@@ -108,10 +111,10 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      // Telegram: gate curto — se Firebase atraso, vai para a fila (bolha fica).
+      // Online: gate até 8s + 2.ª tentativa — só enfileira se ainda falhar (rede/SDK).
       try {
         await DirectStorageUrlPublish.ensureReady(requireAuth: true)
-            .timeout(const Duration(seconds: 2));
+            .timeout(kOnlineGateTimeout);
       } catch (e) {
         if (e is TimeoutException ||
             isFirebaseNoAppError(e) ||
@@ -120,20 +123,38 @@ abstract final class ChurchChatMediaSendService {
           try {
             await EcoFireDirectFirebase.ensureDefaultApp();
             await DirectStorageUrlPublish.ensureReady(requireAuth: true)
-                .timeout(const Duration(seconds: 2));
+                .timeout(kOnlineGateTimeout);
           } catch (e2) {
             if (e2 is TimeoutException ||
                 EcoFireResilientPublish.shouldQueueFeedPublish(e2) ||
                 EcoFireResilientPublish.shouldQueueSilently(e2)) {
+              // Garantir bytes no cache antes da fila (Web sem path de ficheiro).
+              List<int>? queueBytes = bytes;
+              if ((queueBytes == null || queueBytes.isEmpty) &&
+                  pending.previewBytes != null &&
+                  pending.previewBytes!.isNotEmpty) {
+                queueBytes = pending.previewBytes;
+              }
               await EcoFireResilientPublish.queueChatMedia(
                 tenantId: resolvedTenant,
                 threadId: threadId,
                 pending: pending,
-                bytes: bytes,
+                bytes: queueBytes,
                 localPath: localPath,
               );
               pending.offlineQueued = true;
               EcoFireResilientPublish.scheduleSync(reason: 'chat_media_gate_queue');
+              // Progresso 1.0 só se houver payload recuperável — senão erro real.
+              final hasPayload = (queueBytes != null && queueBytes.isNotEmpty) ||
+                  (!kIsWeb &&
+                      (localPath ?? pending.localPath)?.trim().isNotEmpty ==
+                          true);
+              if (!hasPayload) {
+                const msg =
+                    'Não foi possível preparar o ficheiro. Toque em «Tentar de novo».';
+                onError?.call(msg);
+                throw StateError(msg);
+              }
               onProgress?.call(1.0);
               onSuccess?.call();
               return;
@@ -582,8 +603,8 @@ abstract final class ChurchChatMediaSendService {
     // Mobile: sem fallback CF — 20s chegam; no timeout a escrita já está na
     // persistence nativa e o caller enfileira (fila «envia ao voltar online»).
     final writeTimeout =
-        kIsWeb ? const Duration(seconds: 45) : const Duration(seconds: 20);
-    for (var attempt = 0; attempt < 3; attempt++) {
+        kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 18);
+    for (var attempt = 0; attempt < 2; attempt++) {
       try {
         if (attempt > 0) {
           await EcoFireDirectFirebase.ensureDefaultApp();
@@ -611,7 +632,7 @@ abstract final class ChurchChatMediaSendService {
         );
       } catch (e) {
         last = e;
-        if (attempt < 2 &&
+        if (attempt < 1 &&
             (isFirebaseNoAppError(e) ||
                 FirestoreWebGuard.isInternalAssertionError(e) ||
                 FirestoreWebGuard.isClientTerminated(e) ||

@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -596,7 +597,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     unawaited(_bootstrapCadastro());
     unawaited(
-      DirectStorageUrlPublish.ensureReady(requireAuth: false).catchError((_) {}),
+      ChurchMediaUploadFacade.ensureReady(requireAuth: false).catchError((_) {}),
     );
   }
 
@@ -1774,7 +1775,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       } else if (_canEdit && _logoSnap.pendingBytes != null) {
         GlobalUploadProgress.instance.start('Enviando logo…');
         try {
-          await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+          await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
           final published = await ChurchLogoUpdateService.publishLogoStrict(
             churchIdHint: resolvedId,
             rawBytes: _logoSnap.pendingBytes!,

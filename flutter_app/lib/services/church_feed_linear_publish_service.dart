@@ -143,7 +143,7 @@ abstract final class ChurchFeedLinearPublishService {
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
 
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
     _report(onUploadProgress, 0.12);
 
     if (isEvento) {
@@ -321,7 +321,7 @@ abstract final class ChurchFeedLinearPublishService {
 
         final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
           items: batchItems,
-          timeoutPerItem: const Duration(minutes: 3),
+          timeoutPerItem: const Duration(seconds: 55),
           onItemProgress: (index, p) {
             final span = 0.62 / batchItems.length;
             _report(onUploadProgress, 0.20 + span * index + p * span);

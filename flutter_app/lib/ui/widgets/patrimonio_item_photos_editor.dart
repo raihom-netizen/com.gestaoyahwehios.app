@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -116,7 +117,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     unawaited(_maybeRepairStuckPhotos(widget.initialData));
     unawaited(ImmediateMediaWarm.warmPatrimonio());
     unawaited(
-      DirectStorageUrlPublish.ensureReady(requireAuth: false).catchError((_) {}),
+      ChurchMediaUploadFacade.ensureReady(requireAuth: false).catchError((_) {}),
     );
     unawaited(
       FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),

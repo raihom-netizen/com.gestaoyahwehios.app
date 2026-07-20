@@ -1,13 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Modo de enquadramento da foto de perfil.
@@ -124,37 +122,26 @@ abstract final class MemberProfilePhotoPickService {
   }) async {
     XFile? picked;
     if (sourceKey == 'file') {
-      final result = await YahwehFilePicker.pickFiles(
-        type: FileType.custom,
+      final ct = await ChurchCtModuleUpload.pickReceiptOrDocument(
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-        withData: true,
+        maxBytes: ChurchCtModuleUpload.kMaxImageBytes,
       );
-      if (result == null || result.files.isEmpty) return null;
-      final f = result.files.single;
-      final raw = f.bytes;
-      if (raw == null || raw.isEmpty) return null;
-      final name = f.name.trim().isNotEmpty ? f.name.trim() : 'foto_perfil.webp';
-      picked = XFile.fromData(raw, name: name);
-    } else if (sourceKey == 'camera') {
-      picked = await MediaHandlerService.instance.pickAndProcessImage(
-        source: ImageSource.camera,
-        module: YahwehMediaModule.membros,
-        context: context,
-        imageQuality: 92,
-        minWidth: 1280,
-        minHeight: 1280,
-      );
+      if (ct == null) return null;
+      final name =
+          ct.fileName.trim().isNotEmpty ? ct.fileName.trim() : 'foto_perfil.webp';
+      picked = XFile.fromData(ct.bytes, name: name);
     } else {
-      picked = await MediaHandlerService.instance.pickAndProcessImage(
-        source: ImageSource.gallery,
-        module: YahwehMediaModule.membros,
-        context: context,
+      final ct = await ChurchCtModuleUpload.pickImage(
+        source: sourceKey == 'camera' ? ImageSource.camera : ImageSource.gallery,
         imageQuality: 92,
-        minWidth: 1280,
-        minHeight: 1280,
+        maxWidth: 1920,
       );
+      if (ct == null) return null;
+      final name =
+          ct.fileName.trim().isNotEmpty ? ct.fileName.trim() : 'foto_perfil.jpg';
+      picked = XFile.fromData(ct.bytes, name: name);
     }
-    if (picked == null || !context.mounted) return null;
+    if (!context.mounted) return null;
 
     final XFile? encoded;
     if (cropMode == MemberPhotoCropMode.auto) {

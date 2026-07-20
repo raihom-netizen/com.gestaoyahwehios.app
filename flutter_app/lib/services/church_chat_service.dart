@@ -37,6 +37,8 @@ import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_telegram_text.dart'
+    show ChurchChatLinkUtils;
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
 import 'storage_media_service.dart';
@@ -1800,9 +1802,14 @@ class ChurchChatService {
         .toSet()
         .take(24)
         .toList();
+    final linkUrl = ChurchChatLinkUtils.firstUrl(text);
+    final asLink = linkUrl != null && ChurchChatLinkUtils.isPrimarilyLink(text);
+    final messageType = asLink ? 'link' : 'text';
     final preview = nf != null
         ? '↪ ${nf['preview']}'
-        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
+        : (asLink && linkUrl != null)
+            ? linkUrl
+            : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
 
     Future<void> commitOnce({required String deliveryStatus}) =>
         _commitMessageAndThreadIndex(
@@ -1812,8 +1819,9 @@ class ChurchChatService {
           messageData: {
             'senderUid': uid,
             'senderId': uid,
-            'type': 'text',
+            'type': messageType,
             'text': text,
+            if (linkUrl != null) 'linkUrl': linkUrl,
             'deliveryStatus': deliveryStatus,
             'status': deliveryStatus,
             'createdAt': FieldValue.serverTimestamp(),
@@ -1830,7 +1838,7 @@ class ChurchChatService {
           },
           preview: preview,
           senderUid: uid,
-          messageType: 'text',
+          messageType: messageType,
         );
 
     try {

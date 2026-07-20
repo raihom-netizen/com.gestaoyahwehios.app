@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 
 /// Resultado do upload — path real (= ficheiro no Storage, não mime do picker).
 class FornecedorComprovanteUploadResult {
@@ -47,7 +47,7 @@ abstract final class FornecedorCompromissoComprovanteService {
       throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
     }
 
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
     final uploaded =
         await ChurchCentralStorageUpload.uploadFornecedorCompromissoComprovante(

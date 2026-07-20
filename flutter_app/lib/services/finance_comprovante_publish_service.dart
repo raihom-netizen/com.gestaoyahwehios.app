@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
@@ -79,7 +80,7 @@ abstract final class FinanceComprovantePublishService {
       );
 
   static Future<void> _ensureReady() async {
-    await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
   }
 
   /// Compressão em isolate antes do Storage (imagens apenas).

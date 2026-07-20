@@ -1030,15 +1030,23 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   Widget _buildSingleCardScaffold(BuildContext context) {
+    final hideOwnAppBar = widget.embeddedInShell;
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      appBar: widget.cnhFullscreenOnly
-          ? AppBar(
+      appBar: hideOwnAppBar
+          ? null
+          : AppBar(
               backgroundColor: Colors.transparent,
               foregroundColor: Colors.white,
+              leading: widget.onShellBack != null
+                  ? IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      tooltip: 'Voltar',
+                      onPressed: widget.onShellBack,
+                    )
+                  : null,
               title: const Text('Cartão membro'),
-            )
-          : null,
+            ),
       body: SafeArea(child: _buildCardBody(context)),
     );
   }
@@ -1046,7 +1054,10 @@ class _MemberCardPageState extends State<MemberCardPage>
   Widget _buildManagerScaffold(BuildContext context) {
     final hideAppBar =
         widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
-    final shellChrome = widget.onShellBack != null && _canManage;
+    // Chrome próprio só fora do shell; no shell o ModuleHeaderPremium já traz Voltar.
+    final shellChrome = widget.onShellBack != null &&
+        _canManage &&
+        !widget.embeddedInShell;
     const memberTabs = [
       Tab(
         icon: Icon(Icons.people_alt_rounded, size: 20),

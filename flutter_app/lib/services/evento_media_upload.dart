@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_photo_slot.dart';
@@ -17,7 +16,7 @@ abstract final class EventoMediaUpload {
   static const int maxParallelSlots = kMaxEventFeedPhotosPerPost;
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
-    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
   }
 
   /// Capa de template — `igrejas/{id}/eventos/templates/{templateId}.jpg`.
