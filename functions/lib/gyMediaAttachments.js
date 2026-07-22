@@ -357,8 +357,9 @@ exports.gyAdminDeleteFeedPosts = functions
     return { ok: true, deleted: docIds.length, collection };
 });
 /**
- * Cadastro membro público — Admin SDK (Web-safe, Fase 3 doc mestre).
- * Auth opcional; valida slug/churchId e grava draft em igrejas/{id}/membros.
+ * Cadastro membro público — Admin SDK (Web/Android/iOS).
+ * Sem Auth anónimo (desligado no Firebase): callable pública com validação forte.
+ * Editar protocolo pendente exige CPF igual ao já gravado.
  */
 exports.gyPublicMemberSignup = functions
     .region("us-central1")
@@ -368,29 +369,106 @@ exports.gyPublicMemberSignup = functions
     const churchId = String(body.churchId || body.tenantId || "").trim();
     const docId = String(body.docId || body.memberId || "").trim();
     const rawData = (body.data || {});
+    const callerUid = String(context.auth?.uid || "").trim();
     if (!churchId) {
         throw new functions.https.HttpsError("invalid-argument", "churchId ausente.");
     }
-    if (!docId) {
-        throw new functions.https.HttpsError("invalid-argument", "docId ausente.");
+    if (!/^[A-Za-z0-9_-]{8,160}$/.test(docId)) {
+        throw new functions.https.HttpsError("invalid-argument", "docId inválido.");
     }
     const churchSnap = await (0, adminDb_1.fs)().collection("igrejas").doc(churchId).get();
     if (!churchSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
     }
     const decoded = decodeAdminFirestoreMap(rawData);
-    decoded.updatedAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
-    decoded.createdAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
-    decoded.status = decoded.status || "pendente_aprovacao";
-    decoded.publicSignup = true;
-    if (context.auth?.uid) {
-        decoded.authUid = context.auth.uid;
+    const nome = String(decoded.NOME_COMPLETO || "").trim();
+    const cpf = String(decoded.CPF || "").replace(/\D/g, "");
+    const email = String(decoded.EMAIL || "").trim().toLowerCase();
+    if (nome.length < 3 || nome.length > 160) {
+        throw new functions.https.HttpsError("invalid-argument", "Nome completo inválido.");
     }
-    const docRef = (0, adminDb_1.fs)()
+    if (!/^\d{11}$/.test(cpf)) {
+        throw new functions.https.HttpsError("invalid-argument", "CPF inválido.");
+    }
+    if (!email.includes("@") || email.length > 180) {
+        throw new functions.https.HttpsError("invalid-argument", "E-mail inválido.");
+    }
+    const photoPath = String(decoded.photoStoragePath || decoded.fotoPath || "").trim().replace(/\\/g, "/");
+    if (photoPath &&
+        !photoPath.endsWith(`/membros/${docId}/foto_perfil.jpg`) &&
+        !photoPath.endsWith(`/membros/fotos/${docId}.webp`) &&
+        !photoPath.endsWith(`/membros/thumbs/${docId}.webp`)) {
+        throw new functions.https.HttpsError("invalid-argument", "A foto não pertence a este cadastro.");
+    }
+    const membros = (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(churchId)
-        .collection("membros")
-        .doc(docId);
+        .collection("membros");
+    const docRef = membros.doc(docId);
+    const existing = await docRef.get();
+    if (existing.exists) {
+        const old = (existing.data() || {});
+        const owner = String(old.publicSignupUid || "").trim();
+        const isPublic = old.publicSignup === true || old.PUBLIC_SIGNUP === true;
+        const status = String(old.STATUS || old.status || "")
+            .trim()
+            .toLowerCase();
+        const oldCpf = String(old.CPF || old.cpf || "").replace(/\D/g, "");
+        const ownerOk = !owner || (callerUid && owner === callerUid);
+        const cpfOk = oldCpf.length === 11 && oldCpf === cpf;
+        if (!isPublic || status !== "pendente" || (!ownerOk && !cpfOk)) {
+            throw new functions.https.HttpsError("already-exists", "Este protocolo não pode ser alterado.");
+        }
+    }
+    else {
+        const [cpfHit, emailHit] = await Promise.all([
+            membros.where("CPF", "==", cpf).limit(1).get(),
+            membros.where("EMAIL", "==", email).limit(1).get(),
+        ]);
+        if (!cpfHit.empty) {
+            throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este CPF nesta igreja.");
+        }
+        if (!emailHit.empty) {
+            throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este e-mail nesta igreja.");
+        }
+    }
+    // O visitante nunca escolhe privilégios, estado ou vínculo de login.
+    for (const key of [
+        "authUid",
+        "firebaseUid",
+        "uid",
+        "permissions",
+        "roles",
+        "podeVerFinanceiro",
+        "podeVerPatrimonio",
+        "podeVerFornecedores",
+        "podeEmitirRelatoriosCompletos",
+    ]) {
+        delete decoded[key];
+    }
+    decoded.MEMBER_ID = docId;
+    decoded.churchId = churchId;
+    decoded.tenantId = churchId;
+    decoded.CPF = cpf;
+    decoded.EMAIL = email;
+    decoded.PUBLIC_SIGNUP = true;
+    decoded.publicSignup = true;
+    if (callerUid) {
+        decoded.publicSignupUid = callerUid;
+    }
+    else {
+        delete decoded.publicSignupUid;
+    }
+    decoded.STATUS = "pendente";
+    decoded.status = "pendente";
+    decoded.role = "membro";
+    decoded.CARGO = "Membro";
+    decoded.FUNCAO = "Membro";
+    decoded.FUNCOES = ["membro"];
+    decoded.updatedAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
+    if (!existing.exists) {
+        decoded.createdAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
+    }
     await docRef.set(decoded, { merge: true });
     return { ok: true, docId, path: docRef.path };
 });
@@ -446,7 +524,9 @@ exports.gyPublicSignupStatus = functions
         };
     }
     const member = (memberSnap.data() ?? {});
-    if (member.publicSignup !== true) {
+    // Docs antigos podem ter só PUBLIC_SIGNUP (maiúsculo) — aceitar ambos.
+    const isPublicSignupDoc = member.publicSignup === true || member.PUBLIC_SIGNUP === true;
+    if (!isPublicSignupDoc) {
         return {
             ok: false,
             found: false,

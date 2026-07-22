@@ -608,6 +608,8 @@ class _SitePublicPageState extends State<SitePublicPage>
                       ),
                     ),
                     const SizedBox(height: 28),
+                    const _YahwehUtilitiesSecuritySection(),
+                    const SizedBox(height: 28),
                     Center(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 720),
@@ -639,6 +641,193 @@ class _SitePublicPageState extends State<SitePublicPage>
           ),
         );
       },
+    );
+  }
+}
+
+/// Utilitários + segurança de dados — vitrine moderna (gradiente escuro premium).
+class _YahwehUtilitiesSecuritySection extends StatelessWidget {
+  const _YahwehUtilitiesSecuritySection();
+
+  static const List<({IconData icon, List<Color> gradient, String title, String body})>
+      _items = [
+    (
+      icon: Icons.shield_rounded,
+      gradient: [Color(0xFF10B981), Color(0xFF059669)],
+      title: 'Segurança de dados',
+      body:
+          'Criptografia em trânsito, regras de acesso por perfil (igreja, gestor e membro) e infraestrutura Google Cloud / Firebase.',
+    ),
+    (
+      icon: Icons.cloud_done_rounded,
+      gradient: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+      title: 'Backups automáticos',
+      body:
+          'Seus cadastros, finanças e mídias protegidos na nuvem — nada se perde ao trocar de aparelho.',
+    ),
+    (
+      icon: Icons.autorenew_rounded,
+      gradient: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
+      title: 'Conversões modernas de mídia',
+      body:
+          'Fotos e vídeos otimizados automaticamente (WebP em alta definição) — envio rápido até em 4G, sem perder qualidade.',
+    ),
+    (
+      icon: Icons.picture_as_pdf_rounded,
+      gradient: [Color(0xFFF59E0B), Color(0xFFD97706)],
+      title: 'Exportações e relatórios',
+      body:
+          'Relatórios em PDF premium, resumos mensais de agenda, escalas e financeiro prontos para imprimir ou compartilhar.',
+    ),
+    (
+      icon: Icons.bolt_rounded,
+      gradient: [Color(0xFFEC4899), Color(0xFFDB2777)],
+      title: 'Velocidade com cache inteligente',
+      body:
+          'Painéis abrem na hora com cache local: módulos carregam primeiro da memória e sincronizam em segundo plano.',
+    ),
+    (
+      icon: Icons.system_update_rounded,
+      gradient: [Color(0xFF06B6D4), Color(0xFF0891B2)],
+      title: 'Atualizações contínuas',
+      body:
+          'Melhorias constantes em web, Android e iOS — mesma experiência moderna nas três plataformas.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF1E3A8A)],
+        ),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF1E3A8A).withValues(alpha: 0.35),
+            blurRadius: 26,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF10B981), Color(0xFF06B6D4)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.auto_awesome_rounded,
+                    color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  'Utilitários e segurança de dados',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Tecnologia de ponta trabalhando nos bastidores: seus dados protegidos, suas mídias otimizadas e tudo sempre rápido.',
+            style: TextStyle(
+              fontSize: 13.5,
+              height: 1.4,
+              color: Colors.white.withValues(alpha: 0.78),
+            ),
+          ),
+          const SizedBox(height: 18),
+          LayoutBuilder(
+            builder: (context, c) {
+              final maxW = c.maxWidth;
+              final cols = maxW > 920 ? 3 : (maxW > 560 ? 2 : 1);
+              const gap = 12.0;
+              final tileW =
+                  cols <= 1 ? maxW : (maxW - gap * (cols - 1)) / cols;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: _items.map((it) {
+                  return Container(
+                    width: tileW,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.10),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: it.gradient,
+                            ),
+                            borderRadius: BorderRadius.circular(13),
+                            boxShadow: [
+                              BoxShadow(
+                                color: it.gradient.first
+                                    .withValues(alpha: 0.4),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child:
+                              Icon(it.icon, color: Colors.white, size: 22),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          it.title,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          it.body,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.45,
+                            color: Colors.white.withValues(alpha: 0.72),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1158,7 +1347,10 @@ class _PlanCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           if (annual != null)
-            Text("Anual: ${money(annual)} (12 por 10)", style: const TextStyle(fontSize: 12, color: Colors.black45)),
+            Text(
+              "Anual: ${money(annual)} · pague 10 meses e use 12",
+              style: const TextStyle(fontSize: 12, color: Colors.black45),
+            ),
           const SizedBox(height: 12),
           const Text(
             "App + Painel Web + Site público\nYAHWEH Chat, eventos, escalas, Dízimos/Ofertas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
@@ -1198,9 +1390,24 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
       label:
           'Controle financeiro — Mercado Pago e PIX com lançamentos automáticos',
     ),
-    (icon: Icons.local_shipping_rounded, label: 'Fornecedores e prestadores'),
+    (
+      icon: Icons.local_shipping_rounded,
+      label: 'Fornecedores e prestadores — com agenda de compromissos',
+    ),
     (icon: Icons.verified_rounded, label: 'Emissão de certificados'),
     (icon: Icons.badge_rounded, label: 'Cartão membro moderno'),
+    (
+      icon: Icons.notifications_active_rounded,
+      label: 'Notificações inteligentes — eventos, aniversários e lembretes',
+    ),
+    (
+      icon: Icons.share_rounded,
+      label: 'Compartilhamento moderno no WhatsApp — fotos, data e localização',
+    ),
+    (
+      icon: Icons.photo_library_rounded,
+      label: 'Galeria de fotos e vídeos em alta definição',
+    ),
     (icon: Icons.devices_rounded, label: 'Acesso via web, Android e iOS (Apple)'),
   ];
 

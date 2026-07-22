@@ -13,12 +13,12 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show showYahwehFullscreenZoomableImage;
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
+    show showYahwehOriginalImageZoom;
 
-/// Ampliar imagem do chat (pinch) — reutiliza o lightbox do feed.
+/// Ampliar imagem do chat (pinch) — tamanho original.
 Future<void> churchChatOpenImageZoom(BuildContext context, String rawUrl) {
-  return showYahwehFullscreenZoomableImage(context, imageUrl: rawUrl);
+  return showYahwehOriginalImageZoom(context, imageUrl: rawUrl);
 }
 
 /// Pré-visualização moderna de mídia já recebida (imagem ou vídeo).
@@ -31,12 +31,27 @@ Future<void> churchChatOpenReceivedMediaPreview(
 }) async {
   final sp = ChurchChatMessageFields.storagePath(data);
   final legacy = ChurchChatMessageFields.mediaUrl(data);
-  final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+  var resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
         storagePath: sp.isNotEmpty ? sp : legacy,
         tenantId: tenantId,
         messageId: messageId,
       ) ??
       legacy;
+  if (resolved.trim().isEmpty && type == 'image') {
+    // Fallback: miniatura resolvível — melhor mostrar a foto do que falhar.
+    final thumbSp = ChurchChatMessageFields.thumbStoragePath(data);
+    if (thumbSp.isNotEmpty) {
+      resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+            storagePath: thumbSp,
+            tenantId: tenantId,
+            messageId: messageId,
+          ) ??
+          '';
+    }
+    if (resolved.trim().isEmpty) {
+      resolved = ChurchChatMessageFields.thumbnailUrl(data);
+    }
+  }
   if (resolved.trim().isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

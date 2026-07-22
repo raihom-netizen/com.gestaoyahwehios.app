@@ -35,6 +35,11 @@ abstract final class MemberCardPhotoCache {
 
   static void clear() => _ram.clear();
 
+  /// Após trocar/remover a foto do membro — o PDF resolve a URL nova.
+  static void invalidateMember(String tenantId, String memberId) {
+    _ram.remove(_key(tenantId, memberId));
+  }
+
   /// Resolve em paralelo limitado (lote PDF).
   static Future<void> warmUrls({
     required Iterable<Future<String> Function()> resolvers,

@@ -43,8 +43,17 @@ abstract final class AdminFeedFirestoreBridge {
   }
 
   static dynamic encodeValue(dynamic value) {
-    if (identical(value, FieldValue.serverTimestamp())) return _skip;
-    if (identical(value, FieldValue.delete())) return cfDelete;
+    if (value is FieldValue) {
+      // cloud_firestore 6.x: serverTimestamp()/delete() criam instância nova —
+      // `identical` falhava e o FieldValue cru quebrava a serialização da CF
+      // (ex.: CRIADO_EM no cadastro público de membro). Comparar por igualdade
+      // e, em último caso, descartar o sentinel (a CF define os timestamps).
+      if (value == FieldValue.delete()) return cfDelete;
+      if (value == FieldValue.serverTimestamp()) return _skip;
+      final s = value.toString().toLowerCase();
+      if (s.contains('delete')) return cfDelete;
+      return _skip;
+    }
     if (value is Timestamp) return {'_tsMs': value.millisecondsSinceEpoch};
     if (value is Map) {
       return encodeMap(Map<String, dynamic>.from(value));

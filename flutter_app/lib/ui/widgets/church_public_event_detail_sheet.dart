@@ -5,6 +5,8 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show FreshFirebaseStorageImage;
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
+    show showYahwehOriginalMedia;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 
@@ -232,10 +234,19 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
                 if (path.isNotEmpty || mediaUrl.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Center(
-                    child: Container(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      // Toque → foto inteira em ecrã cheio (padrão CT).
+                      onTap: () => showYahwehOriginalMedia(
+                        context,
+                        urlOrPath: path.isNotEmpty
+                            ? path
+                            : (img.isNotEmpty ? img : mediaUrl),
+                      ),
+                      child: Container(
                       constraints: const BoxConstraints(
-                        maxWidth: 248,
-                        maxHeight: 156,
+                        maxWidth: 320,
+                        maxHeight: 300,
                       ),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8FAFC),
@@ -280,6 +291,7 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
                                 ),
                         ),
                       ),
+                    ),
                     ),
                   ),
                 ],

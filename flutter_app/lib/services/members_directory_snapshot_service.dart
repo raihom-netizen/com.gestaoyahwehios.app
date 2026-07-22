@@ -1,6 +1,8 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
@@ -206,6 +208,10 @@ class MemberDirectoryEntry {
       const ['FUNCOES', 'funcoes'],
       fallback: funcoes,
     );
+    final incomingPhotoRevision = FirestoreMapFields.pickInt(
+      fields,
+      const ['fotoUrlCacheRevision'],
+    );
 
     final assinadaEm = fields.containsKey('carteirinhaAssinadaEm')
         ? fields['carteirinhaAssinadaEm']
@@ -240,7 +246,9 @@ class MemberDirectoryEntry {
         const ['fotoThumbUrl', 'photoThumbUrl', 'photoThumb'],
         photoThumbUrl,
       ),
-      fotoUrlCacheRevision: fotoUrlCacheRevision,
+      fotoUrlCacheRevision: incomingPhotoRevision > 0
+          ? incomingPhotoRevision
+          : fotoUrlCacheRevision,
       authUid: authUid,
       cpfDigits: cpf.isEmpty ? cpfDigits : cpf,
       email: mail.isEmpty ? email : mail,
@@ -372,7 +380,21 @@ class MembersDirectorySnapshotService {
   static void rememberInMemory(String tenantId, MembersDirectorySnapshot snap) {
     final tid = tenantId.trim();
     if (tid.isEmpty || !snap.hasEntries) return;
-    _memoryByTenant[tid] = snap;
+    final filtered = snap.entries
+        .where(
+          (e) => !TenantDeletedDocTombstones.contains(
+            tid,
+            TenantModuleKeys.membros,
+            e.memberDocId,
+          ),
+        )
+        .toList();
+    if (filtered.isEmpty) return;
+    _memoryByTenant[tid] = MembersDirectorySnapshot(
+      totalCount: snap.totalCount,
+      entries: filtered,
+      summary: snap.summary,
+    );
   }
 
   /// Atualiza assinatura da carteirinha no cache RAM (Cartão membro / Membros).
@@ -414,8 +436,25 @@ class MembersDirectorySnapshotService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
     final m = _memoryByTenant[tid];
-    if (m != null && m.hasEntries) return m;
-    return null;
+    if (m == null || !m.hasEntries) return null;
+    if (!TenantDeletedDocTombstones.hasAny(tid, TenantModuleKeys.membros)) {
+      return m;
+    }
+    final filtered = m.entries
+        .where(
+          (e) => !TenantDeletedDocTombstones.contains(
+            tid,
+            TenantModuleKeys.membros,
+            e.memberDocId,
+          ),
+        )
+        .toList();
+    if (filtered.isEmpty) return null;
+    return MembersDirectorySnapshot(
+      totalCount: m.totalCount,
+      entries: filtered,
+      summary: m.summary,
+    );
   }
 
   static DocumentReference<Map<String, dynamic>> cacheRefForOperational(

@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Igreja leve para o Painel Master (Lista Igrejas).
 class MasterChurchListItem {
@@ -32,6 +35,8 @@ abstract final class MasterChurchesListService {
   static final _functions =
       FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
 
+  static const _prefsKey = 'master_churches_index_v1';
+
   static List<MasterChurchListItem>? _memCache;
   static DateTime? _memCachedAt;
   static const Duration _memTtl = Duration(minutes: 10);
@@ -56,6 +61,48 @@ abstract final class MasterChurchesListService {
     if (items.isEmpty) return;
     _memCache = List<MasterChurchListItem>.unmodifiable(items);
     _memCachedAt = DateTime.now();
+    unawaited(_persistLocal(items));
+  }
+
+  static Future<void> _persistLocal(List<MasterChurchListItem> items) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = items
+          .take(200)
+          .map((e) => <String, dynamic>{'id': e.id, 'data': e.data})
+          .toList();
+      await prefs.setString(_prefsKey, jsonEncode(payload));
+    } catch (_) {}
+  }
+
+  /// Prefs locais — Master funciona offline (padrão CT).
+  static Future<List<MasterChurchListItem>> readAnyLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return const [];
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      final out = <MasterChurchListItem>[];
+      for (final e in decoded) {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e);
+        final id = (m['id'] ?? '').toString().trim();
+        if (id.isEmpty) continue;
+        final dataRaw = m['data'];
+        final data = dataRaw is Map
+            ? Map<String, dynamic>.from(dataRaw)
+            : (Map<String, dynamic>.from(m)..remove('id'));
+        out.add(MasterChurchListItem.fromMap(id, data));
+      }
+      if (out.isNotEmpty) {
+        _memCache = List<MasterChurchListItem>.unmodifiable(out);
+        _memCachedAt = DateTime.now();
+      }
+      return out;
+    } catch (_) {
+      return const [];
+    }
   }
 
   static int _indexTotal(Map<String, dynamic>? raw) {
@@ -172,7 +219,26 @@ abstract final class MasterChurchesListService {
       return _memCache!;
     }
 
+    // Offline: prefs → Firestore cache — sem bloquear.
+    if (!AppConnectivityService.instance.isOnline) {
+      final local = await readAnyLocal();
+      if (local.isNotEmpty) return local;
+      return readFirestoreIndex(forceServer: false);
+    }
+
     await MasterAdminFirestore.ensureReady();
+
+    if (!force) {
+      final local = await readAnyLocal();
+      if (local.isNotEmpty) {
+        unawaited(() async {
+          try {
+            await readFirestoreIndex(forceServer: false);
+          } catch (_) {}
+        }());
+        return local;
+      }
+    }
 
     // Após licença/bloqueio: ler documentos reais (índice pode estar defasado).
     if (force) {

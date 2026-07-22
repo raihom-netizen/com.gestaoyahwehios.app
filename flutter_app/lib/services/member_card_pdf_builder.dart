@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/member_card_load_service.dart';
@@ -62,8 +63,10 @@ abstract final class MemberCardPdfBuilder {
   static Future<Uint8List?> _photoBytesForMember(Map<String, dynamic> member) {
     final url = imageUrlFromMap(member);
     if (url.isEmpty) return Future<Uint8List?>.value(null);
+    // Cache-bust por revisão da foto — PDF sai com a foto atual após troca.
+    final busted = YahwehMediaCacheBust.applyFromDocRevision(url, member);
     return ImageHelper.getBytesFromUrlOrNull(
-      url,
+      busted,
       timeout: const Duration(seconds: 6),
     ).timeout(const Duration(seconds: 7), onTimeout: () => null);
   }

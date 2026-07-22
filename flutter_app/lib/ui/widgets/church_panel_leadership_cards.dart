@@ -203,14 +203,16 @@ class _ChurchPanelLeadershipCardSectionState
                     ),
                   ),
                 ),
-              for (final entry in list)
+              for (var i = 0; i < list.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
                 ChurchPanelLeaderAttentionCard(
-                  entry: entry,
+                  entry: list[i],
                   tenantId: widget.tenantId,
                   role: widget.role,
                   viewerCpfDigits: widget.viewerCpfDigits,
                   accent: _accent,
                 ),
+              ],
             ],
           ),
         );
@@ -409,6 +411,7 @@ class ChurchPanelLeaderAttentionCard extends StatelessWidget {
       memberRole: role,
       viewerCpfDigits: viewerCpfDigits,
       accent: accent,
+      dense: true,
     );
   }
 }

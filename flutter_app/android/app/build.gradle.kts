@@ -48,7 +48,8 @@ android {
         applicationId = "com.gestaoyahweh.app"
         // Android 5.0+ (API 21); API 23+ para biometria (local_auth)
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        // Google Play: obrigatório a partir de 30/08/2026 — segmentar Android 16 (API 36).
+        targetSdk = 36
         // Compatibilidade ampla na Play: manter ABIs geradas pelos plugins/Flutter.
         // A validação final do AAB usa bundletool build-apks para bloquear diretórios ABI vazios.
         versionCode = flutter.versionCode

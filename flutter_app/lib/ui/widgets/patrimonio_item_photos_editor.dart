@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -314,27 +315,26 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     if (slot < 0 || slot >= PatrimonioItemPhotosEditor.maxPhotos) return;
     setState(() => _mediaPicking = true);
     try {
-      final picked = await MediaHandlerService.instance
-          .pickAndProcessFromGallery(
-            module: YahwehMediaModule.patrimonio,
-            context: context,
-          )
-          .timeout(
-            const Duration(seconds: 90),
-            onTimeout: () => throw TimeoutException(
-              'Seleção de foto demorou demais.',
-            ),
-          );
+      // Padrão CT: pick → bytes (uma compressão) → pending slot.
+      final picked = await ChurchCtModuleUpload.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 88,
+        maxWidth: 1920,
+      ).timeout(
+        const Duration(seconds: 90),
+        onTimeout: () => throw TimeoutException(
+          'Seleção de foto demorou demais.',
+        ),
+      );
       if (picked == null || !mounted) return;
-      final bytes = await SafeImageBytes.patrimonioFromPicker(picked)
-          .timeout(const Duration(seconds: 25));
+      final bytes = picked.bytes;
       if (bytes.isEmpty || !mounted) return;
       setState(() {
         _slotUrls[slot] = '';
         _slotPaths[slot] = '';
         _slotPending[slot] = bytes;
         _slotPendingNames[slot] =
-            picked.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg';
+            picked.fileName.isNotEmpty ? picked.fileName : 'foto_${slot + 1}.jpg';
       });
       _notifyChanged();
       if (mounted) {

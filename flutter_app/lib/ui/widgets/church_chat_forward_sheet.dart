@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -127,34 +129,56 @@ class ChurchChatForwardSheet extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                      onTap: () async {
+                      onTap: () {
                         final block =
                             ChurchChatService.forwardBlockReason(messageData);
                         if (block != null) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(block)),
-                            );
-                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(block)),
+                          );
                           return;
                         }
+                        // Silencioso, dentro da conversa (padrão Telegram):
+                        // fecha a folha na hora e reencaminha em segundo plano.
+                        // Messenger raiz sobrevive ao pop — feedback discreto.
+                        final messenger = ScaffoldMessenger.maybeOf(context);
                         Navigator.pop(context);
-                        final ok = await ChurchChatService.forwardMessageToThread(
-                          tenantId: tenantId,
-                          sourceThreadId: sourceThreadId,
-                          targetThreadId: doc.id,
-                          messageId: messageId,
-                          messageData: messageData,
-                        );
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger?.showSnackBar(
                           SnackBar(
-                            content: Text(
-                              ok
-                                  ? 'Mensagem reencaminhada.'
-                                  : 'Não foi possível reencaminhar.',
-                            ),
+                            content: Text('A reencaminhar para $title…'),
+                            behavior: SnackBarBehavior.floating,
+                            duration: const Duration(seconds: 2),
                           ),
+                        );
+                        unawaited(
+                          ChurchChatService.forwardMessageToThread(
+                            tenantId: tenantId,
+                            sourceThreadId: sourceThreadId,
+                            targetThreadId: doc.id,
+                            messageId: messageId,
+                            messageData: messageData,
+                          ).then((ok) {
+                            messenger?.hideCurrentSnackBar();
+                            messenger?.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  ok
+                                      ? 'Reencaminhada para $title.'
+                                      : 'Não foi possível reencaminhar.',
+                                ),
+                                behavior: SnackBarBehavior.floating,
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }).catchError((_) {
+                            messenger?.hideCurrentSnackBar();
+                            messenger?.showSnackBar(
+                              const SnackBar(
+                                content: Text('Não foi possível reencaminhar.'),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }),
                         );
                       },
                     );

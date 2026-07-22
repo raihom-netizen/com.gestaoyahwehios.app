@@ -10,13 +10,13 @@ import path from 'path';
 import fs from 'fs';
 
 const PLANS = [
-  { id: 'inicial', name: 'Plano Inicial', membersMax: 100, priceMonthly: 49.9, priceAnnual: 499 },
-  { id: 'essencial', name: 'Plano Essencial', membersMax: 150, priceMonthly: 59.9, priceAnnual: 599 },
-  { id: 'intermediario', name: 'Plano Intermediário', membersMax: 250, priceMonthly: 69.9, priceAnnual: 699 },
-  { id: 'avancado', name: 'Plano Avançado', membersMax: 350, priceMonthly: 89.9, priceAnnual: 899 },
-  { id: 'profissional', name: 'Plano Profissional', membersMax: 400, priceMonthly: 99.9, priceAnnual: 999 },
-  { id: 'premium', name: 'Plano Premium', membersMax: 500, priceMonthly: 169.9, priceAnnual: 1699 },
-  { id: 'premium_plus', name: 'Plano Premium Plus', membersMax: 600, priceMonthly: 189.9, priceAnnual: 1899 },
+  { id: 'inicial', name: 'Plano Inicial', membersMax: 100, priceMonthly: 59.9, priceAnnual: 599 },
+  { id: 'essencial', name: 'Plano Essencial', membersMax: 150, priceMonthly: 69.9, priceAnnual: 699 },
+  { id: 'intermediario', name: 'Plano Intermediário', membersMax: 250, priceMonthly: 79.9, priceAnnual: 799 },
+  { id: 'avancado', name: 'Plano Avançado', membersMax: 350, priceMonthly: 99.9, priceAnnual: 999 },
+  { id: 'profissional', name: 'Plano Profissional', membersMax: 400, priceMonthly: 109.9, priceAnnual: 1099 },
+  { id: 'premium', name: 'Plano Premium', membersMax: 500, priceMonthly: 179.9, priceAnnual: 1799 },
+  { id: 'premium_plus', name: 'Plano Premium Plus', membersMax: 600, priceMonthly: 199.9, priceAnnual: 1999 },
   { id: 'corporativo', name: 'Plano Corporativo', membersMax: 9999, priceMonthly: null, priceAnnual: null },
 ];
 

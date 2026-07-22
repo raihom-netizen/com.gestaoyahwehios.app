@@ -12,7 +12,8 @@ class EffectivePlanConfig {
   final String members;
   final int maxMembers;
   final double? monthlyPrice;
-  /// Valor anual usado na UI (Firestore ou 10× mensal do plano base).
+
+  /// Valor anual usado na UI: sempre 10× o mensal (dois meses de desconto).
   final double? annualPrice;
   final bool featured;
   final String? note;
@@ -30,16 +31,19 @@ class EffectivePlanConfig {
 
   /// Para widgets que já esperam [PlanoOficial] (preços na UI podem usar [annualPrice] separado).
   PlanoOficial toPlanoOficial() => PlanoOficial(
-        id: id,
-        name: name,
-        members: members,
-        maxMembers: maxMembers,
-        monthlyPrice: monthlyPrice,
-        featured: featured,
-        note: note,
-      );
+    id: id,
+    name: name,
+    members: members,
+    maxMembers: maxMembers,
+    monthlyPrice: monthlyPrice,
+    featured: featured,
+    note: note,
+  );
 
-  static EffectivePlanConfig merge(PlanoOficial base, Map<String, dynamic>? data) {
+  static EffectivePlanConfig merge(
+    PlanoOficial base,
+    Map<String, dynamic>? data,
+  ) {
     double? monthly = base.monthlyPrice;
     double? annual = base.annualPrice;
     var name = base.name;
@@ -50,8 +54,6 @@ class EffectivePlanConfig {
     if (data != null) {
       final pm = data['priceMonthly'];
       if (pm is num) monthly = pm.toDouble();
-      final pa = data['priceAnnual'];
-      if (pa is num) annual = pa.toDouble();
       final mm = data['maxMembers'];
       if (mm is int) {
         maxMembers = mm;
@@ -65,6 +67,10 @@ class EffectivePlanConfig {
       final nt = data['note'];
       if (nt is String && nt.trim().isNotEmpty) note = nt.trim();
     }
+
+    // Regra comercial fixa: anual equivale a 10 mensalidades.
+    // Ignora overrides anuais antigos para site, Android e iOS nunca divergirem.
+    annual = monthly != null && monthly > 0 ? monthly * 10 : null;
 
     return EffectivePlanConfig(
       id: base.id,
@@ -101,10 +107,7 @@ class PlanPriceService {
   /// Emite o catálogo sempre que `config/plans/items` muda (Painel Master ou outro cliente).
   static Stream<Map<String, EffectivePlanConfig>> watchEffectivePlanConfigs() {
     final firestore = _firestore;
-    final q = firestore
-        .collection('config')
-        .doc('plans')
-        .collection('items');
+    final q = firestore.collection('config').doc('plans').collection('items');
     if (kIsWeb) {
       return FirestoreStreamUtils.queryOneShot(q).asyncMap((snap) async {
         try {
@@ -115,31 +118,32 @@ class PlanPriceService {
         }
       });
     }
-    return FirestoreStreamUtils.queryWatchBootstrap(q)
-        .map(_mergeCatalogFromQuerySnap);
+    return FirestoreStreamUtils.queryWatchBootstrap(
+      q,
+    ).map(_mergeCatalogFromQuerySnap);
   }
 
   /// Leitura única (ex.: limites de membros). Para ecrãs com preços visíveis, prefira [watchEffectivePlanConfigs].
-  static Future<Map<String, EffectivePlanConfig>> getEffectivePlanConfigs() async {
+  static Future<Map<String, EffectivePlanConfig>>
+  getEffectivePlanConfigs() async {
     try {
       final snap = await FirestoreReadResilience.getQuery(
-        _firestore
-            .collection('config')
-            .doc('plans')
-            .collection('items'),
+        _firestore.collection('config').doc('plans').collection('items'),
         cacheKey: 'config_plans_items',
       );
       return _mergeCatalogFromQuerySnap(snap);
     } catch (_) {
       final fallback = <String, EffectivePlanConfig>{
-        for (final p in planosOficiais) p.id: EffectivePlanConfig.merge(p, null),
+        for (final p in planosOficiais)
+          p.id: EffectivePlanConfig.merge(p, null),
       };
       return fallback;
     }
   }
 
   /// Compatível com código legado: só preços mensal/anual efetivos.
-  static Future<Map<String, ({double? monthly, double? annual})>> getEffectivePrices() async {
+  static Future<Map<String, ({double? monthly, double? annual})>>
+  getEffectivePrices() async {
     final cfg = await getEffectivePlanConfigs();
     return {
       for (final e in cfg.entries)

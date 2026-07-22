@@ -26,6 +26,9 @@ Color gyModuleAccentColor(String? raw) {
       return const Color(0xFFE11D48);
     case 'membro':
       return const Color(0xFF2563EB);
+    case 'visitante':
+    case 'visitantes':
+      return const Color(0xFF10B981);
     case 'generico':
       return const Color(0xFF3B82F6);
     case 'chat':
@@ -50,6 +53,9 @@ String gyModuleLabel(String? raw) {
       return 'Aniversário';
     case 'membro':
       return 'Cadastro';
+    case 'visitante':
+    case 'visitantes':
+      return 'Visitante';
     case 'chat':
       return YahwehContactButtonLabels.yahwehChat;
     case 'devocional':

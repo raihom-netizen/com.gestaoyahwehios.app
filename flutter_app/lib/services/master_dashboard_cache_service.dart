@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -394,6 +395,13 @@ abstract final class MasterDashboardCacheService {
   /// Leitura rápida: cache instantâneo → Firestore fresco → callable → scan cliente.
   /// Alinha contagem de igrejas com [MasterChurchesListService] (badge vs KPI).
   static Future<MasterDashboardSummary> refresh({bool force = false}) async {
+    // Offline: só disco/RAM — sync silenciosa quando voltar a rede.
+    if (!force && !AppConnectivityService.instance.isOnline) {
+      final instant = await readCachedInstant();
+      if (instant != null) return _alignChurchCount(instant);
+      return const MasterDashboardSummary();
+    }
+
     if (!force) {
       if (_memFresh() && _memSummary != null) {
         return _alignChurchCount(_memSummary!);

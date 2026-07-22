@@ -64,6 +64,9 @@ abstract final class YahwehModuleIconAssets {
         return Icons.forum_rounded;
       case 'pastoral':
         return Icons.volunteer_activism_rounded;
+      case 'visitante':
+      case 'visitantes':
+        return Icons.emoji_people_rounded;
       default:
         return Icons.notifications_active_rounded;
     }

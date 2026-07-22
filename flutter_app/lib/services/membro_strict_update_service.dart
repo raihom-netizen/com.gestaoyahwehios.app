@@ -1,8 +1,9 @@
-﻿import 'dart:async' show unawaited;
+import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
@@ -11,6 +12,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -158,6 +160,11 @@ abstract final class MembroStrictUpdateService {
         module: TenantModuleKeys.membros,
       ),
     );
+    // Sem isto o membro excluído volta da RAM/Hive do load service.
+    unawaited(ChurchMembersLoadService.invalidate(churchId));
+    if (seed.trim().isNotEmpty && seed.trim() != churchId) {
+      unawaited(ChurchMembersLoadService.invalidate(seed.trim()));
+    }
     MembersDirectorySnapshotService.invalidateMemory(churchId);
     MembersDirectorySnapshotService.invalidateMemory(seed.trim());
     return Future.value();
@@ -201,6 +208,9 @@ abstract final class MembroStrictUpdateService {
     if (mid.isEmpty) {
       throw StateError('ID do membro vazio.');
     }
+
+    // Lápide ANTES do purge — lista/directory não «ressuscitam» o membro.
+    TenantDeletedDocTombstones.mark(churchId, TenantModuleKeys.membros, [mid]);
 
     final authUid = _authUidFromMap(memberData);
     final cpf = _cpfDigitsFromMap(memberData);

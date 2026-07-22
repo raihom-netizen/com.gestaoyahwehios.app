@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 String _memberNomeFromData(Map<String, dynamic> m) =>
@@ -403,17 +404,30 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
 Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) async {
   try {
     final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
-    final snap = await         ChurchUiCollections.fornecedores(op)
-        .orderBy('nome')
-        .limit(500)
-        .get();
+    // Mesmo loader canónico da aba Cadastros (RAM/Hive/Firestore + legado).
+    final loaded = await ChurchFornecedoresLoadService.loadAll(
+      seedTenantId: op,
+      forceRefresh: true,
+      forceServer: true,
+    );
     final out = <({String id, String nome})>[];
+    for (final d in loaded.docs) {
+      final m = d.data();
+      if (m['status'] == 'inativo') continue;
+      final n = (m['nome'] ?? '').toString().trim();
+      out.add((id: d.id, nome: n.isEmpty ? d.id : n));
+    }
+    if (out.isNotEmpty) return out;
+
+    // Fallback directo (sem orderBy — evita falha por índice/campo ausente).
+    final snap = await ChurchUiCollections.fornecedores(op).limit(500).get();
     for (final d in snap.docs) {
       final m = d.data();
       if (m['status'] == 'inativo') continue;
       final n = (m['nome'] ?? '').toString().trim();
       out.add((id: d.id, nome: n.isEmpty ? d.id : n));
     }
+    out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     return out;
   } catch (_) {
     return const [];

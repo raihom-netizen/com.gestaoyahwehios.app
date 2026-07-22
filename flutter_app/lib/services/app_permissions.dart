@@ -270,7 +270,9 @@ class AppPermissions {
   }
 
   /// Edição no diretório de membros: respeita `membros_ver` só leitura vs `membros_edicao`.
+  /// Membro comum (`restrictedNav`) nunca gere o diretório — só a própria ficha.
   static bool canEditMembersDirectory(String role, List<String>? permissions) {
+    if (isRestrictedMember(role)) return false;
     final p = permissions;
     if (p != null && p.isNotEmpty) {
       final set = p.map((e) => e.trim().toLowerCase()).toSet();
@@ -408,14 +410,14 @@ class AppPermissions {
   /// Módulo Membros: só a própria ficha (editar dados, foto e carteirinha).
   ///
   /// Papel básico (`membro`/`visitante`, `restrictedNav`): **sempre** só o próprio
-  /// cadastro — `membros_ver` herdado de cargo **não** abre o diretório.
-  /// Equipe (gestor, pastor, secretário, líder, diácono, `membros_edicao`, etc.)
-  /// continua a ver a lista completa.
+  /// cadastro — `membros` / `membros_ver` / `membros_edicao` herdados de cargo
+  /// **não** abrem o diretório (segurança).
+  /// Equipe (gestor, pastor, secretário, líder, diácono, etc.) vê a lista completa.
   static bool isSelfOnlyMemberAccess(String role, List<String>? permissions) {
-    if (canEditMembersDirectory(role, permissions)) return false;
     final s = ChurchRolePermissions.snapshotFor(role);
-    // Membro comum: nunca ver lista dos outros (mesmo com permissão granular).
+    // Membro comum: trava absoluta — nunca lista dos outros.
     if (s.restrictedNav) return true;
+    if (canEditMembersDirectory(role, permissions)) return false;
     if (hasModulePermission(permissions, 'membros_ver')) return false;
     if (s.viewMemberDirectory || s.editAnyMember) return false;
     if (canStaffEditAnyMemberProfilePhoto(role)) return false;

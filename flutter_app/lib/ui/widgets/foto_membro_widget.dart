@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
@@ -69,17 +70,29 @@ class FotoMembroWidget extends StatelessWidget {
     Map<String, dynamic> d, {
     bool preferThumb = false,
   }) {
+    // HTTPS do pai (já com ?v=cb…) tem prioridade sobre path Storage cru —
+    // senão a lista/chat ignoravam a URL bustada e mostravam a foto antiga.
+    final parent = sanitizeImageUrl((imageUrl ?? '').trim());
+    if (parent.isNotEmpty &&
+        (parent.startsWith('https://') || parent.startsWith('http://'))) {
+      return parent;
+    }
+
     final fromResolver = MemberProfilePhotoResolver.displayRef(
       d,
       preferThumb: preferThumb,
     );
     if (fromResolver != null && fromResolver.isNotEmpty) {
+      final r = sanitizeImageUrl(fromResolver);
+      if (r.startsWith('https://') || r.startsWith('http://')) {
+        return YahwehMediaCacheBust.applyFromDocRevision(r, d);
+      }
       return fromResolver;
     }
-    final u = imageUrl?.trim();
-    if (u != null && u.isNotEmpty) return u;
+    if (parent.isNotEmpty) return parent;
     final m = imageUrlFromMap(d);
-    return m.isNotEmpty ? m : null;
+    if (m.isEmpty) return null;
+    return YahwehMediaCacheBust.applyFromDocRevision(m, d);
   }
 
   static String? _authUidFromData(
@@ -153,7 +166,11 @@ class FotoMembroWidget extends StatelessWidget {
 
       final mergedRef = (merged ?? '').trim();
       if (mergedRef.isNotEmpty) {
-        final cached = MemberProfilePhotoBytesCache.get(mergedRef);
+        // Bytes gravados antes da revisão da foto = potencialmente a foto antiga.
+        final cached = MemberProfilePhotoBytesCache.getFresh(
+          mergedRef,
+          minRevisionMs: rev,
+        );
         if (cached != null && cached.isNotEmpty) {
           return ClipOval(
             child: Image.memory(

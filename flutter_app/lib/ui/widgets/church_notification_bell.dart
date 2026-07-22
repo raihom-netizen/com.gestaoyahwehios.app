@@ -117,6 +117,7 @@ class NotificationCenterModuleFilterGrid extends StatelessWidget {
     (id: 'escala', label: 'Escalas', moduleKey: 'escala', emblem: false, icon: null),
     (id: 'evento', label: 'Eventos', moduleKey: 'evento', emblem: false, icon: null),
     (id: 'aviso', label: 'Avisos', moduleKey: 'aviso', emblem: true, icon: null),
+    (id: 'visitante', label: 'Visitantes', moduleKey: 'visitante', emblem: false, icon: null),
   ];
 
   @override

@@ -11,6 +11,8 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
         churchMuralCarouselClipHeight,
         churchPublicFeedInstagramColumnWidth,
         kChurchPublicSiteMobileFrameWidth;
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
+    show showYahwehOriginalMedia;
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 
 /// Carrossel premium de avisos — painel e site público (proporção Instagram).
@@ -139,16 +141,24 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
                         .clamp(400, 1200);
 
                     Widget photoAt(int pi) {
-                      return ChurchFeedPhotoSlide(
-                        mediaRef: refs[pi],
-                        postData: aviso.rawData,
-                        docId: aviso.id,
-                        churchId: widget.churchIdHint,
-                        width: double.infinity,
-                        height: mediaH,
-                        fit: BoxFit.contain,
-                        memCacheWidth: memW,
-                        skipFreshDisplayUrl: false,
+                      // Toque na foto → ampliar imagem inteira (padrão CT).
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => showYahwehOriginalMedia(
+                          context,
+                          urlOrPath: refs[pi],
+                        ),
+                        child: ChurchFeedPhotoSlide(
+                          mediaRef: refs[pi],
+                          postData: aviso.rawData,
+                          docId: aviso.id,
+                          churchId: widget.churchIdHint,
+                          width: double.infinity,
+                          height: mediaH,
+                          fit: BoxFit.contain,
+                          memCacheWidth: memW,
+                          skipFreshDisplayUrl: false,
+                        ),
                       );
                     }
 

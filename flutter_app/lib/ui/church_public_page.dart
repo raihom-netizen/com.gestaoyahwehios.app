@@ -3420,8 +3420,9 @@ class _HorariosCultoSection extends StatelessWidget {
       icon: Icons.schedule_rounded,
       accentColor: const Color(0xFF059669),
       child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future:             ChurchUiCollections.churchDoc(igrejaId)
-            .get(),
+        future: ChurchUiCollections.churchDoc(igrejaId).get(
+          const GetOptions(source: Source.serverAndCache),
+        ),
         builder: (context, tenantSnap) {
           final tenantHorarios = (tenantSnap.data?.data()?['horariosCulto'] ??
                   tenantSnap.data?.data()?['horarios'] ??
@@ -3434,11 +3435,13 @@ class _HorariosCultoSection extends StatelessWidget {
                     fontSize: 15, height: 1.6, color: Colors.grey.shade800));
           }
           return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            future:                 ChurchUiCollections.churchDoc(igrejaId)
-                .collection('event_templates')
-                .where('active', isEqualTo: true)
-                .limit(50)
-                .get(),
+            future: PanelProgramacaoLoader.queryCacheFirst(
+              ChurchUiCollections.churchDoc(igrejaId)
+                  .collection('event_templates')
+                  .where('active', isEqualTo: true)
+                  .limit(50),
+              cacheKey: 'public_${igrejaId}_event_templates_active',
+            ),
             builder: (context, tplSnap) {
               final docs = tplSnap.data?.docs ?? [];
               if (docs.isEmpty) {

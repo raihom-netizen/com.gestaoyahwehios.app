@@ -1244,9 +1244,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
         await ChurchMediaUploadFacade.ensureReady(requireAuth: !isPublicVisitor);
       }
+      // Cadastro público usa ID aleatório: não sobrescreve a foto/documento de
+      // outro membro com o mesmo CPF antes da validação server-side.
       final ref = editingDocId != null
           ? col.doc(editingDocId)
-          : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
+          : (isPublicVisitor
+              ? col.doc()
+              : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc()));
       String? photoStoragePathField;
       String? photoUrlField;
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
@@ -1319,23 +1323,31 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'FILIACAO': _buildFiliacaoLegado(
             _filiacaoPaiCtrl.text.trim(), _filiacaoMaeCtrl.text.trim()),
       };
-      if (_editModeAfterSubmit) {
+      if (isPublicVisitor) {
+        // Callable pública (sem Auth anónimo): Admin SDK valida igreja,
+        // duplicidade CPF/e-mail e força status pendente — Web/Android/iOS.
+        final payload = Map<String, dynamic>.from(data);
+        // A CF define createdAt/updatedAt com o Admin SDK — sentinels
+        // FieldValue não sobrevivem à serialização da callable.
+        payload.removeWhere((_, v) => v is FieldValue);
+        if (_editModeAfterSubmit) {
+          payload.remove('CRIADO_EM');
+          payload.remove('createdAt');
+        }
+        await ChurchFunctionsService.publicMemberSignup(
+          churchId: _tenantId!.trim(),
+          docId: ref.id,
+          data: AdminFeedFirestoreBridge.encodeMap(payload),
+        );
+      } else if (_editModeAfterSubmit) {
         final updateData = Map<String, dynamic>.from(data);
         updateData.remove('CRIADO_EM');
         await ref.update(updateData);
       } else {
-        if (!isPublicVisitor) {
-          final codigoMembro =
-              await MemberCodigoService.allocateNext(_tenantId!);
-          data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
-        }
-        if (kIsWeb && isPublicVisitor) {
-          await ChurchFunctionsService.publicMemberSignup(
-            churchId: _tenantId!.trim(),
-            docId: ref.id,
-            data: AdminFeedFirestoreBridge.encodeMap(data),
-          );
-        } else if (kIsWeb) {
+        final codigoMembro =
+            await MemberCodigoService.allocateNext(_tenantId!);
+        data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
+        if (kIsWeb) {
           await AdminFeedFirestoreBridge.upsertTenantDoc(
             churchId: _tenantId!.trim(),
             collection: 'membros',

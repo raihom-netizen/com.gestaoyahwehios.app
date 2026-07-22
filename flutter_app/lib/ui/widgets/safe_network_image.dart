@@ -1852,11 +1852,27 @@ class MemberProfilePhotoBytesCache {
   static const Duration ttl = Duration(days: 30);
 
   /// Identifica o mesmo ficheiro após rotação de token na query string.
+  /// Path bruto do Storage também vira chave `p:` — senão `removeByObjectPath`
+  /// não limpava a entrada e a foto antiga ficava presa na lista após trocar.
   static String _stableKey(String rawUrl) {
     final u = sanitizeImageUrl(rawUrl);
     if (u.isEmpty) return '';
     final path = firebaseStorageObjectPathFromHttpUrl(u);
     if (path != null && path.isNotEmpty) return 'p:$path';
+    final low = u.toLowerCase();
+    final isWebRef = low.startsWith('http://') ||
+        low.startsWith('https://') ||
+        low.startsWith('data:');
+    if (!isWebRef) {
+      var p = u;
+      if (low.startsWith('gs://')) {
+        final rest = u.substring(5);
+        final slash = rest.indexOf('/');
+        p = slash >= 0 ? rest.substring(slash + 1) : '';
+      }
+      p = p.replaceFirst(RegExp(r'^/+'), '').trim();
+      if (p.isNotEmpty) return 'p:$p';
+    }
     return 'u:$u';
   }
 
@@ -1875,6 +1891,27 @@ class MemberProfilePhotoBytesCache {
     if (e == null) return null;
     if (DateTime.now().difference(e.insertedAt) > ttl) {
       remove(rawUrl);
+      return null;
+    }
+    _order.remove(k);
+    _order.add(k);
+    return e.bytes;
+  }
+
+  /// Como [get], mas descarta bytes gravados **antes** de [minRevisionMs]
+  /// (fotoUrlCacheRevision = ms epoch da troca da foto). Evita mostrar a foto
+  /// antiga quando o mesmo path do Storage foi sobrescrito noutro dispositivo.
+  static Uint8List? getFresh(String rawUrl, {int minRevisionMs = 0}) {
+    final k = _stableKey(rawUrl);
+    if (k.isEmpty) return null;
+    final e = _map[k];
+    if (e == null) return null;
+    if (DateTime.now().difference(e.insertedAt) > ttl) {
+      remove(rawUrl);
+      return null;
+    }
+    if (minRevisionMs > 0 &&
+        e.insertedAt.millisecondsSinceEpoch < minRevisionMs) {
       return null;
     }
     _order.remove(k);

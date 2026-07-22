@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -72,20 +73,33 @@ abstract final class ChurchEventosLoadService {
     await ensureFirebaseReadyForPanelRead();
   }
 
+  /// Remove docs recém-excluídos (lápides) — nenhum cache pode ressuscitá-los.
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _withoutDeleted(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      TenantDeletedDocTombstones.filter(
+        churchId,
+        TenantModuleKeys.eventos,
+        docs,
+        (d) => d.id,
+      );
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
     int limit = kDefaultFeedLimit,
   }) {
+    final churchId = _resolve(seedTenantId);
     final key = limit >= kGalleryLimit
-        ? galleryCacheKey(_resolve(seedTenantId))
-        : cacheKey(_resolve(seedTenantId), limit);
+        ? galleryCacheKey(churchId)
+        : cacheKey(churchId, limit);
     final hit = _ram[key];
     if (hit == null) return null;
     if (DateTime.now().difference(hit.at) > _ramTtl) {
       _ram.remove(key);
       return null;
     }
-    return hit.docs;
+    return _withoutDeleted(churchId, hit.docs);
   }
 
   static void _putRam(
@@ -93,7 +107,12 @@ abstract final class ChurchEventosLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     if (docs.isEmpty) return;
-    _ram[key] = (docs: List.from(docs), at: DateTime.now());
+    // A chave começa sempre por `${churchId}_eventos_`.
+    final churchId = key.split('_eventos_').first;
+    _ram[key] = (
+      docs: _withoutDeleted(churchId, List.from(docs)),
+      at: DateTime.now(),
+    );
   }
 
   static void putRam(
@@ -236,7 +255,7 @@ abstract final class ChurchEventosLoadService {
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null) {
-        final docs = _sortByStartAt(mem.docs);
+        final docs = _withoutDeleted(churchId, _sortByStartAt(mem.docs));
         _putRam(ramKey, docs);
         return ChurchEventosLoadResult(
           churchId: churchId,
@@ -253,8 +272,10 @@ abstract final class ChurchEventosLoadService {
           TenantModuleKeys.eventos,
         ).timeout(const Duration(seconds: 2));
         if (hive.isNotEmpty) {
-          final docs =
-              _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
+          final docs = _withoutDeleted(
+            churchId,
+            _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive)),
+          );
           if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
             unawaited(_refreshFeedInBackground(
@@ -281,7 +302,10 @@ abstract final class ChurchEventosLoadService {
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
-          final docs = _sortByStartAt(cacheSnap.docs);
+          final docs = _withoutDeleted(
+            churchId,
+            _sortByStartAt(cacheSnap.docs),
+          );
           _putRam(ramKey, docs);
           unawaited(_refreshFeedInBackground(
             churchId: churchId,
@@ -314,6 +338,7 @@ abstract final class ChurchEventosLoadService {
         if (filtered.isEmpty) {
           filtered = _filterPublishedLegacySafe(docs, max: limit);
         }
+        filtered = _withoutDeleted(churchId, filtered);
         _putRam(ramKey, filtered);
         unawaited(_persistHive(churchId, filtered));
         return ChurchEventosLoadResult(
@@ -338,10 +363,13 @@ abstract final class ChurchEventosLoadService {
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
       if (snap.docs.isNotEmpty) {
-        final docs = _filterRenderableFeed(
-          _sortByStartAt(snap.docs),
+        final docs = _withoutDeleted(
           churchId,
-          max: limit,
+          _filterRenderableFeed(
+            _sortByStartAt(snap.docs),
+            churchId,
+            max: limit,
+          ),
         );
         _putRam(ramKey, docs);
         unawaited(_persistHive(churchId, docs));
@@ -360,7 +388,7 @@ abstract final class ChurchEventosLoadService {
     if (mem != null && mem.docs.isNotEmpty) {
       return ChurchEventosLoadResult(
         churchId: churchId,
-        docs: _sortByStartAt(mem.docs),
+        docs: _withoutDeleted(churchId, _sortByStartAt(mem.docs)),
         readSource: 'fallback_mem',
         collectionPath: path,
         softError: lastError?.toString(),
@@ -542,10 +570,13 @@ abstract final class ChurchEventosLoadService {
   ) async {
     if (docs.isEmpty) return;
     try {
+      // Nunca re-gravar no Hive um doc recém-excluído (lápide).
+      final safeDocs = _withoutDeleted(churchId, docs);
+      if (safeDocs.isEmpty) return;
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
         TenantModuleKeys.eventos,
-        MergedFirestoreQuerySnapshot(docs),
+        MergedFirestoreQuerySnapshot(safeDocs),
       );
     } catch (_) {}
   }
@@ -628,7 +659,7 @@ abstract final class ChurchEventosLoadService {
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null) {
-        final docs = _sortByStartAt(mem.docs);
+        final docs = _withoutDeleted(churchId, _sortByStartAt(mem.docs));
         _putRam(ramKey, docs);
         return ChurchEventosLoadResult(
           churchId: churchId,
@@ -645,8 +676,10 @@ abstract final class ChurchEventosLoadService {
           TenantModuleKeys.eventos,
         ).timeout(const Duration(seconds: 2));
         if (hive.isNotEmpty) {
-          final docs =
-              _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
+          final docs = _withoutDeleted(
+            churchId,
+            _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive)),
+          );
           if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
             unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
@@ -667,7 +700,10 @@ abstract final class ChurchEventosLoadService {
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
-          final docs = _sortByStartAt(cacheSnap.docs);
+          final docs = _withoutDeleted(
+            churchId,
+            _sortByStartAt(cacheSnap.docs),
+          );
           _putRam(ramKey, docs);
           unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
           return ChurchEventosLoadResult(
@@ -683,10 +719,13 @@ abstract final class ChurchEventosLoadService {
 
     Object? lastError;
     try {
-      final docs = await _loadFirestoreGallery(
-        churchId: churchId,
-        cacheKey: ramKey,
-        forceServer: forceServer,
+      final docs = _withoutDeleted(
+        churchId,
+        await _loadFirestoreGallery(
+          churchId: churchId,
+          cacheKey: ramKey,
+          forceServer: forceServer,
+        ),
       );
       _putRam(ramKey, docs);
       unawaited(_persistHive(churchId, docs));
@@ -710,7 +749,7 @@ abstract final class ChurchEventosLoadService {
       ).timeout(
         kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
-      final docs = _sortByStartAt(snap.docs);
+      final docs = _withoutDeleted(churchId, _sortByStartAt(snap.docs));
       _putRam(ramKey, docs);
       unawaited(_persistHive(churchId, docs));
       return ChurchEventosLoadResult(
@@ -727,7 +766,7 @@ abstract final class ChurchEventosLoadService {
     if (mem != null) {
       return ChurchEventosLoadResult(
         churchId: churchId,
-        docs: _sortByStartAt(mem.docs),
+        docs: _withoutDeleted(churchId, _sortByStartAt(mem.docs)),
         readSource: 'fallback_mem',
         collectionPath: path,
         fromCache: true,
@@ -908,13 +947,22 @@ abstract final class ChurchEventosLoadService {
       _ram.remove(key);
       return null;
     }
-    return hit.docs;
+    return _withoutDeleted(key.split('_eventos_').first, hit.docs);
   }
 
+  /// Invalida TODAS as camadas: RAM + memória de resiliência + Hive.
+  /// (Antes só limpava RAM — doc excluído voltava a partir do Hive.)
   static void invalidate(String seedTenantId) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith('${churchId.trim()}_eventos_'));
+    for (final limit in [kDefaultFeedLimit, kGalleryLimit, 20, 30, 60, 80]) {
+      FirestoreReadResilience.forgetKey(cacheKey(churchId, limit));
+    }
+    FirestoreReadResilience.forgetKey(galleryCacheKey(churchId));
+    unawaited(
+      TenantModuleHiveCache.clearModule(churchId, TenantModuleKeys.eventos),
+    );
   }
 
   static void removeFromRam(String seedTenantId, Iterable<String> docIds) {
@@ -993,6 +1041,10 @@ abstract final class ChurchEventosLoadService {
         .toSet()
         .toList();
     if (cid.isEmpty || ids.isEmpty) return 0;
+
+    // Lápide ANTES do delete — fecha corrida com refresh em background que
+    // poderia re-gravar o doc antigo nas caches (RAM/Hive) e «ressuscitá-lo».
+    TenantDeletedDocTombstones.mark(cid, TenantModuleKeys.eventos, ids);
 
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});

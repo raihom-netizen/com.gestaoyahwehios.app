@@ -16,6 +16,11 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		B4F7E8A31CF9000F007C117D /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = B4F7E8A21CF9000F007C117D /* GoogleService-Info.plist */; };
 		B4F7E8B11CF9000F007C117D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B4F7E8B01CF9000F007C117D /* PrivacyInfo.xcprivacy */; };
+		GYW01008CF9000F007C001A /* GestaoYahwehWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = GYW01004CF9000F007C004A /* GestaoYahwehWidget.swift */; };
+		GYWBF031ED4AA1100515820 /* WidgetFullBleedBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = GYWBF021ED4AA1100515820 /* WidgetFullBleedBackground.swift */; };
+		GYW01009CF9000F007C001B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = GYW01007CF9000F007C007A /* Assets.xcassets */; };
+		GYWPRIV02ED4AA1100515830 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = GYWPRIV01ED4AA1100515830 /* PrivacyInfo.xcprivacy */; };
+		GYW01010CF9000F007C001C /* GestaoYahwehWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = GYW01003CF9000F007C003A /* GestaoYahwehWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,6 +30,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
+		};
+		GYW01016CF9000F007C016A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = GYW01012CF9000F007C012A;
+			remoteInfo = GestaoYahwehWidgetExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -37,6 +49,17 @@
 			files = (
 			);
 			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		GYW01011CF9000F007C011A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				GYW01010CF9000F007C001C /* GestaoYahwehWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -59,10 +82,24 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B4F7E8A21CF9000F007C117D /* GoogleService-Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		B4F7E8B01CF9000F007C117D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
+		GYW01003CF9000F007C003A /* GestaoYahwehWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GestaoYahwehWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		GYW01004CF9000F007C004A /* GestaoYahwehWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestaoYahwehWidget.swift; sourceTree = "<group>"; };
+		GYWBF021ED4AA1100515820 /* WidgetFullBleedBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetFullBleedBackground.swift; sourceTree = "<group>"; };
+		GYW01005CF9000F007C005A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		GYW01006CF9000F007C006A /* GestaoYahwehWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GestaoYahwehWidget.entitlements; sourceTree = "<group>"; };
+		GYW01007CF9000F007C007A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		GYWPRIV01ED4AA1100515830 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		97C146EB1CF9000F007C117D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		GYW01014CF9000F007C014A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -96,6 +133,7 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
+				GYW01018CF9000F007C018A /* GestaoYahwehWidget */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 			);
@@ -105,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
+				GYW01003CF9000F007C003A /* GestaoYahwehWidgetExtension.appex */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 			);
 			name = Products;
@@ -125,6 +164,19 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
+			sourceTree = "<group>";
+		};
+		GYW01018CF9000F007C018A /* GestaoYahwehWidget */ = {
+			isa = PBXGroup;
+			children = (
+				GYW01004CF9000F007C004A /* GestaoYahwehWidget.swift */,
+				GYWBF021ED4AA1100515820 /* WidgetFullBleedBackground.swift */,
+				GYW01005CF9000F007C005A /* Info.plist */,
+				GYW01006CF9000F007C006A /* GestaoYahwehWidget.entitlements */,
+				GYWPRIV01ED4AA1100515830 /* PrivacyInfo.xcprivacy */,
+				GYW01007CF9000F007C007A /* Assets.xcassets */,
+			);
+			path = GestaoYahwehWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -156,16 +208,35 @@
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
+				GYW01011CF9000F007C011A /* Embed Foundation Extensions */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				GYW01017CF9000F007C017A /* PBXTargetDependency */,
 			);
 			name = Runner;
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
+		};
+		GYW01012CF9000F007C012A /* GestaoYahwehWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = GYW01019CF9000F007C019A /* Build configuration list for PBXNativeTarget "GestaoYahwehWidgetExtension" */;
+			buildPhases = (
+				GYW01013CF9000F007C013A /* Sources */,
+				GYW01014CF9000F007C014A /* Frameworks */,
+				GYW01015CF9000F007C015A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GestaoYahwehWidgetExtension;
+			productName = GestaoYahwehWidgetExtension;
+			productReference = GYW01003CF9000F007C003A /* GestaoYahwehWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -177,6 +248,9 @@
 				LastUpgradeCheck = 1510;
 				ORGANIZATIONNAME = "";
 				TargetAttributes = {
+					GYW01012CF9000F007C012A = {
+						CreatedOnToolsVersion = 15.0;
+					};
 					331C8080294A63A400263BE5 = {
 						CreatedOnToolsVersion = 14.0;
 						TestTargetID = 97C146ED1CF9000F007C117D;
@@ -201,6 +275,7 @@
 			projectRoot = "";
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
+				GYW01012CF9000F007C012A /* GestaoYahwehWidgetExtension */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 			);
 		};
@@ -224,6 +299,15 @@
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				B4F7E8A31CF9000F007C117D /* GoogleService-Info.plist in Resources */,
 				B4F7E8B11CF9000F007C117D /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		GYW01015CF9000F007C015A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				GYW01009CF9000F007C001B /* Assets.xcassets in Resources */,
+				GYWPRIV02ED4AA1100515830 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -277,7 +361,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${CONFIGURATION}\" != \"Profile\" ]; then exit 0; fi\nif [ -n \"${CI:-}\" ] || [ -n \"${CM_BUILD_ID:-}\" ] || [ -n \"${CM_BUILD_DIR:-}\" ]; then\n  echo \"CI: dSYM Crashlytics apos archive (Codemagic upload-symbols)\"\n  exit 0\nfi\nCR_RUN=\"\"\nif [ -n \"${PODS_ROOT:-}\" ] && [ -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${PODS_ROOT}/FirebaseCrashlytics/run\"; elif [ -f \"${SRCROOT}/../Pods/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${SRCROOT}/../Pods/FirebaseCrashlytics/run\"; fi\nif [ -z \"$CR_RUN\" ]; then echo \"warning: FirebaseCrashlytics/run ausente — pod install\"; exit 0; fi\n\"$CR_RUN\"\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${CONFIGURATION}\" != \"Profile\" ]; then exit 0; fi\nif [ -n \"${CI:-}\" ] || [ -n \"${CM_BUILD_ID:-}\" ] || [ -n \"${CM_BUILD_DIR:-}\" ]; then\n  echo \"CI: dSYM Crashlytics apos archive (Codemagic upload-symbols)\"\n  exit 0\nfi\nCR_RUN=\"\"\nif [ -n \"${PODS_ROOT:-}\" ] && [ -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${PODS_ROOT}/FirebaseCrashlytics/run\"; elif [ -f \"${SRCROOT}/../Pods/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${SRCROOT}/../Pods/FirebaseCrashlytics/run\"; fi\nif [ -z \"$CR_RUN\" ]; then echo \"warning: FirebaseCrashlytics/run ausente â€” pod install\"; exit 0; fi\n\"$CR_RUN\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -299,6 +383,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		GYW01013CF9000F007C013A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				GYW01008CF9000F007C001A /* GestaoYahwehWidget.swift in Sources */,
+				GYWBF031ED4AA1100515820 /* WidgetFullBleedBackground.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -306,6 +399,11 @@
 			isa = PBXTargetDependency;
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
+		};
+		GYW01017CF9000F007C017A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = GYW01012CF9000F007C012A /* GestaoYahwehWidgetExtension */;
+			targetProxy = GYW01016CF9000F007C016A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -611,6 +709,87 @@
 			};
 			name = Release;
 		};
+		GYW01020CF9000F007C020A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = GestaoYahwehWidget/GestaoYahwehWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GestaoYahwehWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gestaoyahwehios.app.GestaoYahwehWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		GYW01021CF9000F007C021A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = GestaoYahwehWidget/GestaoYahwehWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GestaoYahwehWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gestaoyahwehios.app.GestaoYahwehWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		GYW01022CF9000F007C022A /* Profile */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = GestaoYahwehWidget/GestaoYahwehWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GestaoYahwehWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gestaoyahwehios.app.GestaoYahwehWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -640,6 +819,16 @@
 				97C147061CF9000F007C117D /* Debug */,
 				97C147071CF9000F007C117D /* Release */,
 				249021D4217E4FDB00AE95B9 /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		GYW01019CF9000F007C019A /* Build configuration list for PBXNativeTarget "GestaoYahwehWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				GYW01020CF9000F007C020A /* Debug */,
+				GYW01021CF9000F007C021A /* Release */,
+				GYW01022CF9000F007C022A /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

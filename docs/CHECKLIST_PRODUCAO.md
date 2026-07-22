@@ -34,10 +34,9 @@ Menu Master → **Saúde do Sistema** → aba **Central**
 
 ## Backup automático
 
-Cloud Functions já deployadas:
+Cloud Function:
 
-- `backupDailyToGcs` — export Firestore diário → GCS (`gcs.backup_bucket`)
-- `backupDailyToDrive` — backup legado Google Drive
+- `backupDailyToGcs` — export diário do Firestore no bucket padrão do Firebase Storage
 
 Coleções incluídas no export Firestore: usuários, eventos, avisos, patrimônio, financeiro (documentos em `igrejas/{tenant}/...`).
 

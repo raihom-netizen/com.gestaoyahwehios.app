@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
@@ -129,6 +130,7 @@ class MemberProfilePhotoUpdateService {
         memberId: mid,
         authUid: (authUid ?? '').trim().isEmpty ? null : authUid!.trim(),
       );
+      MemberCardPhotoCache.invalidateMember(tid, mid);
     }
   }
 
@@ -274,6 +276,16 @@ class MemberProfilePhotoUpdateService {
           'Upload da foto não concluiu. Verifique a rede e tente novamente.',
         );
       }
+      final authUid =
+          (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+              .toString()
+              .trim();
+      // Atualiza avatares já montados (hub/thread) antes dos espelhos remotos.
+      MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
+        tenantId: tenantId,
+        authUid: authUid.isEmpty ? memberDocId : authUid,
+        cacheRevision: r.cacheRevision,
+      );
       // Sync users/chat em background — UI já tem Storage+Firestore OK.
       unawaited(
         _afterPhotoSaved(
@@ -292,9 +304,7 @@ class MemberProfilePhotoUpdateService {
             thumbStoragePath: r.thumbStoragePath,
             tenantId: tenantId,
             memberDocId: memberDocId,
-            authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
-                .toString()
-                .trim(),
+            authUid: authUid,
           );
         }),
       );
@@ -337,6 +347,14 @@ class MemberProfilePhotoUpdateService {
     if (authUid.isNotEmpty) {
       futures.add(
         firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          if (photoUrl.isNotEmpty) ...{
+            'fotoUrl': photoUrl,
+            'photoUrl': photoUrl,
+          },
+          if (thumbUrl.isNotEmpty) ...{
+            'fotoThumbUrl': thumbUrl,
+            'photoThumbUrl': thumbUrl,
+          },
           'photoStoragePath': result.storagePath,
           'photoThumbStoragePath': result.thumbStoragePath,
           'fotoPath': result.storagePath,
@@ -346,6 +364,16 @@ class MemberProfilePhotoUpdateService {
           YahwehFlowLog.error('MEMBROS', e, st);
         }),
       );
+      if (firebaseDefaultAuth.currentUser?.uid == authUid &&
+          photoUrl.isNotEmpty) {
+        futures.add(
+          firebaseDefaultAuth.currentUser!
+              .updatePhotoURL(photoUrl)
+              .catchError((e, st) {
+            YahwehFlowLog.error('MEMBROS', e, st);
+          }),
+        );
+      }
     }
     futures.add(
       syncChatPeerProfilesAfterPhotoUpdate(
@@ -602,6 +630,10 @@ class MemberProfilePhotoUpdateService {
     if (authUid.isNotEmpty) {
       try {
         await firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          'fotoUrl': FieldValue.delete(),
+          'photoUrl': FieldValue.delete(),
+          'fotoThumbUrl': FieldValue.delete(),
+          'photoThumbUrl': FieldValue.delete(),
           'photoStoragePath': FieldValue.delete(),
           'photoThumbStoragePath': FieldValue.delete(),
           'fotoPath': FieldValue.delete(),
@@ -610,6 +642,13 @@ class MemberProfilePhotoUpdateService {
         }, SetOptions(merge: true));
       } catch (e, st) {
         YahwehFlowLog.error('MEMBROS', e, st);
+      }
+      if (firebaseDefaultAuth.currentUser?.uid == authUid) {
+        try {
+          await firebaseDefaultAuth.currentUser!.updatePhotoURL(null);
+        } catch (e, st) {
+          YahwehFlowLog.error('MEMBROS', e, st);
+        }
       }
     }
 

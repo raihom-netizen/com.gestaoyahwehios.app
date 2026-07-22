@@ -40,8 +40,8 @@ abstract final class ChurchAgendaWisdomUi {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              'Azul/laranja = compromissos · vermelho = fim de semana/feriado · '
-              'marrom = domingos · toque no dia para ver detalhes.',
+              'Células coloridas = compromissos · vermelho negrito = sábado, '
+              'domingo e feriado · toque no dia para ver o resumo.',
               style: TextStyle(
                 fontSize: 10.5,
                 height: 1.35,
@@ -69,7 +69,7 @@ abstract final class ChurchAgendaWisdomUi {
           fontSize: 12.5,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.4,
-          color: weekend ? const Color(0xFFBE123C) : const Color(0xFF475569),
+          color: weekend ? const Color(0xFFE53935) : const Color(0xFF475569),
         ),
       ),
     );
@@ -430,11 +430,14 @@ abstract final class ChurchAgendaWisdomUi {
   }
 
   /// Resumo mensal — WISDOMAPP.
+  /// [breakdown]: contagem por tipo (Cultos, Eventos, Reuniões…) em tiles coloridos, padrão Controle Total.
   static Widget monthSummaryCard({
     required String monthLabel,
     required ChurchAgendaWisdomFilter filter,
     required int total,
     VoidCallback? onTap,
+    List<({String label, int count, Color color, IconData icon})> breakdown =
+        const [],
   }) {
     final finance = filter == ChurchAgendaWisdomFilter.financeiros;
     final msg = total == 0
@@ -465,31 +468,90 @@ abstract final class ChurchAgendaWisdomUi {
               ),
             ],
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                finance ? Icons.payments_rounded : Icons.event_note_rounded,
-                color: finance ? financeOrange : particularesTeal,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  msg,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: ThemeCleanPremium.onSurface,
-                    height: 1.35,
+              Row(
+                children: [
+                  Icon(
+                    finance ? Icons.payments_rounded : Icons.event_note_rounded,
+                    color: finance ? financeOrange : particularesTeal,
+                    size: 22,
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      msg,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurface,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  if (onTap != null)
+                    Icon(Icons.chevron_right_rounded,
+                        color: Colors.grey.shade500, size: 24),
+                ],
               ),
-              if (onTap != null)
-                Icon(Icons.chevron_right_rounded,
-                    color: Colors.grey.shade500, size: 24),
+              if (breakdown.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final b in breakdown) _monthBreakdownTile(b),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  static Widget _monthBreakdownTile(
+    ({String label, int count, Color color, IconData icon}) b,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            b.color.withValues(alpha: 0.16),
+            b.color.withValues(alpha: 0.06),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: b.color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(b.icon, size: 16, color: b.color),
+          const SizedBox(width: 6),
+          Text(
+            '${b.count}',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
+              color: b.color,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            b.label,
+            style: GoogleFonts.poppins(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: ThemeCleanPremium.onSurface,
+            ),
+          ),
+        ],
       ),
     );
   }

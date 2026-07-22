@@ -19,6 +19,8 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
+    show showYahwehOriginalImageZoom;
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -1614,17 +1616,64 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                   if (item.imageUrls.isNotEmpty)
                     Column(
                       children: [
-                        AspectRatio(
-                          aspectRatio: 16 / 10,
+                        // Foto inteira (sem corte) + toque para ampliar em ecrã cheio.
+                        SizedBox(
+                          height: (MediaQuery.sizeOf(context).height * 0.52)
+                              .clamp(240.0, 520.0),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(16),
                             child: PageView.builder(
                               controller: _pageCtrl,
                               itemCount: item.imageUrls.length,
                               onPageChanged: (i) => setState(() => _index = i),
-                              itemBuilder: (_, i) => SafeNetworkImage(
-                                imageUrl: item.imageUrls[i],
-                                fit: BoxFit.cover,
+                              itemBuilder: (_, i) => GestureDetector(
+                                onTap: () => showYahwehOriginalImageZoom(
+                                  context,
+                                  imageUrl: item.imageUrls[i],
+                                ),
+                                child: Container(
+                                  color: const Color(0xFF0F172A),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      SafeNetworkImage(
+                                        imageUrl: item.imageUrls[i],
+                                        fit: BoxFit.contain,
+                                      ),
+                                      Positioned(
+                                        right: 10,
+                                        bottom: 10,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black
+                                                .withValues(alpha: 0.55),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.zoom_out_map_rounded,
+                                                  color: Colors.white,
+                                                  size: 15),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                'Ampliar',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),

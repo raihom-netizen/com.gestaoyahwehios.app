@@ -286,29 +286,19 @@ class MediaHandlerService {
     );
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);
+    // Foto inteira automática (sem ecrã de recorte por foto) — pedido do usuário:
+    // recortar só se quiser (câmara mantém o ecrã «Ajustar enquadramento» opcional).
     if (kIsWeb) {
-      return pickMultiCropEncodeFeedWebpSequential(
+      return pickMultiEncodeFeedWebAuto(
         list,
-        webCropContext: webCropContext,
         webpOutputQuality: webpOutputQuality,
         onPickedBeforeEncode: onPickedBeforeEncode,
         onEachReady: onEachReady,
         onEncodeSkipped: onEncodeSkipped,
       );
     }
-    // ignore: use_build_context_synchronously
-    if (kMediaTurboMobilePreset && !kIsWeb) {
-      return pickMultiEncodeFeedTurboFast(
-        list,
-        onPickedBeforeEncode: onPickedBeforeEncode,
-        onEachReady: onEachReady,
-        onEncodeSkipped: onEncodeSkipped,
-      );
-    }
-    return pickMultiCropEncodeFeedWebpSequential(
+    return pickMultiEncodeFeedTurboFast(
       list,
-      webCropContext: webCropContext,
-      webpOutputQuality: webpOutputQuality,
       onPickedBeforeEncode: onPickedBeforeEncode,
       onEachReady: onEachReady,
       onEncodeSkipped: onEncodeSkipped,

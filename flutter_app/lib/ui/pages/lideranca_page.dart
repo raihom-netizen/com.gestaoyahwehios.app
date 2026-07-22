@@ -55,7 +55,10 @@ class _LiderancaPageState extends State<LiderancaPage> {
     setState(() => _loading = true);
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
+        // Cap curto: não segurar o primeiro paint por causa do guard web.
+        await FirestoreWebGuard.ensurePanelReadReady()
+            .timeout(const Duration(seconds: 3), onTimeout: () {})
+            .catchError((e, st) {
           debugPrint('Lideranca _load ensurePanelReadReady: $e\n$st');
         });
       }
@@ -64,7 +67,15 @@ class _LiderancaPageState extends State<LiderancaPage> {
           : widget.tenantId.trim();
       _effectiveTenantId = tid;
 
-      final panel = await PanelDashboardSnapshotService.readOnce(tid);
+      // Cache do painel com timeout curto — se demorar (server/callable),
+      // cai direto para a consulta de membros em vez de segurar a tela.
+      PanelDashboardSnapshot panel = const PanelDashboardSnapshot();
+      try {
+        panel = await PanelDashboardSnapshotService.readOnce(tid).timeout(
+          const Duration(milliseconds: 3500),
+          onTimeout: () => const PanelDashboardSnapshot(),
+        );
+      } catch (_) {}
       if (panel.homeLeaders.isNotEmpty) {
         final rows = panel.homeLeaders.map((lite) {
           final data = lite.toMemberDataMap();
@@ -90,11 +101,16 @@ class _LiderancaPageState extends State<LiderancaPage> {
         return;
       }
 
-      final snap = await ChurchTenantResilientReads.membrosRecent(
-        tid,
-        limit: YahwehPerformanceV4.dashboardStatsSampleLimit,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-      final cargoMeta = await _loadCargoHierarchy(tid);
+      // Membros + hierarquia de cargos em PARALELO (antes era sequencial).
+      final results = await Future.wait([
+        ChurchTenantResilientReads.membrosRecent(
+          tid,
+          limit: YahwehPerformanceV4.dashboardStatsSampleLimit,
+        ).timeout(ChurchPanelReadTimeouts.queryCap),
+        _loadCargoHierarchy(tid),
+      ]);
+      final snap = results[0] as QuerySnapshot<Map<String, dynamic>>;
+      final cargoMeta = results[1] as Map<String, Map<String, dynamic>>;
       final rows = <_LeaderRow>[];
       for (final d in snap.docs) {
         final m = d.data();
@@ -309,9 +325,8 @@ class _LiderancaPageState extends State<LiderancaPage> {
         decoration: churchModuleBodyGradient(_accent),
         child: SafeArea(
           top: false,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : RefreshIndicator(
+          // Cabeçalho pinta imediatamente; só a lista espera o carregamento.
+          child: RefreshIndicator(
                   onRefresh: _load,
                   child: CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(
@@ -382,7 +397,22 @@ class _LiderancaPageState extends State<LiderancaPage> {
                           ),
                         ),
                       ),
-                      if (_rows.isEmpty)
+                      if (_loading)
+                        const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: Center(
+                            child: Padding(
+                              padding: EdgeInsets.only(bottom: 60),
+                              child: SizedBox(
+                                width: 30,
+                                height: 30,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (_rows.isEmpty)
                         SliverFillRemaining(
                           hasScrollBody: false,
                           child: ChurchWisdomModuleEmptyState(

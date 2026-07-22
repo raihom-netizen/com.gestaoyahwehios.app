@@ -356,7 +356,7 @@ class _MonthBirthdaySection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.centerLeft,
@@ -370,7 +370,7 @@ class _MonthBirthdaySection extends StatelessWidget {
                   monthName,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: 16,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.2,
                   ),
@@ -420,7 +420,7 @@ class _MonthBirthdaySection extends StatelessWidget {
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -435,7 +435,7 @@ class _MonthBirthdaySection extends StatelessWidget {
                     ),
                     if (day != sortedDays.last)
                       Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Divider(
                           height: 1,
                           color: Colors.grey.shade200,
@@ -477,17 +477,17 @@ class _DayBirthdayBlock extends StatelessWidget {
         Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 32,
+              height: 32,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: monthGradient),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
                 boxShadow: [
                   BoxShadow(
                     color: monthGradient.first.withValues(alpha: 0.25),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
@@ -496,22 +496,22 @@ class _DayBirthdayBlock extends StatelessWidget {
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w900,
-                  fontSize: 16,
+                  fontSize: 13,
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Text(
               entries.length == 1 ? '1 aniversariante' : '${entries.length} aniversariantes',
               style: TextStyle(
                 color: ThemeCleanPremium.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
-                fontSize: 13,
+                fontSize: 12.5,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _BirthdayYearPersonGrid(
           entries: entries,
           accent: monthGradient.first,
@@ -541,31 +541,31 @@ class _BirthdayYearPersonGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Linhas estreitas com altura natural (sem aspect ratio fixo) — a grade
+    // não «estica» os cards nem deixa espaço morto (web e celular).
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
-        final cols = w >= 900 ? 3 : (w >= 520 ? 2 : 1);
-        const gap = 10.0;
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: cols,
-            mainAxisSpacing: gap,
-            crossAxisSpacing: gap,
-            childAspectRatio: cols == 1 ? 2.65 : (cols == 2 ? 1.28 : 1.05),
-          ),
-          itemCount: entries.length,
-          itemBuilder: (context, index) {
-            return _BirthdayPersonTile(
-              entry: entries[index],
-              accent: accent,
-              tenantId: tenantId,
-              memberRole: memberRole,
-              viewerCpfDigits: viewerCpfDigits,
-              compact: true,
-            );
-          },
+        final cols = w >= 980 ? 2 : 1;
+        const gap = 8.0;
+        final tileW = cols == 1 ? w : (w - gap * (cols - 1)) / cols;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final entry in entries)
+              SizedBox(
+                width: tileW,
+                child: _BirthdayPersonTile(
+                  entry: entry,
+                  accent: accent,
+                  tenantId: tenantId,
+                  memberRole: memberRole,
+                  viewerCpfDigits: viewerCpfDigits,
+                  compact: true,
+                ),
+              ),
+          ],
         );
       },
     );
@@ -607,6 +607,7 @@ class _BirthdayPersonTile extends StatelessWidget {
       viewerCpfDigits: viewerCpfDigits,
       accent: accent,
       compact: compact,
+      dense: true,
       whatsappMessage: ChurchBirthdayParabenizar.messageFor(primeiro),
     );
   }

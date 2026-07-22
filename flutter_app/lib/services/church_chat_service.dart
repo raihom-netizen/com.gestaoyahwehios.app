@@ -3023,6 +3023,65 @@ class ChurchChatService {
     );
   }
 
+  /// Apaga TODAS as mensagens do thread (DM ou grupo) no Firestore.
+  /// Cada delete dispara a CF de limpeza de Storage (fotos/vídeos/áudios).
+  /// Não remove o documento do thread (DM) — só zera o preview; grupos
+  /// usam [deleteGroupThread] para apagar o doc também.
+  static Future<bool> purgeThreadMessagesCompletely({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    final tid = threadId.trim();
+    if (tid.isEmpty) return false;
+    try {
+      await ensureFirebaseReadyForChatSend();
+      final op = ChurchRepository.churchId(tenantId.trim());
+      final resolved = op.trim().isEmpty ? tenantId.trim() : op.trim();
+
+      final messages = messagesCol(resolved, tid);
+      // Até ~50 lotes × 400 = 20k mensagens — suficiente para limpar conversa.
+      for (var round = 0; round < 50; round++) {
+        final snap = await messages.limit(400).get();
+        if (snap.docs.isEmpty) break;
+        final batch = _db.batch();
+        for (final doc in snap.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+        if (snap.docs.length < 400) break;
+      }
+
+      // Zera o preview do thread (mantém participantes / DM intacta).
+      try {
+        await threadRef(resolved, tid).set(
+          {
+            'lastMessagePreview': '',
+            'lastMessage': '',
+            'lastMessageType': '',
+            'lastSenderUid': '',
+            'hasConversation': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } catch (_) {}
+
+      unawaited(
+        ChatMessagingEngine.clearConversationLocal(
+          churchId: resolved,
+          chatId: tid,
+        ),
+      );
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('purgeThreadMessagesCompletely: $e');
+      }
+      return false;
+    }
+  }
+
   /// Apaga thread de grupo (`dept_*`) e mensagens — só roles autorizados (regras Firestore).
   static Future<bool> deleteGroupThread({
     required String tenantId,
@@ -3035,16 +3094,11 @@ class ChurchChatService {
       final op = ChurchRepository.churchId(tenantId.trim());
       final resolved = op.trim().isEmpty ? tenantId.trim() : op.trim();
 
-      final messages = messagesCol(resolved, tid);
-      while (true) {
-        final snap = await messages.limit(400).get();
-        if (snap.docs.isEmpty) break;
-        final batch = _db.batch();
-        for (final doc in snap.docs) {
-          batch.delete(doc.reference);
-        }
-        await batch.commit();
-      }
+      final purged = await purgeThreadMessagesCompletely(
+        tenantId: resolved,
+        threadId: tid,
+      );
+      if (!purged) return false;
 
       try {
         final typing = threadRef(resolved, tid).collection('typing');

@@ -93,10 +93,10 @@ abstract final class FornecedorCompromissoPublishService {
         compromissoId: compromissoId,
         bytes: bytes,
         contentType: mimeType,
-        onProgress: (p) => onProgress?.call(0.08 + p * 0.82),
+        onProgress: (p) => onProgress?.call(0.08 + p.clamp(0.0, 1.0) * 0.86),
         alreadyCompressed: alreadyCompressed,
       );
-      onProgress?.call(0.92);
+      onProgress?.call(0.96);
       final patch = ChurchCanonicalMediaContract.financeComprovanteWritePatch(
         url: uploaded.downloadUrl,
         storagePath: uploaded.storagePath,

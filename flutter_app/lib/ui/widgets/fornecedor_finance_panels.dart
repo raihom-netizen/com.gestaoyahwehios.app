@@ -17,9 +17,15 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show
         excluirLancamentoFinanceiroComAuditoria,
+        removeFinanceComprovanteForLancamento,
         showFinanceLancamentoDetailsBottomSheet,
         showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart'
+    show
+        FinancePremiumIconAction,
+        FinancePremiumStatusPill,
+        FinancePremiumVinculoPill;
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_resumo_charts_section.dart';
@@ -42,8 +48,10 @@ Future<double> fornecedorFinanceLoadSaldoBancos(
     seedTenantId: tid,
     forceRefresh: forceRefresh,
   );
-  final contaIds =
-      contas.docs.map((d) => d.id).where((id) => id.trim().isNotEmpty).toSet();
+  final contaIds = contas.docs
+      .map((d) => d.id)
+      .where((id) => id.trim().isNotEmpty)
+      .toSet();
   final saldoMap = financeSaldoPorContaAteInclusive(
     contaIdsAtivas: contaIds,
     lancamentos: fin.docs.map((d) => d.data()),
@@ -118,14 +126,14 @@ void fornecedorShowLancamentoPreview(
   final isTransfer = t == 'transferencia';
   final v = financeParseValorBr(m['amount'] ?? m['valor']);
   final dt = financeLancamentoDate(m);
-  final dataStr =
-      dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
+  final dataStr = dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
   final cor = isTransfer
       ? const Color(0xFF2563EB)
       : (isSaida ? const Color(0xFFB91C1C) : const Color(0xFF15803D));
   final titulo = (m['descricao'] ?? m['categoria'] ?? 'Lançamento').toString();
   final subtitulo = (m['categoria'] ?? '').toString();
-  final compUrl = (m['comprovanteUrl'] ?? m['comprovanteLink'] ?? '').toString();
+  final compUrl = (m['comprovanteUrl'] ?? m['comprovanteLink'] ?? '')
+      .toString();
   showFinanceLancamentoDetailsBottomSheet(
     context,
     data: m,
@@ -160,9 +168,9 @@ class FornecedorFinanceHubPanel extends StatefulWidget {
   final VoidCallback onNovaDespesa;
   final VoidCallback onNovaReceita;
   final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)
-      onEditar;
+  onEditar;
   final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)
-      onExcluir;
+  onExcluir;
   final Future<void> Function(Map<String, dynamic> m, String id) onRecibo;
 
   @override
@@ -194,17 +202,17 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
         forceServer: force,
       ).timeout(PanelResilientLoad.queryCap);
       final fid = widget.fornecedorId.trim();
-      final filtered = r.docs.where((d) {
-        final m = d.data();
-        return (m['fornecedorId'] ?? '').toString().trim() == fid;
-      }).toList()
-        ..sort((a, b) {
-          final da = financeLancamentoDate(a.data());
-          final db = financeLancamentoDate(b.data());
-          if (da == null) return 1;
-          if (db == null) return -1;
-          return db.compareTo(da);
-        });
+      final filtered =
+          r.docs.where((d) {
+            final m = d.data();
+            return (m['fornecedorId'] ?? '').toString().trim() == fid;
+          }).toList()..sort((a, b) {
+            final da = financeLancamentoDate(a.data());
+            final db = financeLancamentoDate(b.data());
+            if (da == null) return 1;
+            if (db == null) return -1;
+            return db.compareTo(da);
+          });
       if (!mounted) return;
       final saldoBancos = await fornecedorFinanceLoadSaldoBancos(
         tid,
@@ -323,9 +331,9 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao gerar PDF: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao gerar PDF: $e')));
       }
     } finally {
       if (mounted) setState(() => _exportingPdf = false);
@@ -594,23 +602,18 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
               sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, i) {
-                    final d = _visible[i];
-                    return _LancamentoCard(
-                      doc: d,
-                      money: money,
-                      onTap: () => fornecedorShowLancamentoPreview(
-                        context,
-                        doc: d,
-                      ),
-                      onEditar: () => widget.onEditar(d),
-                      onExcluir: () => widget.onExcluir(d),
-                      onRecibo: () => widget.onRecibo(d.data(), d.id),
-                    );
-                  },
-                  childCount: _visible.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, i) {
+                  final d = _visible[i];
+                  return _LancamentoCard(
+                    doc: d,
+                    money: money,
+                    onTap: () =>
+                        fornecedorShowLancamentoPreview(context, doc: d),
+                    onEditar: () => widget.onEditar(d),
+                    onExcluir: () => widget.onExcluir(d),
+                    onRecibo: () => widget.onRecibo(d.data(), d.id),
+                  );
+                }, childCount: _visible.length),
               ),
             ),
         ],
@@ -707,11 +710,12 @@ class _FornecedoresFinanceModuloTabState
         lancamentos: fin.docs.map((d) => d.data()),
         ateInclusive: DateTime.now(),
       );
-      final saldoBancos =
-          saldoMap.values.fold<double>(0, (a, b) => a + b);
+      final saldoBancos = saldoMap.values.fold<double>(0, (a, b) => a + b);
       final linked = fin.docs
-          .where((d) =>
-              (d.data()['fornecedorId'] ?? '').toString().trim().isNotEmpty)
+          .where(
+            (d) =>
+                (d.data()['fornecedorId'] ?? '').toString().trim().isNotEmpty,
+          )
           .toList();
       for (final d in linked) {
         final m = d.data();
@@ -776,6 +780,7 @@ class _FornecedoresFinanceModuloTabState
   @override
   Widget build(BuildContext context) {
     final money = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final viewportWidth = MediaQuery.sizeOf(context).width;
     final porFn = _porFornecedor();
     var totalD = 0.0, totalR = 0.0;
     for (final v in porFn.values) {
@@ -867,36 +872,38 @@ class _FornecedoresFinanceModuloTabState
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _KpiTile(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final narrow = constraints.maxWidth < 540;
+                  final halfWidth = (constraints.maxWidth - 10) / 2;
+                  final cards = <Widget>[
+                    _KpiTile(
                       label: 'Despesas (geral)',
                       value: money.format(totalD),
                       color: const Color(0xFFB91C1C),
                       bg: const Color(0xFFFEE2E2),
+                      icon: Icons.trending_down_rounded,
                       onTap: rows.isEmpty
                           ? null
                           : () => _openLancamentosGrid(
-                                rows.first.key,
-                                filtro: 'despesas',
-                              ),
+                              rows.first.key,
+                              filtro: 'despesas',
+                            ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _KpiTile(
+                    _KpiTile(
                       label: 'Receitas (geral)',
                       value: money.format(totalR),
                       color: const Color(0xFF15803D),
                       bg: const Color(0xFFDCFCE7),
+                      icon: Icons.trending_up_rounded,
                       onTap: rows.isEmpty
                           ? null
                           : () {
                               final byRec = porFn.entries.toList()
                                 ..sort(
-                                  (a, b) =>
-                                      b.value.receitas.compareTo(a.value.receitas),
+                                  (a, b) => b.value.receitas.compareTo(
+                                    a.value.receitas,
+                                  ),
                                 );
                               if (byRec.first.value.receitas <= 0) return;
                               _openLancamentosGrid(
@@ -905,31 +912,55 @@ class _FornecedoresFinanceModuloTabState
                               );
                             },
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _KpiTile(
-                      label: 'Saldo fornec.',
+                    _KpiTile(
+                      label: 'Saldo fornecedores',
                       value: money.format(totalR - totalD),
-                      color: const Color(0xFF0D9488),
-                      bg: const Color(0xFFCCFBF1),
+                      color: (totalR - totalD) >= 0
+                          ? const Color(0xFF0D9488)
+                          : const Color(0xFFB91C1C),
+                      bg: (totalR - totalD) >= 0
+                          ? const Color(0xFFCCFBF1)
+                          : const Color(0xFFFEE2E2),
+                      icon: Icons.account_balance_wallet_rounded,
                       onTap: rows.isEmpty
                           ? null
                           : () {
                               final bySaldo = porFn.entries.toList()
                                 ..sort(
-                                  (a, b) => (b.value.receitas - b.value.despesas)
-                                      .abs()
-                                      .compareTo(
-                                        (a.value.receitas - a.value.despesas)
-                                            .abs(),
-                                      ),
+                                  (a, b) =>
+                                      (b.value.receitas - b.value.despesas)
+                                          .abs()
+                                          .compareTo(
+                                            (a.value.receitas -
+                                                    a.value.despesas)
+                                                .abs(),
+                                          ),
                                 );
                               _openLancamentosGrid(bySaldo.first.key);
                             },
                     ),
-                  ),
-                ],
+                  ];
+                  if (!narrow) {
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var i = 0; i < cards.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(child: cards[i]),
+                        ],
+                      ],
+                    );
+                  }
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      SizedBox(width: halfWidth, child: cards[0]),
+                      SizedBox(width: halfWidth, child: cards[1]),
+                      SizedBox(width: constraints.maxWidth, child: cards[2]),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -946,10 +977,8 @@ class _FornecedoresFinanceModuloTabState
                     );
                   }).toList(),
                   money: money,
-                  onFornecedorTap: (id) => _openLancamentosGrid(
-                    id,
-                    filtro: 'despesas',
-                  ),
+                  onFornecedorTap: (id) =>
+                      _openLancamentosGrid(id, filtro: 'despesas'),
                 ),
               ),
             ),
@@ -968,30 +997,30 @@ class _FornecedoresFinanceModuloTabState
                   )
                 : SliverGrid(
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount:
-                          MediaQuery.sizeOf(context).width >= 900 ? 3 : 2,
+                      crossAxisCount: viewportWidth < 700
+                          ? 1
+                          : viewportWidth < 1180
+                          ? 2
+                          : 3,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
-                      childAspectRatio: 1.22,
+                      mainAxisExtent: 158,
                     ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) {
-                        final e = rows[i];
-                        final nome = _nomeFornecedor(e.key);
-                        final cadastroOk = _nomes.containsKey(e.key);
-                        final saldo = e.value.receitas - e.value.despesas;
-                        return _FornecedorFinanceGridCard(
-                          nome: nome,
-                          cadastroOk: cadastroOk,
-                          despesas: money.format(e.value.despesas),
-                          receitas: money.format(e.value.receitas),
-                          saldo: money.format(saldo),
-                          saldoNegativo: saldo < 0,
-                          onTap: () => _openLancamentosGrid(e.key),
-                        );
-                      },
-                      childCount: rows.length,
-                    ),
+                    delegate: SliverChildBuilderDelegate((context, i) {
+                      final e = rows[i];
+                      final nome = _nomeFornecedor(e.key);
+                      final cadastroOk = _nomes.containsKey(e.key);
+                      final saldo = e.value.receitas - e.value.despesas;
+                      return _FornecedorFinanceGridCard(
+                        nome: nome,
+                        cadastroOk: cadastroOk,
+                        despesas: money.format(e.value.despesas),
+                        receitas: money.format(e.value.receitas),
+                        saldo: money.format(saldo),
+                        saldoNegativo: saldo < 0,
+                        onTap: () => _openLancamentosGrid(e.key),
+                      );
+                    }, childCount: rows.length),
                   ),
           ),
         ],
@@ -1008,6 +1037,7 @@ class _KpiTile extends StatelessWidget {
     required this.bg,
     this.onTap,
     this.fullWidth = false,
+    this.icon,
   });
 
   final String label;
@@ -1016,29 +1046,62 @@ class _KpiTile extends StatelessWidget {
   final Color bg;
   final VoidCallback? onTap;
   final bool fullWidth;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
     final child = Container(
       width: fullWidth ? double.infinity : null,
-      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minHeight: 82),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.15)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [bg, Color.lerp(bg, Colors.white, 0.38)!],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color.withValues(alpha: 0.85),
-            ),
+          Row(
+            children: [
+              if (icon != null) ...[
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: color, size: 17),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: color.withValues(alpha: 0.88),
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 7),
           Text(
             value,
             maxLines: 1,
@@ -1058,7 +1121,7 @@ class _KpiTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         child: child,
       ),
     );
@@ -1106,6 +1169,66 @@ class _TopFornecedoresChart extends StatelessWidget {
         ),
       );
     }
+    final legend = Column(
+      children: [
+        for (var i = 0; i < rows.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: onFornecedorTap == null
+                    ? null
+                    : () => onFornecedorTap!(rows[i].id),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 7,
+                    horizontal: 6,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: _palette[i % _palette.length],
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            rows[i].nome,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        money.format(rows[i].valor),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                          color: _palette[i % _palette.length],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1123,79 +1246,37 @@ class _TopFornecedoresChart extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
           ),
           const SizedBox(height: 14),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 132,
-                height: 132,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final chart = SizedBox(
+                width: 140,
+                height: 140,
                 child: PieChart(
                   PieChartData(
                     sectionsSpace: 2,
-                    centerSpaceRadius: 28,
+                    centerSpaceRadius: 30,
                     sections: sections,
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+              );
+              if (constraints.maxWidth < 500) {
+                return Column(
                   children: [
-                    for (var i = 0; i < rows.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: onFornecedorTap == null
-                                ? null
-                                : () => onFornecedorTap!(rows[i].id),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 4,
-                                horizontal: 4,
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                      color: _palette[i % _palette.length],
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      rows[i].nome,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                                  Text(
-                                    money.format(rows[i].valor),
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 11,
-                                      color: _palette[i % _palette.length],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                    Center(child: chart),
+                    const SizedBox(height: 14),
+                    legend,
                   ],
-                ),
-              ),
-            ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  chart,
+                  const SizedBox(width: 16),
+                  Expanded(child: legend),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1224,18 +1305,37 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final saldoColor = saldoNegativo
+        ? const Color(0xFFB91C1C)
+        : const Color(0xFF0D9488);
     return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                ThemeCleanPremium.primary.withValues(alpha: 0.055),
+              ],
+            ),
+            border: Border.all(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.09),
+                blurRadius: 16,
+                offset: const Offset(0, 7),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1243,38 +1343,59 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    width: 42,
+                    height: 42,
                     decoration: BoxDecoration(
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary,
+                          const Color(0xFF1D4ED8),
+                        ],
+                      ),
                       borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                          color: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.22,
+                          ),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Icon(
+                    child: const Icon(
                       Icons.storefront_rounded,
-                      color: ThemeCleanPremium.primary,
-                      size: 22,
+                      color: Colors.white,
+                      size: 21,
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        nome,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   Icon(
-                    Icons.open_in_new_rounded,
-                    size: 18,
-                    color: Colors.grey.shade400,
+                    Icons.arrow_forward_ios_rounded,
+                    size: 15,
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.7),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Text(
-                nome,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                  height: 1.2,
-                ),
-              ),
               if (!cadastroOk) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: 5),
                 Text(
                   'Cadastro removido',
                   style: TextStyle(
@@ -1285,28 +1406,97 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                 ),
               ],
               const Spacer(),
-              Text(
-                'Saldo $saldo',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                  color: saldoNegativo
-                      ? const Color(0xFFB91C1C)
-                      : const Color(0xFF0D9488),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Desp. $despesas',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-              ),
-              Text(
-                'Rec. $receitas',
-                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FornecedorFinanceMetric(
+                      label: 'Despesas',
+                      value: despesas,
+                      color: const Color(0xFFB91C1C),
+                      background: const Color(0xFFFEE2E2),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: _FornecedorFinanceMetric(
+                      label: 'Receitas',
+                      value: receitas,
+                      color: const Color(0xFF15803D),
+                      background: const Color(0xFFDCFCE7),
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: _FornecedorFinanceMetric(
+                      label: 'Saldo',
+                      value: saldo,
+                      color: saldoColor,
+                      background: saldoNegativo
+                          ? const Color(0xFFFEE2E2)
+                          : const Color(0xFFCCFBF1),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FornecedorFinanceMetric extends StatelessWidget {
+  const _FornecedorFinanceMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.background,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: color.withValues(alpha: 0.82),
+            ),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 11,
+                color: color,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1336,8 +1526,7 @@ class _LancamentoCard extends StatelessWidget {
     final isSaida = t.contains('saida') || t.contains('despesa');
     final v = financeParseValorBr(m['amount'] ?? m['valor']);
     final dt = financeLancamentoDate(m);
-    final dataStr =
-        dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
+    final dataStr = dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
     final cor = isSaida ? const Color(0xFFB91C1C) : const Color(0xFF15803D);
     final conta = isSaida
         ? (m['contaOrigemNome'] ?? m['contaOrigemId'] ?? '').toString()
@@ -1368,14 +1557,14 @@ class _LancamentoCard extends StatelessWidget {
               ],
             ),
             child: ListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 8,
+              ),
               leading: CircleAvatar(
                 backgroundColor: cor.withValues(alpha: 0.12),
                 child: Icon(
-                  isSaida
-                      ? Icons.south_west_rounded
-                      : Icons.north_east_rounded,
+                  isSaida ? Icons.south_west_rounded : Icons.north_east_rounded,
                   color: cor,
                 ),
               ),
@@ -1551,16 +1740,16 @@ class _FornecedorLancamentosGridSheetState
         forceServer: force,
       );
       final fid = widget.fornecedorId.trim();
-      final filtered = r.docs.where((d) {
-        return (d.data()['fornecedorId'] ?? '').toString().trim() == fid;
-      }).toList()
-        ..sort((a, b) {
-          final da = financeLancamentoDate(a.data());
-          final db = financeLancamentoDate(b.data());
-          if (da == null) return 1;
-          if (db == null) return -1;
-          return db.compareTo(da);
-        });
+      final filtered =
+          r.docs.where((d) {
+            return (d.data()['fornecedorId'] ?? '').toString().trim() == fid;
+          }).toList()..sort((a, b) {
+            final da = financeLancamentoDate(a.data());
+            final db = financeLancamentoDate(b.data());
+            if (da == null) return 1;
+            if (db == null) return -1;
+            return db.compareTo(da);
+          });
       if (!mounted) return;
       setState(() {
         _docs = filtered;
@@ -1722,7 +1911,6 @@ class _FornecedorLancamentosGridSheetState
   Widget build(BuildContext context) {
     final money = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
     final visible = _visible;
-    final crossCount = MediaQuery.sizeOf(context).width >= 700 ? 3 : 2;
     final despesasPorCat = <String, double>{};
     final receitasPorCat = <String, double>{};
     var totalD = 0.0, totalR = 0.0;
@@ -1813,65 +2001,63 @@ class _FornecedorLancamentosGridSheetState
             child: _loading && _docs.isEmpty
                 ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
                 : visible.isEmpty
-                    ? Center(
-                        child: Text(
-                          'Nenhum lançamento neste filtro.',
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      )
-                    : CustomScrollView(
-                        controller: widget.scrollController,
-                        slivers: [
-                          if (_docs.isNotEmpty)
-                            SliverToBoxAdapter(
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                                child: FinanceResumoChartsSection(
-                                  allLancamentos: _docs,
-                                  receitasPorCat: receitasPorCat,
-                                  despesasPorCat: despesasPorCat,
-                                  totalReceitas: totalR,
-                                  totalDespesas: totalD,
-                                  chartYear: DateTime.now().year,
-                                ),
-                              ),
-                            ),
-                          SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
-                            sliver: SliverGrid(
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: crossCount,
-                                mainAxisSpacing: 12,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 0.82,
-                              ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) {
-                                  final doc = visible[i];
-                                  return _FornecedorLancamentoGridTile(
-                                    doc: doc,
-                                    money: money,
-                                    onTap: () => fornecedorShowLancamentoPreview(
-                                      context,
-                                      doc: doc,
-                                    ),
-                                    onEditar: () => _editar(doc),
-                                    onExcluir: () => _excluir(doc),
-                                    onTogglePagamento: () =>
-                                        _toggleEfetivacao(doc),
-                                    onComprovante: () => _anexarComprovante(doc),
-                                    onVerComprovante: () =>
-                                        _verComprovante(doc.data()),
-                                  );
-                                },
-                                childCount: visible.length,
-                              ),
+                ? Center(
+                    child: Text(
+                      'Nenhum lançamento neste filtro.',
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
+                  )
+                : CustomScrollView(
+                    controller: widget.scrollController,
+                    slivers: [
+                      if (_docs.isNotEmpty)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                            child: FinanceResumoChartsSection(
+                              allLancamentos: _docs,
+                              receitasPorCat: receitasPorCat,
+                              despesasPorCat: despesasPorCat,
+                              totalReceitas: totalR,
+                              totalDespesas: totalD,
+                              chartYear: DateTime.now().year,
                             ),
                           ),
-                        ],
+                        ),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate((context, i) {
+                            final doc = visible[i];
+                            return _FornecedorLancamentoCtCard(
+                              doc: doc,
+                              money: money,
+                              onTap: () => fornecedorShowLancamentoPreview(
+                                context,
+                                doc: doc,
+                              ),
+                              onEditar: () => _editar(doc),
+                              onExcluir: () => _excluir(doc),
+                              onTogglePagamento: () => _toggleEfetivacao(doc),
+                              onComprovante: () => _anexarComprovante(doc),
+                              onVerComprovante: () =>
+                                  _verComprovante(doc.data()),
+                              onRemoverComprovante: () =>
+                                  removeFinanceComprovanteForLancamento(
+                                    context,
+                                    tenantId: widget.tenantId,
+                                    doc: doc,
+                                    onChanged: () {
+                                      unawaited(_load(force: true));
+                                      widget.onChanged?.call();
+                                    },
+                                  ),
+                            );
+                          }, childCount: visible.length),
+                        ),
                       ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -1879,8 +2065,9 @@ class _FornecedorLancamentosGridSheetState
   }
 }
 
-class _FornecedorLancamentoGridTile extends StatelessWidget {
-  const _FornecedorLancamentoGridTile({
+/// Card de lançamento — paridade visual com o módulo Financeiro (Controle Total).
+class _FornecedorLancamentoCtCard extends StatelessWidget {
+  const _FornecedorLancamentoCtCard({
     required this.doc,
     required this.money,
     required this.onTap,
@@ -1889,6 +2076,7 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
     required this.onTogglePagamento,
     required this.onComprovante,
     required this.onVerComprovante,
+    required this.onRemoverComprovante,
   });
 
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
@@ -1899,6 +2087,7 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
   final VoidCallback onTogglePagamento;
   final VoidCallback onComprovante;
   final VoidCallback onVerComprovante;
+  final VoidCallback onRemoverComprovante;
 
   @override
   Widget build(BuildContext context) {
@@ -1906,200 +2095,257 @@ class _FornecedorLancamentoGridTile extends StatelessWidget {
     final t = financeInferTipo(m);
     final isSaida = t.contains('saida') || t.contains('despesa');
     final isEntrada = t.contains('entrada') || t.contains('receita');
+    final isTransfer = t == 'transferencia';
     final v = financeParseValorBr(m['amount'] ?? m['valor']);
     final dt = financeLancamentoDate(m);
-    final dataStr =
-        dt != null ? DateFormat('dd/MM/yy').format(dt) : '';
-    final cor = isSaida
-        ? const Color(0xFFDC2626)
-        : (isEntrada ? const Color(0xFF15803D) : const Color(0xFF6366F1));
+    final dataStr = dt != null ? DateFormat('dd/MM/yyyy').format(dt) : '';
+    final color = isTransfer
+        ? const Color(0xFF6366F1)
+        : (isSaida ? const Color(0xFFDC2626) : const Color(0xFF15803D));
     final hasComp = FinanceComprovanteAttachService.hasComprovanteReady(m);
-    final compEnviando =
-        FinanceComprovanteAttachService.isComprovanteUploading(m);
+    final compEnviando = FinanceComprovanteAttachService.isComprovanteUploading(
+      m,
+    );
     final pendente = isSaida
         ? financeLancamentoPendentePagamento(m)
         : financeLancamentoPendenteRecebimento(m);
-    final desc = (m['descricao'] ?? m['categoria'] ?? 'Lançamento').toString();
+    final titulo = (m['descricao'] ?? m['categoria'] ?? 'Lançamento')
+        .toString();
+    final subtitulo = (m['categoria'] ?? '').toString();
+    final fornNome = (m['fornecedorNome'] ?? '').toString().trim();
+    final conciliadoOk = m['conciliado'] == true;
 
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        onLongPress: () async {
-          final compUrl = (m['comprovanteUrl'] ?? '').toString();
-          if (!context.mounted) return;
-          showFinanceLancamentoDetailsBottomSheet(
-            context,
-            data: m,
-            comprovanteUrl: compUrl,
-            dataStr: dataStr,
-            isEntrada: isEntrada,
-            isTransfer: t == 'transferencia',
-            color: cor,
-            valor: v,
-            titulo: desc,
-            subtitulo: (m['categoria'] ?? '').toString(),
-          );
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: cor.withValues(alpha: 0.2)),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
+    return Container(
+      margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          ...ThemeCleanPremium.softUiCardShadow,
+          BoxShadow(
+            color: color.withValues(alpha: 0.07),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+            spreadRadius: -2,
           ),
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: cor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      isSaida
-                          ? Icons.south_west_rounded
-                          : Icons.north_east_rounded,
-                      color: cor,
-                      size: 18,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (pendente)
-                    const _Badge(
-                      label: 'Pendente',
-                      color: Color(0xFFEA580C),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                money.format(v),
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 17,
-                  color: cor,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                desc,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
-              ),
-              if (dataStr.isNotEmpty)
-                Text(
-                  dataStr,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                ),
-              const Spacer(),
-              Wrap(
-                spacing: 4,
-                children: [
-                  if (hasComp)
-                    const _Badge(
-                      label: 'Comprovante',
-                      color: Color(0xFF0D9488),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _GridActionIcon(
-                    icon: pendente
-                        ? Icons.check_circle_outline_rounded
-                        : Icons.undo_rounded,
-                    tooltip: pendente
-                        ? (isSaida
-                            ? 'Confirmar pagamento'
-                            : 'Confirmar recebimento')
-                        : 'Marcar pendente',
-                    color: const Color(0xFF2563EB),
-                    onTap: onTogglePagamento,
-                  ),
-                  _GridActionIcon(
-                    icon: Icons.visibility_rounded,
-                    tooltip: hasComp ? 'Ver comprovante' : 'Sem comprovante',
-                    color: hasComp
-                        ? const Color(0xFF0D9488)
-                        : Colors.grey.shade400,
-                    onTap: onVerComprovante,
-                  ),
-                  if (compEnviando)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 2),
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+        ],
+        border: Border(
+          left: BorderSide(color: color, width: 3.5),
+          top: const BorderSide(color: Color(0xFFE8EEF4)),
+          right: const BorderSide(color: Color(0xFFE8EEF4)),
+          bottom: const BorderSide(color: Color(0xFFE8EEF4)),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            color.withValues(alpha: 0.2),
+                            color.withValues(alpha: 0.08),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
+                        border: Border.all(color: color.withValues(alpha: 0.2)),
                       ),
-                    )
-                  else
-                    _GridActionIcon(
-                      icon: hasComp
-                          ? Icons.sync_rounded
-                          : Icons.attach_file_rounded,
-                      tooltip: hasComp
-                          ? 'Trocar comprovante'
-                          : 'Anexar comprovante',
-                      color: const Color(0xFF7C3AED),
-                      onTap: onComprovante,
+                      child: Icon(
+                        isTransfer
+                            ? Icons.swap_horiz_rounded
+                            : (isEntrada
+                                  ? Icons.trending_up_rounded
+                                  : Icons.trending_down_rounded),
+                        color: color,
+                        size: 24,
+                      ),
                     ),
-                  _GridActionIcon(
-                    icon: Icons.edit_rounded,
-                    tooltip: 'Editar',
-                    color: ThemeCleanPremium.primary,
-                    onTap: onEditar,
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            titulo,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                          if (subtitulo.isNotEmpty)
+                            Text(
+                              subtitulo,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          if (fornNome.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: FinancePremiumVinculoPill(
+                                label: 'Fornecedor · ',
+                                isMembro: false,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isTransfer ? money.format(v) : ' ',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (dataStr.isNotEmpty)
+                      Text(
+                        dataStr,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    if (hasComp)
+                      FinancePremiumStatusPill(
+                        label: 'Comprovante',
+                        icon: Icons.receipt_long_rounded,
+                        colors: [
+                          ThemeCleanPremium.success,
+                          ThemeCleanPremium.success.withValues(alpha: 0.7),
+                        ],
+                      ),
+                    if (!isTransfer && !conciliadoOk)
+                      const FinancePremiumStatusPill(
+                        label: 'Não conciliado',
+                        icon: Icons.receipt_long_outlined,
+                        colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
+                      ),
+                    if (pendente)
+                      FinancePremiumStatusPill(
+                        label: isSaida ? 'A pagar' : 'Pendente',
+                        icon: Icons.schedule_rounded,
+                        colors: isSaida
+                            ? const [Color(0xFFDC2626), Color(0xFFF87171)]
+                            : const [Color(0xFFD97706), Color(0xFFFBBF24)],
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      FinancePremiumIconAction(
+                        icon: pendente
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.undo_rounded,
+                        color: const Color(0xFF2563EB),
+                        onTap: onTogglePagamento,
+                        tooltip: pendente
+                            ? (isSaida
+                                  ? 'Confirmar pagamento'
+                                  : 'Confirmar recebimento')
+                            : 'Marcar pendente',
+                      ),
+                      FinancePremiumIconAction(
+                        icon: Icons.edit_rounded,
+                        color: ThemeCleanPremium.primary,
+                        onTap: onEditar,
+                        tooltip: 'Editar',
+                      ),
+                      FinancePremiumIconAction(
+                        icon: Icons.delete_outline_rounded,
+                        color: const Color(0xFFDC2626),
+                        onTap: onExcluir,
+                        tooltip: 'Excluir',
+                      ),
+                      if (hasComp) ...[
+                        FinancePremiumIconAction(
+                          icon: Icons.visibility_rounded,
+                          color: const Color(0xFF0D9488),
+                          onTap: onVerComprovante,
+                          tooltip: 'Ver comprovante',
+                        ),
+                        FinancePremiumIconAction(
+                          icon: Icons.link_off_rounded,
+                          color: const Color(0xFFDC2626),
+                          onTap: onRemoverComprovante,
+                          tooltip: 'Remover comprovante',
+                        ),
+                      ] else if (compEnviando)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6),
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else
+                        FinancePremiumIconAction(
+                          icon: Icons.visibility_rounded,
+                          color: Colors.grey.shade400,
+                          onTap: onVerComprovante,
+                          tooltip: 'Sem comprovante',
+                        ),
+                      FinancePremiumIconAction(
+                        icon: hasComp || compEnviando
+                            ? Icons.sync_rounded
+                            : Icons.photo_camera_rounded,
+                        color: const Color(0xFF7C3AED),
+                        tooltip: hasComp || compEnviando
+                            ? 'Trocar comprovante'
+                            : 'Anexar comprovante',
+                        onTap: compEnviando
+                            ? () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Comprovante ainda sincronizando…',
+                                    ),
+                                  ),
+                                );
+                              }
+                            : onComprovante,
+                      ),
+                    ],
                   ),
-                  _GridActionIcon(
-                    icon: Icons.delete_outline_rounded,
-                    tooltip: 'Excluir',
-                    color: ThemeCleanPremium.error,
-                    onTap: onExcluir,
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class _GridActionIcon extends StatelessWidget {
-  const _GridActionIcon({
-    required this.icon,
-    required this.tooltip,
-    required this.color,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-      tooltip: tooltip,
-      onPressed: onTap,
-      icon: Icon(icon, size: 20, color: color),
     );
   }
 }

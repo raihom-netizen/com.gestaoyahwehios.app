@@ -57,8 +57,9 @@ abstract final class FornecedorCompromissoComprovanteService {
       bytes: bytes,
       mimeType: mime,
       ext: ext,
-      onProgress: onProgress,
+      onProgress: (p) => onProgress?.call(p.clamp(0.0, 1.0)),
       alreadyCompressed: alreadyCompressed,
+      skipEnsureReady: true,
     );
 
     return FornecedorComprovanteUploadResult(

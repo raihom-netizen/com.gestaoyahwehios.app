@@ -23,22 +23,24 @@ abstract final class MemberProfilePhotoResolver {
     if (data == null || data.isEmpty) return null;
 
     if (preferThumb) {
-      final thumbPath = MemberImageFields.photoThumbStoragePath(data);
-      if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
+      // HTTPS primeiro (com cache-bust no consumidor) — path Storage sem ?v=
+      // ficava preso na foto antiga após overwrite do mesmo objeto.
       final thumbUrl = MemberImageFields.photoThumbDownloadUrl(data);
       if (thumbUrl != null && thumbUrl.isNotEmpty) return thumbUrl;
-
-      final synthesized = _synthesizedThumbStoragePath(data);
-      if (synthesized != null && synthesized.isNotEmpty) return synthesized;
 
       final list = MemberProfileVariantsService.listPhotoUrl(data);
       if (list != null && list.isNotEmpty && !_looksLikeFullProfilePhotoPath(list)) {
         return list;
       }
 
-      // Último recurso em listas: full https/path (membros legados sem thumb).
       final https = MemberImageFields.photoDownloadUrl(data);
       if (https != null && https.isNotEmpty) return https;
+
+      final thumbPath = MemberImageFields.photoThumbStoragePath(data);
+      if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
+
+      final synthesized = _synthesizedThumbStoragePath(data);
+      if (synthesized != null && synthesized.isNotEmpty) return synthesized;
 
       final storagePath = MemberImageFields.photoStoragePath(data);
       if (storagePath != null && storagePath.isNotEmpty) return storagePath;

@@ -4,7 +4,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
@@ -12,6 +13,7 @@ import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_preload_service.dart';
 import 'package:gestao_yahweh/core/progressive_media_resolver.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 
 /// Pré-carrega painel em paralelo (avisos, eventos, aniversariantes, cache servidor).
 ///
@@ -33,7 +35,6 @@ abstract final class ChurchTenantDashboardWarmupService {
   ) async {
     final tid = tenantIdRaw.trim();
     if (tid.isEmpty) return;
-    if (!AppConnectivityService.instance.isOnline) return;
     if (firebaseDefaultAuth.currentUser == null) return;
 
     if (_lastTenant != tid) {
@@ -41,6 +42,13 @@ abstract final class ChurchTenantDashboardWarmupService {
       _done = false;
     }
     if (_done) return;
+
+    // Offline: paint local (Hive/prefs) — sync silenciosa ao voltar online.
+    if (!AppConnectivityService.instance.isOnline) {
+      _done = true;
+      unawaited(YahwehModuleCaches.warmUpTenant(tid));
+      return;
+    }
 
     unawaited(_run(context, tid));
   }

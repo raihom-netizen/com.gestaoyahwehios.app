@@ -91,6 +91,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_whatsapp_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/audio_service.dart';
@@ -432,11 +433,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           threadId: widget.threadId,
           uid: uid,
         );
+        // maxAge > 0: nunca apagar mensagens com upload recente/em curso
+        // (Duration.zero apagava mídia acabada de enviar ao reabrir a thread).
         await ChurchChatAutoRecoveryService.recoverStuckForThread(
           tenantId: _tid,
           threadId: widget.threadId,
           uid: uid,
-          maxAge: Duration.zero,
+          maxAge: const Duration(minutes: 10),
         );
       }
     } catch (e, st) {
@@ -688,19 +691,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final incoming = snap.docs;
     var changed = false;
     if (incoming.isNotEmpty) {
-      final prevLen = _latestRecentDocs.length;
-      final prevHead = prevLen > 0 ? _latestRecentDocs.first.id : '';
-      if (prevLen != incoming.length || prevHead != incoming.first.id) {
-        _latestRecentDocs = incoming;
-        changed = true;
-        _prunePendingOutboundMatchedByStream(incoming);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            _scheduleEnsureSenderProfilesForDocs(incoming);
-            _tryRecoverStuckUploadingMessages(incoming);
-          }
-        });
-      }
+      // Aplica SEMPRE o snapshot (não só quando length/head mudam):
+      // atualizações de conteúdo (finalize de upload, status) e mensagens novas
+      // dentro da mesma página não podem ser ignoradas — senão a mídia «some».
+      _latestRecentDocs = incoming;
+      changed = true;
+      _prunePendingOutboundMatchedByStream(incoming);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _scheduleEnsureSenderProfilesForDocs(incoming);
+          _tryRecoverStuckUploadingMessages(incoming);
+        }
+      });
     } else if (_latestRecentDocs.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
@@ -2314,18 +2316,55 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       }
       _prunePendingOutboundMatchedByStream(_latestRecentDocs);
       if (_pendingOutbound.any((p) => p.localId == localId)) {
-        Future<void>.delayed(const Duration(seconds: 2), () {
-          if (!mounted) return;
-          _prunePendingOutboundMatchedByStream(_latestRecentDocs);
-          if (_pendingOutbound.any((p) => p.localId == localId)) {
-            _removePending(localId);
-          }
-        });
+        // Só remove quando o doc do servidor estiver visível na lista.
+        _confirmPendingReplacedByServer(localId);
       }
     } else {
       _removePending(localId);
     }
     unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+  }
+
+  /// Remove a bolha local **somente** quando a mensagem do servidor já está
+  /// visível em [_latestRecentDocs] — evita o «sumiço» da mídia após o upload.
+  /// Enquanto a bolha local existe, o doc do servidor equivalente fica oculto
+  /// pelo filtro anti-duplicata, então nunca há duplicação.
+  void _confirmPendingReplacedByServer(String localId, {int attempt = 0}) {
+    if (!mounted) return;
+    final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+    if (i < 0) return; // Já removida (stream fez o prune).
+    final p = _pendingOutbound[i];
+    final fid = p.firestoreMessageId?.trim() ?? '';
+    final sp = p.storagePath?.trim() ?? '';
+    final visible = _latestRecentDocs.any((d) {
+      if (fid.isNotEmpty && d.id == fid) return true;
+      if (sp.isNotEmpty &&
+          ChurchChatMessageFields.storagePath(d.data()).trim() == sp) {
+        return true;
+      }
+      return false;
+    });
+    if (visible) {
+      _removePending(localId);
+      return;
+    }
+    if (attempt >= 8) {
+      // Estável (Telegram): NUNCA remover a bolha enquanto o doc do servidor
+      // não estiver visível na lista — senão a mídia «some» da conversa.
+      // A bolha fica em «Enviado» e o filtro anti-duplicata evita duplicação;
+      // seguimos verificando devagar até o stream entregar a mensagem.
+      unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+      Future<void>.delayed(
+        const Duration(seconds: 3),
+        () => _confirmPendingReplacedByServer(localId, attempt: attempt),
+      );
+      return;
+    }
+    unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+    Future<void>.delayed(
+      Duration(milliseconds: 350 + attempt * 450),
+      () => _confirmPendingReplacedByServer(localId, attempt: attempt + 1),
+    );
   }
 
   void _removePending(String localId) {
@@ -2583,8 +2622,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (mounted && pending.albumIndex == 0) {
             setState(() => _replyDraft = null);
           }
-          _removePending(pending.localId);
-          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+          // NÃO remover a bolha já: espera a mensagem do servidor aparecer
+          // na lista (senão a foto/áudio/arquivo «some» até o stream chegar).
+          pending.failed = false;
+          pending.errorMessage = null;
+          _setPendingProgress(pending.localId, 1.0);
+          if (mounted) setState(() {});
+          _confirmPendingReplacedByServer(pending.localId);
         },
         onError: (msg) {
           GlobalUploadProgress.instance.end();
@@ -2799,6 +2843,36 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     ));
   }
 
+  /// Ampliar foto recém-enviada (bytes locais — instantâneo, sem rede).
+  Future<void> _openPendingImageZoom(ChurchChatOutboundPending p) async {
+    Uint8List? bytes = p.previewBytes;
+    if ((bytes == null || bytes.isEmpty) && !kIsWeb) {
+      final path = p.localPath?.trim() ?? '';
+      if (path.isNotEmpty) {
+        try {
+          bytes = await File(path).readAsBytes();
+        } catch (_) {}
+      }
+    }
+    if (bytes == null || bytes.isEmpty || !mounted) return;
+    await showYahwehOriginalImageZoomBytes(context, bytes: bytes);
+  }
+
+  /// Doc sintético para ações (reencaminhar/remover) na bolha já enviada,
+  /// enquanto o stream ainda não substituiu a bolha local.
+  Map<String, dynamic> _sentDataForPending(
+    ChurchChatOutboundPending p,
+    String myUid,
+  ) =>
+      {
+        'senderUid': myUid,
+        'type': p.kind,
+        'storagePath': p.storagePath?.trim() ?? '',
+        'deliveryStatus': ChatThreadOperations.deliverySent,
+        'status': ChatThreadOperations.deliverySent,
+        if (p.fileName.trim().isNotEmpty) 'fileName': p.fileName.trim(),
+      };
+
   Widget _buildPendingOutboundBubble(
     ChurchChatOutboundPending p,
     String myUid,
@@ -2968,8 +3042,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         },
       );
     }
+    final canZoomPendingImage = p.kind == 'image' && !p.failed;
+    final sentFid = p.firestoreMessageId?.trim() ?? '';
+    final canPendingActions =
+        !p.failed && p.progress >= 1 && sentFid.isNotEmpty;
     return Align(
       alignment: Alignment.centerRight,
+      child: GestureDetector(
+        behavior: HitTestBehavior.deferToChild,
+        onTap: canZoomPendingImage
+            ? () => unawaited(_openPendingImageZoom(p))
+            : null,
+        onLongPress: canPendingActions
+            ? () => _showMessageActions(
+                  sentFid,
+                  _sentDataForPending(p, myUid),
+                  myUid,
+                )
+            : null,
       child: Container(
         constraints: BoxConstraints(maxWidth: maxBubbleW),
         margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
@@ -3042,6 +3132,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -3544,27 +3635,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
     try {
-      String resolved = raw;
-      if (StorageMediaService.isFirebaseStorageMediaUrl(raw) ||
-          raw.contains('firebasestorage') ||
-          raw.startsWith('gs://') ||
-          raw.startsWith('igrejas/')) {
-        resolved = await StorageMediaService.freshPlayableMediaUrl(raw);
-      } else {
-        final alt = await StorageMediaService.downloadUrlFromPathOrUrl(raw);
-        if (alt != null && alt.isNotEmpty) {
-          resolved = alt;
-        }
-      }
-      final uri = Uri.tryParse(resolved);
-      if (uri == null) {
-        _showChatAttachmentError('Link do ficheiro inválido.');
-        return;
-      }
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) {
-        _showChatAttachmentError('Não foi possível abrir o ficheiro.');
-      }
+      await showYahwehOriginalMedia(context, urlOrPath: raw);
     } catch (e) {
       _showChatAttachmentError(
         'Erro ao abrir ficheiro: ${formatUploadErrorForUser(e)}',
@@ -3702,10 +3773,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 final confirm = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: const Text('Excluir conversa?'),
+                    title: const Text('Limpar conversa?'),
                     content: const Text(
-                      'Remove esta conversa da sua lista. A outra pessoa '
-                      'mantém o histórico — só desaparece para si.',
+                      'Apaga esta conversa por completo no Firebase e no '
+                      'armazenamento (mensagens, fotos e vídeos) para TODOS '
+                      'os participantes. Esta ação não pode ser desfeita.',
                     ),
                     actions: [
                       TextButton(
@@ -3717,31 +3789,38 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           backgroundColor: ThemeCleanPremium.error,
                         ),
                         onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('Excluir'),
+                        child: const Text('Limpar tudo'),
                       ),
                     ],
                   ),
                 );
                 if (confirm != true || !context.mounted) return;
-                final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+                final purged =
+                    await ChatThreadOperations.purgeThreadMessagesCompletely(
+                  tenantId: _tid,
+                  threadId: widget.threadId,
+                );
+                await ChurchChatMemberPrefs.setHiddenDmThread(
                   tenantId: _tid,
                   threadId: widget.threadId,
                   hide: true,
                 );
                 if (!context.mounted) return;
-                if (!ok) {
+                if (!purged) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
+                    const SnackBar(
                       content: Text(
-                        'Limite de conversas ocultas '
-                        '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+                        'Não foi possível limpar a conversa. Verifique a rede.',
                       ),
+                      backgroundColor: ThemeCleanPremium.error,
                     ),
                   );
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Conversa removida da sua lista.'),
+                      content: Text(
+                        'Conversa limpa no Firebase e no armazenamento.',
+                      ),
                     ),
                   );
                   Navigator.of(context).pop();
@@ -3968,9 +4047,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       Icons.delete_outline_rounded,
                       color: ThemeCleanPremium.error,
                     ),
-                    title: const Text('Excluir conversa'),
+                    title: const Text('Limpar conversa'),
                     subtitle: const Text(
-                      'Remove da sua lista de conversas.',
+                      'Apaga mensagens, fotos e vídeos no Firebase para todos.',
                       style: TextStyle(fontSize: 11),
                     ),
                   ),
@@ -4294,7 +4373,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           );
                         }
                         final created = m['createdAt'];
-                        if (created is Timestamp) {
+                        // Só abandona/oculta upload preso se for MENSAGEM MINHA
+                        // e sem mídia resolvível — nunca esconder mídia de
+                        // outro remetente nem mensagem já com storagePath.
+                        if (created is Timestamp &&
+                            (m['senderUid'] ?? '').toString() == uid &&
+                            !ChurchChatMessageFields.hasResolvableMedia(m)) {
                           final age = DateTime.now()
                               .difference(created.toDate());
                           if (age > const Duration(minutes: 12)) {
@@ -5309,23 +5393,15 @@ class _MessageBody extends StatelessWidget {
                                       visualDensity: VisualDensity.compact,
                                     ),
                                     onPressed: () async {
-                                      final sp = ChurchChatMessageFields
-                                          .storagePath(data);
-                                      final resolved =
-                                          await ChurchChatMediaResolver
-                                              .resolveDownloadUrl(
-                                        storagePath: sp,
+                                      // Mesmo fluxo do toque na miniatura:
+                                      // resolve original (com fallback) e abre inteira.
+                                      await churchChatOpenReceivedMediaPreview(
+                                        context,
+                                        type: 'image',
+                                        data: data,
                                         tenantId: tenantId,
                                         messageId: messageId,
                                       );
-                                      final zoomUrl = resolved ??
-                                          ChurchChatMessageFields.mediaUrl(
-                                              data);
-                                      if (zoomUrl.isNotEmpty &&
-                                          context.mounted) {
-                                        await churchChatOpenImageZoom(
-                                            context, zoomUrl);
-                                      }
                                     },
                                     icon: const Icon(Icons.zoom_in_rounded,
                                         size: 22),

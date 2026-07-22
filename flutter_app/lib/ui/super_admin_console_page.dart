@@ -178,49 +178,56 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
     // ✅ Valores e limites base (podem ser editados no painel)
     up('inicial', {
       'name': 'Plano Inicial',
-      'priceMonthly': 49.90,
+      'priceMonthly': 59.90,
+      'priceAnnual': 599.00,
       'membersMax': 100,
       'limits': {'admins': 2, 'leaders': 10, 'members': 100},
       'order': 1,
     });
     up('essencial', {
       'name': 'Plano Essencial',
-      'priceMonthly': 59.90,
+      'priceMonthly': 69.90,
+      'priceAnnual': 699.00,
       'membersMax': 150,
       'limits': {'admins': 3, 'leaders': 15, 'members': 150},
       'order': 2,
     });
     up('intermediario', {
       'name': 'Plano Intermediario',
-      'priceMonthly': 69.90,
+      'priceMonthly': 79.90,
+      'priceAnnual': 799.00,
       'membersMax': 250,
       'limits': {'admins': 4, 'leaders': 25, 'members': 250},
       'order': 3,
     });
     up('avancado', {
       'name': 'Plano Avancado',
-      'priceMonthly': 89.90,
+      'priceMonthly': 99.90,
+      'priceAnnual': 999.00,
       'membersMax': 350,
       'limits': {'admins': 5, 'leaders': 35, 'members': 350},
       'order': 4,
     });
     up('profissional', {
       'name': 'Plano Profissional',
-      'priceMonthly': 99.90,
+      'priceMonthly': 109.90,
+      'priceAnnual': 1099.00,
       'membersMax': 400,
       'limits': {'admins': 6, 'leaders': 40, 'members': 400},
       'order': 5,
     });
     up('premium', {
       'name': 'Plano Premium',
-      'priceMonthly': 169.90,
+      'priceMonthly': 179.90,
+      'priceAnnual': 1799.00,
       'membersMax': 500,
       'limits': {'admins': 8, 'leaders': 60, 'members': 500},
       'order': 6,
     });
     up('premium_plus', {
       'name': 'Plano Premium Plus',
-      'priceMonthly': 189.90,
+      'priceMonthly': 199.90,
+      'priceAnnual': 1999.00,
       'membersMax': 600,
       'limits': {'admins': 10, 'leaders': 80, 'members': 600},
       'order': 7,

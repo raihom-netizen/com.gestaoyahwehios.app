@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
@@ -504,6 +506,9 @@ abstract final class ChurchAvisosService {
       throw StateError('Aviso não identificado para exclusão.');
     }
 
+    // Lápide ANTES do delete — nenhum refresh em background «ressuscita» o aviso.
+    TenantDeletedDocTombstones.mark(cid, TenantModuleKeys.avisos, [id]);
+
     await ensureFirebaseReadyForPublishUpload().catchError((_) {});
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
@@ -610,6 +615,8 @@ abstract final class ChurchAvisosService {
         .toSet()
         .toList();
     if (cid.isEmpty || ids.isEmpty) return 0;
+
+    TenantDeletedDocTombstones.mark(cid, TenantModuleKeys.avisos, ids);
 
     await _deleteAvisoDocs(churchId: cid, docIds: ids);
 

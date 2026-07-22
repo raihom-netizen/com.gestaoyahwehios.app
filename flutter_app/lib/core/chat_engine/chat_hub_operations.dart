@@ -127,4 +127,14 @@ abstract final class ChatHubOperations {
         tenantId: tenantId,
         threadId: threadId,
       );
+
+  /// Limpa TODAS as mensagens (e mídia no Storage via CF) — DM ou grupo.
+  static Future<bool> purgeThreadMessagesCompletely({
+    required String tenantId,
+    required String threadId,
+  }) =>
+      ChurchChatService.purgeThreadMessagesCompletely(
+        tenantId: tenantId,
+        threadId: threadId,
+      );
 }

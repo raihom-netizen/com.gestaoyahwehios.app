@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -125,7 +126,12 @@ abstract final class ChurchFornecedoresLoadService {
       _ram.remove(key);
       return null;
     }
-    return hit.docs;
+    return TenantDeletedDocTombstones.filter(
+      churchId,
+      TenantModuleKeys.fornecedores,
+      hit.docs,
+      (d) => d.id,
+    );
   }
 
   static void _putRam(
@@ -138,7 +144,15 @@ abstract final class ChurchFornecedoresLoadService {
       if (hit != null && hit.docs.isNotEmpty) return;
       return;
     }
-    _ram[key] = (docs: List.from(docs), at: DateTime.now());
+    final churchId = key.split('_fornecedores_').first;
+    final safe = TenantDeletedDocTombstones.filter(
+      churchId,
+      TenantModuleKeys.fornecedores,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
+      (d) => d.id,
+    );
+    if (safe.isEmpty) return;
+    _ram[key] = (docs: safe, at: DateTime.now());
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByNome(

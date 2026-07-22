@@ -39,6 +39,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -322,11 +323,15 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
+  /// Vermelho de calendário (padrão Controle Total): sábado, domingo e feriado nacional.
+  static const Color _calendarRedDay = Color(0xFFE53935);
+
   TextStyle _plainDayTextStyle({
     required bool isToday,
     required bool isSelected,
     required bool isOutside,
     required bool isWeekend,
+    required bool isHoliday,
     required double cellFs,
   }) {
     final primary = ThemeCleanPremium.primary;
@@ -337,25 +342,28 @@ class _CalendarPageState extends State<CalendarPage>
         color: Colors.white,
       );
     }
+    if (isOutside) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w500,
+        color: (isWeekend || isHoliday)
+            ? _calendarRedDay.withValues(alpha: 0.45)
+            : Colors.grey.shade400,
+      );
+    }
+    // Padrão Controle Total: SAB/DOM/feriado em vermelho negrito (mesmo sendo hoje).
+    if (isWeekend || isHoliday) {
+      return GoogleFonts.poppins(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w900,
+        color: _calendarRedDay,
+      );
+    }
     if (isToday) {
       return GoogleFonts.poppins(
         fontSize: cellFs,
         fontWeight: FontWeight.w800,
         color: primary,
-      );
-    }
-    if (isOutside) {
-      return GoogleFonts.poppins(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w500,
-        color: Colors.grey.shade400,
-      );
-    }
-    if (isWeekend) {
-      return GoogleFonts.poppins(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w600,
-        color: Colors.grey.shade600,
       );
     }
     return GoogleFonts.poppins(
@@ -429,6 +437,7 @@ class _CalendarPageState extends State<CalendarPage>
                     isSelected: isSelected,
                     isOutside: isOutside,
                     isWeekend: isWeekend,
+                    isHoliday: isHoliday,
                     cellFs: cellFs,
                   ),
                 ),
@@ -1960,6 +1969,12 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                   if (_canWrite)
                     IconButton(
+                      tooltip: 'Limpar por dia, período ou mês',
+                      onPressed: _showAgendaCleanupToolsSheet,
+                      icon: const Icon(Icons.auto_delete_rounded),
+                    ),
+                  if (_canWrite)
+                    IconButton(
                       tooltip: 'Novo evento',
                       onPressed: () => _showAddEvent(),
                       icon: const Icon(Icons.add_rounded),
@@ -2123,6 +2138,11 @@ class _CalendarPageState extends State<CalendarPage>
                 child: _buildViewToggleRow(),
               ),
               const SliverToBoxAdapter(
+                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
+              SliverToBoxAdapter(
+                child: _buildVoltarHojeButton(),
+              ),
+              const SliverToBoxAdapter(
                   child: SizedBox(height: ThemeCleanPremium.spaceMd)),
               SliverToBoxAdapter(
                 child: LayoutBuilder(
@@ -2273,6 +2293,16 @@ class _CalendarPageState extends State<CalendarPage>
             minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
             ),
         ),
+        if (_canWrite && _agendaView != _AgendaViewKind.list)
+          IconButton(
+            tooltip: 'Limpar por dia, período ou mês',
+            onPressed: _showAgendaCleanupToolsSheet,
+            icon: const Icon(Icons.auto_delete_rounded),
+            style: IconButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(ThemeCleanPremium.minTouchTarget, 44),
+            ),
+          ),
         if (_canWrite)
           IconButton(
             tooltip: 'Novo evento',
@@ -2284,6 +2314,77 @@ class _CalendarPageState extends State<CalendarPage>
             ),
           ),
       ],
+    );
+  }
+
+  /// Volta o calendário para o dia atual (mês, seleção e resumo do dia) — padrão Controle Total.
+  Future<void> _goToToday() async {
+    final now = DateTime.now();
+    final changedMonth =
+        _focusedMonth.year != now.year || _focusedMonth.month != now.month;
+    setState(() {
+      _selectedDay = DateTime(now.year, now.month, now.day);
+      _focusedDay = _selectedDay!;
+      _focusedMonth = DateTime(now.year, now.month, 1);
+      if (_agendaView == _AgendaViewKind.list) {
+        _clearAgendaBulkUi();
+        _agendaView = _AgendaViewKind.month;
+      }
+    });
+    if (changedMonth) {
+      await _reloadCalendar();
+    }
+  }
+
+  /// Botão «Hoje» em gradiente, acima do calendário (clone do módulo Escalas / Controle Total).
+  Widget _buildVoltarHojeButton() {
+    final now = DateTime.now();
+    final sameMonth =
+        _focusedMonth.year == now.year && _focusedMonth.month == now.month;
+    final label = sameMonth ? 'Hoje' : 'Voltar para hoje';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => unawaited(_goToToday()),
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: _AgendaPremiumTheme.heroGradient,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                color: ChurchAgendaWisdomUi.navy.withValues(alpha: 0.35),
+                blurRadius: 12,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.today_rounded, color: Colors.white, size: 22),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -2533,6 +2634,8 @@ class _CalendarPageState extends State<CalendarPage>
           exporting: _exportingPdf,
         ),
         const SizedBox(height: ThemeCleanPremium.spaceSm),
+        _buildVoltarHojeButton(),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildTableCalendarCard(),
         ChurchAgendaWisdomUi.calendarLegend(),
         if (_loading)
@@ -2608,7 +2711,7 @@ class _CalendarPageState extends State<CalendarPage>
               fontSize: isMobile ? 12.5 : 12,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.4,
-              color: const Color(0xFFBE123C),
+              color: _calendarRedDay,
             ),
           ),
           headerStyle: HeaderStyle(
@@ -2996,6 +3099,30 @@ class _CalendarPageState extends State<CalendarPage>
                                         ),
                                       ),
                                     ),
+                                  // Chips clicáveis padrão Controle Total (Localização/WhatsApp).
+                                  if (ev.location.trim().isNotEmpty)
+                                    _ctGradientActionChip(
+                                      icon: Icons.location_on_rounded,
+                                      label: 'Localização',
+                                      colors: const [
+                                        Color(0xFF1D4ED8),
+                                        Color(0xFF38BDF8),
+                                      ],
+                                      onTap: () => unawaited(
+                                          _openEventLocation(ev.location)),
+                                    ),
+                                  if (_whatsappDigitsForEvent(ev) != null)
+                                    _ctGradientActionChip(
+                                      icon: Icons.chat_rounded,
+                                      label: 'WhatsApp',
+                                      colors: const [
+                                        Color(0xFF128C7E),
+                                        Color(0xFF25D366),
+                                      ],
+                                      onTap: () => unawaited(
+                                          _openWhatsAppDigits(
+                                              _whatsappDigitsForEvent(ev)!)),
+                                    ),
                                 ],
                               ),
                             ],
@@ -3109,12 +3236,56 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
+  /// Grupo do resumo mensal (padrão Controle Total: Cultos, Reuniões, Ensino, Avisos, Eventos).
+  static String _monthSummaryGroup(_CalendarEvent ev) {
+    final t = ev.type.toLowerCase();
+    final ck = (ev.categoryKey ?? '').trim().toLowerCase();
+    if (ev.source == 'cultos' || ck == 'culto' || t.contains('culto')) {
+      return 'Cultos';
+    }
+    if (t.contains('reuni')) return 'Reuniões';
+    if (ck == 'ensino_ebd' ||
+        t.contains('ebd') ||
+        t.contains('ensino') ||
+        t.contains('curso') ||
+        t.contains('célula') ||
+        t.contains('celula')) {
+      return 'Ensino/EBD';
+    }
+    if (ev.source == 'noticias') return 'Avisos/Feed';
+    return 'Eventos';
+  }
+
+  static ({Color color, IconData icon}) _monthSummaryGroupStyle(String group) {
+    switch (group) {
+      case 'Cultos':
+        return (color: AgendaVisualPalette.culto, icon: Icons.church_rounded);
+      case 'Reuniões':
+        return (
+          color: ChurchAgendaWisdomUi.particularesTeal,
+          icon: Icons.groups_rounded,
+        );
+      case 'Ensino/EBD':
+        return (color: AgendaVisualPalette.curso, icon: Icons.school_rounded);
+      case 'Avisos/Feed':
+        return (
+          color: AgendaVisualPalette.feedEvento,
+          icon: Icons.campaign_rounded,
+        );
+      default:
+        return (
+          color: AgendaVisualPalette.evento,
+          icon: Icons.celebration_rounded,
+        );
+    }
+  }
+
   /// Totais e contagem por categoria no mês visível no calendário.
   Widget _buildFocusedMonthSummary() {
     final y = _focusedMonth.year;
     final m = _focusedMonth.month;
     var total = 0;
-    final byCat = <String, int>{};
+    final byGroup = <String, int>{};
     for (final e in _eventsByDay.entries) {
       DateTime? d;
       try {
@@ -3125,18 +3296,37 @@ class _CalendarPageState extends State<CalendarPage>
       if (d.year != y || d.month != m) continue;
       for (final ev in e.value) {
         total++;
-        final ck = (ev.categoryKey ?? 'outro').trim();
-        byCat[ck] = (byCat[ck] ?? 0) + 1;
+        final g = _monthSummaryGroup(ev);
+        byGroup[g] = (byGroup[g] ?? 0) + 1;
       }
     }
     final rawMonth = DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth);
     final monthLabel =
         rawMonth.isEmpty ? '' : '${rawMonth[0].toUpperCase()}${rawMonth.substring(1)}';
 
+    const groupOrder = [
+      'Cultos',
+      'Eventos',
+      'Reuniões',
+      'Ensino/EBD',
+      'Avisos/Feed',
+    ];
+    final breakdown =
+        <({String label, int count, Color color, IconData icon})>[];
+    for (final g in groupOrder) {
+      final count = byGroup[g] ?? 0;
+      if (count <= 0) continue;
+      final style = _monthSummaryGroupStyle(g);
+      breakdown.add(
+        (label: g, count: count, color: style.color, icon: style.icon),
+      );
+    }
+
     return ChurchAgendaWisdomUi.monthSummaryCard(
       monthLabel: monthLabel,
       filter: _wisdomFilter,
       total: total,
+      breakdown: breakdown,
       onTap: () => unawaited(_openFocusedMonthEventsSheet()),
     );
   }
@@ -3964,6 +4154,87 @@ class _CalendarPageState extends State<CalendarPage>
     await YahwehWhatsAppService.openPhoneDigits(digits);
   }
 
+  /// Abre a localização do evento no Google Maps: link direto ou busca pelo endereço.
+  Future<void> _openEventLocation(String raw) async {
+    final t = raw.trim();
+    if (t.isEmpty) return;
+    final low = t.toLowerCase();
+    Uri uri;
+    if (low.startsWith('http://') || low.startsWith('https://')) {
+      uri = Uri.tryParse(t) ??
+          Uri.parse(
+              'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(t)}');
+    } else if (low.contains('maps.google') ||
+        low.contains('google.com/maps') ||
+        low.contains('maps.app.goo.gl') ||
+        low.contains('goo.gl/maps')) {
+      uri = Uri.parse('https://$t');
+    } else {
+      uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(t)}');
+    }
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível abrir o mapa.')),
+        );
+      }
+    }
+  }
+
+  /// Chip de ação em gradiente (Localização/WhatsApp) — clone do Controle Total.
+  Widget _ctGradientActionChip({
+    required IconData icon,
+    required String label,
+    required List<Color> colors,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: colors,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: colors.last.withValues(alpha: 0.35),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: Colors.white),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _removeAgendaDocsLinkedToNoticia(String noticiaId) async {
     final q = await _agenda
         .where('noticiaId', isEqualTo: noticiaId)
@@ -4205,6 +4476,27 @@ class _CalendarPageState extends State<CalendarPage>
               if (ev.location.trim().isNotEmpty) ...[
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
                 _detailRow(Icons.place_rounded, ev.location.trim()),
+                const SizedBox(height: ThemeCleanPremium.spaceSm),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF1D4ED8),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () =>
+                        unawaited(_openEventLocation(ev.location)),
+                    icon: const Icon(Icons.location_on_rounded, size: 22),
+                    label: Text(
+                      'Abrir localização no Maps',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
               ],
               if (ev.responsible.trim().isNotEmpty) ...[
                 const SizedBox(height: ThemeCleanPremium.spaceSm),

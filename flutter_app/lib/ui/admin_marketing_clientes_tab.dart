@@ -346,8 +346,55 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                       value: ativo,
                       onChanged: (v) => setLocal(() => ativo = v),
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
+                    const SizedBox(height: 12),
+                    // Preview padrão CT: foto nova (pendente) ou capa/logo atual.
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        height: 150,
+                        width: double.infinity,
+                        color: const Color(0xFFF1F5F9),
+                        child: pendingBytes != null
+                            ? Image.memory(
+                                pendingBytes!,
+                                fit: BoxFit.contain,
+                              )
+                            : (ref != null
+                                ? MarketingClienteCapaThumb(
+                                    key: ValueKey<String>(
+                                      'ed_prev_${ref['id']}_${ref['fotoPath']}_${ref['fotoUrl']}',
+                                    ),
+                                    item: Map<String, dynamic>.from(ref),
+                                    width: double.infinity,
+                                    height: 150,
+                                    fit: BoxFit.cover,
+                                    placeholder: const Center(
+                                      child: SizedBox(
+                                        width: 24,
+                                        height: 24,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      ),
+                                    ),
+                                    errorWidget: const Center(
+                                      child: Icon(
+                                        Icons.add_photo_alternate_outlined,
+                                        size: 40,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                  )
+                                : const Center(
+                                    child: Icon(
+                                      Icons.add_photo_alternate_outlined,
+                                      size: 40,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  )),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.tonalIcon(
                       onPressed: uploading
                           ? null
                           : () async {
@@ -383,11 +430,18 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                                 );
                               }
                             },
-                      icon: const Icon(Icons.photo_outlined),
+                      icon: Icon(
+                        pendingBytes != null
+                            ? Icons.check_circle_rounded
+                            : Icons.photo_outlined,
+                      ),
                       label: Text(
                         pendingBytes != null
-                            ? 'Nova foto selecionada'
-                            : 'Escolher foto de capa',
+                            ? 'Nova foto selecionada — trocar'
+                            : 'Escolher foto de capa / logo',
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
                       ),
                     ),
                   ],
@@ -852,6 +906,9 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                   onPressed: _loading ? null : () => _openEditor(currentItems: items),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Adicionar igreja'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
                 ),
               ),
             ),
@@ -870,22 +927,40 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                 ),
                 sliver: SliverList.separated(
                   itemCount: items.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const SizedBox(height: ThemeCleanPremium.spaceSm),
                   itemBuilder: (context, i) {
                     final it = items[i];
                     final id = (it['id'] ?? '').toString();
                     final nome = (it['nomeIgreja'] ?? '').toString();
+                    final pastor = (it['pastor'] ?? '').toString().trim();
+                    final tid = (it['igrejaTenantId'] ?? it['tenantId'] ?? '')
+                        .toString()
+                        .trim();
+                    final ordem = _parseOrdem(it['ordem']);
                     final active = it['ativo'] != false;
+                    final accent = active
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFF59E0B);
                     return Container(
                       decoration: BoxDecoration(
                         color: ThemeCleanPremium.cardBackground,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(
-                          color: Colors.black.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.10),
+                            blurRadius: 18,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                        border: Border(
+                          left: BorderSide(color: accent, width: 4),
+                          top: const BorderSide(color: Color(0xFFE2E8F0)),
+                          right: const BorderSide(color: Color(0xFFE2E8F0)),
+                          bottom: const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                       ),
+                      clipBehavior: Clip.antiAlias,
                       child: Padding(
                         padding:
                             const EdgeInsets.all(ThemeCleanPremium.spaceMd),
@@ -894,22 +969,22 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                           children: [
                             MarketingClienteCapaThumb(
                               key: ValueKey<String>(
-                                'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['fotoUrlCacheRevision']}_${it['igrejaTenantId']}',
+                                'adm_mkt_${id}_${it['fotoPath']}_${it['fotoUrl']}_${it['fotoUrlCacheRevision']}_${it['igrejaTenantId']}_${it['logoUrl']}',
                               ),
                               item: Map<String, dynamic>.from(it),
-                              width: 72,
-                              height: 72,
+                              width: 84,
+                              height: 84,
                               fit: BoxFit.cover,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(14),
                               placeholder: Container(
-                                width: 72,
-                                height: 72,
+                                width: 84,
+                                height: 84,
                                 color: ThemeCleanPremium.surfaceVariant,
                                 child: const Icon(Icons.church_outlined),
                               ),
                               errorWidget: Container(
-                                width: 72,
-                                height: 72,
+                                width: 84,
+                                height: 84,
                                 color: ThemeCleanPremium.surfaceVariant,
                                 child: const Icon(Icons.church_outlined),
                               ),
@@ -919,65 +994,85 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          nome.isEmpty ? id : nome,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 16,
-                                          ),
-                                        ),
+                                  Text(
+                                    nome.isEmpty ? id : nome,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                      height: 1.2,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                  if (pastor.isNotEmpty) ...[
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      'Pastor: $pastor',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.grey.shade700,
                                       ),
-                                      if (!active)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.orange.shade50,
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                          ),
-                                          child: Text(
-                                            'Inativo',
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.orange.shade800,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      _AdminClienteChip(
+                                        icon: active
+                                            ? Icons.check_circle_rounded
+                                            : Icons.pause_circle_rounded,
+                                        label: active
+                                            ? 'Ativo no site'
+                                            : 'Inativo',
+                                        color: accent,
+                                      ),
+                                      _AdminClienteChip(
+                                        icon: Icons.sort_rounded,
+                                        label: 'Ordem $ordem',
+                                        color: const Color(0xFF3B82F6),
+                                      ),
+                                      if (tid.isNotEmpty)
+                                        _AdminClienteChip(
+                                          icon: Icons.link_rounded,
+                                          label: tid,
+                                          color: const Color(0xFF8B5CF6),
                                         ),
                                     ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'ID: $id',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            IconButton(
-                              tooltip: 'Editar',
-                              onPressed: () => _openEditor(
-                                currentItems: items,
-                                existing: Map<String, dynamic>.from(it),
-                              ),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                            IconButton(
-                              tooltip: 'Excluir',
-                              onPressed: () => _confirmDelete(it),
-                              icon: Icon(
-                                Icons.delete_outline_rounded,
-                                color: ThemeCleanPremium.error,
-                              ),
+                            Column(
+                              children: [
+                                IconButton(
+                                  tooltip: 'Editar',
+                                  onPressed: () => _openEditor(
+                                    currentItems: items,
+                                    existing: Map<String, dynamic>.from(it),
+                                  ),
+                                  icon: const Icon(Icons.edit_outlined),
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(48, 48),
+                                    backgroundColor: const Color(0xFF3B82F6)
+                                        .withValues(alpha: 0.10),
+                                    foregroundColor: const Color(0xFF2563EB),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                IconButton(
+                                  tooltip: 'Excluir',
+                                  onPressed: () => _confirmDelete(it),
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(48, 48),
+                                    backgroundColor: ThemeCleanPremium.error
+                                        .withValues(alpha: 0.10),
+                                    foregroundColor: ThemeCleanPremium.error,
+                                  ),
+                                  icon:
+                                      const Icon(Icons.delete_outline_rounded),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -988,6 +1083,51 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
               ),
           ],
         ),
+    );
+  }
+}
+
+/// Chip informativa compacta dos cards da galeria (painel Master).
+class _AdminClienteChip extends StatelessWidget {
+  const _AdminClienteChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 190),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color.lerp(color, Colors.black, 0.25),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

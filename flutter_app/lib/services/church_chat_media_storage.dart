@@ -35,6 +35,8 @@ abstract final class ChurchChatMediaStorage {
           mimeType: contentType,
           onProgress: onProgress,
           requireAuth: true,
+          // 1.ª tentativa: gate já feito no send; retry faz ensureReady acima.
+          skipEnsureReady: attempt == 0,
         );
       } catch (e, st) {
         last = e;

@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
-/// Logs de uso de banco, Google Drive etc. Master vê todos; Gestor local vê só da sua igreja. Super Premium, responsivo.
+/// Logs de uso do Firebase. Master vê todos; Gestor local vê só da sua igreja. Super Premium, responsivo.
 class AdminAuditoriaPage extends StatefulWidget {
   const AdminAuditoriaPage({super.key});
 

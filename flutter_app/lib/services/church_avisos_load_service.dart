@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -45,15 +46,31 @@ abstract final class ChurchAvisosLoadService {
   static String cacheKey(String churchId, int limit) =>
       '${churchId.trim()}_avisos_active_$limit';
 
+  /// Remove itens recém-excluídos (lápides) — nenhuma cache pode ressuscitá-los.
+  static List<ChurchAvisoItem> _withoutDeleted(
+    String churchId,
+    List<ChurchAvisoItem> items,
+  ) =>
+      TenantDeletedDocTombstones.filter(
+        churchId,
+        TenantModuleKeys.avisos,
+        items,
+        (item) => item.id,
+      );
+
   static List<ChurchAvisoItem> _mapDocs(
     Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
     required DateTime now,
+    required String churchId,
     int? max,
   }) {
-    final out = docs
-        .map(ChurchAvisoItem.fromDoc)
-        .where((a) => ChurchAvisosService.isActive(a, now: now))
-        .toList();
+    final out = _withoutDeleted(
+      churchId,
+      docs
+          .map(ChurchAvisoItem.fromDoc)
+          .where((a) => ChurchAvisosService.isActive(a, now: now))
+          .toList(),
+    );
     if (max != null && out.length > max) {
       return out.sublist(0, max);
     }
@@ -170,15 +187,19 @@ abstract final class ChurchAvisosLoadService {
       final hit = _ram[ramKey];
       if (hit != null && DateTime.now().difference(hit.at) <= _ramTtl) {
         unawaited(_refreshInBackground(churchId: churchId, limit: limit, ramKey: ramKey));
-        return hit.items.length > limit
-            ? hit.items.sublist(0, limit)
-            : hit.items;
+        final items = _withoutDeleted(churchId, hit.items);
+        return items.length > limit ? items.sublist(0, limit) : items;
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null && mem.docs.isNotEmpty) {
         final now = DateTime.now();
-        final items = _mapDocs(_filterPublishedSorted(mem.docs), now: now, max: limit);
+        final items = _mapDocs(
+          _filterPublishedSorted(mem.docs),
+          now: now,
+          churchId: churchId,
+          max: limit,
+        );
         _putRam(ramKey, items);
         return items;
       }
@@ -193,7 +214,12 @@ abstract final class ChurchAvisosLoadService {
           final published = _filterPublishedSorted(docs);
           if (published.isNotEmpty) {
             final now = DateTime.now();
-            final items = _mapDocs(published, now: now, max: limit);
+            final items = _mapDocs(
+              published,
+              now: now,
+              churchId: churchId,
+              max: limit,
+            );
             _putRam(ramKey, items);
             unawaited(_refreshInBackground(
               churchId: churchId,
@@ -210,7 +236,7 @@ abstract final class ChurchAvisosLoadService {
       await _ensureFirebaseForRead();
     } catch (_) {
       final hit = _ram[ramKey];
-      if (hit != null) return hit.items;
+      if (hit != null) return _withoutDeleted(churchId, hit.items);
       return const [];
     }
 
@@ -229,13 +255,20 @@ abstract final class ChurchAvisosLoadService {
       ).timeout(ChurchPanelReadTimeouts.queryCap);
 
       final now = DateTime.now();
-      final items = _mapDocs(docs, now: now, max: limit);
+      final items = _mapDocs(docs, now: now, churchId: churchId, max: limit);
       _putRam(ramKey, items);
       unawaited(
         TenantModuleHiveCache.saveDocs(
           churchId,
           TenantModuleKeys.avisos,
           docs
+              .where(
+                (d) => !TenantDeletedDocTombstones.contains(
+                  churchId,
+                  TenantModuleKeys.avisos,
+                  d.id,
+                ),
+              )
               .map(
                 (d) => <String, dynamic>{
                   'id': d.id,
@@ -249,11 +282,16 @@ abstract final class ChurchAvisosLoadService {
       return items;
     } catch (_) {
       final hit = _ram[ramKey];
-      if (hit != null) return hit.items;
+      if (hit != null) return _withoutDeleted(churchId, hit.items);
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null && mem.docs.isNotEmpty) {
         final now = DateTime.now();
-        return _mapDocs(_filterPublishedSorted(mem.docs), now: now, max: limit);
+        return _mapDocs(
+          _filterPublishedSorted(mem.docs),
+          now: now,
+          churchId: churchId,
+          max: limit,
+        );
       }
       rethrow;
     }
@@ -272,7 +310,7 @@ abstract final class ChurchAvisosLoadService {
     final hit = _ram[cacheKey(churchId, lim)];
     if (hit == null) return null;
     if (DateTime.now().difference(hit.at) > _ramTtl) return null;
-    final items = hit.items;
+    final items = _withoutDeleted(churchId, hit.items);
     if (limit != null && items.length > limit) {
       return items.sublist(0, limit);
     }

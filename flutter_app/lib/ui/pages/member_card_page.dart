@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/member_card_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
 import 'package:gestao_yahweh/services/member_card_sign_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -129,6 +130,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   MemberCardLoadPayload? _cardPayload;
   bool _loadingCard = false;
   Object? _cardError;
+  late final VoidCallback _photoSyncListener;
 
   final ScreenshotController _shotCtrl = ScreenshotController();
 
@@ -159,6 +161,8 @@ class _MemberCardPageState extends State<MemberCardPage>
   @override
   void initState() {
     super.initState();
+    _photoSyncListener = _onMemberProfilePhotoSynced;
+    MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     if (kIsWeb) {
       unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
     }
@@ -172,10 +176,45 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   @override
   void dispose() {
+    MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
     _tabs?.dispose();
     super.dispose();
+  }
+
+  void _onMemberProfilePhotoSynced() {
+    final n = MemberProfilePhotoSyncNotifier.instance;
+    final tid = (n.lastTenantId ?? '').trim();
+    final uid = (n.lastAuthUid ?? '').trim();
+    if (!mounted || tid.isEmpty || uid.isEmpty) return;
+    final church = _churchIdResolved.trim();
+    if (church.isNotEmpty && tid != church && tid != widget.tenantId.trim()) {
+      return;
+    }
+    final payload = _cardPayload;
+    final preview = _previewMember;
+    final targetId = (preview?.id ?? widget.memberId ?? '').trim();
+    final payloadAuth = (payload?.member['authUid'] ??
+            payload?.member['firebaseUid'] ??
+            '')
+        .toString()
+        .trim();
+    final matches = targetId == uid ||
+        payload?.memberId == uid ||
+        payloadAuth == uid ||
+        (preview != null &&
+            ((preview.data['authUid'] ?? '').toString().trim() == uid));
+    if (!matches && targetId.isNotEmpty) return;
+    if (widget.cnhFullscreenOnly || _isRestricted || preview != null) {
+      unawaited(_loadSingleCard(
+        memberId: preview?.id ?? widget.memberId,
+        seed: preview?.data ?? widget.memberSeedData,
+        restricted: _isRestricted,
+      ));
+    } else {
+      unawaited(_reloadMembers(forceRefresh: true));
+    }
   }
 
   @override
@@ -1402,6 +1441,7 @@ class _MemberCardPageState extends State<MemberCardPage>
                 tenantId: _churchIdResolved,
                 memberId: m.id,
                 imageUrl: m.photoUrl,
+                memberData: m.data,
                 size: 52,
                 preferListThumbnail: true,
               ),
@@ -1658,6 +1698,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                 memberFirestoreHint: payload.member,
                 width: 88,
                 height: 88,
+                imageCacheRevision:
+                    memberPhotoDisplayCacheRevision(payload.member),
+                preferListThumbnail: false,
               ),
             ),
           ),

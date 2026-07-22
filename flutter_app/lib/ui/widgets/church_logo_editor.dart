@@ -29,7 +29,7 @@ class ChurchLogoEditorSnapshot {
   bool get hasLogoMutation => hasPending || removeExisting;
 }
 
-/// Editor da logo institucional — pré-visualização 4K, adicionar/trocar/remover.
+/// Editor da logo institucional — pré-visualização, adicionar/trocar/remover.
 class ChurchLogoEditor extends StatefulWidget {
   const ChurchLogoEditor({
     super.key,
@@ -149,8 +149,8 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
     try {
       final picked = await ChurchCtModuleUpload.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 92,
-        maxWidth: 3840,
+        imageQuality: 85,
+        maxWidth: 1600,
       );
       if (picked == null || !mounted) return;
       final bytes = picked.bytes;
@@ -189,8 +189,8 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
     try {
       final picked = await ChurchCtModuleUpload.pickImage(
         source: ImageSource.camera,
-        imageQuality: 92,
-        maxWidth: 3840,
+        imageQuality: 85,
+        maxWidth: 1600,
       );
       if (picked == null || !mounted) return;
       final bytes = picked.bytes;
@@ -366,7 +366,7 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
           if (showHint && (widget.canAdd || widget.canChange)) ...[
             const SizedBox(height: 8),
             Text(
-              'Toque em «Adicionar logo» para escolher em 4K',
+              'Toque em «Adicionar logo» para escolher a imagem',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -485,7 +485,7 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Alta resolução (até 4K). Pinça para ampliar a pré-visualização.',
+                      'Resolução otimizada (padrão Controle Total). Pinça para ampliar a pré-visualização.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,

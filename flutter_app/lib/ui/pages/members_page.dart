@@ -65,6 +65,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
@@ -307,7 +308,7 @@ class _MembersPageState extends State<MembersPage> {
       memberDocId: memberDocId,
       authUid: (memberData['authUid'] ?? '').toString().trim(),
     );
-    Future.delayed(const Duration(seconds: 20), () {
+    Future.delayed(const Duration(seconds: 90), () {
       if (!mounted) return;
       setState(() => _uploadedPhotoUrls.remove(memberDocId));
     });
@@ -536,6 +537,7 @@ class _MembersPageState extends State<MembersPage> {
   /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
   MembersDirectorySnapshot _directoryCache = const MembersDirectorySnapshot();
   StreamSubscription<MembersDirectorySnapshot>? _directoryCacheSub;
+  late final VoidCallback _photoSyncListener;
 
   static int? _parseIdade(dynamic raw) {
     if (raw == null) return null;
@@ -738,6 +740,8 @@ class _MembersPageState extends State<MembersPage> {
   void initState() {
     super.initState();
     logYahwehModuleScreen('membros');
+    _photoSyncListener = _onMemberProfilePhotoSynced;
+    MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     _searchCtrl = TextEditingController();
     if (widget.initialSearchQuery != null &&
         widget.initialSearchQuery!.trim().isNotEmpty) {
@@ -762,11 +766,16 @@ class _MembersPageState extends State<MembersPage> {
     );
     _warmMembrosCacheFirst(_forceCanonicalTenantId(widget.tenantId));
     final tidBootstrap = _forceCanonicalTenantId(widget.tenantId);
-    final memPeek = MembersDirectorySnapshotService.peekMemory(tidBootstrap);
-    if (memPeek != null && memPeek.hasEntries) {
-      _directoryCache = memPeek;
-      _membersVisibleCount =
-          memPeek.entries.length.clamp(_membersPageSize, _membersListInstantCap);
+    // Membro comum: NUNCA hidratar o diretório completo em memória (vaza na UI).
+    if (!_selfOnlyMemberList) {
+      final memPeek = MembersDirectorySnapshotService.peekMemory(tidBootstrap);
+      if (memPeek != null && memPeek.hasEntries) {
+        _directoryCache = memPeek;
+        _membersVisibleCount = memPeek.entries.length
+            .clamp(_membersPageSize, _membersListInstantCap);
+      }
+    } else {
+      _directoryCache = const MembersDirectorySnapshot();
     }
     _membersDataFuture = _initialMembersLoad();
     _deptsFuture = _loadDeptsForFilter();
@@ -835,6 +844,7 @@ class _MembersPageState extends State<MembersPage> {
 
   @override
   void dispose() {
+    MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     _directoryCacheSub?.cancel();
     _membersRealtimeDebounce?.cancel();
     for (final sub in _membersRealtimeSubs) {
@@ -844,6 +854,28 @@ class _MembersPageState extends State<MembersPage> {
     _searchCtrl.dispose();
     _membersScrollController.dispose();
     super.dispose();
+  }
+
+  /// Foto trocada no chat/perfil: reconstrói avatares da lista sem esperar o stream.
+  void _onMemberProfilePhotoSynced() {
+    final n = MemberProfilePhotoSyncNotifier.instance;
+    final tid = (n.lastTenantId ?? '').trim();
+    final uid = (n.lastAuthUid ?? '').trim();
+    if (!mounted || tid.isEmpty || uid.isEmpty) return;
+    if (tid != _effectiveTenantId.trim()) return;
+    final rev = n.lastCacheRevision;
+    final patch = <String, dynamic>{
+      if (rev > 0) 'fotoUrlCacheRevision': rev,
+    };
+    // Atualiza overlay do doc id = authUid e de fichas com o mesmo authUid.
+    _applyMemberSavedLocally(uid, patch);
+    for (final e in _directoryCache.entries) {
+      final au = (e.authUid ?? '').trim();
+      if (au == uid || e.memberDocId == uid) {
+        _applyMemberSavedLocally(e.memberDocId, patch);
+      }
+    }
+    if (mounted) setState(() {});
   }
 
   void _scheduleMembersAutoRefresh() {
@@ -965,6 +997,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   Future<void> _watchMembersDirectoryCache() async {
+    // Membro comum: sem stream do diretório (só a própria ficha).
+    if (_selfOnlyMemberList) return;
     final resolved = await _resolveEffectiveTenantId();
     final tid = resolved.isNotEmpty
         ? resolved
@@ -974,11 +1008,19 @@ class _MembersPageState extends State<MembersPage> {
     _directoryCacheSub =
         MembersDirectorySnapshotService.watch(tid).listen((snap) {
       if (!mounted || !snap.hasEntries) return;
+      if (_selfOnlyMemberList) return;
       _applyDirectoryCacheState(snap);
     });
   }
 
   void _applyDirectoryCacheState(MembersDirectorySnapshot cache) {
+    // Segurança: membro comum nunca guarda o diretório completo no State.
+    if (_selfOnlyMemberList) {
+      if (_directoryCache.hasEntries) {
+        setState(() => _directoryCache = const MembersDirectorySnapshot());
+      }
+      return;
+    }
     setState(() {
       _directoryCache = cache;
       if (cache.hasEntries) {
@@ -988,7 +1030,7 @@ class _MembersPageState extends State<MembersPage> {
     });
     if (!cache.hasEntries || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || _selfOnlyMemberList) return;
       final tid = _effectiveTenantId.trim().isNotEmpty
           ? _effectiveTenantId.trim()
           : _forceCanonicalTenantId(widget.tenantId);
@@ -1004,15 +1046,21 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   List<_MemberDoc> _memberDocsFromDirectoryCache() {
-    return _directoryCache.entries
+    final docs = _directoryCache.entries
         .map((e) => _MemberDoc(e.memberDocId, e.toMemberDataMap()))
         .map(_memberWithOptimisticOverlay)
         .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
         .toList();
+    if (!_selfOnlyMemberList) return docs;
+    return docs.where(_isSelfMember).toList();
   }
 
   /// Cache `_panel_cache/members_directory` (completo) + docs Firestore (fotos/campos frescos).
+  /// Membro comum: NUNCA mesclar o diretório — devolve só o que veio da query self-only.
   List<_MemberDoc> _mergeMembersListWithDirectoryCache(List<_MemberDoc> fromQuery) {
+    if (_selfOnlyMemberList) {
+      return fromQuery.where(_isSelfMember).toList();
+    }
     if (!_directoryCache.hasEntries) return fromQuery;
     final fromCache = _memberDocsFromDirectoryCache();
     if (fromCache.isEmpty) return fromQuery;
@@ -1189,17 +1237,22 @@ class _MembersPageState extends State<MembersPage> {
     final cpfDigits =
         (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
     Iterable<MemberDirectoryEntry> entries = cache.entries;
-    if (selfOnlyMemberList && uid != null) {
-      entries = entries.where((e) {
-        if (e.memberDocId == uid) return true;
-        if (e.authUid != null && e.authUid == uid) return true;
-        if (cpfDigits.length == 11) {
-          final idDigits = e.memberDocId.replaceAll(RegExp(r'\D'), '');
-          if (idDigits == cpfDigits) return true;
-          if (e.cpfDigits != null && e.cpfDigits == cpfDigits) return true;
-        }
-        return false;
-      });
+    if (selfOnlyMemberList) {
+      // Sem uid: falhar fechado (lista vazia), nunca devolver o diretório inteiro.
+      if (uid == null || uid.isEmpty) {
+        entries = const <MemberDirectoryEntry>[];
+      } else {
+        entries = entries.where((e) {
+          if (e.memberDocId == uid) return true;
+          if (e.authUid != null && e.authUid == uid) return true;
+          if (cpfDigits.length == 11) {
+            final idDigits = e.memberDocId.replaceAll(RegExp(r'\D'), '');
+            if (idDigits == cpfDigits) return true;
+            if (e.cpfDigits != null && e.cpfDigits == cpfDigits) return true;
+          }
+          return false;
+        });
+      }
     }
     final allDocs = entries
         .map(
@@ -1248,7 +1301,7 @@ class _MembersPageState extends State<MembersPage> {
   ) {
     final user = FirebaseAuth.instance.currentUser;
     final uid = user?.uid;
-    if (uid == null) return const [];
+    if (uid == null || uid.isEmpty) return const [];
     final cpfDigits = (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
     final email = (user?.email ?? '').trim().toLowerCase();
     return docs.where((d) {
@@ -1320,7 +1373,10 @@ class _MembersPageState extends State<MembersPage> {
 
     final memPeek = MembersDirectorySnapshotService.peekMemory(tid);
     if (memPeek != null && memPeek.hasEntries) {
-      if (mounted) _applyDirectoryCacheState(memPeek);
+      // Equipe: pode espelhar o cache no State. Membro comum: só snapshot filtrado.
+      if (!_selfOnlyMemberList && mounted) {
+        _applyDirectoryCacheState(memPeek);
+      }
       return _snapshotsFromDirectoryCache(
         memPeek,
         selfOnlyMemberList: _selfOnlyMemberList,
@@ -1343,7 +1399,9 @@ class _MembersPageState extends State<MembersPage> {
       final directory = await MembersDirectorySnapshotService.readOnce(tid)
           .timeout(const Duration(milliseconds: 500));
       if (directory.hasEntries) {
-        if (mounted) _applyDirectoryCacheState(directory);
+        if (!_selfOnlyMemberList && mounted) {
+          _applyDirectoryCacheState(directory);
+        }
         return _snapshotsFromDirectoryCache(
           directory,
           selfOnlyMemberList: _selfOnlyMemberList,
@@ -3478,7 +3536,7 @@ class _MembersPageState extends State<MembersPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                'Toque na foto para trocar. Salve para enviar ao Storage.',
+                                'Toque na foto para trocar. Ao salvar, a atualização é automática na lista, no chat e no cartão.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontSize: 12,
@@ -7368,43 +7426,53 @@ class _MembersPageState extends State<MembersPage> {
                       ),
                     ),
                   ),
-                // Abas: lista (filtros + membros) | painel com gráficos e totais.
+                // Abas: lista | painel — só para equipe. Membro comum: só a própria ficha.
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Padding(
-                        padding: EdgeInsets.fromLTRB(
-                            padding.left, 0, padding.right, 6),
-                        child: _MembersPremiumTabSwitcher(
-                          index: _membersMainTabIndex,
-                          onChanged: (i) => setState(() {
-                            _membersMainTabIndex = i;
-                          }),
+                      if (!_selfOnlyMemberList)
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                              padding.left, 0, padding.right, 6),
+                          child: _MembersPremiumTabSwitcher(
+                            index: _membersMainTabIndex,
+                            onChanged: (i) => setState(() {
+                              _membersMainTabIndex = i;
+                            }),
+                          ),
                         ),
-                      ),
                       Expanded(
-                        child: IndexedStack(
-                          index: _membersMainTabIndex,
-                          sizing: StackFit.expand,
-                          children: [
-                            KeepAliveTabChild(
-                              child: _buildMembersListFutureColumn(
-                                padding,
-                                addBlocked: addBlocked,
-                                limitResult: limitResult,
-                                includeInlineFilters: true,
+                        child: _selfOnlyMemberList
+                            ? KeepAliveTabChild(
+                                child: _buildMembersListFutureColumn(
+                                  padding,
+                                  addBlocked: true,
+                                  limitResult: limitResult,
+                                  includeInlineFilters: false,
+                                ),
+                              )
+                            : IndexedStack(
+                                index: _membersMainTabIndex,
+                                sizing: StackFit.expand,
+                                children: [
+                                  KeepAliveTabChild(
+                                    child: _buildMembersListFutureColumn(
+                                      padding,
+                                      addBlocked: addBlocked,
+                                      limitResult: limitResult,
+                                      includeInlineFilters: true,
+                                    ),
+                                  ),
+                                  KeepAliveTabChild(
+                                    child: _buildMembersStatsDashboard(
+                                      context,
+                                      padding,
+                                      limitResult,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            KeepAliveTabChild(
-                              child: _buildMembersStatsDashboard(
-                                context,
-                                padding,
-                                limitResult,
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),
@@ -7428,7 +7496,8 @@ class _MembersPageState extends State<MembersPage> {
       future: _membersDataFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          if (_directoryCache.hasEntries) {
+          // Membro comum: nunca pintar o diretório completo enquanto carrega.
+          if (!_selfOnlyMemberList && _directoryCache.hasEntries) {
             final cacheDocs = _aplicarFiltros(_memberDocsFromDirectoryCache());
             if (cacheDocs.isNotEmpty) {
               return _buildMembersDirectoryCacheList(

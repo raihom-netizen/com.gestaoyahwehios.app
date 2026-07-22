@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart' show YahwehMediaModule;
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     show formatUploadErrorForUser;
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
@@ -116,6 +117,7 @@ abstract final class ChurchMediaUploadFacade {
     void Function(ChurchCancellableUpload handle)? onUploadStarted,
     Duration timeout = kDefaultTimeout,
     int maxBytes = kStorageRulesMaxFeedImageBytes,
+    bool skipEnsureReady = false,
   }) async {
     return uploadImageAtPath(
       storagePath: storagePath,
@@ -129,6 +131,7 @@ abstract final class ChurchMediaUploadFacade {
       },
       timeout: timeout,
       maxBytes: maxBytes,
+      skipEnsureReady: skipEnsureReady,
     );
   }
 
@@ -158,6 +161,7 @@ abstract final class ChurchMediaUploadFacade {
         onProgress: onProgress,
         onUploadTaskCreated: onUploadTaskCreated,
         maxBytes: maxBytes,
+        skipEnsureReady: true,
       ).timeout(
         timeout,
         onTimeout: () => throw TimeoutException(
@@ -237,6 +241,8 @@ abstract final class ChurchMediaUploadFacade {
     bool withPhotos = true,
     bool requireAuth = true,
   }) async {
+    // Warm paralelo (token + Storage) — evita N awaits em cada foto.
+    await FastMediaPublishBootstrap.warmForFeedPublish();
     await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 

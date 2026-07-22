@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show unawaited, TimeoutException;
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -9,19 +9,21 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 
 /// Logo institucional — path canónico `igrejas/{churchId}/configuracoes/logo_igreja.png`.
+///
+/// Padrão Controle Total: bytes compactos → um `putData` → URL → Firestore,
+/// sem travar em 90% à espera de assert/metadata.
 abstract final class ChurchLogoUpdateService {
   ChurchLogoUpdateService._();
 
-  static const Duration kLogoPublishTimeout = Duration(seconds: 90);
+  static const Duration kLogoPublishTimeout = Duration(seconds: 75);
 
-  /// Maior lado da logo no Storage (4K UHD).
-  static const int kLogoMaxSidePx = 3840;
+  /// Maior lado — alinhado ao CT (~1600px), não 4K (lento / trava upload).
+  static const int kLogoMaxSidePx = 1600;
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
@@ -45,37 +47,57 @@ abstract final class ChurchLogoUpdateService {
       throw StateError('Imagem da logo vazia — selecione outra.');
     }
 
-    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
+    try {
+      return await _publishLogoStrictImpl(
+        cid: cid,
+        rawBytes: rawBytes,
+        previousStoragePath: previousStoragePath,
+        onProgress: onProgress,
+      ).timeout(kLogoPublishTimeout);
+    } on TimeoutException {
+      throw StateError(
+        'Tempo esgotado ao enviar a logo. Verifique a rede e tente de novo.',
+      );
+    }
+  }
 
-    onProgress?.call(0.02);
+  static Future<ChurchLogoPublishResult> _publishLogoStrictImpl({
+    required String cid,
+    required Uint8List rawBytes,
+    String? previousStoragePath,
+    void Function(double progress)? onProgress,
+  }) async {
+    onProgress?.call(0.05);
     final png = await encodeChurchLogoAsPngInIsolate(
       rawBytes,
       maxSide: kLogoMaxSidePx,
     );
-    onProgress?.call(0.12);
+    onProgress?.call(0.15);
 
-    // Controle Total: upload novo primeiro; limpar legado/antigo só depois.
-    onProgress?.call(0.18);
     final identityPath = ChurchStorageLayout.churchIdentityLogoPath(cid);
+    // putData: 15% → 92% (nunca “grudar” em 90% no fim do bytes).
     final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
       churchId: cid,
       pngBytes: png,
-      onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
+      onProgress: (p) => onProgress?.call(0.15 + p.clamp(0.0, 1.0) * 0.77),
+      skipEnsureReady: true,
     );
+    onProgress?.call(0.94);
 
-    onProgress?.call(0.92);
     final cacheRevision = YahwehMediaCacheBust.freshRevisionMs();
     await ChurchBrandService.persistLogoPath(
       churchId: cid,
       storagePath: identityPath,
       downloadUrl: uploaded.downloadUrl,
       cacheRevision: cacheRevision,
+      skipStorageAssert: true,
     );
+    onProgress?.call(0.98);
 
     final url = uploaded.downloadUrl;
     final displayUrl = YahwehMediaCacheBust.apply(url, cacheRevision);
-    await CachedNetworkImage.evictFromCache(url);
-    await CachedNetworkImage.evictFromCache(displayUrl);
+    unawaited(CachedNetworkImage.evictFromCache(url));
+    unawaited(CachedNetworkImage.evictFromCache(displayUrl));
     AppStorageImageService.instance
         .invalidateStoragePrefix('igrejas/$cid/logo');
     AppStorageImageService.instance

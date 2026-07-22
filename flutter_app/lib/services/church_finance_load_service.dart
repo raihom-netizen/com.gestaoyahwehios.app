@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -387,6 +388,21 @@ abstract final class ChurchFinanceLoadService {
     final capped = FirebasePerformanceLimits.capListLimit(collectionLabel, limit);
     final ramKey = cacheKeyFn(churchId, capped);
 
+    // Lápides: docs recém-excluídos nunca voltam de nenhuma camada de cache.
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> semExcluidos(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) =>
+        TenantDeletedDocTombstones.filter(
+          churchId,
+          hiveModule,
+          docs,
+          (d) => d.id,
+        );
+
+    void putSafe(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+      _putRam(ramMap, ramKey, semExcluidos(docs));
+    }
+
     if (!forceRefresh && !forceServer) {
       final ramHit = _peekRam(ramMap, ramKey);
       if (ramHit != null) {
@@ -405,7 +421,7 @@ abstract final class ChurchFinanceLoadService {
         ));
         return ChurchFinanceLoadResult(
           churchId: churchId,
-          docs: ramHit,
+          docs: semExcluidos(ramHit),
           readSource: 'ram',
           collectionPath: firestorePath(churchId),
           fromCache: true,
@@ -414,8 +430,10 @@ abstract final class ChurchFinanceLoadService {
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null) {
-        final docs = sortDocs != null ? sortDocs(mem.docs) : mem.docs;
-        _putRam(ramMap, ramKey, docs);
+        final docs = semExcluidos(
+          sortDocs != null ? sortDocs(mem.docs) : mem.docs,
+        );
+        putSafe(docs);
         return ChurchFinanceLoadResult(
           churchId: churchId,
           docs: docs,
@@ -433,8 +451,9 @@ abstract final class ChurchFinanceLoadService {
         if (hiveHit != null) {
           var docs = hiveHit.docs;
           if (sortDocs != null) docs = sortDocs(docs);
+          docs = semExcluidos(docs);
           if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
-            _putRam(ramMap, ramKey, docs);
+            putSafe(docs);
             if (hiveHit.migratedFromLegacy) {
               unawaited(_persistHive(churchId, hiveModule, docs));
             }
@@ -465,7 +484,7 @@ abstract final class ChurchFinanceLoadService {
 
     Object? lastError;
     try {
-      final docs = await _loadFirestore(
+      final rawDocs = await _loadFirestore(
         churchId: churchId,
         reference: col(churchId),
         cacheKey: ramKey,
@@ -479,20 +498,21 @@ abstract final class ChurchFinanceLoadService {
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
+      final docs = semExcluidos(rawDocs);
       final existingBeforeWrite = _peekRam(ramMap, ramKey);
       if (docs.isEmpty &&
           existingBeforeWrite != null &&
           existingBeforeWrite.isNotEmpty) {
         return ChurchFinanceLoadResult(
           churchId: churchId,
-          docs: existingBeforeWrite,
+          docs: semExcluidos(existingBeforeWrite),
           readSource: 'ram_preserve_empty_network',
           collectionPath: firestorePath(churchId),
           fromCache: true,
           softError: 'Rede devolveu lista vazia — mantidos dados locais.',
         );
       }
-      _putRam(ramMap, ramKey, docs);
+      putSafe(docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
       return ChurchFinanceLoadResult(
         churchId: churchId,
@@ -505,7 +525,7 @@ abstract final class ChurchFinanceLoadService {
     }
 
     try {
-      final docs = await _loadFirestore(
+      final rawDocs = await _loadFirestore(
         churchId: churchId,
         reference: col(churchId),
         cacheKey: '${ramKey}_retry',
@@ -519,20 +539,21 @@ abstract final class ChurchFinanceLoadService {
         queryLabel: queryLabel,
         legacyFallbackSubcollection: legacyFallbackSubcollection,
       );
+      final docs = semExcluidos(rawDocs);
       final existingBeforeWrite = _peekRam(ramMap, ramKey);
       if (docs.isEmpty &&
           existingBeforeWrite != null &&
           existingBeforeWrite.isNotEmpty) {
         return ChurchFinanceLoadResult(
           churchId: churchId,
-          docs: existingBeforeWrite,
+          docs: semExcluidos(existingBeforeWrite),
           readSource: 'ram_preserve_empty_retry',
           collectionPath: firestorePath(churchId),
           fromCache: true,
           softError: 'Rede devolveu lista vazia — mantidos dados locais.',
         );
       }
-      _putRam(ramMap, ramKey, docs);
+      putSafe(docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
       return ChurchFinanceLoadResult(
         churchId: churchId,
@@ -553,7 +574,8 @@ abstract final class ChurchFinanceLoadService {
       if (repo.items.isNotEmpty || repo.error == null) {
         var docs = repo.items;
         if (sortDocs != null) docs = sortDocs(docs);
-        _putRam(ramMap, ramKey, docs);
+        docs = semExcluidos(docs);
+        putSafe(docs);
         return ChurchFinanceLoadResult(
           churchId: churchId,
           docs: docs,
@@ -573,7 +595,7 @@ abstract final class ChurchFinanceLoadService {
       if (sortDocs != null) docs = sortDocs(docs);
       return ChurchFinanceLoadResult(
         churchId: churchId,
-        docs: docs,
+        docs: semExcluidos(docs),
         readSource: 'fallback_mem',
         collectionPath: firestorePath(churchId),
         fromCache: true,
@@ -585,7 +607,7 @@ abstract final class ChurchFinanceLoadService {
     if (ramFallback != null) {
       return ChurchFinanceLoadResult(
         churchId: churchId,
-        docs: ramFallback,
+        docs: semExcluidos(ramFallback),
         readSource: 'ram_fallback',
         collectionPath: firestorePath(churchId),
         fromCache: true,

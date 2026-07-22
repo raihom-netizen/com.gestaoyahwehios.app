@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
 /// Card padrão **Atenção pastoral** — avatar, nome, subtítulo e Chat + WhatsApp.
@@ -22,6 +24,7 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
     this.phoneHint,
     this.avatarSize = 52,
     this.compact = false,
+    this.dense = false,
   });
 
   final String displayName;
@@ -36,6 +39,10 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
   final String? phoneHint;
   final double avatarSize;
   final bool compact;
+
+  /// Linha estreita (padrão moderno): avatar + nome/cargo + Chat/WhatsApp na
+  /// mesma linha — ocupa muito menos espaço vertical (web e celular).
+  final bool dense;
 
   bool _hasPhone(Map<String, dynamic> data) {
     for (final k in const [
@@ -65,9 +72,157 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
     final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
     final hasPhone = _hasPhone(memberData);
     final waMsg = whatsappMessage ?? ChurchMemberContactChat.faleComigoDraft();
-    final effectiveAvatar = compact ? 44.0 : avatarSize;
+    final effectiveAvatar = dense ? 42.0 : (compact ? 44.0 : avatarSize);
     final outerPad = compact ? 12.0 : 14.0;
     final titleSize = compact ? 14.0 : 16.0;
+
+    final avatarWidget = FotoMembroWidget(
+      imageUrl: foto,
+      memberData: memberData,
+      tenantId: tenantId,
+      memberId: memberDocId,
+      cpfDigits: cpf.length == 11 ? cpf : null,
+      authUid: MemberProfilePhotoResolver.authUidFromData(
+        memberData,
+        memberDocId: memberDocId,
+      ),
+      size: effectiveAvatar,
+      memCacheWidth: 120,
+      memCacheHeight: 120,
+      preferListThumbnail: true,
+      backgroundColor: avatarColor ?? tint.withValues(alpha: 0.12),
+      fallbackChild: CircleAvatar(
+        radius: effectiveAvatar / 2,
+        backgroundColor: avatarColor ?? tint.withValues(alpha: 0.15),
+        child: Text(
+          initial,
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: effectiveAvatar * 0.38,
+            color: tint,
+          ),
+        ),
+      ),
+    );
+
+    void onChatTap() => ChurchMemberContactChat.tapYahwehChat(
+          context: context,
+          tenantId: tenantId,
+          memberRole: memberRole,
+          viewerCpfDigits: viewerCpfDigits,
+          memberData: memberData,
+          displayName: nome,
+          memberDocId: memberDocId,
+          draftText: waMsg,
+        );
+    void onWhatsTap() => ChurchMemberContactChat.tapWhatsApp(
+          context: context,
+          memberData: memberData,
+          message: waMsg,
+          tenantId: tenantId,
+          memberDocId: memberDocId,
+        );
+
+    if (dense) {
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Colors.white,
+              tint.withValues(alpha: 0.05),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: LayoutBuilder(
+            builder: (context, c) {
+              // Largura curta ou fonte grande: botões só com ícone (redondos).
+              final iconOnly = c.maxWidth <
+                  430 * MediaQuery.textScalerOf(context).scale(1.0);
+              return Row(
+                children: [
+                  avatarWidget,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nome,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13.5,
+                            letterSpacing: -0.2,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        if (sub.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            sub,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (iconOnly) ...[
+                    _DenseRoundAction(
+                      tooltip: 'YahwehChat',
+                      gradient: churchChatWhatsPremiumLinearGradient,
+                      icon: Icons.forum_rounded,
+                      onTap: onChatTap,
+                    ),
+                    const SizedBox(width: 6),
+                    _DenseRoundAction(
+                      tooltip: 'WhatsApp',
+                      color: const Color(0xFF16A34A),
+                      customChild: const WhatsappBrandIcon(
+                        size: 19,
+                        color: Colors.white,
+                      ),
+                      onTap: hasPhone ? onWhatsTap : null,
+                    ),
+                  ] else ...[
+                    YahwehSuperPremiumActionButton.chat(
+                      compact: true,
+                      onPressed: onChatTap,
+                    ),
+                    const SizedBox(width: 6),
+                    YahwehSuperPremiumActionButton.whatsapp(
+                      compact: true,
+                      onPressed: hasPhone ? onWhatsTap : null,
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
 
     return Container(
       margin: EdgeInsets.only(bottom: compact ? 0 : 12),
@@ -92,43 +247,14 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: EdgeInsets.fromLTRB(outerPad, outerPad, outerPad, outerPad),
+        padding: EdgeInsets.all(outerPad),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FotoMembroWidget(
-                  imageUrl: foto,
-                  memberData: memberData,
-                  tenantId: tenantId,
-                  memberId: memberDocId,
-                  cpfDigits: cpf.length == 11 ? cpf : null,
-                  authUid: MemberProfilePhotoResolver.authUidFromData(
-                    memberData,
-                    memberDocId: memberDocId,
-                  ),
-                  size: effectiveAvatar,
-                  memCacheWidth: 120,
-                  memCacheHeight: 120,
-                  preferListThumbnail: true,
-                  backgroundColor:
-                      avatarColor ?? tint.withValues(alpha: 0.12),
-                  fallbackChild: CircleAvatar(
-                    radius: effectiveAvatar / 2,
-                    backgroundColor:
-                        avatarColor ?? tint.withValues(alpha: 0.15),
-                    child: Text(
-                      initial,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: effectiveAvatar * 0.38,
-                        color: tint,
-                      ),
-                    ),
-                  ),
-                ),
+                avatarWidget,
                 SizedBox(width: compact ? 10 : 12),
                 Expanded(
                   child: Column(
@@ -181,36 +307,84 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
                 Expanded(
                   child: YahwehSuperPremiumActionButton.chat(
                     compact: true,
-                    onPressed: () => ChurchMemberContactChat.tapYahwehChat(
-                      context: context,
-                      tenantId: tenantId,
-                      memberRole: memberRole,
-                      viewerCpfDigits: viewerCpfDigits,
-                      memberData: memberData,
-                      displayName: nome,
-                      memberDocId: memberDocId,
-                      draftText: waMsg,
-                    ),
+                    onPressed: onChatTap,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: YahwehSuperPremiumActionButton.whatsapp(
                     compact: true,
-                    onPressed: hasPhone
-                        ? () => ChurchMemberContactChat.tapWhatsApp(
-                              context: context,
-                              memberData: memberData,
-                              message: waMsg,
-                              tenantId: tenantId,
-                              memberDocId: memberDocId,
-                            )
-                        : null,
+                    onPressed: hasPhone ? onWhatsTap : null,
                   ),
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Botão redondo compacto (Chat/WhatsApp) para o modo [ChurchMemberPastoralContactCard.dense].
+class _DenseRoundAction extends StatelessWidget {
+  const _DenseRoundAction({
+    required this.tooltip,
+    required this.onTap,
+    this.icon,
+    this.customChild,
+    this.gradient,
+    this.color,
+  });
+
+  final String tooltip;
+  final VoidCallback? onTap;
+  final IconData? icon;
+  final Widget? customChild;
+  final Gradient? gradient;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          // Área útil de toque 48x48 (blindagem UI) com círculo visual de 44.
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            child: Ink(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: disabled ? null : gradient,
+              color: disabled
+                  ? Colors.grey.shade300
+                  : (gradient == null ? color : null),
+              boxShadow: disabled
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: (color ?? const Color(0xFF2563EB))
+                            .withValues(alpha: 0.30),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+            ),
+            child: Center(
+              child: customChild ??
+                  Icon(icon, size: 19, color: Colors.white),
+            ),
+            ),
+          ),
         ),
       ),
     );

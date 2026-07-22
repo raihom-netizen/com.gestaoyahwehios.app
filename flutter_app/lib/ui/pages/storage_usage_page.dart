@@ -665,7 +665,7 @@ class _PremiumHeader extends StatelessWidget {
           ],
           const SizedBox(height: 8),
           Text(
-            'Somente Firestore (sem Google Drive). Estimativas de espaço e custo são aproximadas.',
+            'Firestore e Firebase Storage. Estimativas de espaço e custo são aproximadas.',
             style: TextStyle(
               fontSize: 12.5,
               height: 1.35,

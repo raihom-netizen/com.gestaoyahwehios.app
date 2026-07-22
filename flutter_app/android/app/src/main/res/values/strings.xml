@@ -2,4 +2,15 @@
 <resources>
     <!-- Nome sob o ícone na launcher (iOS CFBundleDisplayName / Web manifest). -->
     <string name="app_name">Gestão Yahweh - Igrejas</string>
+
+    <string name="widget_brand_name">Gestão YAHWEH</string>
+    <string name="widget_scales_label">Gestão YAHWEH — Meu dia</string>
+    <string name="widget_scales_description">Agenda e escalas do dia em layout moderno. Toque para abrir o app.</string>
+    <string name="widget_calendar_small_label">Gestão YAHWEH — Calendário</string>
+    <string name="widget_calendar_small_description">Dia de hoje e próximos compromissos. Toque para abrir.</string>
+    <string name="widget_calendar_medium_label">Gestão YAHWEH — Semana</string>
+    <string name="widget_calendar_medium_description">Hoje em destaque e próximos dias. Toque para abrir.</string>
+    <string name="widget_description_large">Agenda e escalas — Gestão YAHWEH</string>
+    <string name="widget_description_small">Hoje — Gestão YAHWEH</string>
+    <string name="widget_description_medium">Próximos dias — Gestão YAHWEH</string>
 </resources>

@@ -102,7 +102,7 @@ class _LandingPageState extends State<LandingPage> {
           const SizedBox(height: 4),
           if (p.monthlyPrice != null && annualPrice != null)
             Text(
-              'Anual: ${money(annualPrice)} (12 por 10)',
+              'Anual: ${money(annualPrice)} · pague 10 meses e use 12',
               style: const TextStyle(fontSize: 12, color: Color(0xFF667085)),
             ),
           const SizedBox(height: 16),

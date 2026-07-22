@@ -41,7 +41,7 @@
 | **16** | Auditoria | **Implementado** | `tenant_audit_service.dart` |
 | **17** | Lixeira 30 dias | **Implementado** | `smart_trash_service.dart` |
 | **18** | Monitoramento | **Implementado** | Crashlytics/Analytics/Performance + traces |
-| **19** | Backup diário | **Backend OK** | CF `backupDailyToGcs`, `backupDailyToDrive` |
+| **19** | Backup diário | **Backend OK** | CF `backupDailyToGcs` no Firebase Storage |
 | **20** | Performance | **Parcial** | `yahweh_performance_v4.dart`, `.limit(20/30/50)` |
 | **21** | Imagens/vídeos | **Implementado** | WebP 80%, 1200px, `video_compress` |
 | **22** | Regra mestra | **Implementado** | `.cursor/rules/regra-mestra-projeto.mdc` |

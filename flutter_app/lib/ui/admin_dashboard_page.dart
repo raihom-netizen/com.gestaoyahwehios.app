@@ -112,10 +112,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         }
         return;
       }
-      await _loadDashboardData().timeout(
-        const Duration(seconds: 18),
-        onTimeout: () => throw TimeoutException('Dashboard'),
-      );
+      // Sem scan cliente pesado no hot path — retry callable / cache (padrão CT).
+      final local = await MasterDashboardCacheService.readCachedInstant();
+      if (local != null && mounted) {
+        _applyFromMasterSummary(local);
+        setState(() {
+          _masterSummary = local;
+          _loading = false;
+        });
+        _revalidateInBackground();
+        return;
+      }
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     } on TimeoutException {
       if (mounted) setState(() {});
     } finally {

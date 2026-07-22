@@ -123,7 +123,29 @@ class FcmService {
       alert: true,
       badge: true,
       sound: true,
+      provisional: false,
+      criticalAlert: false,
+      announcement: false,
+      carPlay: false,
     );
+
+    // iOS: banner nativo APNs em foreground + willPresent no AppDelegate.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      await PanelNotificationService.instance.ensureIosLocalNotificationPermissions();
+      // Após permissão, esperar o token APNs (registerForRemoteNotifications no AppDelegate).
+      for (var i = 0; i < 20; i++) {
+        try {
+          final apns = await messaging.getAPNSToken();
+          if (apns != null && apns.isNotEmpty) break;
+        } catch (_) {}
+        await Future<void>.delayed(Duration(milliseconds: 250 * (i + 1)));
+      }
+    }
 
     await _migratePushTopics(messaging, tenantId);
 

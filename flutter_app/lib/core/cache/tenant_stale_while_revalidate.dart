@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
@@ -72,8 +73,55 @@ abstract final class TenantStaleWhileRevalidate {
       memSnap = FirestoreReadResilience.peekLastGoodQuery(memKey);
     }
 
-    // Web: prioriza produção (server-first) e usa cache apenas como fallback.
-    if (kIsWeb && !WebPanelStability.isSessionExpired) {
+    final online = AppConnectivityService.instance.isOnline;
+
+    // Offline (Web + nativo): paint imediato do Hive/memória — sync silenciosa depois.
+    if (!online) {
+      if (hiveDocs != null && hiveDocs.isNotEmpty) {
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: 'hive_offline',
+        );
+        return MergedFirestoreQuerySnapshot(hiveDocs);
+      }
+      if (memSnap != null && memSnap.docs.isNotEmpty) {
+        _traceReadSource(
+          tenantId: tid,
+          module: module,
+          readSource: 'memory_offline',
+        );
+        return memSnap;
+      }
+    }
+
+    // Nativo online: cache-first (padrão Controle Total) — UI instantânea + refresh BG.
+    if (!kIsWeb && hiveDocs != null && hiveDocs.isNotEmpty) {
+      if (refreshInBackground && online) {
+        unawaited(_refresh(tid, module, networkFetch));
+      }
+      _traceReadSource(
+        tenantId: tid,
+        module: module,
+        readSource: 'hive_cache',
+      );
+      return MergedFirestoreQuerySnapshot(hiveDocs);
+    }
+
+    if (!kIsWeb && memSnap != null && memSnap.docs.isNotEmpty) {
+      if (refreshInBackground && online) {
+        unawaited(_refresh(tid, module, networkFetch));
+      }
+      _traceReadSource(
+        tenantId: tid,
+        module: module,
+        readSource: 'memory_cache',
+      );
+      return memSnap;
+    }
+
+    // Web online: server-first; cache só se a rede falhar (estabilidade SDK).
+    if (kIsWeb && online && !WebPanelStability.isSessionExpired) {
       try {
         final fresh = await FirestoreSessionGuard.runWithAuthRetry(
           () => networkFetch().timeout(ChurchPanelReadTimeouts.attempt),
@@ -87,7 +135,6 @@ abstract final class TenantStaleWhileRevalidate {
         );
         return fresh;
       } catch (e) {
-        // permission-denied / assert: não engolir em silêncio — tenta cache e depois retry loop.
         if (FirestoreWebGuard.isInternalAssertionError(e) ||
             FirestoreWebGuard.isClientTerminated(e)) {
           FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
@@ -117,9 +164,9 @@ abstract final class TenantStaleWhileRevalidate {
       }
     }
 
-    // Mobile: mantém cache-first instantâneo.
+    // Fallback: Hive/mem mesmo online se ainda não devolveu.
     if (hiveDocs != null && hiveDocs.isNotEmpty) {
-      if (refreshInBackground) {
+      if (refreshInBackground && online) {
         unawaited(_refresh(tid, module, networkFetch));
       }
       _traceReadSource(
@@ -131,7 +178,7 @@ abstract final class TenantStaleWhileRevalidate {
     }
 
     if (memSnap != null && memSnap.docs.isNotEmpty) {
-      if (refreshInBackground) {
+      if (refreshInBackground && online) {
         unawaited(_refresh(tid, module, networkFetch));
       }
       _traceReadSource(

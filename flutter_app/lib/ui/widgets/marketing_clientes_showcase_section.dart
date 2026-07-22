@@ -211,6 +211,74 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
             firebaseStorageMediaUrlLooksLike(s));
   }
 
+  /// Resolve a imagem do card (capa → logo do item → logo canónica da igreja).
+  /// `logoContain=true` quando a imagem é logo (exibir com BoxFit.contain).
+  /// Blindagem: capa apagada/URL morta no Storage **nunca** deixa o card sem imagem
+  /// enquanto a igreja tiver logo canónica (`configuracoes/logo_igreja.*`).
+  static Future<({String url, bool logoContain})> resolveShowcaseImage(
+    Map<String, dynamic> item,
+  ) async {
+    // 1) Capa de marketing (path/URL do item).
+    final capa = await resolveCapaImageUrl(item)
+        .timeout(const Duration(seconds: 8), onTimeout: () => null);
+    if (resolvedUrlLooksUsable(capa)) {
+      return (url: capa!, logoContain: false);
+    }
+
+    // 2) Logo gravada no próprio item (`logoStoragePath` / `logoUrl` etc.).
+    final logoPath = (item['logoStoragePath'] ?? '').toString().trim();
+    if (logoPath.isNotEmpty) {
+      final byPath = await AppStorageImageService.instance
+          .resolveImageUrl(storagePath: logoPath)
+          .timeout(const Duration(seconds: 6), onTimeout: () => null);
+      if (resolvedUrlLooksUsable(byPath)) {
+        return (url: sanitizeImageUrl(byPath!), logoContain: true);
+      }
+    }
+    String? preferForLogo;
+    for (final k in <String>['logoUrl', 'urlLogo', 'imagemLogo']) {
+      final u = _plausibleImageUrl((item[k] ?? '').toString());
+      if (u != null) {
+        preferForLogo = u;
+        break;
+      }
+    }
+    preferForLogo ??= primaryImageUrlFromItem(item);
+    if (preferForLogo != null && resolvedUrlLooksUsable(preferForLogo)) {
+      return (url: sanitizeImageUrl(preferForLogo), logoContain: true);
+    }
+
+    // 3) Logo canónica da igreja (`igrejas/{tid}` + Storage `configuracoes/`).
+    final tid =
+        (item['igrejaTenantId'] ?? item['tenantId'] ?? '').toString().trim();
+    if (tid.isEmpty) return (url: '', logoContain: false);
+
+    Map<String, dynamic>? tenantData;
+    try {
+      final op = ChurchPanelTenantGateway.churchId(tid);
+      final doc = await ChurchRepository.churchDoc(op).get().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () =>
+                throw TimeoutException('igrejas/$tid', const Duration(seconds: 5)),
+          );
+      if (doc.exists && doc.data() != null) tenantData = doc.data();
+    } catch (_) {}
+
+    final logo = await AppStorageImageService.instance
+        .resolveChurchTenantLogoUrl(
+          tenantId: tid,
+          tenantData: tenantData,
+          preferImageUrl: preferForLogo,
+          preferStoragePath: null,
+          preferGsUrl: null,
+        )
+        .timeout(const Duration(seconds: 6), onTimeout: () => null);
+    if (resolvedUrlLooksUsable(logo)) {
+      return (url: sanitizeImageUrl(logo!), logoContain: true);
+    }
+    return (url: '', logoContain: false);
+  }
+
   /// Capa no site / painel: resolver **primeiro pelo path** no bucket (`fotoPath` / tenant / legado).
   /// Só depois usa `fotoUrl` — a URL no Firestore pode estar expirada enquanto o ficheiro em
   /// `igrejas/.../marketing_destaque/capa.jpg` é válido (evita spinner eterno no web).
@@ -297,17 +365,18 @@ class MarketingClienteCapaThumb extends StatefulWidget {
 }
 
 class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
-  late Future<String?> _future;
+  late Future<({String url, bool logoContain})> _future;
   late String _itemSig;
 
   static String _itemSigOf(Map<String, dynamic> m) =>
-      '${m['id']}_${m['fotoPath']}_${m['fotoUrl']}_${m['fotoUrlCacheRevision']}_${m['igrejaTenantId']}_${m['tenantId']}';
+      '${m['id']}_${m['fotoPath']}_${m['fotoUrl']}_${m['fotoUrlCacheRevision']}_${m['igrejaTenantId']}_${m['tenantId']}_${m['logoUrl']}_${m['logoStoragePath']}';
 
   @override
   void initState() {
     super.initState();
     _itemSig = _itemSigOf(widget.item);
-    _future = MarketingClientesShowcaseSection.resolveCapaImageUrl(widget.item);
+    _future =
+        MarketingClientesShowcaseSection.resolveShowcaseImage(widget.item);
   }
 
   @override
@@ -317,7 +386,7 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
     if (next != _itemSig) {
       _itemSig = next;
       _future =
-          MarketingClientesShowcaseSection.resolveCapaImageUrl(widget.item);
+          MarketingClientesShowcaseSection.resolveShowcaseImage(widget.item);
     }
   }
 
@@ -331,7 +400,7 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
       UiAssetLayoutConstants.marketingClientLogoLogicalPx,
     );
     final mc = (logicalW * dpr).round().clamp(96, maxDecode);
-    Widget core = FutureBuilder<String?>(
+    Widget core = FutureBuilder<({String url, bool logoContain})>(
       future: _future,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -340,21 +409,29 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return widget.placeholder;
         }
-        final u = snap.data;
+        final r = snap.data;
+        final u = r?.url;
         if (!MarketingClientesShowcaseSection.resolvedUrlLooksUsable(u)) {
           return widget.errorWidget;
         }
-        return marketingClienteShowcaseImage(
+        final img = marketingClienteShowcaseImage(
           imageUrl: u!,
           webpUrl: MarketingClientesShowcaseSection.webpUrlFromItem(widget.item),
           width: widget.width,
           height: widget.height,
-          fit: widget.fit,
+          fit: r!.logoContain ? BoxFit.contain : widget.fit,
           memCacheWidth: mc,
           memCacheHeight: mc,
           placeholder: widget.placeholder,
           errorWidget: widget.errorWidget,
         );
+        if (r.logoContain) {
+          return ColoredBox(
+            color: const Color(0xFFF8FAFC),
+            child: Padding(padding: const EdgeInsets.all(6), child: img),
+          );
+        }
+        return img;
       },
     );
     if (widget.borderRadius != null) {
@@ -805,73 +882,18 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
   /// Site divulgação: capa em Storage; se não houver, logo canónica da igreja (Firestore `igrejas/{id}`).
   Future<({String url, bool logoContain})> _resolve() async {
     try {
-      // First paint rápido: capas já resolvidas no doc; logo só se capa falhar.
-      return await _resolveInner().timeout(
-        const Duration(seconds: 8),
+      // Cadeia completa capa → logo item → logo canónica. Timeout largo o
+      // suficiente para web fria (auth anónima + getDownloadURL) — antes 8s
+      // totais cortavam o fallback e a logo «sumia» do card.
+      return await MarketingClientesShowcaseSection.resolveShowcaseImage(
+        widget.item,
+      ).timeout(
+        const Duration(seconds: 22),
         onTimeout: () => (url: '', logoContain: false),
       );
     } catch (_) {
       return (url: '', logoContain: false);
     }
-  }
-
-  Future<({String url, bool logoContain})> _resolveInner() async {
-    final tid = (widget.item['igrejaTenantId'] ?? widget.item['tenantId'] ?? '')
-        .toString()
-        .trim();
-
-    // Preferir URL/path já no item de marketing (sem Firestore por card).
-    final capa =
-        await MarketingClientesShowcaseSection.resolveCapaImageUrl(widget.item)
-            .timeout(const Duration(seconds: 4), onTimeout: () => null);
-    if (MarketingClientesShowcaseSection.resolvedUrlLooksUsable(capa)) {
-      return (url: capa!, logoContain: false);
-    }
-
-    String? preferForLogo;
-    for (final k in <String>['logoUrl', 'urlLogo', 'imagemLogo']) {
-      final u = MarketingClientesShowcaseSection._plausibleImageUrl(
-        (widget.item[k] ?? '').toString(),
-      );
-      if (u != null) {
-        preferForLogo = u;
-        break;
-      }
-    }
-    preferForLogo ??=
-        MarketingClientesShowcaseSection.primaryImageUrlFromItem(widget.item);
-
-    if (preferForLogo != null &&
-        MarketingClientesShowcaseSection.resolvedUrlLooksUsable(preferForLogo)) {
-      return (url: sanitizeImageUrl(preferForLogo), logoContain: true);
-    }
-
-    if (tid.isEmpty) return (url: '', logoContain: false);
-
-    Map<String, dynamic>? tenantData;
-    try {
-      final op = ChurchPanelTenantGateway.churchId(tid.trim());
-      final doc = await ChurchRepository.churchDoc(op).get().timeout(
-            const Duration(seconds: 3),
-            onTimeout: () =>
-                throw TimeoutException('igrejas/$tid', const Duration(seconds: 3)),
-          );
-      if (doc.exists && doc.data() != null) tenantData = doc.data();
-    } catch (_) {}
-
-    final logo = await AppStorageImageService.instance
-        .resolveChurchTenantLogoUrl(
-          tenantId: tid,
-          tenantData: tenantData,
-          preferImageUrl: preferForLogo,
-          preferStoragePath: null,
-          preferGsUrl: null,
-        )
-        .timeout(const Duration(seconds: 3), onTimeout: () => null);
-    if (MarketingClientesShowcaseSection.resolvedUrlLooksUsable(logo)) {
-      return (url: sanitizeImageUrl(logo!), logoContain: true);
-    }
-    return (url: '', logoContain: false);
   }
 
   @override

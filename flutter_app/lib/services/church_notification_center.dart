@@ -125,6 +125,10 @@ abstract final class ChurchNotificationCenter {
       case 'pedido_oracao':
       case 'novo_pedido_oracao':
         return 'pastoral';
+      case 'novo_visitante':
+      case 'new_visitor':
+      case 'visitante':
+        return 'visitante';
       default:
         return 'generico';
     }
@@ -151,6 +155,10 @@ abstract final class ChurchNotificationCenter {
       case 'pedido_oracao':
       case 'novo_pedido_oracao':
         return Icons.volunteer_activism_rounded;
+      case 'novo_visitante':
+      case 'new_visitor':
+      case 'visitante':
+        return Icons.emoji_people_rounded;
       default:
         return Icons.notifications_active_rounded;
     }
@@ -181,6 +189,10 @@ abstract final class ChurchNotificationCenter {
       case 'pedido_oracao':
       case 'novo_pedido_oracao':
         return ChurchShellIndices.pedidosOracao;
+      case 'novo_visitante':
+      case 'new_visitor':
+      case 'visitante':
+        return ChurchShellIndices.visitantes;
       default:
         return null;
     }
@@ -215,6 +227,22 @@ abstract final class ChurchNotificationCenter {
             createdAt: now,
             isRead: true,
             shellIndex: kChurchShellIndexAprovacoes,
+          ),
+        );
+      }
+      if (panel.newVisitorsCount > 0) {
+        items.add(
+          ChurchNotificationItem(
+            id: 'live_new_visitors',
+            source: ChurchNotificationSource.live,
+            type: 'novo_visitante',
+            title: panel.newVisitorsCount == 1
+                ? '1 visitante novo'
+                : '${panel.newVisitorsCount} visitantes novos',
+            body: 'Acompanhe e acolha os visitantes da igreja.',
+            createdAt: now,
+            isRead: true,
+            shellIndex: ChurchShellIndices.visitantes,
           ),
         );
       }

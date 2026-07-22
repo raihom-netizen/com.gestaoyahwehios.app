@@ -11,6 +11,9 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
 
 function pickPhotoUrl(data: Record<string, unknown>): string {
   const keys = [
+    "fotoThumbUrl",
+    "photoThumbUrl",
+    "FOTO_URL_OU_ID",
     "imagem_url",
     "imagemUrl",
     "fotoUrl",
@@ -98,6 +101,16 @@ export const onIgrejaMembroWriteChatPeerProfile = functions
     }
 
     const photoUrl = pickPhotoUrl(after);
+    const photoStoragePath = pickString(after, [
+      "photoStoragePath",
+      "fotoPath",
+      "fotoStoragePath",
+    ]);
+    const photoThumbStoragePath = pickString(after, [
+      "photoThumbStoragePath",
+      "fotoThumbPath",
+      "thumbStoragePath",
+    ]);
     const displayName = pickDisplayName(after);
     const revRaw = after.fotoUrlCacheRevision ?? after.photoCacheRevision;
     const fotoUrlCacheRevision =
@@ -113,6 +126,9 @@ export const onIgrejaMembroWriteChatPeerProfile = functions
         memberDocId: membroId,
         displayName,
         photoUrl: photoUrl || null,
+        photoStoragePath: photoStoragePath || null,
+        photoThumbStoragePath:
+          photoThumbStoragePath || photoStoragePath || null,
         fotoUrlCacheRevision,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },

@@ -121,7 +121,7 @@ abstract final class AdminDiagnosticService {
       chatOnlineCount: chatOnline,
       lastError: SystemLastErrorRegistry.latest,
       lastBackupHint:
-          'Diário 00:05 BRT — CF backupDailyToGcs + backupDailyToDrive',
+          'Diário 00:05 BRT — Firestore no Firebase Storage (backupDailyToGcs)',
       lastSyncAt: lastSync,
       pendingChatMessages: pendingChatMessages,
       pendingAvisos: pendingAvisosHive + muralQ,

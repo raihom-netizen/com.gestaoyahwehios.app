@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -125,14 +126,27 @@ abstract final class ChurchMembersLoadService {
       _ram.remove(key);
       return null;
     }
-    return hit.docs;
+    return TenantDeletedDocTombstones.filter(
+      churchId,
+      TenantModuleKeys.membros,
+      hit.docs,
+      (d) => d.id,
+    );
   }
 
   static void _putRam(
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    _ram[key] = (docs: List.from(docs), at: DateTime.now());
+    // Chave: `${churchId}_membros_…`
+    final churchId = key.split('_membros').first;
+    final safe = TenantDeletedDocTombstones.filter(
+      churchId,
+      TenantModuleKeys.membros,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
+      (d) => d.id,
+    );
+    _ram[key] = (docs: safe, at: DateTime.now());
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByName(
@@ -387,10 +401,17 @@ abstract final class ChurchMembersLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
     try {
+      final safe = TenantDeletedDocTombstones.filter(
+        churchId,
+        TenantModuleKeys.membros,
+        docs,
+        (d) => d.id,
+      );
+      if (safe.isEmpty) return;
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
         TenantModuleKeys.membros,
-        MergedFirestoreQuerySnapshot(docs),
+        MergedFirestoreQuerySnapshot(safe),
       );
     } catch (_) {}
   }

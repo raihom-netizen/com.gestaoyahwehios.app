@@ -125,6 +125,7 @@ abstract final class ChurchCtModuleUpload {
   }
 
   /// Upload canónico — path `igrejas/{churchId}/…` via Facade (padrão CT).
+  /// Um único [ensureReady]; Facade/Storage não repetem o gate.
   static Future<ChurchCentralUploadResult> uploadImageAtPath({
     required Uint8List bytes,
     required String storagePath,
@@ -137,14 +138,16 @@ abstract final class ChurchCtModuleUpload {
     int maxBytes = kMaxImageBytes,
   }) async {
     await ensureReady(gateModule: gateModule, requireAuth: requireAuth);
-    return ChurchMediaUploadFacade.uploadMidia(
-      bytes: bytes,
+    return ChurchMediaUploadFacade.uploadImageAtPath(
       storagePath: storagePath,
+      rawBytes: bytes,
       logLabel: logLabel,
       alreadyCompressed: alreadyCompressed,
+      compressForFeed: !alreadyCompressed,
       onProgress: onProgress,
       timeout: timeout,
       maxBytes: maxBytes,
+      skipEnsureReady: true,
     );
   }
 

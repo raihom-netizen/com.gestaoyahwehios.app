@@ -67,6 +67,8 @@ import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -120,12 +122,21 @@ Future<void> _excluirLancamentoComAuditoria(
   String tenantId,
 ) async {
   final data = Map<String, dynamic>.from(doc.data() ?? {});
-  await logFinanceiroAuditoria(
-    tenantId: tenantId,
-    acao: 'exclusao',
-    lancamentoId: doc.id,
-    dadosAntes: data,
+  // Lápide ANTES do delete — caches não «ressuscitam» o lançamento.
+  TenantDeletedDocTombstones.mark(
+    tenantId,
+    TenantModuleKeys.financeiro,
+    [doc.id],
   );
+  // Auditoria best-effort — nunca bloquear a exclusão (permission-denied no log).
+  try {
+    await logFinanceiroAuditoria(
+      tenantId: tenantId,
+      acao: 'exclusao',
+      lancamentoId: doc.id,
+      dadosAntes: data,
+    );
+  } catch (_) {}
   if (kIsWeb) {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
@@ -138,6 +149,8 @@ Future<void> _excluirLancamentoComAuditoria(
     lancamentoId: doc.id,
     data: data,
   );
+  // Invalida RAM/Hive do financeiro — sem isto o lançamento volta na lista.
+  unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
 }
 
 /// Outros módulos (ex.: Fornecedores) — mesma exclusão com auditoria que o Financeiro.

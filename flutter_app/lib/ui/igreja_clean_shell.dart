@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -36,10 +36,13 @@ import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
 import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
+import 'package:gestao_yahweh/services/widget_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/avatar_gestor_widget.dart';
+import 'package:home_widget/home_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/user_display_name_edit_sheet.dart';
 import 'pages/igreja_dashboard_moderno.dart';
 import 'pages/igreja_cadastro_page.dart';
 import 'pages/departments_page.dart';
@@ -168,18 +171,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _selectedIndex = 0;
+  int _previousShellIndex = 0;
 
   /// Rolagem do rodapé móvel — snap por ícone + setas laterais (paridade Controle Total).
   late final ScrollController _footerScrollController;
   bool _footerCanScrollLeft = false;
   bool _footerCanScrollRight = false;
   double _footerSlotWidth = 56;
+  StreamSubscription? _homeWidgetClickSub;
 
   /// Desktop web: menu lateral estreito só com ícones (+ tooltip).
   bool _sidebarCollapsed = false;
-
-  /// Foto do usuário vinda do Firestore (quando Auth photoURL está vazio).
-  String? _userPhotoUrlFromFirestore;
 
   /// Cache das páginas do menu — LRU máx. 2 módulos (padrão WISDOMAPP).
   final List<Widget?> _pageCache = List.filled(25, null);
@@ -415,6 +417,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         (
           ChurchShellIndices.utilitarios,
           'Utilitários',
+        ),
+        // Config saiu da barra superior — última opção do rodapé (pedido).
+        (
+          ChurchShellIndices.configuracoes,
+          'Config',
         ),
       ])
         if (_canAccessItem(s.$1))
@@ -699,7 +706,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
-    _loadUserPhotoFromFirestore();
     _lastPaymentTick = PaymentUiFeedbackService.paymentConfirmedTick.value;
     PaymentUiFeedbackService.paymentConfirmedTick
         .addListener(_onPaymentConfirmedTick);
@@ -751,6 +757,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         unawaited(reportChurchClientSessionToUserDoc());
         _runMembersToMembrosMigration();
         _schedulePostTenantWarmups();
+        // Home widget — sync agenda/escalas (Android + iOS).
+        unawaited(WidgetUpdateService.updateWidgetData(_moduleTenantId));
+        unawaited(_bindHomeWidgetLaunchListener());
         YahwehPerformanceMonitor.markScreenStart('church_shell');
         YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
         Future<void>.delayed(const Duration(seconds: 12), () {
@@ -875,6 +884,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   @override
   void dispose() {
+    _homeWidgetClickSub?.cancel();
     AppSessionStability.unregisterResumeListener(_onGlobalSessionResume);
     WidgetsBinding.instance.removeObserver(this);
     ChatPresenceEngine.stopAppWideHeartbeat();
@@ -885,6 +895,46 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _footerScrollController.removeListener(_onFooterScroll);
     _footerScrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _bindHomeWidgetLaunchListener() async {
+    if (kIsWeb) return;
+    try {
+      final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+      _openModuleFromWidgetUri(uri);
+    } catch (_) {}
+    _homeWidgetClickSub?.cancel();
+    _homeWidgetClickSub = HomeWidget.widgetClicked.listen(_openModuleFromWidgetUri);
+    await _consumeAndroidWidgetPendingModule();
+  }
+
+  Future<void> _consumeAndroidWidgetPendingModule() async {
+    if (kIsWeb) return;
+    try {
+      const ch = MethodChannel('gestaoyahweh/launcher');
+      final raw = await ch.invokeMethod<dynamic>('takePendingModule');
+      final idx = raw is int ? raw : int.tryParse('$raw') ?? -1;
+      if (idx >= 0 && mounted && _canAccessItem(idx)) {
+        _selectShellIndex(idx);
+      }
+    } catch (_) {}
+  }
+
+  void _openModuleFromWidgetUri(Uri? uri) {
+    if (uri == null || !mounted) return;
+    // gestaoyahweh://module/10  ou  /module/10
+    final segs = uri.pathSegments;
+    var idx = -1;
+    if (uri.host.toLowerCase() == 'module' && segs.isNotEmpty) {
+      idx = int.tryParse(segs.first) ?? -1;
+    } else if (segs.length >= 2 && segs[0].toLowerCase() == 'module') {
+      idx = int.tryParse(segs[1]) ?? -1;
+    } else if (segs.length == 1) {
+      idx = int.tryParse(segs.first) ?? -1;
+    }
+    if (idx >= 0 && _canAccessItem(idx)) {
+      _selectShellIndex(idx);
+    }
   }
 
   Future<void> _resolveOperationalTenant({bool forceRefresh = false}) async {
@@ -1323,16 +1373,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
       unawaited(FirestoreSessionGuard.stabilizeAfterAppResume());
+      unawaited(OfflineFirstCoordinator.onAppResumed());
       unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
       unawaited(_resolveOperationalTenant(forceRefresh: false));
       ChurchTenantOfflineWarmupService.instance
           .scheduleLightRefreshOnResume(_moduleTenantId);
+      WidgetUpdateService.scheduleWidgetRefresh(_moduleTenantId);
+      unawaited(_consumeAndroidWidgetPendingModule());
     }
   }
 
   void _onGlobalSessionResume() {
     unawaited((() async {
       await FirestoreSessionGuard.stabilizeAfterAppResume();
+      await OfflineFirstCoordinator.onAppResumed();
       if (kIsWeb) {
         await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
           churchIdHint: _moduleTenantId,
@@ -1504,21 +1558,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
   }
 
-  void _loadUserPhotoFromFirestore() {
-    final user = firebaseDefaultAuth.currentUser;
-    if (user == null || (user.photoURL ?? '').trim().isNotEmpty) return;
-    firebaseDefaultFirestore
-        .collection('users')
-        .doc(user.uid)
-        .get()
-        .then((doc) {
-      if (!mounted || !doc.exists) return;
-      final url = imageUrlFromMap(doc.data());
-      if (url.isNotEmpty && mounted)
-        setState(() => _userPhotoUrlFromFirestore = url);
-    }).catchError((_) {});
-  }
-
   void _showPanelSnack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1561,14 +1600,34 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _showPanelSnack('Acesso negado para este módulo.', isError: true);
       return;
     }
+    final prev = _selectedIndex;
     _materializedModuleLru.remove(index);
     _materializedModuleLru.add(index);
+    final keep = ChurchShellLazyModulePolicy.retainSet(
+      currentIdx: index,
+      previousIdx: prev,
+      isDesktop: _isDesktop,
+    );
+    // Descarta módulos fora do conjunto keep (padrão CT).
+    for (var i = 0; i < _pageCache.length; i++) {
+      if (!keep.contains(i)) {
+        _pageCache[i] = null;
+        _materializedModuleLru.remove(i);
+      }
+    }
     ChurchShellLazyModulePolicy.evictStaleModules(
       pageCache: _pageCache,
       activeIndex: index,
       lruIndices: _materializedModuleLru,
+      maxRetain: ChurchShellLazyModulePolicy.retainLimitForPlatform(
+        isDesktop: _isDesktop,
+      ),
     );
-    setState(() => _selectedIndex = index);
+    setState(() {
+      _previousShellIndex = prev;
+      _selectedIndex = index;
+    });
+    unawaited(WidgetUpdateService.syncOpenModuleIndex(index));
   }
 
   void _navigateToShellModuleFromDashboard(int index) {
@@ -1812,7 +1871,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               _showPanelSnack('Acesso negado para este módulo.', isError: true);
               return;
             }
-            setState(() => _selectedIndex = i);
+            _selectShellIndex(i);
           },
           borderRadius: BorderRadius.circular(14),
           child: Ink(
@@ -2041,23 +2100,44 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
+  /// Nome da igreja para a barra superior (abaixo do nome do usuário).
+  String _shellChurchNameForHeader() {
+    final live = _lastGoodTenantDoc?.data() ??
+        ChurchContextService.currentChurchData;
+    final raw = (live?['nome'] ??
+            live?['name'] ??
+            live?['NOME'] ??
+            live?['NOME_IGREJA'] ??
+            '')
+        .toString()
+        .trim();
+    return raw;
+  }
+
+  /// Abre o sheet moderno de alterar nome (padrão Controle Total).
+  Future<void> _openEditDisplayName() async {
+    final saved = await showUserDisplayNameEditSheet(
+      context,
+      currentName: _shellUserGreetingName(),
+    );
+    if (saved != null && saved.trim().isNotEmpty && mounted) {
+      setState(() {});
+    }
+  }
+
   Widget _buildHeader({required bool licenseBlocked}) {
-    final user = firebaseDefaultAuth.currentUser;
     final greetingName = _shellUserGreetingName();
-    final photoUrl = (user?.photoURL ?? '').trim().isNotEmpty
-        ? user!.photoURL
-        : _userPhotoUrlFromFirestore;
+    final churchName = _shellChurchNameForHeader();
     final hora = DateTime.now().hour;
     final periodo = hora < 12
         ? 'Bom dia'
         : hora < 18
             ? 'Boa tarde'
             : 'Boa noite';
-    final avatarSize = _isDesktop ? 32.0 : 40.0;
     final sidePad = _isDesktop
         ? ThemeCleanPremium.spaceMd
         : (_isPhone ? ThemeCleanPremium.spaceSm : ThemeCleanPremium.spaceMd);
-    final verticalPad = _isDesktop ? 4.0 : 8.0;
+    final verticalPad = _isDesktop ? 4.0 : 6.0;
     return Material(
       elevation: 2,
       shadowColor: Colors.black.withOpacity(0.18),
@@ -2112,32 +2192,59 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   tooltip:
                       _selectedIndex != 0 ? 'Voltar ao Painel' : 'Abrir menu',
                 ),
-              AvatarGestorWidget(
-                imageUrl: (photoUrl ?? '').trim().isEmpty ? null : photoUrl,
-                tenantId: _moduleTenantId,
-                memberDocIdOrCpf:
-                    widget.cpf.replaceAll(RegExp(r'\D'), '').isNotEmpty
-                        ? widget.cpf.replaceAll(RegExp(r'\D'), '')
-                        : widget.cpf.trim(),
-                size: avatarSize,
-              ),
-              SizedBox(width: _isDesktop ? 10 : ThemeCleanPremium.spaceSm),
+              SizedBox(width: _isDesktop ? 6 : 4),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      '$periodo, $greetingName',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: _isDesktop ? 14 : 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 0.12,
+                    // Nome do usuário — tocável para alterar (padrão CT).
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _openEditDisplayName,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '$periodo, $greetingName',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: _isDesktop ? 14 : 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 0.12,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Icon(
+                              Icons.edit_rounded,
+                              size: 14,
+                              color: Colors.white.withOpacity(0.85),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                    if (churchName.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Text(
+                          churchName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: _isDesktop ? 11 : 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withOpacity(0.88),
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ),
                     if (_moduleTenantId.trim().isNotEmpty &&
                         DiagnosticAccessPolicy.isMasterDiagnosticRole(_panelRole))
                       Material(
@@ -2181,7 +2288,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           ),
                         ),
                       ),
-                    _HeaderLocalizacao(tenantId: _moduleTenantId),
                     if (licenseBlocked)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
@@ -2223,7 +2329,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ),
                 ),
               ),
-              if (_isDesktop) ...[
+              if (_isDesktop)
                 Padding(
                   padding: const EdgeInsets.only(left: 4, right: 2),
                   child: SizedBox(
@@ -2237,25 +2343,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     ),
                   ),
                 ),
-                if (_showUpgradePlanUi)
-                  IconButton(
-                    tooltip: _acquirePlanCtaLabel,
-                    onPressed: () => unawaited(_openUpgradePlans()),
-                    // Material estável na web (subset de ícones arredondados pode falhar).
-                    icon: const Icon(Icons.emoji_events_rounded,
-                        color: Colors.white, size: 22),
-                    style:
-                        IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                  ),
-              ],
-              if (_isMobile && _showUpgradePlanUi)
-                IconButton(
-                  icon: const Icon(Icons.emoji_events_rounded,
-                      color: Colors.white, size: 22),
-                  onPressed: () => unawaited(_openUpgradePlans()),
-                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                  tooltip: _acquirePlanCtaLabel,
-                ),
               IconButton(
                 tooltip: 'Sair',
                 icon: const Icon(Icons.logout_rounded,
@@ -2263,15 +2350,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 onPressed: () =>
                     unawaited(ChurchSignOutNavigation.signOutForAccountSwitch()),
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings_rounded,
-                    color: Colors.white, size: 22),
-                onPressed: () {
-                  setState(() => _selectedIndex = ChurchShellIndices.configuracoes);
-                },
-                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                tooltip: 'Configurações',
               ),
             ],
           ),
@@ -2693,7 +2771,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                         );
                                         return;
                                       }
-                                      setState(() => _selectedIndex = i);
+                                      _selectShellIndex(i);
                                       Navigator.of(context).pop();
                                     },
                                   ),
@@ -3043,47 +3121,31 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return RepaintBoundary(child: _buildPageForIndex(0));
     }
 
-    /// Desktop nativo: mantém páginas visitadas no [IndexedStack].
-    /// Web: só a aba activa — evita dezenas de listeners Firestore (INTERNAL ASSERTION).
-    if (_isDesktop && !kIsWeb) {
-      if (_pageCache[_selectedIndex] == null) {
-        _pageCache[_selectedIndex] = _modulePage(_selectedIndex);
-      }
-      return RepaintBoundary(
-        child: IndexedStack(
-          index: _selectedIndex,
-          sizing: StackFit.expand,
-          children: List.generate(_pageCache.length, (i) {
-            if (_pageCache[i] == null && i != _selectedIndex) {
-              return const SizedBox.shrink();
-            }
-            if (_pageCache[i] == null) {
-              _pageCache[i] = _modulePage(i);
-            }
-            return _pageCache[i]!;
-          }),
-        ),
-      );
-    }
-
-    /// Mobile: só a aba ativa do rodapé — evita 6 módulos pesados em paralelo.
-    final footerTab =
-        ChurchShellLazyModulePolicy.isMobileFooterTab(_selectedIndex);
-    if (footerTab) {
-      _pageCache[_selectedIndex] ??= _modulePage(_selectedIndex);
-      for (var i = 0; i < _pageCache.length; i++) {
-        if (i != _selectedIndex &&
-            !ChurchShellLazyModulePolicy.isMobileFooterTab(i)) {
-          _pageCache[i] = null;
-        }
-      }
-      return RepaintBoundary(child: _pageCache[_selectedIndex]!);
-    }
+    // IndexedStack materializado seletivo — Web/Android/iOS (padrão Controle Total).
+    // Web: só ativo. Mobile: painel+ativo+anterior. Desktop: LRU visitados.
+    final keep = ChurchShellLazyModulePolicy.retainSet(
+      currentIdx: _selectedIndex,
+      previousIdx: _previousShellIndex,
+      isDesktop: _isDesktop,
+    );
     _pageCache[_selectedIndex] ??= _modulePage(_selectedIndex);
+    for (final i in keep) {
+      if (i >= 0 && i < _pageCache.length) {
+        _pageCache[i] ??= _modulePage(i);
+      }
+    }
     return RepaintBoundary(
-      child: _wrapShellMobileModule(
-        _selectedIndex,
-        _pageCache[_selectedIndex]!,
+      child: IndexedStack(
+        index: _selectedIndex,
+        sizing: StackFit.expand,
+        children: List.generate(_pageCache.length, (i) {
+          final page = _pageCache[i];
+          if (page == null) return const SizedBox.shrink();
+          return KeyedSubtree(
+            key: ValueKey<String>('shell_mod_$i'),
+            child: page,
+          );
+        }),
       ),
     );
   }
@@ -3231,73 +3293,6 @@ class _ChurchShellNavMaterialIconsKeepalive extends StatelessWidget {
     return Offstage(
       child: Wrap(
         children: [for (final id in icons) Icon(id, size: 1)],
-      ),
-    );
-  }
-}
-
-/// Linha "Local: …" no topo (dados do cadastro da igreja em Firestore).
-class _HeaderLocalizacao extends StatelessWidget {
-  final String tenantId;
-
-  const _HeaderLocalizacao({required this.tenantId});
-
-  static String? _lineFromChurch(Map<String, dynamic>? m) {
-    if (m == null) return null;
-    final loc = (m['localizacao'] ?? '').toString().trim();
-    if (loc.isNotEmpty) return loc;
-    final cidade =
-        (m['cidade'] ?? m['localidade'] ?? '').toString().trim();
-    final uf = (m['estado'] ?? m['uf'] ?? '').toString().trim();
-    final bairro = (m['bairro'] ?? '').toString().trim();
-    final rua =
-        (m['rua'] ?? m['endereco'] ?? m['address'] ?? '').toString().trim();
-    final parts = <String>[];
-    if (rua.isNotEmpty) parts.add(rua);
-    if (bairro.isNotEmpty) parts.add(bairro);
-    if (cidade.isNotEmpty && uf.isNotEmpty) {
-      parts.add('$cidade - $uf');
-    } else if (cidade.isNotEmpty) {
-      parts.add(cidade);
-    }
-    if (parts.isEmpty) return null;
-    return parts.join(' · ');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (tenantId.isEmpty) return const SizedBox.shrink();
-    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
-    final ctxData = ChurchContextService.currentChurchData;
-    final line = ctxId == tenantId.trim()
-        ? _lineFromChurch(ctxData)
-        : _lineFromChurch(null);
-    if (line == null || line.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 5),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.location_on_outlined,
-            size: 15,
-            color: Colors.white.withValues(alpha: 0.92),
-          ),
-          const SizedBox(width: 5),
-          Expanded(
-            child: Text(
-              'Local: $line',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.25,
-                fontWeight: FontWeight.w600,
-                color: Colors.white.withValues(alpha: 0.94),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

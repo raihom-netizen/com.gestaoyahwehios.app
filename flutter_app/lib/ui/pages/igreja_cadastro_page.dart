@@ -1775,7 +1775,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       } else if (_canEdit && _logoSnap.pendingBytes != null) {
         GlobalUploadProgress.instance.start('Enviando logo…');
         try {
-          await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
+          // Gate já feito em prepareForPublishUpload — sem ensureReady duplicado
+          // (padrão Controle Total: putData direto).
           final published = await ChurchLogoUpdateService.publishLogoStrict(
             churchIdHint: resolvedId,
             rawBytes: _logoSnap.pendingBytes!,

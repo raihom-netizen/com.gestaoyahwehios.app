@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -134,9 +134,13 @@ abstract final class TenantOfflineWrite {
 
     await runFirestorePublishWithRecovery<void>(() async {
       if (effectiveMerge) {
-        await ref.set(payload, SetOptions(merge: true));
+        await _setWithLocalTimeout(
+          ref,
+          payload,
+          merge: true,
+        );
       } else {
-        await ref.set(payload);
+        await _setWithLocalTimeout(ref, payload, merge: false);
       }
     });
     SyncService.notifyUserActionSaved();
@@ -148,6 +152,56 @@ abstract final class TenantOfflineWrite {
         data: payload,
       ),
     );
+  }
+
+  /// Padrão CT: timeout curto → fila local do Firestore (UI não espera rede).
+  static const Duration _kLocalWait = Duration(milliseconds: 2200);
+
+  static Future<void> _setWithLocalTimeout(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data, {
+    required bool merge,
+  }) async {
+    Future<void> write() async {
+      if (merge) {
+        await ref.set(data, SetOptions(merge: true));
+      } else {
+        await ref.set(data);
+      }
+    }
+
+    try {
+      await write().timeout(_kLocalWait);
+    } on TimeoutException {
+      unawaited(write());
+    } catch (_) {
+      unawaited(write());
+    }
+  }
+
+  static Future<void> _updateWithLocalTimeout(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      await ref.update(data).timeout(_kLocalWait);
+    } on TimeoutException {
+      unawaited(ref.update(data));
+    } catch (_) {
+      unawaited(ref.update(data));
+    }
+  }
+
+  static Future<void> _deleteWithLocalTimeout(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    try {
+      await ref.delete().timeout(_kLocalWait);
+    } on TimeoutException {
+      unawaited(ref.delete());
+    } catch (_) {
+      unawaited(ref.delete());
+    }
   }
 
   static Future<void> updateDocument({
@@ -197,7 +251,9 @@ abstract final class TenantOfflineWrite {
       return;
     }
 
-    await runFirestorePublishWithRecovery<void>(() => ref.update(payload));
+    await runFirestorePublishWithRecovery<void>(
+      () => _updateWithLocalTimeout(ref, payload),
+    );
     SyncService.notifyUserActionSaved();
     unawaited(
       TenantAuditService.logUpdate(
@@ -247,7 +303,9 @@ abstract final class TenantOfflineWrite {
       return;
     }
 
-    await runFirestorePublishWithRecovery<void>(() => ref.delete());
+    await runFirestorePublishWithRecovery<void>(
+      () => _deleteWithLocalTimeout(ref),
+    );
     unawaited(
       TenantAuditService.logDelete(
         tenantId: tid,

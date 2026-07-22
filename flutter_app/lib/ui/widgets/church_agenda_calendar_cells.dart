@@ -52,6 +52,9 @@ abstract final class ChurchAgendaCalendarCells {
   static String dayKey(DateTime d) =>
       DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, d.day));
 
+  /// Vermelho SAB/DOM/feriado — padrão Controle Total Escalas.
+  static const Color calendarRedDay = Color(0xFFE53935);
+
   static Widget buildPlainDay(
     BuildContext context,
     DateTime day,
@@ -64,8 +67,8 @@ abstract final class ChurchAgendaCalendarCells {
     final cellFs = isMobile ? 22.0 : 19.0;
     final isWeekend =
         day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
-    final isSunday = day.weekday == DateTime.sunday;
     final isHoliday = HolidayHelper.holidayNameOn(day) != null;
+    final isRedDay = isWeekend || isHoliday;
     const outerPad = EdgeInsets.all(1.85);
     final radius = ControleTotalCalendarTheme.cellRadius;
     final primary = ThemeCleanPremium.primary;
@@ -89,6 +92,43 @@ abstract final class ChurchAgendaCalendarCells {
         fontWeight: FontWeight.w800,
         color: Colors.white,
       );
+    } else if (isOutside) {
+      deco = BoxDecoration(
+        color: const Color(0xFFF1F5F9).withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+      );
+      textStyle = TextStyle(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w600,
+        color: isRedDay
+            ? calendarRedDay.withValues(alpha: 0.45)
+            : Colors.grey.shade400,
+      );
+    } else if (isRedDay) {
+      // Sábado, domingo e feriado — vermelho negrito igual Escalas CT.
+      deco = BoxDecoration(
+        color: isHoliday
+            ? const Color(0xFFFFF1F2)
+            : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(
+          color: isHoliday
+              ? const Color(0xFFFECDD3)
+              : const Color(0xFFCBD5E1),
+          width: isToday ? 2.2 : 1.05,
+        ),
+      );
+      if (isToday) {
+        deco = deco.copyWith(
+          border: Border.all(color: primary, width: 2.2),
+        );
+      }
+      textStyle = TextStyle(
+        fontSize: cellFs,
+        fontWeight: FontWeight.w900,
+        color: calendarRedDay,
+      );
     } else if (isToday) {
       deco = BoxDecoration(
         color: primary.withValues(alpha: 0.12),
@@ -99,53 +139,6 @@ abstract final class ChurchAgendaCalendarCells {
         fontSize: cellFs,
         fontWeight: FontWeight.w800,
         color: primary,
-      );
-    } else if (isOutside) {
-      deco = BoxDecoration(
-        color: const Color(0xFFF1F5F9).withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
-      );
-      textStyle = TextStyle(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w600,
-        color: Colors.grey.shade400,
-      );
-    } else if (isHoliday) {
-      deco = BoxDecoration(
-        color: const Color(0xFFFFF1F2),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: const Color(0xFFFECDD3), width: 1.15),
-      );
-      textStyle = TextStyle(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w700,
-        color: const Color(0xFF9F1239),
-      );
-    } else if (isSunday && !isOutside) {
-      deco = BoxDecoration(
-        color: const Color(0xFF92400E).withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(radius * 1.15),
-        border: Border.all(
-          color: const Color(0xFF92400E).withValues(alpha: 0.42),
-          width: 1.2,
-        ),
-      );
-      textStyle = TextStyle(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w800,
-        color: const Color(0xFF78350F),
-      );
-    } else if (isWeekend) {
-      deco = BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: const Color(0xFFCBD5E1), width: 1.05),
-      );
-      textStyle = TextStyle(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w600,
-        color: const Color(0xFFBE123C),
       );
     } else {
       deco = BoxDecoration(

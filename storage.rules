@@ -383,7 +383,7 @@ service firebase.storage {
     // Fotos de membros: membro da igreja (auth) OU cadastro público sem sessão (foto canónica só)
     match /igrejas/{igrejaId}/membros/{path=**} {
       allow read: if true;
-      allow write: if request.resource.size < 20 * 1024 * 1024
+      allow create, update: if request.resource.size < 20 * 1024 * 1024
         && photoImageOrBlob()
         && (
           isMemberCanonicalProfilePhotoPath(path)
@@ -393,6 +393,14 @@ service firebase.storage {
             || path.matches('^thumbs/.*')
           ))
         );
+      // Delete não possui request.resource; separar evita permission-denied
+      // ao remover/substituir a foto pelo módulo Membros.
+      allow delete: if isChurchStaffWriter(igrejaId)
+        || (isChurchMember(igrejaId) && (
+          path.matches('^fotos/.*')
+          || path.matches('^thumbs/.*')
+          || path.matches('^[^/]+/foto_perfil\\.jpg$')
+        ));
     }
 
     // Certificado digital A1 (PKCS#12) — só staff
@@ -444,17 +452,20 @@ service firebase.storage {
 
     match /igrejas/{igrejaId}/comprovantes/{fileName} {
       allow read: if isChurchMember(igrejaId);
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow create, update: if isChurchStaffWriter(igrejaId)
         && request.resource.size < 15 * 1024 * 1024
         && comprovanteOrBlob();
+      allow delete: if isChurchStaffWriter(igrejaId);
     }
 
-    // Financeiro — comprovantes: leitura membro da igreja; escrita staff/gestor e-mail
+    // Financeiro — comprovantes: leitura membro; escrita staff.
+    // DELETE: request.resource é null — não exigir size/MIME (bug clássico → permission-denied).
     match /igrejas/{igrejaId}/financeiro/{path=**} {
       allow read: if isChurchMember(igrejaId);
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow create, update: if isChurchStaffWriter(igrejaId)
         && request.resource.size < 15 * 1024 * 1024
         && comprovanteOrBlob();
+      allow delete: if isChurchStaffWriter(igrejaId);
     }
 
     // Mural eventos/avisos — qualquer membro da igreja (controle de criação no app).
@@ -544,9 +555,11 @@ service firebase.storage {
 
     match /igrejas/{igrejaId}/patrimonio/{path=**} {
       allow read: if true;
-      allow write: if canWritePatrimonioStorage(igrejaId)
+      allow create, update: if canWritePatrimonioStorage(igrejaId)
         && request.resource.size < 20 * 1024 * 1024
         && photoImageOrBlob();
+      // Delete: request.resource é null — sem checagem de size/contentType.
+      allow delete: if canWritePatrimonioStorage(igrejaId);
     }
 
     // Capa marketing (Master / site divulgação) — staff da igreja
@@ -568,9 +581,10 @@ service firebase.storage {
     // Fornecedores — comprovantes de compromissos (foto/PDF)
     match /igrejas/{igrejaId}/fornecedores/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow create, update: if isChurchStaffWriter(igrejaId)
         && request.resource.size < 15 * 1024 * 1024
         && (photoImageOrBlob() || comprovanteOrBlob());
+      allow delete: if isChurchStaffWriter(igrejaId);
     }
 
     // Uploads genéricos — membro da igreja (chat legado) ou staff

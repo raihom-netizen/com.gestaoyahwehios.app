@@ -72,19 +72,25 @@ async function resolveTenantIdForCallable(auth, dataTenantId) {
                 return tid;
         }
     }
-    const membrosCg = await (0, adminDb_1.fs)()
-        .collectionGroup("membros")
-        .where("authUid", "==", uid)
-        .limit(8)
-        .get();
-    for (const doc of membrosCg.docs) {
-        const parts = doc.ref.path.split("/");
-        if (parts[0] !== "igrejas" || parts[2] !== "membros")
-            continue;
-        const tid = parts[1];
-        const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(tid).get();
-        if (ig.exists)
-            return tid;
+    try {
+        const membrosCg = await (0, adminDb_1.fs)()
+            .collectionGroup("membros")
+            .where("authUid", "==", uid)
+            .limit(8)
+            .get();
+        for (const doc of membrosCg.docs) {
+            const parts = doc.ref.path.split("/");
+            if (parts[0] !== "igrejas" || parts[2] !== "membros")
+                continue;
+            const tid = parts[1];
+            const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(tid).get();
+            if (ig.exists)
+                return tid;
+        }
+    }
+    catch (e) {
+        // Índice CG em falta não pode derrubar o resolve (usa fallback por e-mail abaixo).
+        functions.logger.warn("resolveTenantIdForCallable: membros CG", { uid, e });
     }
     if (email) {
         for (const field of ["email", "gestorEmail", "emailGestor"]) {
@@ -128,14 +134,19 @@ async function userCanAccessTenant(uid, email, tenantId) {
         if (String(d.igrejaId || d.tenantId || "").trim() === tid)
             return true;
     }
-    const cg = await (0, adminDb_1.fs)()
-        .collectionGroup("membros")
-        .where("authUid", "==", uid)
-        .limit(4)
-        .get();
-    for (const doc of cg.docs) {
-        if (doc.ref.path.startsWith(`igrejas/${tid}/membros/`))
-            return true;
+    try {
+        const cg = await (0, adminDb_1.fs)()
+            .collectionGroup("membros")
+            .where("authUid", "==", uid)
+            .limit(4)
+            .get();
+        for (const doc of cg.docs) {
+            if (doc.ref.path.startsWith(`igrejas/${tid}/membros/`))
+                return true;
+        }
+    }
+    catch (e) {
+        functions.logger.warn("userCanAccessTenant: membros CG", { uid, e });
     }
     if (email) {
         const data = ig.data() || {};

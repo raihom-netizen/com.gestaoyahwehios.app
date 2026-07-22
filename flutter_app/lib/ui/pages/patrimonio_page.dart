@@ -31,6 +31,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -199,6 +200,22 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
 /// Alinha [fotoStoragePaths] ao comprimento das URLs quando possível.
 ({List<String> urls, List<String?> paths}) _patrimonioCarouselSlotsFromData(
     Map<String, dynamic> m) {
+  // Contrato canônico primeiro: slots foto01..foto05 + foto01Path..foto05Path.
+  // Sem isso, itens salvos pelo fluxo novo mostravam só o ícone da categoria.
+  final canonical = ChurchCanonicalMediaContract.resolvePatrimonioPhotos(m);
+  if (canonical.isNotEmpty) {
+    final cUrls = <String>[];
+    final cPaths = <String?>[];
+    for (final r in canonical) {
+      final u = r.downloadUrl.isNotEmpty
+          ? YahwehMediaCacheBust.applyFromDocRevision(r.downloadUrl, m)
+          : '';
+      cUrls.add(u);
+      cPaths.add(r.storagePath.isNotEmpty ? r.storagePath : null);
+    }
+    return (urls: cUrls, paths: cPaths);
+  }
+
   bool looksLikeStoragePath(String s) {
     if (s.isEmpty) return false;
     final low = s.toLowerCase();
@@ -843,6 +860,52 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     _inventarioTabKey.currentState?.refreshSoft();
   }
 
+  /// Acompanha o doc até as fotos em background chegarem (foto01..05) e
+  /// então atualiza seed/RAM + tabs. Timeout de segurança de 4 min.
+  void _watchPendingPhotosThenRefresh(String itemId) {
+    StreamSubscription<dynamic>? sub;
+    Timer? timeoutTimer;
+    void stop() {
+      timeoutTimer?.cancel();
+      final s = sub;
+      sub = null;
+      if (s != null) unawaited(s.cancel());
+    }
+
+    timeoutTimer = Timer(const Duration(minutes: 4), stop);
+    sub = _col.doc(itemId).watchSafe().listen((snap) {
+      if (!mounted) {
+        stop();
+        return;
+      }
+      final data = snap.data();
+      if (data == null) return;
+      final hasPhotos =
+          ChurchCanonicalMediaContract.resolvePatrimonioPhotos(data)
+              .any((r) => r.downloadUrl.isNotEmpty);
+      final state = (data['photoUploadState'] ?? '').toString();
+      if (!hasPhotos && state != 'published') return;
+      ChurchPatrimonioLoadService.seedOptimisticDoc(
+        seedTenantId: _effectiveTenantId,
+        itemId: itemId,
+        data: data,
+      );
+      _PatrimonioRamCache.store(
+        _effectiveTenantId,
+        MergedFirestoreQuerySnapshot(
+          ChurchPatrimonioLoadService.peekRamAny(_effectiveTenantId) ??
+              const [],
+        ),
+      );
+      stop();
+      if (mounted) {
+        setState(() {});
+        _refreshPatrimonioTabs();
+      }
+    }, onError: (_) => stop());
+    _patrimonioRealtimeSubs.add(sub!);
+  }
+
   void _schedulePatrimonioRealtimeRefresh() {
     _patrimonioRealtimeDebounce?.cancel();
     _patrimonioRealtimeDebounce = Timer(const Duration(milliseconds: 260), () {
@@ -1306,6 +1369,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 const [],
           ),
         );
+      }
+      // Fotos em background: quando o doc receber foto01..05 (published),
+      // atualiza o seed e a lista — sem isso o card ficava no placeholder.
+      if (result['photosPending'] == true && itemId.isNotEmpty) {
+        _watchPendingPhotosThenRefresh(itemId);
       }
     }
     if (result == true ||
@@ -3898,7 +3966,17 @@ class _PatrimonioCard extends StatelessWidget {
     final cor = catColor(categoria);
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
-    final hasPhoto = slots.urls.isNotEmpty;
+    // Upload em background: mostra bytes locais até as URLs chegarem no doc.
+    final cardChurchId = (m['churchId'] ?? m['tenantId'] ?? '')
+            .toString()
+            .trim()
+            .isNotEmpty
+        ? (m['churchId'] ?? m['tenantId'] ?? '').toString().trim()
+        : (doc.reference.parent.parent?.id ?? '');
+    final pendingThumb = slots.urls.isEmpty && cardChurchId.isNotEmpty
+        ? PatrimonioPendingPhotosCache.firstThumb(cardChurchId, doc.id)
+        : null;
+    final hasPhoto = slots.urls.isNotEmpty || pendingThumb != null;
     final thumb = _patrimonioThumbFromSlots(
       slots.urls,
       slots.paths,
@@ -3993,22 +4071,30 @@ class _PatrimonioCard extends StatelessWidget {
                   child: RepaintBoundary(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
-                      child: hasPhoto
-                          ? FotoPatrimonioWidget(
-                              key: ValueKey('pat_thumb_${doc.id}'),
-                              storagePath: thumbPath,
-                              candidateUrls: thumbUrl.isNotEmpty
-                                  ? [thumbUrl]
-                                  : <String>[],
+                      child: pendingThumb != null
+                          ? Image.memory(
+                              pendingThumb,
                               fit: BoxFit.cover,
                               width: thumbSize,
                               height: thumbSize,
-                              memCacheWidth: memListThumb,
-                              memCacheHeight: memListThumb,
-                              placeholder: photoLoadingPlaceholder(),
-                              errorWidget: photoPlaceholder(),
+                              gaplessPlayback: true,
                             )
-                          : photoPlaceholder(),
+                          : hasPhoto
+                              ? FotoPatrimonioWidget(
+                                  key: ValueKey('pat_thumb_${doc.id}'),
+                                  storagePath: thumbPath,
+                                  candidateUrls: thumbUrl.isNotEmpty
+                                      ? [thumbUrl]
+                                      : <String>[],
+                                  fit: BoxFit.cover,
+                                  width: thumbSize,
+                                  height: thumbSize,
+                                  memCacheWidth: memListThumb,
+                                  memCacheHeight: memListThumb,
+                                  placeholder: photoLoadingPlaceholder(),
+                                  errorWidget: photoPlaceholder(),
+                                )
+                              : photoPlaceholder(),
                     ),
                   ),
                 ),

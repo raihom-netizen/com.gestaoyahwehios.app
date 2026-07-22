@@ -57,9 +57,13 @@ abstract final class EcoFireStorageUpload {
           onProgress: onProgress,
         );
         // Bytes confirmados no bucket — NÃO bloquear publish em getDownloadURL
-        // (hang histórico ~82% «A gravar aviso/evento…» / «Enviando áudio…»).
+        // (hang histórico ~82–90% «Enviando logo…» / avisos). Timeout curto;
+        // path-only basta para Firestore (SafeNetworkImage resolve depois).
         onProgress?.call(1.0);
-        final url = await storageDownloadUrlOrNull(snap.ref);
+        final url = await storageDownloadUrlOrNull(snap.ref).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => null,
+        );
         if (url != null && url.isNotEmpty) {
           EcoFireFlow.log('STORAGE OK $storagePath');
           return url;

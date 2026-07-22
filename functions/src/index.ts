@@ -39,48 +39,16 @@ const db = admin.firestore();
 /** Banco Firestore separado para frotas (frotasveiculo). */
 const dbFrota = getFirestore(admin.app(), "frotasveiculo");
 
-const DRIVE_ROOT_ID_PARAM = defineString("DRIVE_ROOT_ID", { default: "" });
-const DRIVE_CHURCH_ROOT_ID_PARAM = defineString("DRIVE_CHURCH_ROOT_ID", { default: "" });
-const DRIVE_FLEET_ROOT_ID_PARAM = defineString("DRIVE_FLEET_ROOT_ID", { default: "" });
-const MEDIA_RETENTION_DAYS_PARAM = defineString("MEDIA_RETENTION_DAYS", { default: "15" });
-const GCS_BACKUP_BUCKET_PARAM = defineString("GCS_BACKUP_BUCKET", { default: "" });
 const MP_ACCESS_TOKEN_PARAM = defineString("MP_ACCESS_TOKEN", { default: "" });
 const MP_WEBHOOK_SECRET_PARAM = defineString("MP_WEBHOOK_SECRET", { default: "" });
 const MP_WEBHOOK_URL_PARAM = defineString("MP_WEBHOOK_URL", { default: "" });
 /** Chave para o usuário virar ADMIN pelo painel (modal "Virar ADMIN agora"). Defina no Google Cloud Console > Functions > bootstrapAdmin > Variáveis de ambiente: ADMIN_SETUP_KEY. */
 const ADMIN_SETUP_KEY_PARAM = defineString("ADMIN_SETUP_KEY", { default: "" });
 
-function parseDriveFolderId(rawValue: string): string {
-  const raw = String(rawValue || "").trim();
-  if (raw.includes("folders/")) {
-    const parts = raw.split("folders/");
-    return parts[parts.length - 1].split("?")[0];
-  }
-  return raw;
-}
-
-function getDriveRootId(): string {
-  return parseDriveFolderId(String(DRIVE_ROOT_ID_PARAM.value() || ""));
-}
-
-function getChurchDriveRootId(): string {
-  const scoped = parseDriveFolderId(String(DRIVE_CHURCH_ROOT_ID_PARAM.value() || ""));
-  return scoped || getDriveRootId();
-}
-
-function getFleetDriveRootId(): string {
-  return parseDriveFolderId(String(DRIVE_FLEET_ROOT_ID_PARAM.value() || ""));
-}
-
-function getMediaRetentionDays(): number {
-  const raw = String(MEDIA_RETENTION_DAYS_PARAM.value() || "15").trim();
-  const n = parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1) return 15;
-  return n;
-}
-
 function getGcsBackupBucket(): string {
-  return String(GCS_BACKUP_BUCKET_PARAM.value() || "").trim();
+  // Backup oficial exclusivamente no bucket padrão do Firebase Storage.
+  // Não depende de parâmetro externo nem de integração com outro provedor.
+  return admin.storage().bucket().name;
 }
 
 function getMpAccessToken(): string {
@@ -343,73 +311,10 @@ async function callerCanApprovePendingMembers(
   return allowed.has(role);
 }
 
-async function getDrive() {
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
-}
-
-async function findFolder(
-  drive: any,
-  parentId: string,
-  name: string
-): Promise<string | null> {
-  const res = await drive.files.list({
-    q: [
-      `'${parentId}' in parents`,
-      `name='${name}'`,
-      "mimeType='application/vnd.google-apps.folder'",
-      "trashed=false",
-    ].join(" and "),
-    fields: "files(id, name)",
-    pageSize: 1,
-  });
-  const files = res.data.files || [];
-  return files.length ? files[0].id : null;
-}
-
-async function createFolder(
-  drive: any,
-  parentId: string,
-  name: string,
-  description?: string
-): Promise<string> {
-  const res = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
-      description,
-    },
-    fields: "id",
-  });
-  return res.data.id as string;
-}
-
-async function findOrCreateFolder(
-  drive: any,
-  parentId: string,
-  name: string,
-  description?: string
-): Promise<string> {
-  const found = await findFolder(drive, parentId, name);
-  if (found) return found;
-  return createFolder(drive, parentId, name, description);
-}
-
 function ymFolder(date: Date) {
   const y = date.getFullYear().toString();
   const m = (date.getMonth() + 1).toString().padStart(2, "0");
   return `${y}-${m}`;
-}
-
-function ymdFolder(date: Date) {
-  const y = date.getFullYear().toString();
-  const m = (date.getMonth() + 1).toString().padStart(2, "0");
-  const d = date.getDate().toString().padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 function toDateSafe(input: any): Date | null {
@@ -426,278 +331,6 @@ function toDateSafe(input: any): Date | null {
   } catch (_) {
     return null;
   }
-}
-
-function storagePathFromUrl(rawUrl: string): string | null {
-  const url = String(rawUrl || "").trim();
-  if (!url) return null;
-
-  if (url.startsWith("gs://")) {
-    const noScheme = url.slice(5);
-    const slash = noScheme.indexOf("/");
-    if (slash < 0) return null;
-    return decodeURIComponent(noScheme.slice(slash + 1));
-  }
-
-  try {
-    const u = new URL(url);
-    const host = (u.host || "").toLowerCase();
-
-    if (host.includes("firebasestorage.googleapis.com") || host.includes("storage.googleapis.com") || host.includes("firebasestorage.app")) {
-      const marker = "/o/";
-      const idx = u.pathname.indexOf(marker);
-      if (idx >= 0) {
-        const encoded = u.pathname.slice(idx + marker.length);
-        return decodeURIComponent(encoded.replace(/^\/+/, ""));
-      }
-    }
-  } catch (_) {
-    return null;
-  }
-
-  return null;
-}
-
-async function getTenantFolderLabel(tenantId: string) {
-  const tData: any = await readChurchRootData(db, tenantId);
-  const createdByCpf =
-    String(tData.createdByCpf || tData.ownerCpf || tData.gestorCpf || tData.cpf || "").trim();
-  const folderLabel = createdByCpf ? `${tenantId}_${createdByCpf}` : tenantId;
-  const description = createdByCpf ? `createdByCpf: ${createdByCpf}` : undefined;
-  return { folderLabel, description };
-}
-
-async function ensureTenantMediaArchiveFolder(tenantId: string, when: Date) {
-  const churchRootId = getChurchDriveRootId();
-  if (!churchRootId || String(churchRootId).trim() === "") {
-    throw new Error("drive.church_root_id nao configurado: defina DRIVE_CHURCH_ROOT_ID nas variaveis da Function");
-  }
-
-  const drive = await getDrive();
-  const churchesRoot = await findOrCreateFolder(drive, churchRootId, "Igrejas");
-  const { folderLabel, description } = await getTenantFolderLabel(tenantId);
-  const tenantFolder = await findOrCreateFolder(drive, churchesRoot, folderLabel, description);
-  const archiveRoot = await findOrCreateFolder(drive, tenantFolder, "midias_arquivadas");
-  const monthFolder = await findOrCreateFolder(drive, archiveRoot, ymFolder(when));
-  return { drive, monthFolder };
-}
-
-/** Retorna tamanho total em bytes de um folder no Drive (recursivo, apenas arquivos). */
-async function getDriveFolderSizeRecursive(drive: any, folderId: string): Promise<number> {
-  if (!folderId || String(folderId).trim() === "") return 0;
-  let total = 0;
-  let pageToken: string | undefined;
-  const folderMime = "application/vnd.google-apps.folder";
-
-  do {
-    const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed=false`,
-      fields: "nextPageToken, files(id, name, mimeType, size)",
-      pageSize: 100,
-      pageToken: pageToken || undefined,
-    });
-    const files = res.data.files || [];
-    pageToken = res.data.nextPageToken;
-
-    for (const f of files) {
-      if (f.mimeType === folderMime) {
-        total += await getDriveFolderSizeRecursive(drive, f.id);
-      } else {
-        const sz = f.size;
-        total += typeof sz === "string" ? parseInt(sz, 10) || 0 : (Number(sz) || 0);
-      }
-    }
-  } while (pageToken);
-
-  return total;
-}
-
-async function uploadBucketFileToDrive(
-  drive: any,
-  storagePath: string,
-  parentFolderId: string
-): Promise<{ fileId: string; webViewLink: string; directViewUrl: string; name: string; mimeType: string }> {
-  if (!parentFolderId || String(parentFolderId).trim() === "") {
-    throw new Error("uploadBucketFileToDrive: parentFolderId invalido");
-  }
-  const bucket = admin.storage().bucket();
-  const file = bucket.file(storagePath);
-  const [exists] = await file.exists();
-  if (!exists) {
-    throw new Error(`arquivo nao encontrado no Storage: ${storagePath}`);
-  }
-
-  const [meta] = await file.getMetadata();
-  const mimeType = String(meta?.contentType || "application/octet-stream");
-  const safeName = storagePath.split("/").pop() || `media_${Date.now()}`;
-  let buffer: Buffer;
-  try {
-    const [buf] = await file.download();
-    buffer = buf as Buffer;
-  } catch (e: any) {
-    throw new Error(`falha ao baixar do Storage (${storagePath}): ${e?.message || e}`);
-  }
-
-  let created: any;
-  try {
-    created = await drive.files.create({
-      requestBody: {
-        name: safeName,
-        parents: [parentFolderId],
-        description: `origem_storage: ${storagePath}`,
-      },
-      media: {
-        mimeType,
-        body: buffer,
-      },
-      fields: "id, webViewLink",
-    });
-  } catch (e: any) {
-    throw new Error(`Drive: falha ao criar arquivo (${safeName}): ${e?.message || e}`);
-  }
-
-  const fileId = String(created?.data?.id || "");
-  if (!fileId) {
-    throw new Error("Drive: resposta sem id do arquivo criado");
-  }
-
-  try {
-    await drive.permissions.create({
-      fileId,
-      requestBody: {
-        type: "anyone",
-        role: "reader",
-      },
-    });
-  } catch (e: any) {
-    console.warn("Drive: permissao anyone/reader nao aplicada (arquivo ja criado):", e?.message);
-  }
-
-  const webViewLink = String(created?.data?.webViewLink || `https://drive.google.com/file/d/${fileId}/view`);
-  const directViewUrl = `https://drive.google.com/uc?export=view&id=${fileId}`;
-
-  return { fileId, webViewLink, directViewUrl, name: safeName, mimeType };
-}
-
-async function ensureTenantDriveFolders(tenantId: string) {
-  const tid = String(tenantId || "").trim();
-  if (!tid) {
-    throw new Error("tenantId vazio");
-  }
-  if (isForbiddenTestChurchId(tid)) {
-    console.warn(`ensureTenantDriveFolders: skip id de teste «${tid}»`);
-    return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
-  }
-  const churchSnap = await churchDocRef(db, tid).get();
-  if (!churchSnap.exists) {
-    // Não recriar doc raiz fantasma (bug igrejas_de_teste).
-    console.warn(`ensureTenantDriveFolders: skip — igrejas/${tid} inexistente`);
-    return { tenantFolder: "", monthFolder: "", firestoreFolder: "" };
-  }
-  const driveRootId = getChurchDriveRootId();
-  if (!driveRootId) {
-    throw new Error("drive.root_id nao configurado");
-  }
-  const drive = await getDrive();
-  const rootId = driveRootId;
-  const churchesRoot = await findOrCreateFolder(drive, rootId, "Igrejas");
-
-  const { folderLabel, description } = await getTenantFolderLabel(tenantId);
-
-  const tenantFolder = await findOrCreateFolder(
-    drive,
-    churchesRoot,
-    folderLabel,
-    description
-  );
-
-  const monthFolder = await findOrCreateFolder(
-    drive,
-    tenantFolder,
-    ymFolder(new Date())
-  );
-
-  const firestoreFolder = await findOrCreateFolder(
-    drive,
-    monthFolder,
-    "firestore"
-  );
-  const reportsFolder = await findOrCreateFolder(
-    drive,
-    monthFolder,
-    "relatorios"
-  );
-  const mediaFolder = await findOrCreateFolder(drive, monthFolder, "midias");
-  const auditFolder = await findOrCreateFolder(
-    drive,
-    monthFolder,
-    "auditoria"
-  );
-
-  await churchDocRef(db, tenantId).set(
-    {
-      drive: {
-        rootId,
-        churchesRootId: churchesRoot,
-        tenantFolderId: tenantFolder,
-        monthFolderId: monthFolder,
-        firestoreFolderId: firestoreFolder,
-        reportsFolderId: reportsFolder,
-        mediaFolderId: mediaFolder,
-        auditFolderId: auditFolder,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-    },
-    { merge: true }
-  );
-
-  return { tenantFolder, monthFolder, firestoreFolder };
-}
-
-async function deleteFileByName(
-  drive: any,
-  parentId: string,
-  name: string
-) {
-  const res = await drive.files.list({
-    q: [
-      `'${parentId}' in parents`,
-      `name='${name}'`,
-      "trashed=false",
-    ].join(" and "),
-    fields: "files(id, name)",
-    pageSize: 5,
-  });
-  const files = res.data.files || [];
-  for (const f of files) {
-    await drive.files.delete({ fileId: f.id as string });
-  }
-}
-
-async function writeJsonFile(
-  drive: any,
-  folderId: string,
-  name: string,
-  data: any
-) {
-  await deleteFileByName(drive, folderId, name);
-  const media = {
-    mimeType: "application/json",
-    body: Buffer.from(JSON.stringify(data, null, 2)),
-  } as any;
-
-  await drive.files.create({
-    requestBody: {
-      name,
-      parents: [folderId],
-    },
-    media,
-    fields: "id",
-  });
-}
-
-function driveFolderUrl(id: string) {
-  return `https://drive.google.com/drive/folders/${id}`;
 }
 
 function parseMpDate(raw: any): admin.firestore.Timestamp | null {
@@ -1207,7 +840,7 @@ export const resolveCpfToChurchPublic = functions
     }
   });
 
-// ✅ Cria pastas do Drive quando uma igreja é criada em igrejas/{churchId}
+// Inicializa dados canónicos quando uma igreja é criada em igrejas/{churchId}.
 export const onIgrejaCreate = functions
   .region("us-central1")
   .firestore.document("igrejas/{churchId}")
@@ -1217,7 +850,6 @@ export const onIgrejaCreate = functions
       console.warn(`onIgrejaCreate: skip id de teste «${tenantId}»`);
       return;
     }
-    await ensureTenantDriveFolders(tenantId);
     try {
       await ensureChurchWelcomeSeed(db, tenantId);
     } catch (e) {
@@ -1400,343 +1032,7 @@ export const onIgrejaTenantProvision = functions
     }
   });
 
-// ✅ Endpoint manual para recriar pastas no Drive
-export const ensureDriveFolders = functions
-  .region("us-central1")
-  .https.onCall(async (data, context) => {
-    const role = String(context.auth?.token?.role || "").toUpperCase();
-    if (!context.auth || role != "MASTER") {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "Acesso restrito ao MASTER"
-      );
-    }
-
-    const tenantId = String(data?.tenantId || "").trim();
-    if (!tenantId) {
-      throw new functions.https.HttpsError(
-        "invalid-argument",
-        "tenantId obrigatorio"
-      );
-    }
-    try {
-      const res = await ensureTenantDriveFolders(tenantId);
-      return { ok: true, ...res };
-    } catch (e: any) {
-      console.error("ensureDriveFolders error:", e);
-      throw new functions.https.HttpsError(
-        "internal",
-        e?.message || "Erro interno"
-      );
-    }
-  });
-
-// ✅ Cria pasta global de downloads e grava em config/appDownloads
-export const ensureGlobalDownloads = functions
-  .region("us-central1")
-  .https.onCall(async (_, context) => {
-    const role = String(context.auth?.token?.role || "").toUpperCase();
-    if (!context.auth || role != "MASTER") {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "Acesso restrito ao MASTER"
-      );
-    }
-
-    const driveRootId = getDriveRootId();
-    if (!driveRootId) {
-      throw new functions.https.HttpsError(
-        "failed-precondition",
-        "drive.root_id nao configurado"
-      );
-    }
-
-    try {
-      const drive = await getDrive();
-      const downloadsFolder = await findOrCreateFolder(
-        drive,
-        driveRootId,
-        "Downloads"
-      );
-
-      await db.doc("config/appDownloads").set(
-        {
-          driveFolderId: downloadsFolder,
-          driveFolderUrl: driveFolderUrl(downloadsFolder),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      return { ok: true, driveFolderId: downloadsFolder };
-    } catch (e: any) {
-      console.error("ensureGlobalDownloads error:", e);
-      throw new functions.https.HttpsError(
-        "internal",
-        e?.message || "Erro interno"
-      );
-    }
-  });
-
-// ✅ Backup diario 00:00 BRT para Drive
-export const backupDailyToDrive = functions
-  .region("us-central1")
-  .pubsub.schedule("0 0 * * *")
-  .timeZone("America/Sao_Paulo")
-  .onRun(async () => {
-    const churchRootId = getChurchDriveRootId();
-    if (!churchRootId) {
-      console.error("drive.church_root_id nao configurado");
-      return;
-    }
-
-    const drive = await getDrive();
-    const backupRoot = await findOrCreateFolder(
-      drive,
-      churchRootId,
-      "GESTAO_YAHWEH_BKPS_DIARIOS"
-    );
-    const dailyFolder = await findOrCreateFolder(drive, backupRoot, ymdFolder(new Date()));
-    const tenantsSnap = await db.collection("igrejas").get();
-
-    for (const t of tenantsSnap.docs) {
-      const tenantId = t.id;
-      const membersSnap = await churchDocRef(db, tenantId).collection("membros").get();
-      const usersSnap = await churchDocRef(db, tenantId).collection("usersIndex").get();
-
-      const members = membersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const usersIndex = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      const fleetVehiclesSnap = await churchDocRef(db, tenantId)
-        .collection("fleet_vehicles")
-        .get();
-      const fleetFuelingsSnap = await churchDocRef(db, tenantId)
-        .collection("fleet_fuelings")
-        .get();
-
-      const fleetVehicles = fleetVehiclesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const fleetFuelings = fleetFuelingsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      const folders = await ensureTenantDriveFolders(tenantId);
-      const date = new Date();
-      const name = `firestore_${date
-        .toISOString()
-        .replace(/[:.]/g, "-")}.json`;
-
-      await writeJsonFile(drive, folders.firestoreFolder, name, {
-        tenantId,
-        generatedAt: date.toISOString(),
-        tenant: t.data(),
-        members,
-        usersIndex,
-        fleetVehicles,
-        fleetFuelings,
-      });
-
-      await writeJsonFile(drive, dailyFolder, `tenant_${tenantId}.json`, {
-        tenantId,
-        generatedAt: date.toISOString(),
-        tenant: t.data(),
-        members,
-        usersIndex,
-        fleetVehicles,
-        fleetFuelings,
-      });
-    }
-
-    const fleetRootId = getFleetDriveRootId();
-    if (fleetRootId) {
-      const frotaBackupRoot = await findOrCreateFolder(
-        drive,
-        fleetRootId,
-        "GESTAO_YAHWEH_BKPS_DIARIOS"
-      );
-      const frotaDailyFolder = await findOrCreateFolder(drive, frotaBackupRoot, ymdFolder(new Date()));
-
-      const [customersSnap, salesSnap, licensesSnap] = await Promise.all([
-        db.collection("frota_customers").get(),
-        db.collection("sales").get(),
-        db.collection("licenses").get(),
-      ]);
-
-      const customers = customersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const sales = salesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const licenses = licensesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      await writeJsonFile(drive, frotaDailyFolder, "frota_global.json", {
-        generatedAt: new Date().toISOString(),
-        customers,
-        sales,
-        licenses,
-      });
-    }
-  });
-
-type ArchiveRunSummary = {
-  scannedPosts: number;
-  archivedFiles: number;
-  archivedPosts: number;
-  errors: number;
-};
-
-async function runChurchMediaArchive(options?: {
-  forceAll?: boolean;
-  maxPostsPerTenant?: number;
-  invokedBy?: string;
-}): Promise<ArchiveRunSummary> {
-  const churchRootId = getChurchDriveRootId();
-  if (!churchRootId) {
-    throw new Error("drive.church_root_id nao configurado");
-  }
-
-  const retentionDays = getMediaRetentionDays();
-  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-  const maxPostsPerTenant = Math.max(1, options?.maxPostsPerTenant || 500);
-  const tenantsSnap = await db.collection("igrejas").get();
-  const bucket = admin.storage().bucket();
-
-  const summary: ArchiveRunSummary = {
-    scannedPosts: 0,
-    archivedFiles: 0,
-    archivedPosts: 0,
-    errors: 0,
-  };
-
-  for (const tenant of tenantsSnap.docs) {
-    const tenantId = tenant.id;
-    const postsSnap = await db
-      .collection("igrejas")
-      .doc(tenantId)
-      .collection("eventos")
-      .orderBy("createdAt", "asc")
-      .limit(maxPostsPerTenant)
-      .get();
-
-    for (const postDoc of postsSnap.docs) {
-      summary.scannedPosts += 1;
-
-      const post = postDoc.data() || {};
-      if (!options?.forceAll && post.archivedToDriveAt) continue;
-
-      const createdAt = toDateSafe(post.createdAt) || toDateSafe(post.updatedAt);
-      if (!createdAt) continue;
-      if (!options?.forceAll && createdAt > cutoff) continue;
-
-      const imageUrl = String(post.imageUrl || "").trim();
-      const videoUrl = String(post.videoUrl || "").trim();
-      const mediaCandidates = [
-        { field: "imageUrl", url: imageUrl, kind: "image" },
-        { field: "videoUrl", url: videoUrl, kind: "video" },
-      ].filter((m) => m.url.length > 0);
-
-      if (!mediaCandidates.length) continue;
-
-      const updatePayload: any = {
-        archivedRetentionDays: retentionDays,
-        archivedToDriveAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-
-      let archivedCount = 0;
-
-      for (const media of mediaCandidates) {
-        try {
-          const storagePath = storagePathFromUrl(media.url);
-          if (!storagePath) continue;
-
-          const [exists] = await bucket.file(storagePath).exists();
-          if (!exists) continue;
-
-          const { drive, monthFolder } = await ensureTenantMediaArchiveFolder(
-            tenantId,
-            createdAt
-          );
-
-          const driveFile = await uploadBucketFileToDrive(drive, storagePath, monthFolder);
-
-          updatePayload[`${media.field}Firebase`] = media.url;
-          updatePayload[media.field] = driveFile.directViewUrl;
-          updatePayload[`${media.field}DriveFileId`] = driveFile.fileId;
-          updatePayload[`${media.field}DriveViewUrl`] = driveFile.webViewLink;
-          updatePayload[`${media.field}DriveArchivedPath`] = storagePath;
-
-          await bucket.file(storagePath).delete();
-          archivedCount += 1;
-          summary.archivedFiles += 1;
-
-          await db.collection("drive_archives").add({
-            tenantId,
-            postId: postDoc.id,
-            type: String(post.type || "aviso"),
-            title: String(post.title || "").trim(),
-            field: media.field,
-            kind: media.kind,
-            storagePath,
-            driveFileId: driveFile.fileId,
-            driveViewUrl: driveFile.webViewLink,
-            driveDirectUrl: driveFile.directViewUrl,
-            archivedAt: admin.firestore.FieldValue.serverTimestamp(),
-            archivedBy: options?.invokedBy || "system",
-            retentionDays,
-          });
-        } catch (e: any) {
-          summary.errors += 1;
-          console.error("archiveChurchMediaToDrive media error", {
-            tenantId,
-            postId: postDoc.id,
-            field: media.field,
-            error: e?.message || e,
-          });
-        }
-      }
-
-      if (archivedCount > 0) {
-        summary.archivedPosts += 1;
-        updatePayload.archivedMediaCount = archivedCount;
-        await postDoc.ref.set(updatePayload, { merge: true });
-      }
-    }
-  }
-
-  return summary;
-}
-
-// ✅ Migra mídias de igreja com mais de X dias para Google Drive e remove do Firebase Storage
-export const archiveChurchMediaToDrive = functions
-  .region("us-central1")
-  .pubsub.schedule("20 0 * * *")
-  .timeZone("America/Sao_Paulo")
-  .onRun(async () => {
-    await runChurchMediaArchive({ invokedBy: "scheduler" });
-  });
-
-// ✅ Execução manual do arquivamento (painel ADM)
-export const archiveChurchMediaNow = functions
-  .region("us-central1")
-  .https.onCall(async (data, context) => {
-    const role = String(context.auth?.token?.role || "").toUpperCase();
-    const canRun = role === "MASTER" || role === "ADM" || role === "ADMIN";
-    if (!context.auth || !canRun) {
-      throw new functions.https.HttpsError(
-        "permission-denied",
-        "Acesso restrito ao MASTER/ADM"
-      );
-    }
-
-    const forceAll = data?.forceAll === true;
-    const summary = await runChurchMediaArchive({
-      forceAll,
-      invokedBy: context.auth.uid,
-    });
-
-    return {
-      ok: true,
-      ...summary,
-      forceAll,
-      retentionDays: getMediaRetentionDays(),
-    };
-  });
-
-/** Retorna uso de armazenamento (Firestore). Drive não é mais medido no painel. Acesso: gestor da igreja ou MASTER/ADM. */
+/** Retorna uso de armazenamento no Firebase. Acesso: gestor da igreja ou MASTER/ADM. */
 export const getChurchStorageUsage = functions
   .region("us-central1")
   .https.onCall(async (data, context) => {
@@ -1774,11 +1070,6 @@ export const getChurchStorageUsage = functions
 
     const firestoreEstimateBytes = Math.max(0, firestoreTotal * 1024); // ~1KB por doc estimado
 
-    // Google Drive: não utilizado no produto atual — resposta fixa (compatível com clientes antigos).
-    const driveBytes = 0;
-    const driveFolderId = "";
-    const driveFolderUrlStr = "";
-
     return {
       ok: true,
       tenantId,
@@ -1787,78 +1078,7 @@ export const getChurchStorageUsage = functions
         totalDocs: firestoreTotal,
         estimateBytes: firestoreEstimateBytes,
       },
-      drive: {
-        bytes: driveBytes,
-        folderId: driveFolderId,
-        folderUrl: driveFolderUrlStr,
-      },
     };
-  });
-
-/** Testa gravação no Drive da igreja: cria e remove um arquivo de teste. Acesso: gestor da igreja ou MASTER/ADM. */
-export const testDriveWriteForChurch = functions
-  .region("us-central1")
-  .https.onCall(async (data, context) => {
-    if (!context.auth?.uid) {
-      throw new functions.https.HttpsError("unauthenticated", "Login obrigatório");
-    }
-    const tenantId = String(data?.tenantId ?? "").trim();
-    if (!tenantId) {
-      throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório");
-    }
-
-    const role = String(context.auth?.token?.role ?? "").toUpperCase();
-    const isMasterOrAdm = role === "MASTER" || role === "ADM" || role === "ADMIN";
-    const tokenTenantId = String(context.auth?.token?.tenantId ?? "").trim();
-    if (!isMasterOrAdm && tokenTenantId && tokenTenantId !== tenantId) {
-      throw new functions.https.HttpsError("permission-denied", "Sem permissão para esta igreja");
-    }
-
-    const churchRootId = getChurchDriveRootId();
-    if (!churchRootId || String(churchRootId).trim() === "") {
-      throw new functions.https.HttpsError(
-        "failed-precondition",
-        "Drive não configurado (DRIVE_CHURCH_ROOT_ID). Configure no painel do Firebase."
-      );
-    }
-
-    let testFileId: string | null = null;
-    try {
-      const { drive, monthFolder } = await ensureTenantMediaArchiveFolder(tenantId, new Date());
-      const testName = `test_write_${Date.now()}.txt`;
-
-      const created = await drive.files.create({
-        requestBody: {
-          name: testName,
-          parents: [monthFolder],
-          description: "Teste de gravação Drive - pode ser removido",
-        },
-        media: {
-          mimeType: "text/plain",
-          body: Buffer.from("ok", "utf8"),
-        },
-        fields: "id",
-      });
-      testFileId = created?.data?.id || null;
-
-      if (testFileId) {
-        await drive.files.delete({ fileId: testFileId });
-      }
-
-      return {
-        ok: true,
-        message: "Drive OK: gravação e exclusão do arquivo de teste concluídas sem erros.",
-      };
-    } catch (e: any) {
-      if (testFileId) {
-        try {
-          const drive = await getDrive();
-          await drive.files.delete({ fileId: testFileId });
-        } catch (_) {}
-      }
-      const msg = e?.message || String(e);
-      throw new functions.https.HttpsError("internal", `Teste Drive falhou: ${msg}`);
-    }
   });
 
 // ✅ Backup completo do Firestore para GCS (export oficial)
@@ -1873,10 +1093,6 @@ export const backupDailyToGcs = functions
       return;
     }
     const backupBucket = getGcsBackupBucket();
-    if (!backupBucket) {
-      console.error("gcs.backup_bucket nao configurado");
-      return;
-    }
 
     const { google } = await import("googleapis");
     const auth = new google.auth.GoogleAuth({
@@ -1897,13 +1113,13 @@ export const backupDailyToGcs = functions
 
 // Planos oficiais padrão (mesmos IDs do app planos_oficiais.dart) — usados quando config/plans/items não tem o doc
 const DEFAULT_PLANS: Record<string, { name: string; priceMonthly: number; priceAnnual?: number }> = {
-  inicial: { name: "Plano Inicial", priceMonthly: 49.9, priceAnnual: 499 },
-  essencial: { name: "Plano Essencial", priceMonthly: 59.9, priceAnnual: 599 },
-  intermediario: { name: "Plano Intermediário", priceMonthly: 69.9, priceAnnual: 699 },
-  avancado: { name: "Plano Avançado", priceMonthly: 89.9, priceAnnual: 899 },
-  profissional: { name: "Plano Profissional", priceMonthly: 99.9, priceAnnual: 999 },
-  premium: { name: "Plano Premium", priceMonthly: 169.9, priceAnnual: 1699 },
-  premium_plus: { name: "Plano Premium Plus", priceMonthly: 189.9, priceAnnual: 1899 },
+  inicial: { name: "Plano Inicial", priceMonthly: 59.9, priceAnnual: 599 },
+  essencial: { name: "Plano Essencial", priceMonthly: 69.9, priceAnnual: 699 },
+  intermediario: { name: "Plano Intermediário", priceMonthly: 79.9, priceAnnual: 799 },
+  avancado: { name: "Plano Avançado", priceMonthly: 99.9, priceAnnual: 999 },
+  profissional: { name: "Plano Profissional", priceMonthly: 109.9, priceAnnual: 1099 },
+  premium: { name: "Plano Premium", priceMonthly: 179.9, priceAnnual: 1799 },
+  premium_plus: { name: "Plano Premium Plus", priceMonthly: 199.9, priceAnnual: 1999 },
   corporativo: { name: "Plano Corporativo", priceMonthly: 0, priceAnnual: 0 },
 };
 
@@ -1981,9 +1197,8 @@ export const createMpPreapproval = functions
     }
 
     const priceMonthly = Number(plan.priceMonthly || 0);
-    const priceAnnual = Number(plan.priceAnnual ?? plan.priceYear ?? 0);
     const price = isAnnual
-      ? (priceAnnual > 0 ? priceAnnual : priceMonthly * 12)
+      ? priceMonthly * 10
       : priceMonthly;
     if (!price || price <= 0) {
       if (planId === "corporativo") {
@@ -2266,9 +1481,8 @@ export const createMpPixPayment = functions
     const billingCycle = String(data?.billingCycle || "monthly").toLowerCase();
     const isAnnual = billingCycle === "annual";
     const priceMonthly = Number(plan.priceMonthly || 0);
-    const priceAnnual = Number(plan.priceAnnual ?? plan.priceYear ?? 0);
     const price = isAnnual
-      ? (priceAnnual > 0 ? priceAnnual : priceMonthly * 12)
+      ? priceMonthly * 10
       : priceMonthly;
     if (!price || price <= 0) {
       if (planId === "corporativo") {
@@ -2526,13 +1740,18 @@ export const resolveEmailToChurchPublic = functions
     }
 
     try {
+      // Falha de índice CG não pode pular os fallbacks (users, igrejas, membros).
       const idxSnap = await db
         .collectionGroup("usersIndex")
         .where("email", "==", email)
         .limit(1)
-        .get();
+        .get()
+        .catch((e) => {
+          functions.logger.warn("resolveEmailToChurchPublic: usersIndex CG", { e });
+          return null;
+        });
 
-      if (!idxSnap.empty) {
+      if (idxSnap && !idxSnap.empty) {
         const userDoc = idxSnap.docs[0];
         const userData: any = userDoc.data() || {};
         const tenantId = String(
@@ -2780,7 +1999,8 @@ export const repairMyChurchBinding = functions
           tasks.push({ field, val });
         }
       }
-      const snaps = await Promise.all(
+      // allSettled: campo sem índice CG não pode rejeitar a busca inteira.
+      const snapsSettled = await Promise.allSettled(
         tasks.map((t) =>
           db
             .collectionGroup("membros")
@@ -2789,6 +2009,12 @@ export const repairMyChurchBinding = functions
             .get()
         )
       );
+      const snaps = snapsSettled
+        .filter(
+          (s): s is PromiseFulfilledResult<FirebaseFirestore.QuerySnapshot> =>
+            s.status === "fulfilled"
+        )
+        .map((s) => s.value);
       for (let i = 0; i < snaps.length; i++) {
         const snap = snaps[i];
         for (const doc of snap.docs) {
@@ -2825,11 +2051,30 @@ export const repairMyChurchBinding = functions
     let pendingApproval = false;
     let activeClaim = true;
 
-    const [gestorId, byUid, ui] = await Promise.all([
+    // allSettled: falta de índice (FAILED_PRECONDITION) numa das buscas não pode derrubar a função inteira (500 → loop no cliente).
+    const settled = await Promise.allSettled([
       firstIgrejaFromGestorFields(),
       fromMembrosAuthUid(),
       fromUsersIndex(),
     ]);
+    for (const s of settled) {
+      if (s.status === "rejected") {
+        functions.logger.warn("repairMyChurchBinding: lookup falhou", {
+          uid,
+          reason: String((s.reason as Error)?.message || s.reason),
+        });
+      }
+    }
+    const gestorId =
+      settled[0].status === "fulfilled" ? (settled[0].value as string | null) : null;
+    const byUid =
+      settled[1].status === "fulfilled"
+        ? (settled[1].value as Awaited<ReturnType<typeof fromMembrosAuthUid>>)
+        : null;
+    const ui =
+      settled[2].status === "fulfilled"
+        ? (settled[2].value as Awaited<ReturnType<typeof fromUsersIndex>>)
+        : null;
 
     if (gestorId) {
       tenantId = gestorId;
@@ -2847,7 +2092,13 @@ export const repairMyChurchBinding = functions
     }
 
     if (!tenantId) {
-      const byEmail = await fromMembrosEmail();
+      const byEmail = await fromMembrosEmail().catch((e) => {
+        functions.logger.warn("repairMyChurchBinding: fromMembrosEmail falhou", {
+          uid,
+          reason: String((e as Error)?.message || e),
+        });
+        return null;
+      });
       if (byEmail) {
         tenantId = byEmail.tenantId;
         roleOut = claimRoleFromRaw(byEmail.role, "membro");

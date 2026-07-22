@@ -29,7 +29,7 @@ Para você ser ao mesmo tempo **Gestor Master Geral** e **Gestor Local** da igre
 - **Coleção**: `auditoria`.
 - **Quem escreve**: apenas as Cloud Functions (banco, Drive, ações críticas).
 - **Quem lê**:
-  - **Master**: vê todos os registros (uso de banco, Google Drive, ações em qualquer igreja).
+  - **Master**: vê todos os registros (uso do Firebase e ações em qualquer igreja).
   - **Gestor Local**: vê apenas registros da **sua igreja** (`igrejaId` no documento = igreja do seu token).
 
 Eventos registrados incluem, entre outros:

@@ -132,8 +132,7 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
     );
 
     final valorM = parseBrCurrencyInput(ctrlM.text);
-    final ar = ctrlA.text.trim();
-    final valorA = ar.isEmpty ? null : parseBrCurrencyInput(ctrlA.text);
+    final valorA = valorM > 0 ? valorM * 10 : null;
 
     final nameText = ctrlName.text.trim();
     final membersText = ctrlMem.text.trim();
@@ -280,6 +279,15 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                                       controller: ctrlM,
                                       keyboardType: TextInputType.number,
                                       inputFormatters: [BrCurrencyInputFormatter()],
+                                      onChanged: (value) {
+                                        final monthly =
+                                            parseBrCurrencyInput(value);
+                                        ctrlA.text = monthly > 0
+                                            ? formatBrCurrencyInitial(
+                                                monthly * 10,
+                                              )
+                                            : '';
+                                      },
                                       decoration: const InputDecoration(
                                         labelText: 'Mensal (R\$)',
                                         isDense: true,
@@ -291,10 +299,10 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
                                   Expanded(
                                     child: TextField(
                                       controller: ctrlA,
-                                      keyboardType: TextInputType.number,
-                                      inputFormatters: [BrCurrencyInputFormatter()],
+                                      readOnly: true,
                                       decoration: const InputDecoration(
-                                        labelText: 'Anual (R\$)',
+                                        labelText: 'Anual (10 mensalidades)',
+                                        helperText: '2 meses de desconto',
                                         isDense: true,
                                         border: OutlineInputBorder(),
                                       ),

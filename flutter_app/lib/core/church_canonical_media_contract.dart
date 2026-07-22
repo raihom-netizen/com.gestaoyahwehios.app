@@ -468,12 +468,20 @@ abstract final class ChurchCanonicalMediaContract {
     required String downloadUrl,
     required String storagePath,
     String? thumbStoragePath,
+    int? cacheRevision,
   }) {
-    final url = sanitizeImageUrl(downloadUrl.trim());
+    // Path fixo foto_perfil.jpg (overwrite) — URL com bust + revisão gravada
+    // para lista/chat/cartão trocarem a foto imediatamente.
+    final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
+    final url = YahwehMediaCacheBust.apply(
+      sanitizeImageUrl(downloadUrl.trim()),
+      rev,
+    );
     final path = _normalizePath(storagePath);
     final patch = <String, dynamic>{
       'photoStoragePath': path,
       'fotoPath': path,
+      'fotoUrlCacheRevision': rev,
       if (thumbStoragePath != null && thumbStoragePath.trim().isNotEmpty)
         'photoThumbStoragePath': _normalizePath(thumbStoragePath),
     };

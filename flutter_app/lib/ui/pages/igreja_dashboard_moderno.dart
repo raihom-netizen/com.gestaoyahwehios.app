@@ -96,6 +96,7 @@ import 'package:gestao_yahweh/ui/widgets/church_ministry_health_panel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
     show ChurchHostedVideoSurface, showChurchHostedVideoDialog;
 import 'aniversariantes_ano_page.dart';
+import 'corpo_administrativo_page.dart';
 import 'lideranca_page.dart';
 import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
@@ -399,6 +400,24 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           memberRole: widget.role,
           viewerCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
           membersDirectory: _bestMembersDirectory(),
+        ),
+      ),
+    );
+  }
+
+  /// Atalho «Corpo admin.»: página completa no mesmo padrão do Organograma.
+  void _openCorpoAdministrativoPage() {
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CorpoAdministrativoPage(
+          tenantId: tid,
+          role: widget.role,
+          viewerCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+          panelCache: _panelCache,
+          membersDirectory: _bestMembersDirectory(),
+          corpoAdminRoles: _corpoAdminRoles,
         ),
       ),
     );
@@ -1171,7 +1190,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                     );
                                   },
                                   onOpenPainelCorpoAdmin:
-                                      _scrollToCorpoAdministrativo,
+                                      _openCorpoAdministrativoPage,
                                 ),
                                 const SizedBox(
                                     height: ThemeCleanPremium.spaceMd),
@@ -1993,42 +2012,23 @@ class _StoryRingBirthdayAvatar extends StatelessWidget {
                 ),
               ],
       ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            width: radius * 2,
-            height: radius * 2,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+      // Só a foto com o anel — sem selo/emoji por cima (pedido do usuário).
+      child: Container(
+        width: radius * 2,
+        height: radius * 2,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-            clipBehavior: Clip.antiAlias,
-            child: child,
-          ),
-          if (isToday)
-            Positioned(
-              right: -3,
-              bottom: -3,
-              child: Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFFCE7F3), width: 1.5),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                ),
-                child: const Text('ðŸŽ‚', style: TextStyle(fontSize: 15)),
-              ),
-            ),
-        ],
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: child,
       ),
     );
   }
@@ -2638,6 +2638,25 @@ class _AniversariantesCard extends StatelessWidget {
         .where((u) => u.trim().isNotEmpty)
         .take(24)
         .toList();
+    // Warmup resolve as fotos (thumb/Storage) em paralelo antes do scroll —
+    // sem isso, cada avatar resolvia a URL sozinho e demorava a aparecer.
+    ChurchGalleryPhotoWarmup.schedule(
+      context: context,
+      tenantId: tenantId,
+      members: docs.map((d) {
+        final data = d.data();
+        final cpf = (data['CPF'] ?? data['cpf'] ?? '')
+            .toString()
+            .replaceAll(RegExp(r'[^0-9]'), '');
+        return ChurchGalleryMemberPhotoRef(
+          memberDocId: d.id,
+          memberData: data,
+          cpfDigits: cpf.length == 11 ? cpf : null,
+          authUid: _dashboardMemberAuthUid(data),
+        );
+      }),
+      maxMembers: 24,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!context.mounted) return;
       preloadNetworkImages(context, preloadUrls, maxItems: 16);

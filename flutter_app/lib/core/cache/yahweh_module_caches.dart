@@ -308,6 +308,17 @@ abstract final class YahwehModuleCaches {
     );
   }
 
+  /// Sync silenciosa ao voltar online — revalida em BG sem limpar UI (padrão CT).
+  static Future<void> revalidateSilent(String churchId) async {
+    final cid = churchId.trim();
+    if (cid.isEmpty) return;
+    await Future.wait(
+      all.map(
+        (c) => c.ensureLoaded(cid, forceServer: false).catchError((_) {}),
+      ),
+    );
+  }
+
   /// Site público + cadastro membro — só avisos/eventos/perfil (rápido).
   static Future<void> warmPublicSiteModules(String churchId) async {
     final cid = churchId.trim();

@@ -11,6 +11,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -33,6 +35,7 @@ import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
+import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:intl/intl.dart';
@@ -225,7 +228,13 @@ abstract final class _EventosNoticiasRamCache {
       _byTenant.remove(key);
       return null;
     }
-    return hit.docs;
+    // Filtra docs recém-excluídos (lápides) — «excluiu, não volta».
+    return TenantDeletedDocTombstones.filter(
+      key,
+      TenantModuleKeys.eventos,
+      hit.docs,
+      (d) => d.id,
+    );
   }
 
   static void put(
@@ -234,7 +243,14 @@ abstract final class _EventosNoticiasRamCache {
   ) {
     final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+    final safeDocs = TenantDeletedDocTombstones.filter(
+      key,
+      TenantModuleKeys.eventos,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
+      (d) => d.id,
+    );
+    if (safeDocs.isEmpty) return;
+    _byTenant[key] = (docs: safeDocs, at: DateTime.now());
   }
 }
 
@@ -263,7 +279,12 @@ abstract final class _EventTemplatesRamCache {
       _byTenant.remove(key);
       return null;
     }
-    return hit.docs;
+    return TenantDeletedDocTombstones.filter(
+      key,
+      'event_templates',
+      hit.docs,
+      (d) => d.id,
+    );
   }
 
   static void put(
@@ -272,7 +293,14 @@ abstract final class _EventTemplatesRamCache {
   ) {
     final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+    final safeDocs = TenantDeletedDocTombstones.filter(
+      key,
+      'event_templates',
+      List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
+      (d) => d.id,
+    );
+    if (safeDocs.isEmpty) return;
+    _byTenant[key] = (docs: safeDocs, at: DateTime.now());
   }
 }
 
@@ -741,6 +769,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       ),
     );
     if (ok == true) {
+      TenantDeletedDocTombstones.mark(_churchId, 'event_templates', [doc.id]);
       await doc.reference.delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -781,16 +810,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     required String tenantId,
     required String templateStorageId,
   }) async {
-    final file = await MediaHandlerService.instance.pickAndProcessImage(
+    // Padrão CT: pick bytes uma vez → Facade (sem double compress).
+    final picked = await ChurchCtModuleUpload.pickImage(
       source: ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 1920,
     );
-    if (file == null) return null;
-    await ensureFirebaseReadyForPublishUpload();
-    final compressed = await _compressEventoFixoCoverBytes(file);
+    if (picked == null) return null;
+    await EventoMediaUpload.ensureUploadReady();
     final downloadUrl = await EventoMediaUpload.uploadTemplateCover(
       churchId: tenantId,
       templateId: templateStorageId,
-      compressedBytes: compressed,
+      compressedBytes: picked.bytes,
     );
     FirebaseStorageCleanupService.scheduleCleanupAfterEventTemplateCoverUpload(
       tenantId: tenantId,
@@ -5437,7 +5468,11 @@ class _EventoPostState extends State<_EventoPost>
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              Image.memory(pending.first, fit: BoxFit.cover),
+                              ColoredBox(
+                                color: const Color(0xFF0F172A),
+                                child: Image.memory(pending.first,
+                                    fit: BoxFit.contain),
+                              ),
                               if (mediaUploading)
                                 Align(
                                   alignment: Alignment.bottomCenter,

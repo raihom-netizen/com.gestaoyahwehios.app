@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:gestao_yahweh/services/notification_ios_style.dart';
 
 import 'church_chat_notification_prefs.dart';
 
@@ -169,9 +170,7 @@ class ChurchChatAlertNotificationService {
         playSound: false,
         enableVibration: true,
       );
-      iosDetails = const DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
+      iosDetails = NotificationIosStyle.presentationDetails(
         presentSound: false,
       );
     } else {
@@ -187,6 +186,8 @@ class ChurchChatAlertNotificationService {
       );
       iosDetails = const DarwinNotificationDetails(
         presentAlert: true,
+        presentBanner: true,
+        presentList: true,
         presentBadge: true,
         presentSound: true,
         sound: 'chat_whatsapp.aiff',

@@ -46,6 +46,9 @@ function pickString(data, keys) {
 }
 function pickPhotoUrl(data) {
     const keys = [
+        "fotoThumbUrl",
+        "photoThumbUrl",
+        "FOTO_URL_OU_ID",
         "imagem_url",
         "imagemUrl",
         "fotoUrl",
@@ -127,6 +130,16 @@ exports.onIgrejaMembroWriteChatPeerProfile = functions
         return null;
     }
     const photoUrl = pickPhotoUrl(after);
+    const photoStoragePath = pickString(after, [
+        "photoStoragePath",
+        "fotoPath",
+        "fotoStoragePath",
+    ]);
+    const photoThumbStoragePath = pickString(after, [
+        "photoThumbStoragePath",
+        "fotoThumbPath",
+        "thumbStoragePath",
+    ]);
     const displayName = pickDisplayName(after);
     const revRaw = after.fotoUrlCacheRevision ?? after.photoCacheRevision;
     const fotoUrlCacheRevision = typeof revRaw === "number" && Number.isFinite(revRaw)
@@ -139,6 +152,8 @@ exports.onIgrejaMembroWriteChatPeerProfile = functions
         memberDocId: membroId,
         displayName,
         photoUrl: photoUrl || null,
+        photoStoragePath: photoStoragePath || null,
+        photoThumbStoragePath: photoThumbStoragePath || photoStoragePath || null,
         fotoUrlCacheRevision,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });

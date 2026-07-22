@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Remove objetos do Storage quando o documento Firestore correspondente é apagado.
  * Complementa o cliente — reforço no servidor (padrão Controle Total: gravar/excluir rápido e limpo).
  *

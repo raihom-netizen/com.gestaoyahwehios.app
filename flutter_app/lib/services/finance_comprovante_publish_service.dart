@@ -296,7 +296,11 @@ abstract final class FinanceComprovantePublishService {
         );
       }
       return await loadUrl();
-    } catch (_) {
+    } catch (e) {
+      final msg = e.toString();
+      if (msg.contains('object-not-found') || msg.contains('No object exists')) {
+        return '';
+      }
       return cached;
     }
   }
@@ -311,23 +315,27 @@ abstract final class FinanceComprovantePublishService {
     final data = Map<String, dynamic>.from(patch)
       ..['updatedAt'] = FieldValue.serverTimestamp();
     await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-      await AdminFeedFirestoreBridge.upsertDocRef(
-        docRef: docRef,
-        data: data,
-        isNewDoc: false,
-        directWrite: () => runFirestorePublishWithRecovery(
-          () => docRef.set(data, SetOptions(merge: true)),
-          maxAttempts: 4,
-          criticalWrite: true,
-        ),
+    Future<void> write() async {
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: docRef,
+          data: data,
+          isNewDoc: false,
+          directWrite: () => runFirestorePublishWithRecovery(
+            () => docRef.set(data, SetOptions(merge: true)),
+            maxAttempts: 4,
+            criticalWrite: true,
+          ),
+        );
+        return;
+      }
+      await runFirestorePublishWithRecovery(
+        () => docRef.set(data, SetOptions(merge: true)),
       );
-      return;
     }
-    await runFirestorePublishWithRecovery(
-      () => docRef.set(data, SetOptions(merge: true)),
-    ).timeout(
+
+    await write().timeout(
       const Duration(seconds: 30),
       onTimeout: () => throw TimeoutException(
         'Comprovante enviado mas falhou ao gravar o link no Firestore.',
@@ -522,12 +530,14 @@ abstract final class FinanceComprovantePublishService {
     );
 
     // Controle Total: Storage primeiro; apagar antigo só depois do novo OK.
+    // Progresso: bytes 15%→96% (nunca «grudar» em 90% à espera da URL).
     final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: path,
       bytes: optimized.bytes,
       mimeType: optimized.mimeType,
       logLabel: 'finance_comprovante',
-      onProgress: (p) => onProgress?.call(0.15 + p * 0.75),
+      onProgress: (p) => onProgress?.call(0.15 + p.clamp(0.0, 1.0) * 0.81),
+      skipEnsureReady: true,
     ).timeout(
       kComprovanteUploadTimeout,
       onTimeout: () => throw TimeoutException(
@@ -536,7 +546,7 @@ abstract final class FinanceComprovantePublishService {
       ),
     );
 
-    onProgress?.call(0.90);
+    onProgress?.call(0.97);
     // putData OK = objeto existe; verificação pesada só em background.
     unawaited(
       ChurchStorageMetadataVerify.assertExists(
@@ -550,9 +560,9 @@ abstract final class FinanceComprovantePublishService {
     final prevPath = (previousStoragePath ?? '').trim();
     final prevUrl = (previousDownloadUrl ?? '').trim();
     if (prevPath.isNotEmpty && prevPath != uploaded.storagePath) {
-      try {
-        await firebaseDefaultStorage.ref(prevPath).delete();
-      } catch (_) {}
+      unawaited(
+        firebaseDefaultStorage.ref(prevPath).delete().catchError((_) {}),
+      );
     }
     if (prevUrl.isNotEmpty &&
         isFirebaseStorageHttpUrl(prevUrl) &&
@@ -566,7 +576,7 @@ abstract final class FinanceComprovantePublishService {
         ? fileName!.trim()
         : 'comprovante.$ext';
 
-    onProgress?.call(0.95);
+    onProgress?.call(0.99);
     return FinanceComprovantePersistResult(
       url: uploaded.downloadUrl,
       storagePath: uploaded.storagePath,

@@ -24,7 +24,11 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
-    show eventNoticiaPhotoStoragePathAt, looksLikeHostedVideoFileUrl;
+    show
+        eventNoticiaHostedVideoPlayUrl,
+        eventNoticiaPhotoStoragePathAt,
+        eventNoticiaVideosFromDoc,
+        looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -162,6 +166,15 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         ),
       );
     }
+    var loadingPopped = false;
+    void popLoading() {
+      if (loadingPopped) return;
+      loadingPopped = true;
+      if (rootContext.mounted) {
+        Navigator.of(rootContext, rootNavigator: true).pop();
+      }
+    }
+
     try {
       final media = await fetchNoticiaShareMediaBundle(
         noticiaDataForLazyMedia,
@@ -175,6 +188,8 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
       ).timeout(const Duration(seconds: 14));
+      // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
+      popLoading();
       if (media.isNotEmpty) {
         await YahwehShareService.shareMediaBundle(
           files: media,
@@ -185,11 +200,9 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         return;
       }
     } catch (_) {
-    } finally {
-      if (rootContext.mounted) {
-        Navigator.of(rootContext, rootNavigator: true).pop();
-      }
+      popLoading();
     }
+    popLoading();
   }
 
   var img = previewImageUrl;
@@ -255,6 +268,29 @@ Future<void> showChurchNoticiaShareSheet(
       ? noticiaGalleryRefsForShare(noticiaDataForLazyMedia)
       : <String>[];
   final rootContext = context;
+
+  // Há mídia (fotos/vídeos) para enviar junto no WhatsApp? (nativo, não-web)
+  final bool hasVideoForShare = (() {
+    if ((videoPlayUrl ?? '').trim().isNotEmpty) return true;
+    if (noticiaDataForLazyMedia == null) return false;
+    if ((eventNoticiaHostedVideoPlayUrl(noticiaDataForLazyMedia) ?? '')
+        .trim()
+        .isNotEmpty) {
+      return true;
+    }
+    return eventNoticiaVideosFromDoc(noticiaDataForLazyMedia).isNotEmpty;
+  })();
+  final bool canShareWhatsAppMedia = !kIsWeb &&
+      noticiaDataForLazyMedia != null &&
+      (galleryUrls.isNotEmpty || hasVideoForShare);
+  final int photoCount = galleryUrls.length;
+  final String whatsAppSubtitle = canShareWhatsAppMedia
+      ? (photoCount > 1
+          ? 'Vão as $photoCount fotos${hasVideoForShare ? ' e vídeos' : ''} + texto'
+          : (hasVideoForShare
+              ? 'Vão foto e vídeo + texto premium'
+              : 'Vai a foto + texto premium'))
+      : 'Texto premium + link com prévia (fotos/vídeos)';
 
   if (noticiaDataForLazyMedia != null) {
     final tid = (noticiaDataForLazyMedia['tenantId'] ??
@@ -340,13 +376,28 @@ Future<void> showChurchNoticiaShareSheet(
                   child: InkWell(
                     onTap: () {
                       Navigator.pop(ctx);
-                      unawaited(() async {
-                        final ok =
-                            await noticiaOpenWhatsAppWithText(shareMessage);
-                        if (!ok && rootContext.mounted) {
-                          YahwehWhatsAppService.showOpenFailedSnack(rootContext);
-                        }
-                      }());
+                      if (canShareWhatsAppMedia) {
+                        // Com mídia: folha nativa leva TODAS as fotos + vídeos
+                        // + legenda para o WhatsApp (API wa.me não anexa mídia).
+                        unawaited(_runNativeShareWithOptionalLazyMedia(
+                          rootContext: rootContext,
+                          shareMessage: shareMessage,
+                          shareSubject: shareSubject,
+                          previewImageUrl: previewImageUrl,
+                          videoPlayUrl: videoPlayUrl,
+                          sharePositionOrigin: sharePositionOrigin,
+                          noticiaDataForLazyMedia: noticiaDataForLazyMedia,
+                        ));
+                      } else {
+                        unawaited(() async {
+                          final ok =
+                              await noticiaOpenWhatsAppWithText(shareMessage);
+                          if (!ok && rootContext.mounted) {
+                            YahwehWhatsAppService.showOpenFailedSnack(
+                                rootContext);
+                          }
+                        }());
+                      }
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -370,7 +421,7 @@ Future<void> showChurchNoticiaShareSheet(
                                   ),
                                 ),
                                 Text(
-                                  'Texto premium + link com fotos e vídeos',
+                                  whatsAppSubtitle,
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.9),
                                     fontSize: 12,

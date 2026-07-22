@@ -82,6 +82,7 @@ abstract final class ChurchCentralStorageUpload {
     bool requireAuth = true,
     void Function(UploadTask task)? onUploadTaskCreated,
     int maxBytes = kStorageRulesMaxFeedImageBytes,
+    bool skipEnsureReady = false,
   }) async {
     _assertCanonicalPath(storagePath, logLabel);
     assertPayloadWithinRules(bytes: rawBytes.length, logLabel: logLabel, maxBytes: maxBytes);
@@ -118,6 +119,7 @@ abstract final class ChurchCentralStorageUpload {
         onProgress: onProgress,
         requireAuth: requireAuth,
         onUploadTaskCreated: onUploadTaskCreated,
+        skipEnsureReady: skipEnsureReady,
       );
 
       return ChurchCentralUploadResult(
@@ -198,6 +200,7 @@ abstract final class ChurchCentralStorageUpload {
     required Uint8List rawBytes,
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
+    bool skipEnsureReady = false,
   }) =>
       uploadImageAtPath(
         storagePath: ChurchStorageLayout.eventPostPhotoPath(
@@ -210,6 +213,7 @@ abstract final class ChurchCentralStorageUpload {
         alreadyCompressed: alreadyCompressed,
         compressForFeed: !alreadyCompressed,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
 
   /// Membro — foto perfil.
@@ -218,6 +222,7 @@ abstract final class ChurchCentralStorageUpload {
     required String storageFolderId,
     required Uint8List fullBytes,
     void Function(double progress)? onProgress,
+    bool skipEnsureReady = false,
   }) =>
       uploadImageAtPath(
         storagePath: ChurchStorageLayout.memberProfilePhotoPath(
@@ -229,6 +234,7 @@ abstract final class ChurchCentralStorageUpload {
         alreadyCompressed: true,
         compressForFeed: false,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
 
   /// Patrimônio — slot de galeria.
@@ -240,6 +246,7 @@ abstract final class ChurchCentralStorageUpload {
     required Uint8List rawBytes,
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
+    bool skipEnsureReady = false,
   }) =>
       uploadImageAtPath(
         storagePath: ChurchStorageLayout.patrimonioPhotoPath(
@@ -252,6 +259,7 @@ abstract final class ChurchCentralStorageUpload {
         alreadyCompressed: alreadyCompressed,
         compressForFeed: !alreadyCompressed,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
 
   /// Logo igreja — `configuracoes/logo_igreja.png`.
@@ -259,6 +267,7 @@ abstract final class ChurchCentralStorageUpload {
     required String churchId,
     required Uint8List pngBytes,
     void Function(double progress)? onProgress,
+    bool skipEnsureReady = false,
   }) async {
     final path = ChurchStorageLayout.churchIdentityLogoPath(churchId);
     _assertCanonicalPath(path, 'church_logo');
@@ -275,6 +284,7 @@ abstract final class ChurchCentralStorageUpload {
         bytes: pngBytes,
         mimeType: 'image/png',
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
       return ChurchCentralUploadResult(
         downloadUrl: sanitizeImageUrl(url),
@@ -304,6 +314,7 @@ abstract final class ChurchCentralStorageUpload {
     DateTime? referenceDate,
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
+    bool skipEnsureReady = false,
   }) async {
     final mime = mimeType.toLowerCase();
     final maxBytes = mime.contains('pdf')
@@ -348,6 +359,7 @@ abstract final class ChurchCentralStorageUpload {
         bytes: uploadBytes,
         mimeType: uploadMime,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
       return ChurchCentralUploadResult(
         downloadUrl: sanitizeImageUrl(url),
@@ -380,6 +392,7 @@ abstract final class ChurchCentralStorageUpload {
     String ext = 'jpg',
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
+    bool skipEnsureReady = false,
   }) async {
     final mime = mimeType.toLowerCase();
     final maxBytes = mime.contains('pdf')
@@ -428,6 +441,7 @@ abstract final class ChurchCentralStorageUpload {
         bytes: uploadBytes,
         mimeType: uploadMime,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
       return ChurchCentralUploadResult(
         downloadUrl: sanitizeImageUrl(url),
@@ -456,6 +470,7 @@ abstract final class ChurchCentralStorageUpload {
     required String mimeType,
     String logLabel = 'chat_media',
     void Function(double progress)? onProgress,
+    bool skipEnsureReady = false,
   }) async {
     _assertCanonicalPath(storagePath, logLabel);
     if (bytes.isEmpty) {
@@ -467,6 +482,7 @@ abstract final class ChurchCentralStorageUpload {
         bytes: bytes,
         mimeType: mimeType,
         onProgress: onProgress,
+        skipEnsureReady: skipEnsureReady,
       );
       return ChurchCentralUploadResult(
         downloadUrl: sanitizeImageUrl(url),

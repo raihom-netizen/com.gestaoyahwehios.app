@@ -1,12 +1,9 @@
 import 'dart:async' show unawaited;
-import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:http/http.dart' as http;
-import 'package:photo_view/photo_view.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -37,11 +34,12 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        SafeNetworkImage,
         dedupeImageRefsByStorageIdentity,
         isValidImageUrl,
         preloadNetworkImages,
         sanitizeImageUrl;
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
+    show showYahwehOriginalImageZoom;
 
 /// Shimmer estilo “feed” para capas (site público, mural). Respeita o tamanho do pai.
 class YahwehPremiumFeedShimmer {
@@ -485,64 +483,12 @@ Future<void> saveNoticiaCoverToGallery(
   }
 }
 
-/// Lightbox com pinch-to-zoom; usa [SafeNetworkImage] (Firebase / web sem CORS quebrado).
+/// Lightbox com pinch-to-zoom em **tamanho original** (sem downscale de lista).
 Future<void> showYahwehFullscreenZoomableImage(
   BuildContext context, {
   required String imageUrl,
-}) async {
-  final u = sanitizeImageUrl(imageUrl);
-  if (u.isEmpty || !isValidImageUrl(u)) return;
-
-  await showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    barrierColor: Colors.black.withValues(alpha: 0.94),
-    builder: (ctx) {
-      final padding = MediaQuery.paddingOf(ctx);
-      final sz = MediaQuery.sizeOf(ctx);
-      return Scaffold(
-        backgroundColor: Colors.transparent,
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: PhotoView.customChild(
-                backgroundDecoration:
-                    const BoxDecoration(color: Colors.transparent),
-                minScale: PhotoViewComputedScale.contained,
-                maxScale: PhotoViewComputedScale.covered * 3.2,
-                initialScale: PhotoViewComputedScale.contained,
-                child: SizedBox(
-                  width: sz.width,
-                  height: sz.height * 0.88,
-                  child: SafeNetworkImage(
-                    imageUrl: u,
-                    fit: BoxFit.contain,
-                    width: sz.width,
-                    height: sz.height * 0.88,
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: padding.top + 4,
-              right: 4,
-              child: Material(
-                color: Colors.black45,
-                shape: const CircleBorder(),
-                clipBehavior: Clip.antiAlias,
-                child: IconButton(
-                  tooltip: 'Fechar',
-                  onPressed: () => Navigator.pop(ctx),
-                  icon: const Icon(Icons.close_rounded,
-                      color: Colors.white, size: 26),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
+}) {
+  return showYahwehOriginalImageZoom(context, imageUrl: imageUrl);
 }
 
 /// Baixa só o início do ficheiro (ex.: 500 KB) para aquecer cache HTTP antes do play.

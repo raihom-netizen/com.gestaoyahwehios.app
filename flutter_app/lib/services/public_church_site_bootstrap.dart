@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -162,7 +163,22 @@ abstract final class PublicChurchSiteBootstrap {
         refreshServerCacheInBackground: true,
       ),
     );
+    // Eventos fixos / horários — cache Firestore para first paint do site.
+    unawaited(_warmEventTemplates(id));
     unawaited(_warmPublicSiteCallable(id));
+  }
+
+  static Future<void> _warmEventTemplates(String churchId) async {
+    try {
+      await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(churchId)
+          .collection('event_templates')
+          .where('active', isEqualTo: true)
+          .limit(50)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {}
   }
 
   static Future<void> _warmPublicSiteCallable(String churchId) async {

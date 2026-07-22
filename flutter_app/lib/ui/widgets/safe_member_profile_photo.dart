@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -86,6 +87,8 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   String? _displayUrl;
   String? _variantFallbackUrl;
   bool _resolving = false;
+  late final VoidCallback _photoSyncListener;
+  int _syncBump = 0;
 
   int _defaultCacheDim(BuildContext context) {
     final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
@@ -96,7 +99,38 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   @override
   void initState() {
     super.initState();
+    _photoSyncListener = _onMemberProfilePhotoSynced;
+    MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     _resolveDisplayUrl();
+  }
+
+  @override
+  void dispose() {
+    MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
+    super.dispose();
+  }
+
+  void _onMemberProfilePhotoSynced() {
+    final n = MemberProfilePhotoSyncNotifier.instance;
+    final tid = (n.lastTenantId ?? '').trim();
+    final uid = (n.lastAuthUid ?? '').trim();
+    if (tid.isEmpty || uid.isEmpty) return;
+    final myTid = (widget.tenantId ?? '').trim();
+    if (myTid.isNotEmpty && myTid != tid) return;
+    final mid = (widget.memberId ?? '').trim();
+    final au = (widget.authUid ?? '').trim();
+    final hintAu = (widget.memberFirestoreHint?['authUid'] ??
+            widget.memberFirestoreHint?['firebaseUid'] ??
+            '')
+        .toString()
+        .trim();
+    final matches = mid == uid || au == uid || hintAu == uid;
+    if (!matches) return;
+    _syncBump = n.lastCacheRevision > 0 ? n.lastCacheRevision : _syncBump + 1;
+    if (mounted) {
+      setState(() {});
+      unawaited(_resolveDisplayUrl());
+    }
   }
 
   @override
@@ -378,7 +412,9 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       );
     }
 
-    final rev = widget.imageCacheRevision ?? 0;
+    final rev = (widget.imageCacheRevision ?? 0) > _syncBump
+        ? (widget.imageCacheRevision ?? 0)
+        : _syncBump;
 
     if (_resolving && _displayUrl == null) {
       return core(widget.placeholder ?? err);
@@ -409,7 +445,10 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       return core(err);
     }
 
-    final cachedBytes = MemberProfilePhotoBytesCache.get(effective);
+    final cachedBytes = MemberProfilePhotoBytesCache.getFresh(
+      effective,
+      minRevisionMs: rev,
+    );
     if (cachedBytes != null && cachedBytes.isNotEmpty) {
       return core(
         Image.memory(
@@ -678,7 +717,10 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
 
   Widget _photoFromUrl(String clean) {
     final rev = widget.imageCacheRevision ?? 0;
-    final cached = MemberProfilePhotoBytesCache.get(clean);
+    final cached = MemberProfilePhotoBytesCache.getFresh(
+      clean,
+      minRevisionMs: rev,
+    );
     if (cached != null && cached.isNotEmpty) {
       return Image.memory(
         cached,
@@ -708,7 +750,10 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
   Widget build(BuildContext context) {
     final rawInstant = (_instantUrl ?? '').trim();
     if (rawInstant.isNotEmpty) {
-      final cached = MemberProfilePhotoBytesCache.get(rawInstant);
+      final cached = MemberProfilePhotoBytesCache.getFresh(
+        rawInstant,
+        minRevisionMs: widget.imageCacheRevision ?? 0,
+      );
       if (cached != null && cached.isNotEmpty) {
         return Image.memory(
           cached,

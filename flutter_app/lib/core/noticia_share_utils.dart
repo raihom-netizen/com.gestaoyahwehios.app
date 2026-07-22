@@ -133,9 +133,15 @@ String buildNoticiaInviteShareMessage({
     final yyyy = d.year;
     final hm =
         '${d.hour.toString().padLeft(2, '0')}h${d.minute.toString().padLeft(2, '0')}';
+    // Destaque moderno de contagem regressiva (Hoje/Amanhã/faltam X dias).
+    final highlight = _eventCountdownHighlight(d);
+    if (highlight != null) {
+      buf.writeln(highlight);
+      buf.writeln();
+    }
+    buf.writeln('🎯 *${t.toUpperCase()}*');
     buf.writeln('🗓 *$wd*');
     buf.writeln('⏰ *$dd/$mm/$yyyy · $hm*');
-    buf.writeln('🎯 *${t.toUpperCase()}*');
   } else {
     buf.writeln('📌 *$t*');
   }
@@ -189,6 +195,21 @@ const _kWeekdayPtLong = <String>[
   'Sábado',
   'Domingo',
 ];
+
+/// Banner de destaque para a mensagem: «É HOJE!», «É AMANHÃ!» ou «Faltam X dias».
+/// Retorna null para datas passadas ou muito distantes (> 60 dias).
+String? _eventCountdownHighlight(DateTime startAt) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final evDay = DateTime(startAt.year, startAt.month, startAt.day);
+  final diffDays = evDay.difference(today).inDays;
+  if (diffDays < 0) return null;
+  if (diffDays == 0) return '🔥 *É HOJE!*';
+  if (diffDays == 1) return '⚡ *É AMANHÃ!*';
+  if (diffDays <= 7) return '⏳ *Faltam $diffDays dias*';
+  if (diffDays <= 60) return '📆 *Faltam $diffDays dias*';
+  return null;
+}
 
 String _formatShareLocationBlock({
   String? location,

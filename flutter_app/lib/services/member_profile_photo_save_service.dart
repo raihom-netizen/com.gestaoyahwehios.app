@@ -87,8 +87,10 @@ abstract final class MemberProfilePhotoSaveService {
       storagePath: fullPath,
       logLabel: 'membro_foto',
       alreadyCompressed: true,
+      compressForFeed: false,
       onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
       timeout: kUploadTimeout,
+      skipEnsureReady: true,
     );
     final url = uploaded.downloadUrl;
     // putData OK = objeto no bucket. URL vazia = path-only (UI resolve depois).
@@ -170,8 +172,10 @@ abstract final class MemberProfilePhotoSaveService {
         storagePath: fullPath,
         logLabel: 'membro_foto',
         alreadyCompressed: true,
+        compressForFeed: false,
         onProgress: (p) => onProgress?.call(0.15 + p * 0.60),
         timeout: kUploadTimeout,
+        skipEnsureReady: true,
       );
       final uploadedUrl = uploaded.downloadUrl;
       // putData OK — URL opcional; Firestore grava sempre photoStoragePath.
@@ -227,27 +231,26 @@ abstract final class MemberProfilePhotoSaveService {
       );
 
       onProgress?.call(0.95);
+      // Invalidar antes de devolver o resultado: lista/perfil/cartão não podem
+      // reconstruir a imagem usando bytes da versão anterior do mesmo path.
+      MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+        previousDownloadUrl: previousUrl,
+        newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
+        storagePath: fullPath,
+        thumbStoragePath: fullPath,
+        tenantId: churchId,
+        memberDocId: docId,
+        authUid: authUid.isEmpty ? null : authUid,
+      );
+      FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
+        tenantId: churchId,
+        memberId: storageFolderId,
+      );
       unawaited(
-        Future(() async {
-          FirebaseStorageCleanupService
-              .scheduleCleanupAfterMemberProfilePhotoUpload(
-            tenantId: churchId,
-            memberId: storageFolderId,
-          );
-          MemberProfilePhotoUpdateService.invalidateDisplayCaches(
-            previousDownloadUrl: previousUrl,
-            newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
-            storagePath: fullPath,
-            thumbStoragePath: fullPath,
-            tenantId: churchId,
-            memberDocId: docId,
-            authUid: authUid.isEmpty ? null : authUid,
-          );
-          await ModuleMediaOutboxService.clearMemberPhoto(
-            tenantId: churchId,
-            memberDocId: docId,
-          );
-        }),
+        ModuleMediaOutboxService.clearMemberPhoto(
+          tenantId: churchId,
+          memberDocId: docId,
+        ),
       );
 
       onPhase?.call('Concluído');

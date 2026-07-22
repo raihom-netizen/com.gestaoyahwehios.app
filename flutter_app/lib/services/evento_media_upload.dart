@@ -40,8 +40,10 @@ abstract final class EventoMediaUpload {
       storagePath: path,
       logLabel: 'evento_template_cover',
       alreadyCompressed: true,
+      compressForFeed: false,
       onProgress: onProgress,
       timeout: uploadTimeout,
+      skipEnsureReady: true,
     );
     return uploaded.downloadUrl;
   }

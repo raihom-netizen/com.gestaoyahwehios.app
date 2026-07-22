@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -39,8 +40,12 @@ class ChurchTenantOfflineWarmupService {
   void scheduleLightRefreshOnResume(String tenantIdRaw) {
     final tid = tenantIdRaw.trim();
     if (tid.isEmpty) return;
-    if (!AppConnectivityService.instance.isOnline) return;
     if (firebaseDefaultAuth.currentUser == null) return;
+    // Offline: só reidrata Hive/prefs (paint instantâneo).
+    if (!AppConnectivityService.instance.isOnline) {
+      unawaited(YahwehModuleCaches.warmUpTenant(tid));
+      return;
+    }
     if (kIsWeb) {
       final last = _lastLightResumeAt;
       if (last != null &&
@@ -55,7 +60,6 @@ class ChurchTenantOfflineWarmupService {
   Future<void> scheduleWarmupAfterLogin(String tenantIdRaw) async {
     final tidIn = tenantIdRaw.trim();
     if (tidIn.isEmpty) return;
-    if (!AppConnectivityService.instance.isOnline) return;
     if (firebaseDefaultAuth.currentUser == null) return;
 
     if (_sessionTenant != tidIn) {
@@ -65,6 +69,9 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupDoneThisSession) return;
 
     _warmupDoneThisSession = true;
+    // Sempre aquece disco primeiro (offline-capable).
+    unawaited(YahwehModuleCaches.warmUpTenant(tidIn));
+    if (!AppConnectivityService.instance.isOnline) return;
     // Só light no login — heavy (20+ coleções) competia com o dashboard na Web.
     unawaited(_runWarmup(tidIn, light: true));
     if (!_heavyWarmupScheduled && !kIsWeb) {
@@ -73,6 +80,7 @@ class ChurchTenantOfflineWarmupService {
         const Duration(seconds: 45),
         () {
           if (_sessionTenant != tidIn) return;
+          if (!AppConnectivityService.instance.isOnline) return;
           unawaited(_runWarmup(tidIn, light: false));
         },
       );

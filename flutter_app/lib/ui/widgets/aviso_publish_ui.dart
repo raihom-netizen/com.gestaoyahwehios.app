@@ -54,7 +54,8 @@ abstract final class EcofirePublishProgressUi {
     }
 
     try {
-      // Gate ANTES de fechar o editor — evita perder o formulário se sync falhar.
+      // Fecha editor na hora; gate/upload em BG (WhatsApp / Controle Total).
+      closeOnce();
       var gateSoftOffline = false;
       try {
         await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
@@ -68,7 +69,6 @@ abstract final class EcofirePublishProgressUi {
           rethrow;
         }
       }
-      closeOnce();
       final result = await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(
@@ -85,7 +85,6 @@ abstract final class EcofirePublishProgressUi {
         // Propaga para o chamador tratar como sucesso local (sem snack vermelho).
         rethrow;
       }
-      // Editor permanece aberto se o gate falhou antes do closeOnce.
       final msg = formatError?.call(e) ?? formatUploadErrorForUser(e);
       messenger?.showSnackBar(
         SnackBar(

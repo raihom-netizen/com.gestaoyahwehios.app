@@ -267,6 +267,8 @@ abstract final class ChurchBrandService {
     required String storagePath,
     String? downloadUrl,
     int? cacheRevision,
+    /// Após `putData` bem-sucedido — não bloquear UI com metadata assert.
+    bool skipStorageAssert = false,
   }) async {
     final cid = churchId.trim();
     final rev = cacheRevision ?? YahwehMediaCacheBust.freshRevisionMs();
@@ -284,7 +286,13 @@ abstract final class ChurchBrandService {
       );
     }
     await ensureFirebaseReadyForPublishUpload();
-    await ChurchStorageMetadataVerify.assertExists(path);
+    if (!skipStorageAssert) {
+      await ChurchStorageMetadataVerify.assertExists(path);
+    } else {
+      unawaited(
+        ChurchStorageMetadataVerify.assertExists(path).catchError((_) {}),
+      );
+    }
 
     var url = sanitizeImageUrl((downloadUrl ?? '').trim());
     if (url.isEmpty || !url.toLowerCase().startsWith('http')) {

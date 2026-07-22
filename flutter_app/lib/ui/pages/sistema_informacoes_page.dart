@@ -223,6 +223,24 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                       const SizedBox(height: 16),
                       _buildModulosResumoGrid(context),
                       const SizedBox(height: 24),
+                      const YahwehWisdomGoldTitle(
+                        text: 'Utilitários e segurança',
+                        fontSize: 20,
+                        textAlign: TextAlign.start,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tecnologia trabalhando nos bastidores para proteger seus dados e deixar tudo rápido.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const _UtilitariosSegurancaGrid(),
+                      const SizedBox(height: 24),
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -400,6 +418,145 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
         size: 46,
         iconSize: 24,
       ),
+    );
+  }
+}
+
+/// Grid moderno de utilitários — segurança, backups, conversões e performance.
+class _UtilitariosSegurancaGrid extends StatelessWidget {
+  const _UtilitariosSegurancaGrid();
+
+  static const List<({IconData icon, Color accent, String title, String body})>
+      _items = [
+    (
+      icon: Icons.shield_rounded,
+      accent: Color(0xFF10B981),
+      title: 'Segurança de dados',
+      body:
+          'Criptografia em trânsito e acesso por perfil — cada membro vê só o que pode.',
+    ),
+    (
+      icon: Icons.cloud_done_rounded,
+      accent: Color(0xFF3B82F6),
+      title: 'Backups automáticos',
+      body:
+          'Cadastros, finanças e mídias protegidos na nuvem Google / Firebase.',
+    ),
+    (
+      icon: Icons.autorenew_rounded,
+      accent: Color(0xFF8B5CF6),
+      title: 'Conversões modernas',
+      body:
+          'Fotos e vídeos otimizados automaticamente (WebP HD) — envio rápido até no 4G.',
+    ),
+    (
+      icon: Icons.picture_as_pdf_rounded,
+      accent: Color(0xFFF59E0B),
+      title: 'Exportações e PDF',
+      body:
+          'Relatórios premium e resumos mensais prontos para imprimir ou compartilhar.',
+    ),
+    (
+      icon: Icons.bolt_rounded,
+      accent: Color(0xFFEC4899),
+      title: 'Cache inteligente',
+      body:
+          'Módulos abrem na hora: carregam da memória e sincronizam em segundo plano.',
+    ),
+    (
+      icon: Icons.system_update_rounded,
+      accent: Color(0xFF06B6D4),
+      title: 'Atualizações contínuas',
+      body:
+          'Melhorias constantes com a mesma experiência em web, Android e iOS.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final cols = c.maxWidth >= 720 ? 2 : 1;
+        const gap = 10.0;
+        final tileW =
+            cols <= 1 ? c.maxWidth : (c.maxWidth - gap * (cols - 1)) / cols;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: _items.map((it) {
+            return Container(
+              width: tileW,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: it.accent.withValues(alpha: 0.22)),
+                boxShadow: [
+                  BoxShadow(
+                    color: it.accent.withValues(alpha: 0.08),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          it.accent,
+                          Color.lerp(it.accent, Colors.black, 0.25)!,
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: it.accent.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Icon(it.icon, color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          it.title,
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: YahwehWisdomVisualKit.navyDeep,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          it.body,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            height: 1.4,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 }

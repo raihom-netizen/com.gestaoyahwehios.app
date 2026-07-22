@@ -79,6 +79,25 @@ export async function syncSessionFromMembroDoc(
   const cpf = String(memberData.CPF || memberData.cpf || "").replace(/\D/g, "");
   const nome = pickString(memberData, ["NOME_COMPLETO", "nome", "name"]);
   const email = pickString(memberData, ["EMAIL", "email"]).toLowerCase();
+  const photoUrl = pickString(memberData, [
+    "fotoThumbUrl",
+    "photoThumbUrl",
+    "fotoUrl",
+    "FOTO_URL_OU_ID",
+    "photoUrl",
+    "photoURL",
+  ]);
+  const photoStoragePath = pickString(memberData, [
+    "photoThumbStoragePath",
+    "fotoThumbPath",
+    "photoStoragePath",
+    "fotoPath",
+  ]);
+  const photoRevRaw = memberData.fotoUrlCacheRevision;
+  const photoRevision =
+    typeof photoRevRaw === "number" && Number.isFinite(photoRevRaw)
+      ? Math.floor(photoRevRaw)
+      : 0;
 
   const authUser = await admin.auth().getUser(authUid);
   const cur = (authUser.customClaims || {}) as Record<string, unknown>;
@@ -106,6 +125,14 @@ export async function syncSessionFromMembroDoc(
       cpf: cpf.length === 11 ? cpf : "",
       nome,
       displayName: nome,
+      ...(photoUrl ? { fotoUrl: photoUrl, photoUrl } : {}),
+      ...(photoStoragePath
+        ? {
+            photoStoragePath,
+            photoThumbStoragePath: photoStoragePath,
+          }
+        : {}),
+      ...(photoRevision > 0 ? { fotoUrlCacheRevision: photoRevision } : {}),
       ativo: activeClaim,
       active: activeClaim,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -132,6 +159,14 @@ export async function syncSessionFromMembroDoc(
         uid: authUid,
         departmentIds: [...new Set(deptIds)],
         memberDocId: mid,
+        ...(photoUrl ? { photoUrl, fotoUrl: photoUrl } : {}),
+        ...(photoStoragePath
+          ? {
+              photoStoragePath,
+              photoThumbStoragePath: photoStoragePath,
+            }
+          : {}),
+        ...(photoRevision > 0 ? { fotoUrlCacheRevision: photoRevision } : {}),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },

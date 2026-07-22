@@ -86,6 +86,7 @@ abstract final class ChurchCanonicalMediaPublish {
       mimeType: mime,
       logLabel: logLabel,
       onProgress: (p) => onProgress?.call(0.15 + p * 0.80),
+      skipEnsureReady: true,
     );
 
     final rev = YahwehMediaCacheBust.freshRevisionMs();

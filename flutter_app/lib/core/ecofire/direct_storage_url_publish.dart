@@ -19,6 +19,10 @@ abstract final class DirectStorageUrlPublish {
     bool requireAuth = true,
     int maxAttempts = 5,
   }) async {
+    // Sessão quente (≤5 min) — publica foto/comprovante/chat sem re-bootstrap.
+    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      return;
+    }
     Object? last;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -62,8 +66,11 @@ abstract final class DirectStorageUrlPublish {
     void Function(double progress)? onProgress,
     bool requireAuth = true,
     void Function(UploadTask task)? onUploadTaskCreated,
+    bool skipEnsureReady = false,
   }) async {
-    await ensureReady(requireAuth: requireAuth);
+    if (!skipEnsureReady) {
+      await ensureReady(requireAuth: requireAuth);
+    }
     return EcoFireStorageUpload.putData(
       storagePath: storagePath,
       bytes: bytes,

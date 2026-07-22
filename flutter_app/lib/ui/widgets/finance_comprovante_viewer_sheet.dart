@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart'
 import 'package:gestao_yahweh/utils/finance_comprovante_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -36,17 +37,16 @@ abstract final class FinanceComprovanteViewerSheet {
     var url =
         await FinanceComprovantePublishService.resolveComprovanteUrl(data);
     if (!context.mounted) return;
-    if (url.isEmpty && storagePath.isNotEmpty) {
-      if (mime.contains('pdf')) {
-        await _showPdfFromStorage(context, data, fileName);
-        return;
-      }
-      await _showImageFromStorage(context, data, fileName, mime);
-      return;
-    }
+    // Path no Firestore sem ficheiro no Storage (órfão / upload incompleto).
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível abrir o comprovante.')),
+        SnackBar(
+          content: Text(
+            storagePath.isNotEmpty
+                ? 'Comprovante não encontrado no Storage. Use «Trocar» para anexar de novo.'
+                : 'Não foi possível abrir o comprovante.',
+          ),
+        ),
       );
       return;
     }
@@ -137,7 +137,13 @@ abstract final class FinanceComprovanteViewerSheet {
                 ),
                 Expanded(
                   child: InteractiveViewer(
-                    child: Image.memory(bytes, fit: BoxFit.contain),
+                    minScale: 0.5,
+                    maxScale: 5,
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.high,
+                    ),
                   ),
                 ),
               ],
@@ -147,10 +153,15 @@ abstract final class FinanceComprovanteViewerSheet {
       );
     } catch (e) {
       if (context.mounted) {
+        final msg = e.toString();
+        final missing = msg.contains('object-not-found') ||
+            msg.contains('No object exists');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Erro ao abrir comprovante: ${e.toString().split('\n').first}',
+              missing
+                  ? 'Comprovante não encontrado no Storage. Use «Trocar» para anexar de novo.'
+                  : 'Erro ao abrir comprovante: ${msg.split('\n').first}',
             ),
           ),
         );
@@ -224,10 +235,18 @@ abstract final class FinanceComprovanteViewerSheet {
                         fileName: fileName,
                       )
                     : Center(
-                        child: InteractiveViewer(
-                          child: SafeNetworkImage(
+                        child: GestureDetector(
+                          onTap: () => showYahwehOriginalImageZoom(
+                            context,
                             imageUrl: url,
-                            fit: BoxFit.contain,
+                          ),
+                          child: InteractiveViewer(
+                            minScale: 0.5,
+                            maxScale: 5,
+                            child: SafeNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.contain,
+                            ),
                           ),
                         ),
                       ),

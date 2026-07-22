@@ -67,7 +67,6 @@ Test-FileContains "flutter_app\lib\core\system_health\production_module_traces.d
 
 Write-Host "`n[5/7] Backup automatico (Cloud Functions)..." -ForegroundColor Yellow
 Test-FileContains "functions\src\index.ts" "backupDailyToGcs" "Backup Firestore GCS"
-Test-FileContains "functions\src\index.ts" "backupDailyToDrive" "Backup Drive legado"
 
 Write-Host "`n[6/8] Modo QA (28 testes)..." -ForegroundColor Yellow
 Test-FileContains "flutter_app\lib\core\qa\qa_assurance_runner.dart" "runAll" "QA runner"

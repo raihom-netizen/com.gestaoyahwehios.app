@@ -28,7 +28,7 @@ abstract final class ChurchChatChurchFeatures {
       );
       final threadId = ChurchChatService.deptThreadId(departmentId);
       final sender = ChurchChatService.senderDisplayNameForNewMessage();
-      final body = 'ðŸ“¢ Mensagem pastoral\n$text';
+      final body = '📢 Mensagem pastoral\n$text';
       final ok = await ChurchChatService.sendTextMessage(
         tenantId: tenantId,
         threadId: threadId,

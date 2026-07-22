@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_chat_fast_send_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Chat mídia estilo WhatsApp — Ecofire: Firebase OK → Storage → Firestore **uma vez** (`sent`).
@@ -111,7 +112,8 @@ abstract final class ChurchChatMediaSendService {
     }
 
     try {
-      // Online: gate até 8s + 2.ª tentativa — só enfileira se ainda falhar (rede/SDK).
+      // Online: pipeline quente → salta gate 8s (foto/arquivo no chat mais rápido).
+      if (!ChurchChatFastSendService.isPipelineWarm) {
       try {
         await DirectStorageUrlPublish.ensureReady(requireAuth: true)
             .timeout(kOnlineGateTimeout);
@@ -164,6 +166,9 @@ abstract final class ChurchChatMediaSendService {
         } else {
           rethrow;
         }
+      }
+      } else {
+        unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
       }
       await ChurchChatMediaUploadCoordinator.run(() => sendInternal(
         resolvedTenant: resolvedTenant,

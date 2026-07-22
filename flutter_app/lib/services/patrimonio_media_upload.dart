@@ -59,6 +59,7 @@ abstract final class PatrimonioMediaUpload {
         rawBytes: rawBytes,
         onProgress: onProgress,
         alreadyCompressed: alreadyCompressed,
+        skipEnsureReady: true,
       ).timeout(
         uploadTimeout,
         onTimeout: () => throw TimeoutException(

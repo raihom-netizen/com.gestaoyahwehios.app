@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Câmera: captura pontual (image_picker). Galeria/vídeo: Android Photo Picker via image_picker
@@ -86,6 +88,52 @@
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:theme="@style/Theme.Yahweh.UCrop" />
+        <!-- Home widgets — paridade Controle Total (3 tamanhos + sync meia-noite) -->
+        <receiver
+            android:name=".GestaoYahwehWidgetProvider"
+            android:label="@string/widget_scales_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_gestao_yahweh" />
+        </receiver>
+        <receiver
+            android:name=".GestaoYahwehWidgetSmallProvider"
+            android:label="@string/widget_calendar_small_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_gestao_yahweh_small" />
+        </receiver>
+        <receiver
+            android:name=".GestaoYahwehWidgetMediumProvider"
+            android:label="@string/widget_calendar_medium_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/home_widget_gestao_yahweh_medium" />
+        </receiver>
+        <service
+            android:name=".GestaoYahwehWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+        <receiver
+            android:name=".WidgetSyncAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="com.gestaoyahweh.app.WIDGET_SYNC_ALARM" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

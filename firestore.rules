@@ -496,6 +496,67 @@ service cloud.firestore {
       let r = exists(p) && get(p).data.role is string ? get(p).data.role : '';
       return muralSingleRoleAllowsMural(r);
     }
+    /// Equipe financeira (app: isFinancePanelTeam) — papel no tenant, não só em users/{uid}.
+    function financeStaffRoleString(r) {
+      return r != null && (
+        r == 'MASTER' || r == 'master' || r == 'Master' ||
+        r == 'ADMIN' || r == 'ADM' || r == 'admin' || r == 'adm' || r == 'Adm' || r == 'Admin' ||
+        r == 'administrador' || r == 'administradora' || r == 'Administrador' || r == 'Administradora' ||
+        r == 'GESTOR' || r == 'gestor' || r == 'Gestor' ||
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' ||
+        r == 'pastora_presidente' || r == 'pastora presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'Secretário' || r == 'SECRETÁRIO' || r == 'Secretario' ||
+        r == 'SecretÃ¡rio' || r == 'SECRETÃRIO' || r == 'secretária' || r == 'Secretaria' || r == 'secretaria' ||
+        r == 'secretÃ¡ria' ||
+        r == 'TESOUREIRO' || r == 'tesoureiro' || r == 'Tesoureiro' ||
+        r == 'TESOURARIA' || r == 'tesouraria' || r == 'Tesouraria'
+      );
+    }
+    function financeRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'MASTER', 'master', 'Master',
+        'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
+        'GESTOR', 'gestor', 'Gestor',
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente',
+        'pastora_presidente', 'pastora presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar',
+        'ministerial', 'pastor_auxiliar_ministerial',
+        'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'SecretÃ¡rio', 'SECRETÃRIO',
+        'secretária', 'Secretaria', 'secretaria', 'secretÃ¡ria',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
+        'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ]);
+    }
+    function tenantUserRoleAllowsFinance(tenantId) {
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return (exists(tenantU) && (
+          (get(tenantU).data.role is string && financeStaffRoleString(get(tenantU).data.role))
+          || (get(tenantU).data.roles is list && financeRolesArrayMatches(get(tenantU).data.roles))
+        ))
+        || (exists(rootU) && get(rootU).data.roles is list
+          && financeRolesArrayMatches(get(rootU).data.roles));
+    }
+    /// Gravar/excluir lançamentos e fornecedores — alinhado ao app (role no tenant + permissão granular).
+    function canWriteFinanceTenant(tenantId) {
+      return isAdminPanel()
+        || canWriteTenant(tenantId)
+        || isTreasurer()
+        || hasTenantModulePermission(tenantId, 'financeiro')
+        || hasTenantModulePermission(tenantId, 'fornecedores')
+        || (canAccessTenant(tenantId) && (
+          canManageChurch()
+          || isPastoralOrSecretariatRole()
+          || isPastorAuxiliarRole()
+          || financeStaffRoleString(role())
+          || tenantUserRoleAllowsFinance(tenantId)
+        ));
+    }
     /// Mural: avisos/eventos/agenda â€” gestor, pastor, admin, secretÃ¡rio, tesoureiro, lÃ­der de departamento.
     /// Membro comum e permissÃ£o granular `eventos` isolada nÃ£o publicam (chat continua aberto a todos).
     function canWriteMuralFeed(tenantId) {
@@ -638,7 +699,10 @@ service cloud.firestore {
           && request.resource.data.PUBLIC_SIGNUP == true
           && request.resource.data.MEMBER_ID == memberId
           && (request.resource.data.CPF is string)
-          && (request.resource.data.STATUS == 'pendente' || request.resource.data.STATUS == 'ativo')
+          && request.resource.data.STATUS == 'pendente'
+          && request.resource.data.status == 'pendente'
+          && request.resource.data.role == 'membro'
+          && request.resource.data.FUNCAO == 'Membro'
           && request.resource.data.NOME_COMPLETO is string
           && request.resource.data.DATA_NASCIMENTO is timestamp
           && request.resource.data.FOTO_URL_OU_ID is string
@@ -663,7 +727,12 @@ service cloud.firestore {
         allow update: if (request.auth == null
               && resource.data.PUBLIC_SIGNUP == true
               && resource.data.STATUS == 'pendente'
-              && request.resource.data.STATUS == 'pendente')
+              && request.resource.data.PUBLIC_SIGNUP == true
+              && request.resource.data.MEMBER_ID == memberId
+              && request.resource.data.STATUS == 'pendente'
+              && request.resource.data.status == 'pendente'
+              && request.resource.data.role == 'membro'
+              && request.resource.data.FUNCAO == 'Membro')
           || (request.auth != null && (
               isMaster()
               || canStaffEditAnyMemberRecord(id)
@@ -826,10 +895,13 @@ service cloud.firestore {
             || isTreasurer()
             || isPastoralOrSecretariatRole()
             || hasTenantModulePermission(id, 'financeiro')
+            || tenantUserRoleAllowsFinance(id)
           ))
           || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro')
-          || (canAccessTenant(id) && isPastoralOrSecretariatRole());
+        // create/update/delete explícitos — evita falha de «write» genérico em exclusão.
+        // Papel pode estar só em igrejas/{id}/users/{uid} (não em users/{uid}.role).
+        allow create, update: if canWriteFinanceTenant(id);
+        allow delete: if canWriteFinanceTenant(id);
       }
       // Auditoria: exclusÃµes e aÃ§Ãµes (somente append; sem ediÃ§Ã£o pelo cliente).
       match /finance_logs/{logId} {
@@ -839,10 +911,9 @@ service cloud.firestore {
             || isTreasurer()
             || isPastoralOrSecretariatRole()
             || hasTenantModulePermission(id, 'financeiro')
+            || tenantUserRoleAllowsFinance(id)
           ));
-        allow create: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
-          || isPastoralOrSecretariatRole()
-          || hasTenantModulePermission(id, 'financeiro');
+        allow create: if canWriteFinanceTenant(id);
         allow update, delete: if false;
       }
       match /fornecedores/{docId} {
@@ -852,11 +923,10 @@ service cloud.firestore {
           || isPastoralOrSecretariatRole()
           || hasTenantModulePermission(id, 'financeiro')
           || hasTenantModulePermission(id, 'fornecedores')
+          || tenantUserRoleAllowsFinance(id)
         ));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
-          || isPastoralOrSecretariatRole()
-          || hasTenantModulePermission(id, 'financeiro')
-          || hasTenantModulePermission(id, 'fornecedores');
+        allow create, update: if canWriteFinanceTenant(id);
+        allow delete: if canWriteFinanceTenant(id);
       }
       match /fornecedor_compromissos/{docId} {
         allow read: if isMaster() || (canAccessTenant(id) && (
@@ -865,11 +935,10 @@ service cloud.firestore {
           || isPastoralOrSecretariatRole()
           || hasTenantModulePermission(id, 'financeiro')
           || hasTenantModulePermission(id, 'fornecedores')
+          || tenantUserRoleAllowsFinance(id)
         ));
-        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer()
-          || isPastoralOrSecretariatRole()
-          || hasTenantModulePermission(id, 'financeiro')
-          || hasTenantModulePermission(id, 'fornecedores');
+        allow create, update: if canWriteFinanceTenant(id);
+        allow delete: if canWriteFinanceTenant(id);
       }
       match /categorias_receitas/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
@@ -1740,7 +1809,8 @@ service cloud.firestore {
     }
 
     match /config/plans/items/{id} {
-      allow read: if isSignedIn();
+      // Precos dos planos sao publicos (site divulgacao + apps antes do login).
+      allow read: if true;
       allow write: if isMaster();
     }
 

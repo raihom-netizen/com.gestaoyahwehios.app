@@ -6,10 +6,10 @@ Para **até 100 membros**, o plano indicado no sistema é o **Plano Inicial**:
 
 | Item            | Valor        |
 |-----------------|--------------|
-| Preço mensal    | **R$ 49,90** |
-| Preço anual (12 por 10) | R$ 499,00 |
+| Preço mensal    | **R$ 59,90** |
+| Preço anual (12 por 10) | R$ 599,00 |
 
-**Receita mensal por igreja de 100 membros (plano mensal): R$ 49,90**
+**Receita mensal por igreja de 100 membros (plano mensal): R$ 59,90**
 
 ---
 
@@ -24,7 +24,7 @@ Estimativa conservadora de uso **por mês** por igreja:
 | **Total upload (novo)**        |                     |                 | **~550 MB** |
 | Visualizações (download)       | 100 membros vendo feed | ~5–15 GB egress | **~8 GB**   |
 
-Observação: no seu sistema, após **30 dias** as mídias do mural são migradas para o **Google Drive** (ver `MURAL_E_DRIVE.md`). No Firebase Storage ficam, em regime estável, basicamente só os **últimos 30 dias** de mídia. Isso reduz o custo de armazenamento no Firebase.
+Observação: as mídias do mural permanecem no **Firebase Storage**. O custo deve considerar o volume real armazenado e as políticas de retenção aplicadas dentro do próprio Firebase.
 
 ---
 
@@ -50,7 +50,7 @@ Preços Firebase em USD (Blaze); conversão aproximada **1 USD ≈ R$ 5,50**.
 
 | Conceito        | Valor (R$/mês) |
 |-----------------|----------------|
-| Receita (plano) | 49,90          |
+| Receita (plano) | 59,90          |
 | Custo infra     | -9,00 (média)  |
 | **Lucro**       | **~R$ 41/mês** |
 
@@ -60,7 +60,7 @@ Ou seja: **cerca de R$ 41 de lucro por igreja de 100 membros**, na hipótese de 
 
 ## 5. Resumo e observações
 
-- **Plano usado:** Plano Inicial (até 100 membros) = **R$ 49,90/mês**.
+- **Plano usado:** Plano Inicial (até 100 membros) = **R$ 59,90/mês**.
 - **Custo mensal estimado** para essa igreja (fotos, vídeos, etc.): **~R$ 6–12** (média **~R$ 9**).
 - **Lucro mensal estimado:** **~R$ 41** por igreja.
 - A política de **arquivar mídia no Drive após 30 dias** ajuda a manter o custo de Storage no Firebase baixo.

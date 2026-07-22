@@ -77,10 +77,11 @@
 	<true/>
 	<key>UIStatusBarStyle</key>
 	<string>UIStatusBarStyleDefault</string>
-	<!-- Sem aps-environment no Runner.entitlements: não declarar remote-notification (binário inválido no ASC). -->
+	<!-- Push APNs (paridade Controle Total) + fetch em background. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
+		<string>remote-notification</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<false/>
@@ -95,6 +96,16 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>com.googleusercontent.apps.157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>gestaoyahweh.widget</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gestaoyahweh</string>
 			</array>
 		</dict>
 	</array>

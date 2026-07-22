@@ -1765,7 +1765,7 @@ class _PlanCardOficial extends StatelessWidget {
               const SizedBox(height: 6),
               if ((priceAnnual ?? plan.annualPrice) != null)
                 Text(
-                  'Anual: ${_money((priceAnnual ?? plan.annualPrice)!)} (12 por 10)',
+                  'Anual: ${_money((priceAnnual ?? plan.annualPrice)!)} · pague 10 meses e use 12',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               const SizedBox(height: 12),

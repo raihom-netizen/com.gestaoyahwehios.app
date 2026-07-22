@@ -1797,10 +1797,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(n == 1 ? 'Excluir conversa?' : 'Excluir conversas?'),
+        title: Text(n == 1 ? 'Limpar conversa?' : 'Limpar conversas?'),
         content: Text(
-          'Remove $label da sua lista. As mensagens mantêm-se no histórico '
-          'da outra pessoa — só desaparecem para si.',
+          'Apaga $label por completo no Firebase e no armazenamento '
+          '(mensagens, fotos e vídeos) para TODOS os participantes. '
+          'Esta ação não pode ser desfeita.',
         ),
         actions: [
           TextButton(
@@ -1812,7 +1813,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               backgroundColor: ThemeCleanPremium.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(n == 1 ? 'Excluir' : 'Excluir ($n)'),
+            child: Text(n == 1 ? 'Limpar tudo' : 'Limpar ($n)'),
           ),
         ],
       ),
@@ -1825,31 +1826,36 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     required String threadId,
   }) async {
     if (!await _confirmHideConversations(1)) return;
-    final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
+    final purged = await ChatHubOperations.purgeThreadMessagesCompletely(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
+    await ChurchChatLocalConversations.remove(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
+    // Também some da lista pessoal (além do purge global).
+    await ChurchChatMemberPrefs.setHiddenDmThread(
       tenantId: tenantId,
       threadId: threadId,
       hide: true,
     );
-    if (ok) {
-      await ChurchChatLocalConversations.remove(
-        tenantId: tenantId,
-        threadId: threadId,
-      );
-    }
     if (!mounted) return;
-    if (!ok) {
+    if (!purged) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text(
-            'Limite de conversas ocultas '
-            '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
+            'Não foi possível limpar a conversa. Verifique a rede e tente de novo.',
           ),
+          backgroundColor: ThemeCleanPremium.error,
         ),
       );
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Conversa removida da sua lista.')),
+      const SnackBar(
+        content: Text('Conversa limpa no Firebase e no armazenamento.'),
+      ),
     );
   }
 
@@ -1907,28 +1913,33 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final ids = _selectedDmThreadIds.toList();
     if (ids.isEmpty) return;
     if (!await _confirmHideConversations(ids.length)) return;
-    final result = await ChurchChatMemberPrefs.hideDmThreadsBatch(
-      tenantId: tenantId,
-      threadIds: ids,
-    );
-    if (!mounted) return;
-    if (result.hidden <= 0 && result.hitLimit) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Limite de conversas ocultas '
-            '(${ChurchChatMemberPrefs.maxHiddenDmThreads}).',
-          ),
-        ),
+    var purged = 0;
+    for (final id in ids) {
+      final ok = await ChatHubOperations.purgeThreadMessagesCompletely(
+        tenantId: tenantId,
+        threadId: id,
       );
-      return;
+      if (ok) purged++;
+      await ChurchChatLocalConversations.remove(
+        tenantId: tenantId,
+        threadId: id,
+      );
+      await ChurchChatMemberPrefs.setHiddenDmThread(
+        tenantId: tenantId,
+        threadId: id,
+        hide: true,
+      );
     }
+    if (!mounted) return;
     setState(_clearDmSelectUi);
-    final msg = result.hitLimit
-        ? '${result.hidden} conversa(s) removida(s). Limite de ocultas atingido.'
-        : '${result.hidden} conversa(s) removida(s) da sua lista.';
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
+      SnackBar(
+        content: Text(
+          purged == ids.length
+              ? '$purged conversa(s) limpa(s) no Firebase e no armazenamento.'
+              : '$purged de ${ids.length} conversa(s) limpa(s). Verifique a rede.',
+        ),
+      ),
     );
   }
 
@@ -2243,9 +2254,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       Icons.delete_outline_rounded,
                       color: ThemeCleanPremium.error,
                     ),
-                    title: const Text('Excluir conversa'),
+                    title: const Text('Limpar conversa'),
                     subtitle: const Text(
-                      'Remove da sua lista. A outra pessoa mantém o histórico.',
+                      'Apaga mensagens, fotos e vídeos no Firebase para todos.',
                       style: TextStyle(fontSize: 11),
                     ),
                     onTap: () async {
