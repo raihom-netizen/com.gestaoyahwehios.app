@@ -33,7 +33,7 @@ abstract final class MasterChurchesListService {
   MasterChurchesListService._();
 
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static const _prefsKey = 'master_churches_index_v1';
 

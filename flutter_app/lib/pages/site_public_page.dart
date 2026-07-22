@@ -1409,6 +1409,14 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
       label: 'Galeria de fotos e vídeos em alta definição',
     ),
     (icon: Icons.devices_rounded, label: 'Acesso via web, Android e iOS (Apple)'),
+    (
+      icon: Icons.handyman_rounded,
+      label:
+          'Utilitários — PDF → Word · PDF → JPEG/PNG · Imagens → PDF · Word → PDF · '
+          'PDF → Excel · Excel → PDF · PDF → PowerPoint · Compressor (imagem/PDF/MP4) · '
+          'Vídeo → MP4 · Extrair áudio · Juntar PDF · Dividir PDF · Editor PDF · '
+          'Foto/Câmera → PDF · OCR (texto da foto) · Compactar ZIP · Editor de Foto',
+    ),
   ];
 
   @override
@@ -1470,7 +1478,7 @@ class _PremiumFeatureTile extends StatelessWidget {
         ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(11),
@@ -1496,14 +1504,17 @@ class _PremiumFeatureTile extends StatelessWidget {
           ),
           const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 13.5,
-                height: 1.28,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.1,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13.5,
+                  height: 1.28,
+                  color: Color(0xFF0F172A),
+                  letterSpacing: -0.1,
+                ),
               ),
             ),
           ),

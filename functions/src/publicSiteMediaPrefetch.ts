@@ -28,7 +28,7 @@ function isYoutubeVimeo(url: string): boolean {
   return low.includes("youtube.com") || low.includes("youtu.be") || low.includes("vimeo.com");
 }
 
-function collectHttpPhotoUrls(data: Record<string, unknown>): string[] {
+export function collectHttpPhotoUrls(data: Record<string, unknown>): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
 
@@ -121,6 +121,57 @@ function collectHttpPhotoUrls(data: Record<string, unknown>): string[] {
   }
 
   return out;
+}
+
+/** URL https de vídeo hospedado no doc (sem listar Storage) — partilha Instagram-fast. */
+export function collectHostedVideoUrl(data: Record<string, unknown>): string | null {
+  let hosted = pickHttp(data, ["hostedVideoUrl", "videoUrl", "video_url"]);
+  if (hosted && (!looksLikeVideoFile(hosted) || isYoutubeVimeo(hosted))) {
+    hosted = "";
+  }
+  if (!hosted) {
+    const videos = data.videos;
+    if (Array.isArray(videos)) {
+      for (const e of videos) {
+        if (!e || typeof e !== "object") continue;
+        const v = pickHttp(e as Record<string, unknown>, [
+          "videoUrl",
+          "video_url",
+          "url",
+          "downloadUrl",
+          "downloadURL",
+        ]);
+        if (v && looksLikeVideoFile(v) && !isYoutubeVimeo(v)) {
+          hosted = v;
+          break;
+        }
+      }
+    }
+  }
+  return hosted || null;
+}
+
+/** Thumb do vídeo já em https no doc. */
+export function collectVideoThumbUrl(data: Record<string, unknown>): string | null {
+  const direct = pickHttp(data, [
+    "videoThumbUrl",
+    "video_thumb_url",
+    "videoThumbnailUrl",
+  ]);
+  if (direct) return direct;
+  const videos = data.videos;
+  if (Array.isArray(videos)) {
+    for (const e of videos) {
+      if (!e || typeof e !== "object") continue;
+      const t = pickHttp(e as Record<string, unknown>, [
+        "thumbUrl",
+        "thumb_url",
+        "thumbnailUrl",
+      ]);
+      if (t) return t;
+    }
+  }
+  return null;
 }
 
 function collectStoragePaths(

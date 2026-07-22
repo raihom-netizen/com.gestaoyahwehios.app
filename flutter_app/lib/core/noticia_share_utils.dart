@@ -1,4 +1,5 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException;
+
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -21,7 +22,6 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        dedupeImageRefsByStorageIdentity,
         firebaseStorageBytesFromDownloadUrl,
         firebaseStorageMediaUrlLooksLike,
         imageUrlFromMap,
@@ -266,10 +266,11 @@ class NoticiaShareMediaFile {
   final String mimeType;
 }
 
-/// Capa + galeria (até 5 fotos) + 1 vídeo hospedado — para anexar na partilha.
+/// Galeria estilo Instagram: até [maxPhotos] fotos + 1 vídeo hospedado (em paralelo).
 Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   Map<String, dynamic> data, {
   int maxPhotos = 5,
+  bool includeVideo = true,
   String? tenantId,
   String? postId,
   String? collection,
@@ -283,8 +284,13 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   final httpUrls = <String>[
     ...NoticiaSharePrefetchService.httpPhotoUrlsFromPost(data),
   ];
+  String? packVideoUrl =
+      NoticiaSharePrefetchService.hostedVideoUrlFromPost(data);
 
-  if (httpUrls.length < maxPhotos && tid.isNotEmpty && pid.isNotEmpty) {
+  if ((httpUrls.length < maxPhotos ||
+          (includeVideo && (packVideoUrl == null || packVideoUrl.isEmpty))) &&
+      tid.isNotEmpty &&
+      pid.isNotEmpty) {
     final pack = await NoticiaSharePrefetchService.fetch(
       tenantId: tid,
       postId: pid,
@@ -295,6 +301,10 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       for (final u in pack.photoUrls) {
         if (!httpUrls.contains(u)) httpUrls.add(u);
       }
+      if ((packVideoUrl == null || packVideoUrl.isEmpty) &&
+          (pack.hostedVideoUrl ?? '').isNotEmpty) {
+        packVideoUrl = pack.hostedVideoUrl;
+      }
     }
   }
 
@@ -302,22 +312,20 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     httpUrls.addAll(noticiaGalleryRefsForShare(data));
   }
 
-  final photoJobs = <Future<NoticiaShareMediaFile?>>[];
-
   Future<NoticiaShareMediaFile?> downloadPhoto(String ref, int index) async {
     try {
       final u = sanitizeImageUrl(ref);
-      if (!isValidImageUrl(u)) return null;
+      if (!isValidImageUrl(u) || looksLikeHostedVideoFileUrl(u)) return null;
       Uint8List? bytes;
       if (isFirebaseStorageHttpUrl(u)) {
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
-          maxBytes: 4 * 1024 * 1024,
-        ).timeout(const Duration(seconds: 10), onTimeout: () => null);
+          maxBytes: 2 * 1024 * 1024,
+        ).timeout(const Duration(seconds: 5), onTimeout: () => null);
       }
       bytes ??= await http
           .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
-          .timeout(const Duration(seconds: 8))
+          .timeout(const Duration(seconds: 4))
           .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
               ? r.bodyBytes
               : null);
@@ -335,15 +343,57 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     }
   }
 
+  Future<NoticiaShareMediaFile?> downloadVideo() async {
+    if (!includeVideo) return null;
+    try {
+      var videoUrl = packVideoUrl;
+      if (videoUrl == null || videoUrl.isEmpty) {
+        videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+      }
+      if (videoUrl == null || videoUrl.isEmpty) return null;
+      final vu = sanitizeImageUrl(videoUrl);
+      if (vu.isEmpty || !isValidImageUrl(vu)) return null;
+      final vBytes = await firebaseStorageBytesFromDownloadUrl(
+        vu,
+        maxBytes: 16 * 1024 * 1024,
+      ).timeout(const Duration(seconds: 8), onTimeout: () => null);
+      if (vBytes == null || vBytes.length <= 512) return null;
+      final low = vu.toLowerCase().split('?').first;
+      final ext = low.endsWith('.webm')
+          ? 'webm'
+          : low.endsWith('.mov')
+              ? 'mov'
+              : 'mp4';
+      final mime = ext == 'webm'
+          ? 'video/webm'
+          : ext == 'mov'
+              ? 'video/quicktime'
+              : 'video/mp4';
+      return NoticiaShareMediaFile(
+        bytes: vBytes,
+        fileName: 'video_publicacao.$ext',
+        mimeType: mime,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  final photoJobs = <Future<NoticiaShareMediaFile?>>[];
   for (var i = 0; i < httpUrls.length && i < maxPhotos; i++) {
     photoJobs.add(downloadPhoto(httpUrls[i], i));
   }
+  final videoJob = includeVideo ? downloadVideo() : null;
 
-  if (photoJobs.isNotEmpty) {
-    final results = await Future.wait(photoJobs);
-    for (final f in results) {
-      if (f != null) out.add(f);
-    }
+  final results = await Future.wait<NoticiaShareMediaFile?>([
+    ...photoJobs,
+    if (videoJob != null) videoJob,
+  ]);
+
+  final photoCount = photoJobs.length;
+  for (var i = 0; i < photoCount; i++) {
+    final f = results[i];
+    if (f != null) out.add(f);
   }
 
   if (out.isEmpty) {
@@ -358,32 +408,10 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     }
   }
 
-  try {
-    var videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
-    if ((videoUrl == null || videoUrl.isEmpty) &&
-        tid.isNotEmpty &&
-        pid.isNotEmpty) {
-      final pack = NoticiaSharePrefetchService.peek(
-        tenantId: tid,
-        collection: col,
-        postId: pid,
-      );
-      videoUrl = pack?.hostedVideoUrl;
-    }
-    if (videoUrl != null && videoUrl.isNotEmpty) {
-      final vBytes = await firebaseStorageBytesFromDownloadUrl(
-        videoUrl,
-        maxBytes: 16 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 18), onTimeout: () => null);
-      if (vBytes != null && vBytes.length > 512) {
-        out.add(NoticiaShareMediaFile(
-          bytes: vBytes,
-          fileName: 'video_evento.mp4',
-          mimeType: 'video/mp4',
-        ));
-      }
-    }
-  } catch (_) {}
+  if (videoJob != null && results.length > photoCount) {
+    final vf = results[photoCount];
+    if (vf != null) out.add(vf);
+  }
 
   return out;
 }

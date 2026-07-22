@@ -1,6 +1,6 @@
-# Deploy web Gestao YAHWEH — build HTML/DOM (FLUTTER_WEB_USE_SKIA=false)
+# Deploy web Gestao YAHWEH -- build HTML/DOM (FLUTTER_WEB_USE_SKIA=false)
 # Use quando precisar do renderer DOM (menor peso inicial; CORS/Storage às vezes mais simples).
-# Padrão do projeto: CanvasKit — .\scripts\deploy_web_hosting.ps1
+# Padrão do projeto: CanvasKit -- .\scripts\deploy_web_hosting.ps1
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FlutterApp = Join-Path $RepoRoot "flutter_app"

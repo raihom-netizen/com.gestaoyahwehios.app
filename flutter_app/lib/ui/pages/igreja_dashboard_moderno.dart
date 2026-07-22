@@ -5704,7 +5704,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs = const [];
   try {
     final snap =
-        await ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 120);
+        await ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 40);
     realDocs = snap.docs
         .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
         .where((d) {
@@ -6982,7 +6982,7 @@ Widget _painelDestaqueVideoThumbWidget({
       height: double.infinity,
       memCacheWidth: 520,
       memCacheHeight: 400,
-      skipFreshDisplayUrl: false,
+      skipFreshDisplayUrl: true,
       placeholder: ph,
       errorWidget: ph,
     ),

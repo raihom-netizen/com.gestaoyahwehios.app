@@ -1,4 +1,5 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2123: Deploy completo — CORS Functions us-central1, painel cache-first, partilha Instagram (fotos+vídeo), force update.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
 /// Próximo build: Patrimônio — fotos aparecem após salvar (leitura canônica
 /// foto01..05 na lista/detalhe), thumb pendente, refresh pós-upload e delete
@@ -490,7 +491,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2122';
+const String appBuildNumber = '2124';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

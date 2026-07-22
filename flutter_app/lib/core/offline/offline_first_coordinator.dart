@@ -81,14 +81,18 @@ abstract final class OfflineFirstCoordinator {
   }
 
   static Future<void> _revalidateCachesSilently() async {
+    var churchTid = '';
     try {
-      final tid = ChurchContext.resolveChurchId();
-      if (tid.isNotEmpty) {
-        await YahwehModuleCaches.revalidateSilent(tid);
+      churchTid = ChurchContext.resolveChurchId();
+      if (churchTid.isNotEmpty) {
+        await YahwehModuleCaches.revalidateSilent(churchTid);
       }
     } catch (_) {}
+    // Master KPI callable — só fora do painel igreja (evita CORS/403 no /painel).
     try {
-      MasterDashboardCacheService.revalidateInBackground();
+      if (churchTid.isEmpty) {
+        MasterDashboardCacheService.revalidateInBackground();
+      }
     } catch (_) {}
     try {
       if (!kIsWeb) {

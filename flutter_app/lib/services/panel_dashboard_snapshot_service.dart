@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -217,7 +217,7 @@ class PanelDashboardSnapshot {
 
 class PanelDashboardSnapshotService {
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   /// Doc único da sessão — só `igrejas/{churchId}` (sem cluster/irmãos).
   static Future<List<String>> clusterDocIdsForPanel(String seed) async {
@@ -371,25 +371,25 @@ class PanelDashboardSnapshotService {
     final fromCluster = await _readBestPanelCache(
       cluster.isNotEmpty ? cluster : [readId],
     );
-    if (fromCluster.isFreshForInstantPanel) {
+    // Cache-first: nunca bloquear o painel no callable (CORS/rede).
+    if (_snapshotRichnessScore(fromCluster) > 0 ||
+        fromCluster.isFreshForInstantPanel) {
       YahwehFlowLog.dashboardSuccess();
+      if (!fromCluster.isFreshForInstantPanel) {
+        unawaited(warmFromCallableIfStale(readId));
+      }
       return fromCluster;
     }
 
     try {
-      final warmed = await warmFromCallableIfStale(readId);
-      if (_snapshotRichnessScore(warmed) >= _snapshotRichnessScore(fromCluster)) {
-        YahwehFlowLog.dashboardSuccess();
-        return warmed;
-      }
-      if (_snapshotRichnessScore(fromCluster) > 0) {
-        YahwehFlowLog.dashboardSuccess();
-        return fromCluster;
-      }
+      final warmed = await warmFromCallableIfStale(readId).timeout(
+        const Duration(seconds: 6),
+        onTimeout: () => const PanelDashboardSnapshot(),
+      );
       YahwehFlowLog.dashboardSuccess();
       return warmed;
     } catch (_) {
-      if (_snapshotRichnessScore(fromCluster) > 0) return fromCluster;
+      YahwehFlowLog.dashboardSuccess();
       return const PanelDashboardSnapshot();
     }
   }

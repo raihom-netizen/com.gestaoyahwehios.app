@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -422,7 +422,7 @@ abstract final class MemberCardDirectoryService {
 
   static Future<void> _refreshSignatoriesIndexInBackground(String churchId) async {
     try {
-      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable('refreshCarteiraSignatoriesIndex');
       final res = await fn
           .call<Map<dynamic, dynamic>>({'tenantId': churchId})

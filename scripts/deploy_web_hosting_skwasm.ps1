@@ -1,4 +1,4 @@
-# Deploy web Gestão YAHWEH — Skwasm (bundle inicial mais leve em browsers modernos)
+# Deploy web Gestão YAHWEH -- Skwasm (bundle inicial mais leve em browsers modernos)
 # Alternativa ao CanvasKit padrão: ver scripts/deploy_web_hosting.ps1 (FLUTTER_WEB_USE_SKIA=true)
 
 $ErrorActionPreference = "Stop"

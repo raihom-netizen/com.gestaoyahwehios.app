@@ -1,4 +1,4 @@
-﻿import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
@@ -53,7 +53,7 @@ abstract final class NoticiaSharePrefetchService {
   NoticiaSharePrefetchService._();
 
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static final Map<String, _RamHit> _ram = {};
   static const Duration _ramTtl = Duration(minutes: 25);
@@ -81,6 +81,17 @@ abstract final class NoticiaSharePrefetchService {
     void add(dynamic v) {
       final s = (v ?? '').toString().trim();
       if (!s.startsWith('http') || seen.contains(s)) return;
+      final low = s.toLowerCase().split('?').first;
+      if (low.contains('youtube.com') ||
+          low.contains('youtu.be') ||
+          low.contains('vimeo.com')) {
+        return;
+      }
+      if (RegExp(r'\.(mp4|webm|mov|m4v|m3u8)$').hasMatch(low) ||
+          (low.contains('/videos/') &&
+              !RegExp(r'\.(jpg|jpeg|png|webp|gif)$').hasMatch(low))) {
+        return;
+      }
       seen.add(s);
       out.add(s);
     }
@@ -98,6 +109,44 @@ abstract final class NoticiaSharePrefetchService {
     add(post['defaultImageUrl']);
     add(post['videoThumbUrl']);
     return out;
+  }
+
+  /// Vídeo hospedado já com URL https no doc (partilha rápida).
+  static String? hostedVideoUrlFromPost(Map<String, dynamic> post) {
+    bool looksVideo(String s) {
+      final low = s.toLowerCase().split('?').first;
+      if (low.contains('youtube.com') ||
+          low.contains('youtu.be') ||
+          low.contains('vimeo.com')) {
+        return false;
+      }
+      return RegExp(r'\.(mp4|webm|mov|m4v|m3u8)$').hasMatch(low) ||
+          (low.contains('/videos/') &&
+              !RegExp(r'\.(jpg|jpeg|png|webp|gif)$').hasMatch(low));
+    }
+
+    String? pick(dynamic v) {
+      final s = (v ?? '').toString().trim();
+      if (!s.startsWith('http') || !looksVideo(s)) return null;
+      return s;
+    }
+
+    for (final k in ['hostedVideoUrl', 'videoUrl', 'video_url']) {
+      final u = pick(post[k]);
+      if (u != null) return u;
+    }
+    final videos = post['videos'];
+    if (videos is List) {
+      for (final e in videos) {
+        if (e is! Map) continue;
+        final m = Map<String, dynamic>.from(e);
+        for (final k in ['videoUrl', 'video_url', 'url', 'downloadUrl', 'downloadURL']) {
+          final u = pick(m[k]);
+          if (u != null) return u;
+        }
+      }
+    }
+    return null;
   }
 
   /// Pré-aquece pack no servidor (fire-and-forget ao abrir folha de partilha).
@@ -124,12 +173,20 @@ abstract final class NoticiaSharePrefetchService {
     if (tid.isEmpty || pid.isEmpty) return null;
 
     final cached = peek(tenantId: tid, collection: col, postId: pid);
-    if (cached != null && cached.photoUrls.isNotEmpty) return cached;
+    if (cached != null &&
+        (cached.photoUrls.isNotEmpty || cached.hostedVideoUrl != null)) {
+      return cached;
+    }
 
     if (postDataHint != null) {
       final local = httpPhotoUrlsFromPost(postDataHint);
-      if (local.length >= 2) {
-        final pack = NoticiaSharePack(photoUrls: local);
+      final video = hostedVideoUrlFromPost(postDataHint);
+      if (local.isNotEmpty || video != null) {
+        final pack = NoticiaSharePack(
+          photoUrls: local,
+          feedCoverUrl: local.isNotEmpty ? local.first : null,
+          hostedVideoUrl: video,
+        );
         _ram[_key(tid, col, pid)] = _RamHit(pack, DateTime.now());
         return pack;
       }

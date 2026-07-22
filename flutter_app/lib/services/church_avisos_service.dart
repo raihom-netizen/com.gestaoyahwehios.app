@@ -361,7 +361,8 @@ abstract final class ChurchAvisosService {
       rethrow;
     }
 
-    await ChurchAvisosLoadService.invalidate(cid);
+    // Não bloquear o retorno da publicação a limpar Hive — painel atualiza em background.
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
     return postId;
   }
 

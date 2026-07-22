@@ -1,4 +1,4 @@
-# Retry em background das regras Firebase (503 API Google) — nao bloqueia deploy web/AAB.
+# Retry em background das regras Firebase (503 API Google) -- nao bloqueia deploy web/AAB.
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot

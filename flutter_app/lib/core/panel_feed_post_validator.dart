@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/noticia_share_utils.dart';
 abstract final class PanelFeedPostValidator {
   PanelFeedPostValidator._();
 
-  static const int kPanelFeedPageSize = 15;
+  static const int kPanelFeedPageSize = 20;
 
   static const Set<String> _junkTitles = {
     'sem título',

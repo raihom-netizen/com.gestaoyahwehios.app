@@ -1,4 +1,4 @@
-# Android App Bundle (.aab) para Google Play — release ASSINADO + ofuscação Dart.
+# Android App Bundle (.aab) para Google Play -- release ASSINADO + ofuscação Dart.
 # Pré-requisitos: Flutter, JDK 17+ (ou Android Studio com JBR).
 # Se não existir key.properties, executa setup_android_release_signing.ps1 (keystore + senhas geradas).
 #
@@ -313,7 +313,7 @@ function Assert-Aab16kCompatibility {
 
         foreach ($so in $soFiles) {
             $relative = $so.FullName.Replace($tmpDir + "\", "").Replace("\", "/")
-            # Só validamos arm64-v8a — ABIs legadas são removidas antes desta etapa.
+            # Só validamos arm64-v8a -- ABIs legadas são removidas antes desta etapa.
             if ($relative -notmatch '/lib/arm64-v8a/') { continue }
 
             $check = Test-SharedObject16k -ReadelfExe $readelf -SoPath $so.FullName
@@ -361,7 +361,7 @@ function Assert-AabMainActivityPresent {
         if ($text -notmatch [regex]::Escape($MainActivityDexToken)) {
             throw @"
 ERRO Play (ClassNotFoundException): MainActivity nao encontrada em classes.dex.
-Manifesto aponta com.gestaoyahweh.app.MainActivity — regenere o AAB (sem --target-platform android-arm64).
+Manifesto aponta com.gestaoyahweh.app.MainActivity -- regenere o AAB (sem --target-platform android-arm64).
 "@
         }
         Write-Host "Play launcher: MainActivity presente em base/dex/classes.dex." -ForegroundColor Green

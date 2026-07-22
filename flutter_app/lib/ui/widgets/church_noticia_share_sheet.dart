@@ -178,6 +178,8 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
     try {
       final media = await fetchNoticiaShareMediaBundle(
         noticiaDataForLazyMedia,
+        maxPhotos: 5,
+        includeVideo: true,
         tenantId: (noticiaDataForLazyMedia['tenantId'] ??
                 noticiaDataForLazyMedia['churchId'])
             ?.toString(),
@@ -187,7 +189,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         collection: (noticiaDataForLazyMedia['collection'] ??
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
-      ).timeout(const Duration(seconds: 14));
+      ).timeout(const Duration(seconds: 8));
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
       if (media.isNotEmpty) {

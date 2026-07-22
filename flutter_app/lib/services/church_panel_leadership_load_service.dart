@@ -278,7 +278,12 @@ abstract final class ChurchPanelLeadershipLoadService {
     final out = <ChurchPanelLeaderEntry>[];
     for (final e in leaderToDepts.entries) {
       final cpf = e.key;
-      final depts = e.value.toSet().toList()..sort();
+      final depts = e.value
+          .map((s) => s.toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       final member = leaderToMember[cpf];
       final docId = member?.memberDocId ?? memberDocIdByCpf[cpf] ?? '';
       final data = member?.toMemberDataMap() ??

@@ -201,24 +201,12 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
     return Container(
       width: widget.width,
       height: widget.height ?? 120,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFFE8F5E9),
-            const Color(0xFF128C7E).withValues(alpha: 0.12),
-          ],
-        ),
-      ),
+      color: const Color(0xFFECEFF1),
       alignment: Alignment.center,
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.5,
-          color: const Color(0xFF128C7E).withValues(alpha: 0.85),
-        ),
+      child: Icon(
+        Icons.image_outlined,
+        size: 28,
+        color: const Color(0xFF128C7E).withValues(alpha: 0.35),
       ),
     );
   }

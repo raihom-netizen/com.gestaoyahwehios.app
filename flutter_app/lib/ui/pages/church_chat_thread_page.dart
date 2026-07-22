@@ -27,7 +27,6 @@ import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatUploadErrorForUser, isFirebaseNoAppError, kFeedPublishQueuedUserMessage;
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
@@ -59,7 +58,6 @@ import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     hide formatUploadErrorForUser;
-import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
@@ -1810,23 +1808,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             context: context,
           );
     if (x == null) return;
-    if (mounted) {
-      final bytes = await x.readAsBytes();
-      if (!mounted) return;
-      final resolution = bytes.isNotEmpty
-          ? await ImmediateMediaAttachFeedback.readResolution(
-              bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
-            )
-          : null;
-      if (!mounted) return;
-      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
-        context,
-        fileName: x.name.isNotEmpty ? x.name : 'foto.jpg',
-        sizeBytes: bytes.length,
-        resolution: resolution,
-      );
-    }
-    // Envio imediato (sem modal de confirmação) — ritmo Telegram.
+    // WhatsApp: sem snack «Foto adicionada» — a bolha local já confirma o envio.
     unawaited(_sendPickedImageFile(
       x,
       previewBeforeSend: false,
@@ -1849,15 +1831,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     final capped = list.take(kChatMaxImagesPerPick).toList();
     if (capped.isEmpty || !mounted) return;
-
-    if (mounted) {
-      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
-        context,
-        fileName: capped.length == 1
-            ? (capped.first.name.isNotEmpty ? capped.first.name : 'foto.jpg')
-            : '${capped.length} fotos',
-      );
-    }
 
     final albumId = _newAlbumGroupIdIfBatch(capped.length);
     for (var i = 0; i < capped.length; i++) {
@@ -2578,12 +2551,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     var repaintedVideoPreview = false;
-    final progressLabel = pending.kind == 'audio'
-        ? 'Enviando áudio…'
-        : pending.kind == 'image'
-            ? 'Enviando foto…'
-            : 'Enviando ficheiro…';
-    GlobalUploadProgress.instance.start(progressLabel);
+    // WhatsApp: upload em background — sem faixa «Enviando foto/áudio…».
     unawaited(
       ChurchChatFastSendService.sendMedia(
         tenantId: _tid,
@@ -2593,7 +2561,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         localPath: localPath,
         replyTo: replyTo,
         onProgress: (p) {
-          GlobalUploadProgress.instance.update(p);
           _setPendingProgress(pending.localId, p);
           if (!repaintedVideoPreview &&
               pending.kind == 'video' &&
@@ -2605,7 +2572,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         },
         onSuccess: () {
-          GlobalUploadProgress.instance.end();
           if (pending.offlineQueued) {
             pending.errorMessage = null;
             pending.failed = false;
@@ -2631,7 +2597,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           _confirmPendingReplacedByServer(pending.localId);
         },
         onError: (msg) {
-          GlobalUploadProgress.instance.end();
           final i =
               _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
           if (i >= 0) {
@@ -2641,7 +2606,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           }
         },
       ).catchError((Object e, StackTrace st) {
-        GlobalUploadProgress.instance.end();
         YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -2730,10 +2694,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     if (files.length > 1 && mounted) {
-      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
-        context,
-        fileName: '${files.length} ficheiros',
-      );
+      // Sem snack — bolhas locais confirmam o envio.
     }
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
@@ -2777,14 +2738,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (r.files.length > files.length && mounted) {
       _showChatAttachmentError(
         'Só os primeiros $kChatMaxAudioFilesPerPick áudios serão enviados.',
-      );
-    }
-    if (mounted) {
-      ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
-        context,
-        fileName: files.length == 1
-            ? (files.first.name.isNotEmpty ? files.first.name : 'audio.m4a')
-            : '${files.length} áudios',
       );
     }
     for (var i = 0; i < files.length; i++) {
@@ -2939,19 +2892,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 valueListenable: p.progressListenable,
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
-                  return Container(
-                    width: previewSide,
-                    height: previewSide,
-                    color: Colors.black.withValues(alpha: 0.35),
-                    child: Center(
-                      child: SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(
-                          value: progress > 0 ? progress : null,
-                          strokeWidth: 3,
-                          color: Colors.white,
-                        ),
+                  // WhatsApp: só um relógio discreto — sem ecrã «a enviar» a cobrir a foto.
+                  return Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.access_time_rounded,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.95),
                       ),
                     ),
                   );
@@ -2986,19 +2940,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 valueListenable: p.progressListenable,
                 builder: (context, progress, _) {
                   if (progress >= 1) return const SizedBox.shrink();
-                  return Container(
-                    width: previewSide,
-                    height: previewSide,
-                    color: Colors.black.withValues(alpha: 0.35),
-                    child: Center(
-                      child: SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(
-                          value: progress > 0 ? progress : null,
-                          strokeWidth: 3,
-                          color: Colors.white,
-                        ),
+                  return Positioned(
+                    right: 8,
+                    bottom: 8,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.access_time_rounded,
+                        size: 14,
+                        color: Colors.white.withValues(alpha: 0.95),
                       ),
                     ),
                   );
@@ -3024,20 +2978,42 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         valueListenable: p.progressListenable,
         builder: (context, progress, _) {
           final safeName = p.fileName.trim().isNotEmpty ? p.fileName : 'ficheiro';
-          final status = _pendingUploadStatusLabel(
-            p,
-            progress,
-            fileName: safeName,
-          );
-          return ChurchChatUploadProgressIndicator(
-            progress: p.failed ? null : progress,
-            label: status,
-            icon: p.failed
-                ? Icons.error_outline_rounded
-                : (p.kind == 'video'
-                    ? Icons.videocam_outlined
-                    : Icons.insert_drive_file_outlined),
-            compact: true,
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                p.failed
+                    ? Icons.error_outline_rounded
+                    : (p.kind == 'video'
+                        ? Icons.videocam_outlined
+                        : Icons.insert_drive_file_outlined),
+                size: 22,
+                color: p.failed
+                    ? ThemeCleanPremium.error
+                    : const Color(0xFF128C7E),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  p.failed
+                      ? (p.errorMessage?.trim().isNotEmpty == true
+                          ? p.errorMessage!
+                          : 'Falha no envio')
+                      : safeName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (!p.failed && progress < 1) ...[
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.access_time_rounded,
+                  size: 14,
+                  color: Colors.black.withValues(alpha: 0.45),
+                ),
+              ],
+            ],
           );
         },
       );
@@ -3667,29 +3643,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         automaticallyImplyLeading: !widget.embeddedInSplitPanel,
         titleSpacing: 0,
         actions: [
-          IconButton(
-            tooltip: _searchingMessages
-                ? 'Fechar pesquisa nas mensagens'
-                : 'Pesquisar nas mensagens',
-            icon: Icon(
-              _searchingMessages ? Icons.close_rounded : Icons.search_rounded,
-              color: Colors.white,
-            ),
-            onPressed: () {
-              setState(() {
-                _searchingMessages = !_searchingMessages;
-                if (!_searchingMessages) {
-                  _msgSearchCtrl.clear();
-                  _messageSearchQuery = '';
-                }
-              });
-            },
-          ),
           PopupMenuButton<String>(
             tooltip: 'Opções',
             icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
             color: ThemeCleanPremium.surface,
             onSelected: (v) async {
+              if (v == 'search_msgs') {
+                setState(() {
+                  _searchingMessages = !_searchingMessages;
+                  if (!_searchingMessages) {
+                    _msgSearchCtrl.clear();
+                    _messageSearchQuery = '';
+                  }
+                });
+                return;
+              }
               if (v == 'clear_stuck') {
                 final confirm = await showDialog<bool>(
                   context: context,
@@ -3956,6 +3924,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               }
             },
             itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'search_msgs',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    _searchingMessages
+                        ? Icons.close_rounded
+                        : Icons.search_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: Text(
+                    _searchingMessages
+                        ? 'Fechar pesquisa'
+                        : 'Pesquisar nas mensagens',
+                  ),
+                ),
+              ),
               PopupMenuItem(
                 value: 'my_photo',
                 child: ListTile(
@@ -5261,27 +5246,39 @@ class _MessageBody extends StatelessWidget {
       if (delivery == ChatThreadOperations.deliveryUploading ||
           delivery == ChatThreadOperations.deliverySending ||
           delivery == ChatThreadOperations.deliveryQueued) {
-        final progress = (data['uploadProgress'] is num)
-            ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
-            : null;
         final uploadIcon = type == 'audio'
             ? Icons.mic_rounded
             : type == 'image'
                 ? Icons.image_rounded
                 : Icons.cloud_upload_rounded;
-        final uploadLabel = type == 'audio'
-            ? 'A enviar áudio'
-            : 'A enviar ficheiro';
+        // WhatsApp: bolha discreta (sem «A carregar…» / barra de progresso).
         return Column(
           crossAxisAlignment:
               mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             ..._quotePrefix(context),
-            ChurchChatUploadProgressIndicator(
-              progress: progress,
-              label: uploadLabel,
-              icon: uploadIcon,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: mine
+                    ? ChurchChatSenderPalette.outgoingBubbleBackground
+                    : Colors.white,
+                borderRadius:
+                    ChurchChatSenderPalette.bubbleBorderRadius(mine: mine),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(uploadIcon, size: 22, color: const Color(0xFF128C7E)),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.access_time_rounded,
+                    size: 14,
+                    color: Colors.black.withValues(alpha: 0.45),
+                  ),
+                ],
+              ),
             ),
           ],
         );
@@ -5298,9 +5295,6 @@ class _MessageBody extends StatelessWidget {
     }
     if (type == 'image') {
       final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
-      final uploadProgress = (data['uploadProgress'] is num)
-          ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
-          : null;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -5346,23 +5340,19 @@ class _MessageBody extends StatelessWidget {
                         ),
                         if (uploadInProgress &&
                             ChurchChatMessageFields.storagePath(data).isEmpty)
-                          Positioned.fill(
-                            child: ColoredBox(
-                              color: Colors.black.withValues(alpha: 0.35),
-                              child: Center(
-                                child: SizedBox(
-                                  width: 36,
-                                  height: 36,
-                                  child: CircularProgressIndicator(
-                                    value: uploadProgress != null &&
-                                            uploadProgress > 0 &&
-                                            uploadProgress < 1
-                                        ? uploadProgress
-                                        : null,
-                                    strokeWidth: 3,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                          Positioned(
+                            right: 8,
+                            bottom: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.45),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.access_time_rounded,
+                                size: 14,
+                                color: Colors.white.withValues(alpha: 0.95),
                               ),
                             ),
                           ),
@@ -5430,9 +5420,6 @@ class _MessageBody extends StatelessWidget {
     }
     if (type == 'video') {
       final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
-      final uploadProgress = (data['uploadProgress'] is num)
-          ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
-          : null;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -5450,23 +5437,19 @@ class _MessageBody extends StatelessWidget {
               ),
               if (uploadInProgress &&
                   ChurchChatMessageFields.storagePath(data).isEmpty)
-                Positioned.fill(
-                  child: ColoredBox(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    child: Center(
-                      child: SizedBox(
-                        width: 36,
-                        height: 36,
-                        child: CircularProgressIndicator(
-                          value: uploadProgress != null &&
-                                  uploadProgress > 0 &&
-                                  uploadProgress < 1
-                              ? uploadProgress
-                              : null,
-                          strokeWidth: 3,
-                          color: Colors.white,
-                        ),
-                      ),
+                Positioned(
+                  right: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.access_time_rounded,
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.95),
                     ),
                   ),
                 ),

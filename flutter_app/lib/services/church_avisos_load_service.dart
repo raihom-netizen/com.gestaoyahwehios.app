@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchAvisosLoadService {
   ChurchAvisosLoadService._();
 
-  static const int kPanelCarouselLimit = 12;
+  static const int kPanelCarouselLimit = 20;
   static const int kModuleListLimit = 80;
 
   static const List<String> _legacySubcollections = ['mural_avisos'];
@@ -153,7 +153,7 @@ abstract final class ChurchAvisosLoadService {
     required int limit,
     bool forceServer = false,
   }) async {
-    final cap = limit.clamp(20, 60);
+    final cap = limit.clamp(1, 60);
     return ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: ChurchUiCollections.avisos(churchId),
       cacheKey: cacheKey(churchId, cap),
@@ -166,6 +166,8 @@ abstract final class ChurchAvisosLoadService {
     );
   }
 
+  static DateTime? _lastPurgeAt;
+
   static Future<List<ChurchAvisoItem>> loadActive({
     required String churchIdHint,
     int limit = kPanelCarouselLimit,
@@ -177,9 +179,16 @@ abstract final class ChurchAvisosLoadService {
     final churchId = _churchId(churchIdHint);
     if (churchId.isEmpty) return const [];
 
-    unawaited(
-      ChurchAvisosService.purgeExpired(churchIdHint: churchId).catchError((_) {}),
-    );
+    // Purge em background, no máximo a cada 5 min (não no paint do carrossel).
+    final nowPurge = DateTime.now();
+    if (_lastPurgeAt == null ||
+        nowPurge.difference(_lastPurgeAt!) > const Duration(minutes: 5)) {
+      _lastPurgeAt = nowPurge;
+      unawaited(
+        ChurchAvisosService.purgeExpired(churchIdHint: churchId)
+            .catchError((_) {}),
+      );
+    }
 
     final ramKey = cacheKey(churchId, limit);
 
@@ -327,7 +336,7 @@ abstract final class ChurchAvisosLoadService {
         churchIdHint: churchId,
         limit: limit,
         forceRefresh: true,
-        forceServer: true,
+        forceServer: false,
       );
       if (items.isNotEmpty) _putRam(ramKey, items);
     } catch (_) {}
@@ -355,7 +364,10 @@ abstract final class ChurchAvisosLoadService {
       }
 
       await emit();
-      timer = Timer.periodic(const Duration(seconds: 45), (_) => emit(forceServer: true));
+      // Poll suave: cache-first; servidor só a cada ~90s (evita spinner no painel).
+      timer = Timer.periodic(const Duration(seconds: 90), (_) {
+        emit(forceServer: false);
+      });
       controller.onCancel = () => timer?.cancel();
     });
   }

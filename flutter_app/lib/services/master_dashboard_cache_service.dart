@@ -204,7 +204,7 @@ abstract final class MasterDashboardCacheService {
 
   static const _prefsKey = 'master_dashboard_summary_v2';
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static MasterDashboardSummary? _memSummary;
   static DateTime? _memSummaryAt;

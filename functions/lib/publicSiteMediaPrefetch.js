@@ -34,6 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.warmPublicSiteFeedCache = void 0;
+exports.collectHttpPhotoUrls = collectHttpPhotoUrls;
+exports.collectHostedVideoUrl = collectHostedVideoUrl;
+exports.collectVideoThumbUrl = collectVideoThumbUrl;
 exports.enrichPostMedia = enrichPostMedia;
 exports.recomputePublicSiteMediaPrefetch = recomputePublicSiteMediaPrefetch;
 const admin = __importStar(require("firebase-admin"));
@@ -158,6 +161,59 @@ function collectHttpPhotoUrls(data) {
         }
     }
     return out;
+}
+/** URL https de vídeo hospedado no doc (sem listar Storage) — partilha Instagram-fast. */
+function collectHostedVideoUrl(data) {
+    let hosted = pickHttp(data, ["hostedVideoUrl", "videoUrl", "video_url"]);
+    if (hosted && (!looksLikeVideoFile(hosted) || isYoutubeVimeo(hosted))) {
+        hosted = "";
+    }
+    if (!hosted) {
+        const videos = data.videos;
+        if (Array.isArray(videos)) {
+            for (const e of videos) {
+                if (!e || typeof e !== "object")
+                    continue;
+                const v = pickHttp(e, [
+                    "videoUrl",
+                    "video_url",
+                    "url",
+                    "downloadUrl",
+                    "downloadURL",
+                ]);
+                if (v && looksLikeVideoFile(v) && !isYoutubeVimeo(v)) {
+                    hosted = v;
+                    break;
+                }
+            }
+        }
+    }
+    return hosted || null;
+}
+/** Thumb do vídeo já em https no doc. */
+function collectVideoThumbUrl(data) {
+    const direct = pickHttp(data, [
+        "videoThumbUrl",
+        "video_thumb_url",
+        "videoThumbnailUrl",
+    ]);
+    if (direct)
+        return direct;
+    const videos = data.videos;
+    if (Array.isArray(videos)) {
+        for (const e of videos) {
+            if (!e || typeof e !== "object")
+                continue;
+            const t = pickHttp(e, [
+                "thumbUrl",
+                "thumb_url",
+                "thumbnailUrl",
+            ]);
+            if (t)
+                return t;
+        }
+    }
+    return null;
 }
 function collectStoragePaths(tenantId, collection, postId, data) {
     const tid = tenantId.trim();

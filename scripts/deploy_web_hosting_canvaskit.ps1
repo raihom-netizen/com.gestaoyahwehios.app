@@ -1,6 +1,6 @@
-# Build web com CanvasKit — equivalente ao deploy padrão [deploy_web_hosting.ps1].
+# Build web com CanvasKit -- equivalente ao deploy padrão [deploy_web_hosting.ps1].
 # Uso (na raiz): .\scripts\deploy_web_hosting_canvaskit.ps1
-# HTML/DOM: .\scripts\deploy_web_hosting_html_dom.ps1 — mídia cross-origin pode ser mais simples; CanvasKit exige CORS no Storage (cors.json).
+# HTML/DOM: .\scripts\deploy_web_hosting_html_dom.ps1 -- mídia cross-origin pode ser mais simples; CanvasKit exige CORS no Storage (cors.json).
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $FlutterApp = Join-Path $RepoRoot "flutter_app"

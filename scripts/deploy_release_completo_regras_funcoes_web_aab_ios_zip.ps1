@@ -84,7 +84,7 @@ $FlutterApp = Join-Path $RepoRoot "flutter_app"
 $startedAt = Get-Date
 
 if (-not $SkipProductionGate) {
-    Write-Host "`n=== [GATE] Modo Producao — verify_production_checklist ===" -ForegroundColor Cyan
+    Write-Host "`n=== [GATE] Modo Producao -- verify_production_checklist ===" -ForegroundColor Cyan
     $gateScript = Join-Path $RepoRoot "scripts\verify_production_checklist.ps1"
     & $gateScript
     if ($LASTEXITCODE -ne 0) {
@@ -93,7 +93,7 @@ if (-not $SkipProductionGate) {
     }
 }
 else {
-    Write-Host "`n=== [GATE] SKIP — SkipProductionGate ativo ===" -ForegroundColor DarkYellow
+    Write-Host "`n=== [GATE] SKIP -- SkipProductionGate ativo ===" -ForegroundColor DarkYellow
 }
 
 # ========================================================================
@@ -154,7 +154,7 @@ $rulesDeployScript = Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1"
 $rulesWatchdog = Join-Path $RepoRoot "scripts\firebase_rules_gcp_watchdog.ps1"
 
 if ($ContinueOnRulesFailure) {
-    # Resiliente: tentativas limitadas — nunca bloquear horas em 503 da API Google.
+    # Resiliente: tentativas limitadas -- nunca bloquear horas em 503 da API Google.
     $rulesMaxAttempts = 3
     Write-Host "   Modo blindado: max $rulesMaxAttempts tentativas GCP; web/AAB/iOS seguem sempre." -ForegroundColor DarkGray
     & $rulesDeployScript -ForcePublish -MaxAttempts $rulesMaxAttempts

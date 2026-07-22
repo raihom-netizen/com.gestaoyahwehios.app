@@ -452,7 +452,7 @@ class ChurchChatService {
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     var n = await repairDmThreadsClient(tenantId);
     try {
-      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+      final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable(
         'repairChurchChatDmThreads',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 50)),

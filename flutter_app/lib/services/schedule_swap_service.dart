@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -12,7 +12,7 @@ Map<String, dynamic> _asStringKeyMap(dynamic raw) {
   return <String, dynamic>{};
 }
 
-/// Troca de escala entre membros (convite → aceite → escala atualizada + aviso ao líder).
+/// Troca de escala entre membros (convite ? aceite ? escala atualizada + aviso ao líder).
 class ScheduleSwapCandidate {
   final String cpf;
   final String nome;
@@ -104,7 +104,7 @@ abstract final class ScheduleSwapService {
     required String trocaId,
     required bool accept,
   }) async {
-    final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+    final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
         .httpsCallable('respondScheduleSwap');
     final res = await fn.call(<String, dynamic>{
       'tenantId': tenantId,

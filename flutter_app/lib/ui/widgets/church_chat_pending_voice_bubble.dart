@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Bolha local de voz (enviando) — preview local com [audioplayers].
+/// Estilo WhatsApp: sem «A enviar áudio… X%» — só duração + relógio discreto.
 class ChurchChatPendingVoiceBubble extends StatefulWidget {
   const ChurchChatPendingVoiceBubble({
     super.key,
@@ -72,26 +73,21 @@ class _ChurchChatPendingVoiceBubbleState
 
   @override
   Widget build(BuildContext context) {
-    final canPreview = (widget.localPath?.trim().isNotEmpty ?? false) &&
-        !widget.failed;
+    final canPreview =
+        (widget.localPath?.trim().isNotEmpty ?? false) && !widget.failed;
     return ValueListenableBuilder<double>(
       valueListenable: widget.progressListenable,
       builder: (context, progress, _) {
         final sending =
             !widget.failed && !widget.offlineQueued && progress < 1;
-        final clamped = progress.clamp(0.0, 1.0);
-        final pct = (clamped * 100).round().clamp(0, 100);
-        final title =
-            (widget.fileName ?? '').trim().isNotEmpty ? widget.fileName!.trim() : 'Áudio';
+        final title = (widget.fileName ?? '').trim().isNotEmpty
+            ? widget.fileName!.trim()
+            : 'Áudio';
         final statusText = widget.failed
             ? (widget.errorMessage ?? 'Falha no envio')
             : (widget.offlineQueued
                 ? 'Na fila — envia ao voltar online'
-                : (sending
-                    ? (clamped >= 0.88
-                        ? 'A finalizar…'
-                        : 'A enviar áudio... $pct%')
-                    : _formatDuration(widget.durationMs)));
+                : _formatDuration(widget.durationMs));
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -122,54 +118,41 @@ class _ChurchChatPendingVoiceBubbleState
             const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12.5,
+                  style: const TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: widget.failed
-                        ? ThemeCleanPremium.error
-                        : ThemeCleanPremium.onSurface,
+                    fontSize: 13,
                   ),
                 ),
-                const SizedBox(height: 4),
-                SizedBox(
-                  width: 120,
-                  child: LinearProgressIndicator(
-                    value: widget.failed
-                        ? null
-                        : (progress > 0 ? progress.clamp(0.05, 1.0) : null),
-                    minHeight: 3,
-                    backgroundColor:
-                        ThemeCleanPremium.onSurface.withValues(alpha: 0.12),
-                    color: const Color(0xFF128C7E),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  statusText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: widget.failed
-                        ? ThemeCleanPremium.error
-                        : ThemeCleanPremium.onSurfaceVariant,
-                  ),
+                const SizedBox(height: 2),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: widget.failed
+                            ? ThemeCleanPremium.error
+                            : Colors.black.withValues(alpha: 0.55),
+                      ),
+                    ),
+                    if (sending) ...[
+                      const SizedBox(width: 6),
+                      Icon(
+                        Icons.access_time_rounded,
+                        size: 12,
+                        color: Colors.black.withValues(alpha: 0.4),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
-            if (sending) ...[
-              const SizedBox(width: 6),
-              Icon(
-                Icons.schedule_rounded,
-                size: 16,
-                color: ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
-              ),
-            ],
           ],
         );
       },

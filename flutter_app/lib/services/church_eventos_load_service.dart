@@ -224,18 +224,7 @@ abstract final class ChurchEventosLoadService {
     final path = 'igrejas/$churchId/eventos';
     final ramKey = cacheKey(churchId, limit);
 
-    try {
-      await _ensureFirebaseForRead();
-    } catch (e) {
-      return ChurchEventosLoadResult(
-        churchId: churchId,
-        docs: const [],
-        readSource: 'firebase_not_ready',
-        collectionPath: path,
-        softError: e.toString(),
-      );
-    }
-
+    // Cache-first: RAM/Hive antes do bootstrap Firebase (painel sem spinner).
     if (!forceRefresh && !forceServer) {
       final ramHit = peekRam(churchId, limit: limit);
       if (ramHit != null) {
@@ -257,6 +246,11 @@ abstract final class ChurchEventosLoadService {
       if (mem != null) {
         final docs = _withoutDeleted(churchId, _sortByStartAt(mem.docs));
         _putRam(ramKey, docs);
+        unawaited(_refreshFeedInBackground(
+          churchId: churchId,
+          limit: limit,
+          ramKey: ramKey,
+        ));
         return ChurchEventosLoadResult(
           churchId: churchId,
           docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -295,7 +289,34 @@ abstract final class ChurchEventosLoadService {
       } catch (e) {
         debugPrint('EVENTOS loadFeed hive cache failed: $e');
       }
+    }
 
+    try {
+      await _ensureFirebaseForRead();
+    } catch (e) {
+      final ramFallback = peekRam(churchId, limit: limit);
+      if (ramFallback != null) {
+        return ChurchEventosLoadResult(
+          churchId: churchId,
+          docs: ramFallback.length > limit
+              ? ramFallback.sublist(0, limit)
+              : ramFallback,
+          readSource: 'ram_firebase_not_ready',
+          collectionPath: path,
+          fromCache: true,
+          softError: e.toString(),
+        );
+      }
+      return ChurchEventosLoadResult(
+        churchId: churchId,
+        docs: const [],
+        readSource: 'firebase_not_ready',
+        collectionPath: path,
+        softError: e.toString(),
+      );
+    }
+
+    if (!forceRefresh && !forceServer) {
       try {
         final cacheSnap = await ChurchUiCollections.eventos(churchId)
             .limit(limit)
@@ -589,7 +610,8 @@ abstract final class ChurchEventosLoadService {
     try {
       final docs = await _loadFirestoreFeed(
         churchId: churchId,
-        limit: limit >= kGalleryLimit ? limit : kGalleryLimit,
+        // Painel: refresh no mesmo limite do feed — nunca 250 docs no hot path.
+        limit: limit.clamp(1, 40),
         cacheKey: ramKey,
         forceServer: false,
       );

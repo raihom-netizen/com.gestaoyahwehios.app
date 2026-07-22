@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 abstract final class ChurchPerformanceCacheService {
   ChurchPerformanceCacheService._();
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static DocumentReference<Map<String, dynamic>> _ref(
     String tenantId,

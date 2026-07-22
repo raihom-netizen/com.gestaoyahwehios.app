@@ -439,7 +439,7 @@ abstract final class SystemHealthService {
     final warmed = await ServiceDegradationRegistry.runOptional<bool>(
       DegradedService.publicSite,
       () async {
-        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
             .httpsCallable('warmChurchPublicFeedCache');
         await fn.call({'tenantId': tenantId}).timeout(const Duration(seconds: 25));
         return true;

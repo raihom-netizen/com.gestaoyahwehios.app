@@ -259,7 +259,7 @@ function Invoke-FirebaseDeployGranular {
             if ($pf.FirestoreIndexesOk) { $script:SessionFirestoreIndexesOk = $true }
             Write-Host '   [GCP] Regras no Google Cloud OK.' -ForegroundColor Green
         } else {
-            Write-Host '   [GCP] falha — watchdog + CLI storage se necessario.' -ForegroundColor DarkYellow
+            Write-Host '   [GCP] falha -- watchdog + CLI storage se necessario.' -ForegroundColor DarkYellow
             Start-FirebaseRulesGcpWatchdog -RepoRoot $RepoRoot
             if (-not $script:SessionStorageOk -and -not $OnlyFirestoreRules) {
                 Write-Host '   [CLI] storage.rules (conta firebase login)...' -ForegroundColor DarkYellow

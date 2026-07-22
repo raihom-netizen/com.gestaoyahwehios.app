@@ -522,7 +522,7 @@ export const refreshPublicFeedCacheOnNoticiaWrite = functions
  */
 export const getNoticiaSharePack = functions
   .region("us-central1")
-  .runWith({ timeoutSeconds: 45, memory: "512MB" })
+  .runWith({ timeoutSeconds: 25, memory: "256MB" })
   .https.onCall(async (request, context) => {
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Login necessario");
@@ -554,7 +554,31 @@ export const getNoticiaSharePack = functions
     }
     const postData = (postSnap.data() ?? {}) as admin.firestore.DocumentData;
 
-    const { enrichPostMedia } = await import("./publicSiteMediaPrefetch");
+    // Atalho rápido: https no doc (fotos + vídeo) sem listar Storage — estilo Instagram.
+    const {
+      collectHttpPhotoUrls,
+      collectHostedVideoUrl,
+      collectVideoThumbUrl,
+      enrichPostMedia,
+    } = await import("./publicSiteMediaPrefetch");
+    const postRec = postData as Record<string, unknown>;
+    const quickPhotos = collectHttpPhotoUrls(postRec);
+    const quickVideo = collectHostedVideoUrl(postRec);
+    const quickThumb = collectVideoThumbUrl(postRec);
+    if (quickPhotos.length > 0 || quickVideo) {
+      return {
+        ok: true,
+        tenantId,
+        postId,
+        collection,
+        photoUrls: quickPhotos.slice(0, 6),
+        feedCoverUrl: quickPhotos[0] ?? quickThumb ?? null,
+        videoThumbUrl: quickThumb,
+        hostedVideoUrl: quickVideo,
+        fastPath: true,
+      };
+    }
+
     const media = await enrichPostMedia(tenantId, collection, postId, postData);
 
     return {

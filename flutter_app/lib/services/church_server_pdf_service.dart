@@ -1,4 +1,4 @@
-﻿import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 /// PDF gerado no servidor (certificado / carteirinha) — evita trabalho pesado no cliente.
@@ -6,7 +6,7 @@ abstract final class ChurchServerPdfService {
   ChurchServerPdfService._();
 
   static final FirebaseFunctions _fn =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static Future<ChurchServerPdfResult> gerarCertificado({
     required String tenantId,

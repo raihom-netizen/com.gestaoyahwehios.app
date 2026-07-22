@@ -1,4 +1,4 @@
-# Deploy «completo» legado (regras + 1 function + web) — sem AAB nem iOS nem Git push.
+# Deploy «completo» legado (regras + 1 function + web) -- sem AAB nem iOS nem Git push.
 # Para **deploy completo produção** (functions todas + AAB D:\Temporarios + ZIP iOS + push Codemagic):
 #   .\scripts\deploy_completo.ps1
 #

@@ -183,7 +183,7 @@ abstract final class MembroStrictUpdateService {
     if (authUid != null && authUid.isNotEmpty) {
       payload['authUid'] = authUid;
     }
-    final res = await FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+    final res = await FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
         .httpsCallable('purgeMemberFirebaseLogin')
         .call(payload);
     return Map<String, dynamic>.from(res.data as Map? ?? {});

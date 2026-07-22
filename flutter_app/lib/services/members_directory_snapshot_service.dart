@@ -373,7 +373,7 @@ class MembersDirectorySnapshot {
 
 class MembersDirectorySnapshotService {
   static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '');
+      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static final Map<String, MembersDirectorySnapshot> _memoryByTenant = {};
 

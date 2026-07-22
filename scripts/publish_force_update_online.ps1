@@ -1,4 +1,4 @@
-# Publica config/appVersion no Firestore — forceUpdate + webRefresh para build atual.
+# Publica config/appVersion no Firestore -- forceUpdate + webRefresh para build atual.
 # Uso (raiz): .\scripts\publish_force_update_online.ps1
 # Requer: Application Default Credentials (gcloud auth application-default login)
 #         ou GOOGLE_APPLICATION_CREDENTIALS apontando para service account.
@@ -40,7 +40,7 @@ const payload = {
   forceUpdate: true,
   webRefresh: true,
   message: 'Atualizacao obrigatoria disponivel. Instale a versao $full para continuar.',
-  panelUpdateMessage: 'Nova versao $full — atualize para a melhor experiencia.',
+  panelUpdateMessage: 'Nova versao $full -- atualize para a melhor experiencia.',
   storeUrlAndroid: 'https://play.google.com/store/apps/details?id=com.gestaoyahweh.app',
   storeUrlIos: 'https://testflight.apple.com/join/4Zdptnh8',
   updatedAt: admin.firestore.FieldValue.serverTimestamp(),

@@ -51,7 +51,7 @@ if ($SkipFunctionsDeploy)  { $invokeArgs.SkipFunctionsDeploy  = $true }
 if ($SkipWeb)               { $invokeArgs.SkipWeb               = $true }
 if ($LogTo)                { $invokeArgs.LogTo                = $LogTo }
 
-# Padrao otimizado: nao bloquear horas em 503 da API Rules — web/AAB/iOS seguem.
+# Padrao otimizado: nao bloquear horas em 503 da API Rules -- web/AAB/iOS seguem.
 if (-not $PSBoundParameters.ContainsKey('ContinueOnRulesFailure')) {
     $invokeArgs.ContinueOnRulesFailure = $true
 }

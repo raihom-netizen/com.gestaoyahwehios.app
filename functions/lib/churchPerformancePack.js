@@ -475,7 +475,7 @@ exports.refreshPublicFeedCacheOnNoticiaWrite = functions
  */
 exports.getNoticiaSharePack = functions
     .region("us-central1")
-    .runWith({ timeoutSeconds: 45, memory: "512MB" })
+    .runWith({ timeoutSeconds: 25, memory: "256MB" })
     .https.onCall(async (request, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Login necessario");
@@ -499,7 +499,25 @@ exports.getNoticiaSharePack = functions
         throw new functions.https.HttpsError("not-found", "publicacao nao encontrada");
     }
     const postData = (postSnap.data() ?? {});
-    const { enrichPostMedia } = await Promise.resolve().then(() => __importStar(require("./publicSiteMediaPrefetch")));
+    // Atalho rápido: https no doc (fotos + vídeo) sem listar Storage — estilo Instagram.
+    const { collectHttpPhotoUrls, collectHostedVideoUrl, collectVideoThumbUrl, enrichPostMedia, } = await Promise.resolve().then(() => __importStar(require("./publicSiteMediaPrefetch")));
+    const postRec = postData;
+    const quickPhotos = collectHttpPhotoUrls(postRec);
+    const quickVideo = collectHostedVideoUrl(postRec);
+    const quickThumb = collectVideoThumbUrl(postRec);
+    if (quickPhotos.length > 0 || quickVideo) {
+        return {
+            ok: true,
+            tenantId,
+            postId,
+            collection,
+            photoUrls: quickPhotos.slice(0, 6),
+            feedCoverUrl: quickPhotos[0] ?? quickThumb ?? null,
+            videoThumbUrl: quickThumb,
+            hostedVideoUrl: quickVideo,
+            fastPath: true,
+        };
+    }
     const media = await enrichPostMedia(tenantId, collection, postId, postData);
     return {
         ok: true,

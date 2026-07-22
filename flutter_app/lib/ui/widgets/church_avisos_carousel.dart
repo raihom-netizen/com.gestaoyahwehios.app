@@ -157,7 +157,7 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
                           height: mediaH,
                           fit: BoxFit.contain,
                           memCacheWidth: memW,
-                          skipFreshDisplayUrl: false,
+                          skipFreshDisplayUrl: true,
                         ),
                       );
                     }

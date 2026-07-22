@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -122,7 +122,7 @@ abstract final class PublicSiteMediaPrefetchService {
 
     try {
       await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
-      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: '')
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable(
         'warmPublicSiteFeedCache',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),

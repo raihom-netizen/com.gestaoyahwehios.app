@@ -1986,12 +1986,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     ];
   }
 
-  /// Entrada visível para a busca global (Ctrl/Cmd+K, tecla /).
-  ///
-  /// Larguras lógicas típicas: ~320 legado; 360–430 celulares; ≥600 tablet.
-  /// Abaixo de [_kSearchIconOnlyMaxWidth] só ícone — libera espaço para saudação e ações.
-  static const double _kSearchIconOnlyMaxWidth = 352;
-  static const double _kSearchCompactLabelMaxWidth = 400;
+  /// Entrada de busca global removida da barra superior (libera espaço ao nome).
+  /// Continua disponível por atalho de teclado: / · Ctrl+K · Cmd+K.
 
   /// Nome para saudação no cabeçalho azul e, no telemóvel, subtítulo no cartão do módulo.
   String _shellUserGreetingName() {
@@ -2000,104 +1996,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final dn = (user?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
     return fallback;
-  }
-
-  Widget _buildHeaderSearchChip() {
-    if (!_globalSearchAllowed) return const SizedBox.shrink();
-    final w = MediaQuery.sizeOf(context).width;
-    final iconOnly = w < _kSearchIconOnlyMaxWidth;
-    final compactLabel =
-        !iconOnly && w < _kSearchCompactLabelMaxWidth;
-    final showHints = _isDesktop;
-    final showBuscarLabel = !iconOnly;
-    final buscarFontSize = compactLabel ? 12.5 : 14.0;
-
-    const tooltipMessage =
-        'Busca global: membros, eventos, mural e patrimônio.\n'
-        'Atalhos de teclado: / (barra) · Ctrl+K · Cmd+K no Mac.';
-
-    Widget chip = Padding(
-      padding: EdgeInsets.only(
-        right: iconOnly ? 2 : (compactLabel ? 6 : 10),
-      ),
-      child: Material(
-        color: Colors.white.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(22),
-        child: InkWell(
-          onTap: _openChurchGlobalSearch,
-          borderRadius: BorderRadius.circular(22),
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: iconOnly ? 8 : (compactLabel ? 10 : 14),
-              vertical: iconOnly ? 6 : 8,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.search_rounded,
-                  color: Colors.white.withOpacity(0.95),
-                  size: iconOnly ? 20 : (compactLabel ? 21 : 22),
-                ),
-                if (showBuscarLabel) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    'Buscar…',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.92),
-                      fontSize: buscarFontSize,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                if (showHints) ...[
-                  const SizedBox(width: 10),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.14),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      '/',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.75),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Ctrl+K',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    chip = Semantics(
-      button: true,
-      label: 'Buscar no painel da igreja',
-      hint:
-          'Abre a busca. No teclado físico: tecla barra, Ctrl+K ou Cmd+K.',
-      child: chip,
-    );
-
-    return Tooltip(
-      message: tooltipMessage,
-      waitDuration: const Duration(milliseconds: 400),
-      child: chip,
-    );
   }
 
   /// Nome da igreja para a barra superior (abaixo do nome do usuário).
@@ -2314,20 +2212,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 cpf: widget.cpf,
                 role: _panelRole,
                 onNavigateToShellModule: _navigateToShellModuleFromDashboard,
-              ),
-              Flexible(
-                fit: FlexFit.loose,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 72, maxWidth: 420),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: _buildHeaderSearchChip(),
-                    ),
-                  ),
-                ),
               ),
               if (_isDesktop)
                 Padding(
