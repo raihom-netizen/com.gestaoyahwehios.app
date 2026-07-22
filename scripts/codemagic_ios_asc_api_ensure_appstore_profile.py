@@ -654,6 +654,11 @@ def import_distribution_identity_from_p12_main() -> int:
         print((p.stderr or p.stdout or "").strip(), file=sys.stderr)
         return 1
     print("OK: identidade Apple Distribution importada a partir de CM_CERTIFICATE (P12).")
+    try:
+        shutil.copyfile(p12_path, "/tmp/cm_distribution.p12")
+        os.chmod("/tmp/cm_distribution.p12", 0o600)
+    except OSError:
+        pass
     return 0
 
 
@@ -764,6 +769,11 @@ def import_distribution_identity_to_keychain_main() -> int:
         print(p2.stderr or p2.stdout, file=sys.stderr)
         return 1
     os.chmod("/tmp/cm_api_only_identity.p12", 0o600)
+    try:
+        shutil.copyfile("/tmp/cm_api_only_identity.p12", "/tmp/cm_distribution.p12")
+        os.chmod("/tmp/cm_distribution.p12", 0o600)
+    except OSError:
+        pass
     kc = shutil.which("keychain")
     if not kc:
         print(
