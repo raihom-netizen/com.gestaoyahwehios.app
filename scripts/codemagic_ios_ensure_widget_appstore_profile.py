@@ -2,21 +2,24 @@
 """
 Cria/baixa perfil IOS_APP_STORE só da extensão Widget — SEM fetch-signing-files.
 
-Motivo: `app-store-connect fetch-signing-files --create` tenta gravar o certificado
-Distribution e falha com:
-  "Cannot save Signing Certificates without certificate private key"
-quando o CI usa P12 (CM_CERTIFICATE) em vez de CERTIFICATE_PRIVATE_KEY (PEM CSR).
+Evita: "Cannot save Signing Certificates without certificate private key".
 
-Este script:
-  - reutiliza o Apple Distribution do P12 (/tmp/cm_distribution.p12) já instalado;
-  - cria/baixa só o .mobileprovision do WIDGET_BUNDLE_ID via REST;
-  - NÃO sobrescreve /tmp/cm_prov.plist nem /tmp/cm_raw.mobileprovision (perfil do app).
+Resolve o certificado Distribution nesta ordem:
+  1) /tmp/cm_distribution.p12 (modo manual)
+  2) outros P12 temporários do CI (api_only)
+  3) recriar P12 a partir de CM_CERTIFICATE / CERTIFICATE_PRIVATE_KEY (Base64)
+  4) leaf DER em /tmp/cm_prov.plist (perfil do Runner já instalado)
+  5) PEM Distribution nos secrets (match SPKI na ASC)
+
+NÃO sobrescreve /tmp/cm_prov.plist nem /tmp/cm_raw.mobileprovision do app.
 """
 from __future__ import annotations
 
 import base64
 import os
 import plistlib
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -32,11 +35,16 @@ WIDGET_BUNDLE = os.environ.get(
 APP_GROUP = (
     os.environ.get("APP_GROUP_ID") or "group.com.gestaoyahwehios.app.widget"
 ).strip()
-P12 = "/tmp/cm_distribution.p12"
+
+P12_CANDIDATES = (
+    "/tmp/cm_distribution.p12",
+    "/tmp/cm_api_only_identity.p12",
+    "/tmp/cm_api_only_from_secret.p12",
+    "/tmp/_cm_verify_p12.bin",
+)
 
 
 def _install_widget_profile(raw: bytes) -> tuple[str, str]:
-    """Grava só em Library/MobileDevice — não toca nos ficheiros /tmp do Runner."""
     prov_dir = os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles")
     os.makedirs(prov_dir, exist_ok=True)
     tmp = "/tmp/_cm_widget_raw.mobileprovision"
@@ -72,30 +80,175 @@ def _install_widget_profile(raw: bytes) -> tuple[str, str]:
     return name, uuid
 
 
+def _looks_like_pem(raw: str) -> bool:
+    return bool(re.search(r"BEGIN (EC |RSA )?PRIVATE KEY", raw or ""))
+
+
+def _materialize_p12_from_secrets() -> str | None:
+    """Recria /tmp/cm_distribution.p12 a partir do secret Base64 (se for P12)."""
+    raw = (os.environ.get("CM_CERTIFICATE") or os.environ.get("CERTIFICATE_PRIVATE_KEY") or "").strip()
+    if not raw or _looks_like_pem(raw):
+        return None
+    b64 = "".join(raw.split())
+    try:
+        data = base64.b64decode(b64, validate=False)
+    except Exception:
+        return None
+    if not data or len(data) < 64:
+        return None
+    out = "/tmp/cm_distribution.p12"
+    with open(out, "wb") as f:
+        f.write(data)
+    os.chmod(out, 0o600)
+    print(f"OK: P12 recriado a partir do secret → {out} ({len(data)} bytes)")
+    return out
+
+
+def _first_existing_p12() -> str | None:
+    for path in P12_CANDIDATES:
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            print(f"OK: a usar P12 existente: {path}")
+            if path != "/tmp/cm_distribution.p12":
+                try:
+                    shutil.copyfile(path, "/tmp/cm_distribution.p12")
+                    os.chmod("/tmp/cm_distribution.p12", 0o600)
+                except OSError:
+                    pass
+            return path if os.path.isfile(path) else "/tmp/cm_distribution.p12"
+    return _materialize_p12_from_secrets()
+
+
+def _cert_id_from_p12(token: str, p12_path: str) -> str | None:
+    pw = asc._resolve_p12_password()
+    try:
+        der = asc._p12_leaf_der(p12_path, pw)
+        fp = asc._fp_sha256_der(der)
+    except Exception as e:
+        print(f"AVISO: ler P12 {p12_path}: {e}", file=sys.stderr)
+        return None
+    if not fp:
+        return None
+    certs = asc._list_distribution_certificates(token)
+    match = asc._find_cert_for_p12(fp, der, certs)
+    if not match:
+        print(f"AVISO: P12 SHA256={fp} sem match na ASC.", file=sys.stderr)
+        return None
+    return str(match["id"])
+
+
+def _cert_id_from_runner_profile(token: str) -> str | None:
+    """Usa DeveloperCertificates do perfil do Runner já instalado."""
+    plist_paths = (
+        "/tmp/cm_prov.plist",
+        "/tmp/cm_widget_probe.plist",
+    )
+    # Também tenta o primeiro .mobileprovision do bundle principal.
+    main_bundle = (
+        os.environ.get("BUNDLE_ID")
+        or os.environ.get("IOS_BUNDLE_ID")
+        or "com.gestaoyahwehios.app"
+    ).strip()
+    for path, pl in _iter_local_profiles():
+        ent = pl.get("Entitlements") or {}
+        app_id = str(ent.get("application-identifier") or "")
+        if main_bundle and not app_id.endswith(main_bundle):
+            continue
+        for item in pl.get("DeveloperCertificates") or []:
+            if not isinstance(item, (bytes, bytearray)):
+                continue
+            der = bytes(item)
+            fp = asc._fp_sha256_der(der)
+            if not fp:
+                continue
+            certs = asc._list_distribution_certificates(token)
+            match = asc._find_cert_for_p12(fp, der, certs)
+            if match:
+                print(f"OK: cert Distribution via perfil Runner ({path}) id={match['id']}")
+                return str(match["id"])
+    for plist_path in plist_paths:
+        if not os.path.isfile(plist_path):
+            continue
+        try:
+            with open(plist_path, "rb") as f:
+                pl = plistlib.load(f)
+        except Exception:
+            continue
+        for item in pl.get("DeveloperCertificates") or []:
+            if not isinstance(item, (bytes, bytearray)):
+                continue
+            der = bytes(item)
+            fp = asc._fp_sha256_der(der)
+            if not fp:
+                continue
+            certs = asc._list_distribution_certificates(token)
+            match = asc._find_cert_for_p12(fp, der, certs)
+            if match:
+                print(f"OK: cert Distribution via {plist_path} id={match['id']}")
+                return str(match["id"])
+    return None
+
+
+def _iter_local_profiles() -> list[tuple[str, dict]]:
+    out: list[tuple[str, dict]] = []
+    for d in (
+        os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles"),
+        os.path.expanduser("~/Library/Developer/Xcode/UserData/Provisioning Profiles"),
+    ):
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            if not name.endswith(".mobileprovision"):
+                continue
+            path = os.path.join(d, name)
+            r = subprocess.run(
+                ["security", "cms", "-D", "-i", path],
+                capture_output=True,
+                check=False,
+            )
+            if r.returncode != 0:
+                continue
+            try:
+                out.append((path, plistlib.loads(r.stdout)))
+            except Exception:
+                continue
+    return out
+
+
+def _cert_id_from_pem(token: str) -> str | None:
+    priv = asc._load_distribution_private_key_from_env()
+    if priv is None:
+        return None
+    certs = asc._list_distribution_certificates(token)
+    cert_id = asc._find_cert_id_for_privkey(priv, certs)
+    if cert_id:
+        print(f"OK: cert Distribution via PEM secret id={cert_id}")
+    return cert_id
+
+
+def _resolve_distribution_cert_id(token: str) -> str | None:
+    p12 = _first_existing_p12()
+    if p12:
+        cid = _cert_id_from_p12(token, p12)
+        if cid:
+            print(f"OK: cert Distribution via P12 id={cid}")
+            return cid
+    cid = _cert_id_from_runner_profile(token)
+    if cid:
+        return cid
+    return _cert_id_from_pem(token)
+
+
 def main() -> int:
     print("=== Perfil App Store do Widget (API REST, sem gravar certificado) ===")
     print(f"WIDGET_BUNDLE_ID={WIDGET_BUNDLE}")
     print(f"APP_GROUP_ID={APP_GROUP}")
+    mode = ""
+    if os.path.isfile("/tmp/cm_yw_signing_mode"):
+        mode = open("/tmp/cm_yw_signing_mode", encoding="utf-8").read().strip()
+        print(f"signing_mode={mode or '(vazio)'}")
 
     if not WIDGET_BUNDLE:
         print("ERRO: WIDGET_BUNDLE_ID vazio.", file=sys.stderr)
-        return 1
-    if not os.path.isfile(P12):
-        print(
-            f"ERRO: {P12} ausente — rode antes o passo de instalar P12/perfil do app.",
-            file=sys.stderr,
-        )
-        return 1
-
-    pw = asc._resolve_p12_password()
-    try:
-        der = asc._p12_leaf_der(P12, pw)
-        fp_p12 = asc._fp_sha256_der(der)
-    except Exception as e:
-        print(f"ERRO: ler P12: {e}", file=sys.stderr)
-        return 1
-    if not fp_p12:
-        print("ERRO: fingerprint P12 vazio.", file=sys.stderr)
         return 1
 
     try:
@@ -104,17 +257,15 @@ def main() -> int:
         print(f"ERRO: JWT ASC: {e}", file=sys.stderr)
         return 1
 
-    certs = asc._list_distribution_certificates(token)
-    match = asc._find_cert_for_p12(fp_p12, der, certs)
-    if not match:
+    cert_id = _resolve_distribution_cert_id(token)
+    if not cert_id:
         print(
-            "ERRO: nenhum Apple Distribution na ASC corresponde ao P12 (SHA256).",
+            "ERRO: não foi possível identificar o Apple Distribution "
+            "(sem P12 em /tmp, sem perfil Runner, sem PEM).",
             file=sys.stderr,
         )
-        print(f"  P12 SHA256: {fp_p12}", file=sys.stderr)
+        print("  Dica: confirme CM_CERTIFICATE (P12) ou perfil do app no passo anterior.", file=sys.stderr)
         return 1
-    cert_id = str(match["id"])
-    print(f"Cert Distribution (P12): id={cert_id}")
 
     bundle_rid = asc._find_bundle_id(token, WIDGET_BUNDLE)
     if not bundle_rid:
@@ -128,8 +279,8 @@ def main() -> int:
         )
         return 1
     print(f"Bundle Widget resource id: {bundle_rid}")
+    print(f"Cert Distribution id: {cert_id}")
 
-    # 1) Reutilizar perfil existente com o mesmo cert + App Group
     for pr in asc._profiles_for_bundle(token, bundle_rid):
         attr = pr.get("attributes") or {}
         if str(attr.get("profileType") or "") != "IOS_APP_STORE":
@@ -151,7 +302,6 @@ def main() -> int:
         except Exception as e:
             print(f"AVISO: instalar perfil existente falhou: {e}", file=sys.stderr)
 
-    # 2) Criar perfil novo (capabilities atuais do App ID, incl. App Groups)
     unique = f"GestaoYahwehWidget_{int(time.time())}"
     print(f"A criar perfil IOS_APP_STORE: {unique}")
     created = asc._create_app_store_profile(

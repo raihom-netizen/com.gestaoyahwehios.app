@@ -108,6 +108,11 @@ PY
 
 echo "Perfil: name=${PROFILE_NAME} uuid=${PROFILE_UUID} team=${TEAM_ID}"
 _persist_asc_pem_to_cm_env
+# Deixa P12 estável para passos seguintes (Widget / verify) — mesmo path canónico.
+if [ -s /tmp/cm_distribution.p12 ]; then
+  chmod 600 /tmp/cm_distribution.p12
+  cp -f /tmp/cm_distribution.p12 /tmp/cm_distribution.p12.bak 2>/dev/null || true
+fi
 echo "OK: certificado + perfil + ExportOptions.plist"
 
 # Alinhar perfil ao P12: fetch-signing-files + opcional criação de perfil via API ASC (mesmo repositório).

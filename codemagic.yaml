@@ -210,10 +210,19 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          export WIDGET_BUNDLE_ID APP_GROUP_ID
-          # NÃO usar fetch-signing-files aqui: com P12 (sem PEM CSR) o CLI falha com
-          # "Cannot save Signing Certificates without certificate private key".
-          # Perfil Widget = só REST API + cert do P12 já instalado no passo anterior.
+          export WIDGET_BUNDLE_ID APP_GROUP_ID BUNDLE_ID IOS_BUNDLE_ID
+          # Se o passo anterior (api_only) não deixou /tmp/cm_distribution.p12, o script
+          # recria a partir do secret / perfil Runner / PEM — nunca usa fetch-signing-files.
+          if [ ! -s /tmp/cm_distribution.p12 ]; then
+            for cand in /tmp/cm_api_only_identity.p12 /tmp/cm_api_only_from_secret.p12 /tmp/_cm_verify_p12.bin; do
+              if [ -s "$cand" ]; then
+                cp -f "$cand" /tmp/cm_distribution.p12
+                chmod 600 /tmp/cm_distribution.p12
+                echo "OK: P12 copiado de $cand → /tmp/cm_distribution.p12"
+                break
+              fi
+            done
+          fi
           python3 "$ROOT/scripts/codemagic_ios_ensure_widget_appstore_profile.py"
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
