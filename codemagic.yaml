@@ -117,6 +117,12 @@ workflows:
         # Alinhado ao App Store Connect (Users and Access → Integrations → API Keys)
         APP_STORE_CONNECT_KEY_IDENTIFIER: "85X9UNAT43"
         APP_STORE_CONNECT_ISSUER_ID: "77a1debb-f68b-418d-9fe3-af0f37b40585"
+        # App + Widget (home screen) — App Groups obrigatório no perfil App Store
+        BUNDLE_ID: "com.gestaoyahwehios.app"
+        WIDGET_BUNDLE_ID: "com.gestaoyahwehios.app.GestaoYahwehWidget"
+        APP_GROUP_ID: "group.com.gestaoyahwehios.app.widget"
+        APP_GROUP_NAME: "Gestao Yahweh Widget"
+        IOS_BUNDLE_ID: "com.gestaoyahwehios.app"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
       # 3.44+ exige flutter_quill 11.5.1 (onFocusReceived) e font_awesome 11 (IconData final).
@@ -168,16 +174,58 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           python3 "$ROOT/scripts/codemagic_ios_enable_sign_in_with_apple.py"
+      # Widget + Runner exigem App Groups no perfil — registar grupo e associar aos dois App IDs.
+      - name: Ativar App Groups no App e Widget (API Apple)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID APP_GROUP_NAME
+          python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
+          echo "Aguardando propagacao App Groups (90s)..."
+          sleep 90
       - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export BUNDLE_ID WIDGET_BUNDLE_ID
+          # Remove na Apple (API) + limpeza local — perfil Bootstrap antigo sem App Groups.
+          python3 "$ROOT/scripts/codemagic_ios_delete_appstore_profiles.py" || true
           bash "$ROOT/scripts/codemagic_ios_remove_old_appstore_profiles.sh"
+          # Também limpa profiles locais da extensão Widget
+          PROFILES_HOME="${HOME}/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_HOME"
+          shopt -s nullglob
+          for f in "$PROFILES_HOME"/*.mobileprovision; do
+            if security cms -D -i "$f" 2>/dev/null | grep -qF "${WIDGET_BUNDLE_ID}"; then
+              echo "Removendo perfil Widget antigo: $(basename "$f")"
+              rm -f "$f"
+            fi
+          done
       - name: Buscar ou criar certificado e perfil (Apple) — instalar P12 + mobileprovision + ExportOptions
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_install_signing.sh"
+      - name: Buscar ou criar perfil da extensão Widget iOS (Apple)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export WIDGET_BUNDLE_ID APP_GROUP_ID
+          if ! command -v app-store-connect >/dev/null 2>&1; then
+            python3 -m pip install --user -q "codemagic-cli-tools>=0.52.0"
+            export PATH="$(python3 -m site --user-base)/bin:$PATH"
+          fi
+          PROFILE_DIR="${HOME}/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILE_DIR"
+          app-store-connect fetch-signing-files "$WIDGET_BUNDLE_ID" \
+            --issuer-id "$APP_STORE_CONNECT_ISSUER_ID" \
+            --key-id "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
+            --private-key "@file:/tmp/_asc_ok.pem" \
+            --type IOS_APP_STORE \
+            --create \
+            --delete-stale-profiles \
+            --strict-match-identifier \
+            --profiles-dir "$PROFILE_DIR"
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e
@@ -187,6 +235,20 @@ workflows:
             exit 1
           fi
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+      - name: Validar perfil Widget + ExportOptions (App Groups)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
+          export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID
+          export EXPORT_OPTIONS_PATH="/tmp/ExportOptions.plist"
+          python3 "$ROOT/scripts/codemagic_ios_verify_widget_profile.py"
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ios/ExportOptions.plist
+          python3 "$ROOT/scripts/codemagic_ios_validate_export_options.py"
+          echo "--- ExportOptions ---"
+          plutil -p /tmp/ExportOptions.plist || true
       - name: Garantir iOS deployment target 15.5 (ML Kit / Firebase)
         script: |
           set -e
@@ -208,9 +270,18 @@ workflows:
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           cd "$ROOT"
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app/ios ;; root) cd ios ;; *) echo "ERRO: layout"; exit 1 ;; esac
-          xcode-project use-profiles
+          export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID
+          # Runner + GestaoYahwehWidgetExtension — perfis App Store com App Groups.
+          xcode-project use-profiles \
+            --project Runner.xcodeproj \
+            --archive-method app-store \
+            --code-signing-setup-verbose-logging
           echo "--- Identidades de assinatura (esperado: Apple Distribution + perfil App Store) ---"
           security find-identity -v -p codesigning | head -40 || true
+          # Regrava ExportOptions com app + Widget (use-profiles / install pode ter sobrescrito só o Runner).
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ExportOptions.plist
+          python3 "$ROOT/scripts/codemagic_ios_validate_export_options.py"
       - name: Versão iOS = mesma base do iPhone/Web (app_version.dart) + build único
         script: |
           set -e
@@ -243,6 +314,10 @@ workflows:
           echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
           echo "  (CFBundleVersion = ASC último + offset — ver passo Versão iOS; sem Retry só em Publishing)"
           grep '^version:' pubspec.yaml || true
+          export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID
+          python3 "$ROOT/scripts/codemagic_ios_verify_widget_profile.py"
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist
+          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ios/ExportOptions.plist
           bash "$ROOT/scripts/codemagic_ios_prepare_build_ipa.sh"
           set +e
           flutter build ipa --release \

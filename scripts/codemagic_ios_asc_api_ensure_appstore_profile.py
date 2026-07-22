@@ -1085,6 +1085,60 @@ def bootstrap_distribution_cert_ci_main() -> int:
     return 0
 
 
+def _required_app_group() -> str:
+    return (os.environ.get("APP_GROUP_ID") or "").strip()
+
+
+def _plist_has_app_group(pl: dict, group: str) -> bool:
+    if not group:
+        return True
+    ent = pl.get("Entitlements") or {}
+    groups = ent.get("com.apple.security.application-groups") or []
+    return group in groups
+
+
+def _local_tmp_profile_has_required_app_group() -> bool:
+    """Se APP_GROUP_ID estiver definido, o perfil local tem de incluir o grupo (Widget)."""
+    group = _required_app_group()
+    if not group:
+        return True
+    plist_path = "/tmp/cm_prov.plist"
+    if not os.path.isfile(plist_path):
+        return False
+    try:
+        with open(plist_path, "rb") as f:
+            pl = plistlib.load(f)
+    except Exception:
+        return False
+    ok = _plist_has_app_group(pl, group)
+    if not ok:
+        print(
+            f"AVISO: perfil local sem App Group {group} — forçar recriação (fetch/API).",
+            file=sys.stderr,
+        )
+    return ok
+
+
+def _raw_profile_has_app_group(raw: bytes, group: str) -> bool:
+    if not group:
+        return True
+    try:
+        tmp = "/tmp/_cm_ag_check.mobileprovision"
+        with open(tmp, "wb") as f:
+            f.write(raw)
+        r = subprocess.run(
+            ["security", "cms", "-D", "-i", tmp],
+            capture_output=True,
+            check=False,
+        )
+        if r.returncode != 0:
+            return False
+        pl = plistlib.loads(r.stdout)
+        return _plist_has_app_group(pl, group)
+    except Exception:
+        return False
+
+
 def _local_tmp_profile_matches_p12(fp_p12: str) -> bool:
     plist_path = "/tmp/cm_prov.plist"
     if not os.path.isfile(plist_path):
@@ -1102,7 +1156,7 @@ def _local_tmp_profile_matches_p12(fp_p12: str) -> bool:
 
 
 def matches_only_main() -> int:
-    """Exit 0 se /tmp/cm_prov.plist inclui o leaf do P12 (SHA256); senão 1. Sem chamadas à API."""
+    """Exit 0 se /tmp/cm_prov.plist inclui o leaf do P12 (SHA256) e App Group (se APP_GROUP_ID); senão 1."""
     p12 = "/tmp/cm_distribution.p12"
     plist_path = "/tmp/cm_prov.plist"
     if not os.path.isfile(p12) or not os.path.isfile(plist_path):
@@ -1115,8 +1169,8 @@ def matches_only_main() -> int:
         return 1
     if not fp_p12:
         return 1
-    if _local_tmp_profile_matches_p12(fp_p12):
-        print("OK: perfil e P12 coincidem (SHA256).")
+    if _local_tmp_profile_matches_p12(fp_p12) and _local_tmp_profile_has_required_app_group():
+        print("OK: perfil e P12 coincidem (SHA256) + App Groups OK.")
         return 0
     return 1
 
@@ -1178,8 +1232,8 @@ def main() -> int:
     if not fp_p12:
         return 0
 
-    if _local_tmp_profile_matches_p12(fp_p12):
-        print("OK: /tmp/cm_prov.plist já inclui o certificado do P12 — saltar API.")
+    if _local_tmp_profile_matches_p12(fp_p12) and _local_tmp_profile_has_required_app_group():
+        print("OK: /tmp/cm_prov.plist já inclui o certificado do P12 + App Groups — saltar API.")
         return 0
 
     try:
@@ -1208,6 +1262,7 @@ def main() -> int:
         print(f"AVISO: bundleId {bundle} não encontrado na API.", file=sys.stderr)
         return 0
 
+    app_group = _required_app_group()
     profiles = _profiles_for_bundle(token, bundle_rid)
     for pr in profiles:
         pid = str(pr.get("id") or "")
@@ -1217,10 +1272,15 @@ def main() -> int:
             continue
         if _profile_includes_certificate(token, pid, cert_id):
             raw = _download_profile_content(token, pid)
-            if raw:
+            if raw and _raw_profile_has_app_group(raw, app_group):
                 _write_mobileprovision_and_plist(raw, bundle)
-                print("OK: perfil App Store existente na API já inclui o certificado do P12.")
+                print("OK: perfil App Store existente na API já inclui o certificado do P12 + App Groups.")
                 return 0
+            if raw and app_group:
+                print(
+                    f"AVISO: perfil API id={pid} tem o P12 mas sem App Group {app_group} — ignorar.",
+                    file=sys.stderr,
+                )
 
     unique = f"GestaoYahweh_CI_{int(time.time())}"
     created = _create_app_store_profile(token, bundle_rid, cert_id, bundle, unique)

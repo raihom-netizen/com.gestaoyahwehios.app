@@ -21,15 +21,17 @@ if [ "$_signmode" = "api_only" ]; then
   exit 0
 fi
 
-BUNDLE_ID="${IOS_BUNDLE_ID:-com.gestaoyahwehios.app}"
+BUNDLE_ID="${IOS_BUNDLE_ID:-${BUNDLE_ID:-com.gestaoyahwehios.app}}"
+WIDGET_BUNDLE_ID="${WIDGET_BUNDLE_ID:-com.gestaoyahwehios.app.GestaoYahwehWidget}"
 PROFILES_HOME="${HOME}/Library/MobileDevice/Provisioning Profiles"
 mkdir -p "$PROFILES_HOME"
 
 shopt -s nullglob
 for f in "$PROFILES_HOME"/*.mobileprovision; do
-  if security cms -D -i "$f" 2>/dev/null | grep -qF "$BUNDLE_ID"; then
+  decoded="$(security cms -D -i "$f" 2>/dev/null || true)"
+  if printf '%s' "$decoded" | grep -qF "$BUNDLE_ID" || printf '%s' "$decoded" | grep -qF "$WIDGET_BUNDLE_ID"; then
     echo "Removendo perfil antigo: $(basename "$f")"
     rm -f "$f"
   fi
 done
-echo "OK: limpeza de perfis para bundle $BUNDLE_ID"
+echo "OK: limpeza de perfis para bundles $BUNDLE_ID + $WIDGET_BUNDLE_ID"

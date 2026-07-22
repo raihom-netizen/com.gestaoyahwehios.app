@@ -114,12 +114,16 @@ _ent_candidates = [
     os.path.join(_cwd, "ios", "Runner", "Runner.entitlements"),
 ]
 _project_wants_apple_sign_in = False
+_project_wants_app_groups = False
+_wanted_app_group = (os.environ.get("APP_GROUP_ID") or "group.com.gestaoyahwehios.app.widget").strip()
 for _p in _ent_candidates:
     try:
         if os.path.isfile(_p):
             _raw = open(_p, "rb").read()
             if b"com.apple.developer.applesignin" in _raw:
                 _project_wants_apple_sign_in = True
+            if b"com.apple.security.application-groups" in _raw:
+                _project_wants_app_groups = True
             break
     except OSError:
         pass
@@ -129,6 +133,16 @@ if _project_wants_apple_sign_in and b"com.apple.developer.applesignin" not in _r
     print("       Atualize CM_PROVISIONING_PROFILE apos ativar a capability no App ID.")
     print("       Ver: IOS/CODEMAGIC_SIGN_IN_APPLE.txt")
     sys.exit(1)
+if _project_wants_app_groups:
+    _ent_pl = prov.get("Entitlements") or {}
+    _groups = _ent_pl.get("com.apple.security.application-groups") or []
+    if _wanted_app_group not in _groups:
+        print("")
+        print(f"ERRO: Runner.entitlements pede App Groups, mas o .mobileprovision nao inclui {_wanted_app_group}.")
+        print("       Ative App Groups no App ID + regenere o perfil (passo enable_app_groups + delete profiles + fetch).")
+        print("       Perfil Bootstrap antigo sem App Groups nao serve para o Widget.")
+        sys.exit(1)
+    print(f"OK: perfil inclui App Group {_wanted_app_group}.")
 dev_certs = prov.get("DeveloperCertificates", [])
 if not dev_certs:
     print("ERRO: DeveloperCertificates vazio no perfil — .mobileprovision inválido ou corrompido.")
