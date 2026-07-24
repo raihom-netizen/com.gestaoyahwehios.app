@@ -253,19 +253,21 @@ def _delete_profile(token: str, profile_id: str) -> None:
 
 
 def _rebind_widget_app_groups(bundle_rid: str) -> bool:
-    print("=== Reassociar App Groups no App ID Widget (antes de criar perfil) ===")
-    app_group_rid = ag._resolve_app_group_resource_id()
+    print("=== Garantir APP_GROUPS no App ID Widget (capability only) ===")
     ok = ag.assign_app_group_to_bundle(
         bundle_rid,
         WIDGET_BUNDLE,
-        app_group_rid=app_group_rid,
-        max_rounds=3,
+        app_group_rid=None,
+        max_rounds=1,
     )
     if not ok:
-        print("ERRO: não foi possível confirmar App Group no App ID Widget.", file=sys.stderr)
+        print(
+            "ERRO: capability APP_GROUPS ausente no App ID Widget.",
+            file=sys.stderr,
+        )
         return False
-    wait_sec = int(os.environ.get("WIDGET_APP_GROUP_PROPAGATE_SEC") or "45")
-    print(f"Aguardando propagação App Groups no Widget ({wait_sec}s)...")
+    wait_sec = int(os.environ.get("WIDGET_APP_GROUP_PROPAGATE_SEC") or "15")
+    print(f"Aguardando propagacao curta ({wait_sec}s)...")
     time.sleep(wait_sec)
     return True
 

@@ -147,16 +147,22 @@ def _request(method: str, url: str, token: str, body: dict | None = None) -> tup
 
 
 def _find_bundle_id(token: str, bundle: str) -> str | None:
-    q = urllib.parse.urlencode({"filter[identifier]": bundle, "limit": "5"})
+    """Match EXATO do identifier — filter ASC e prefixo (Widget vinha antes do app)."""
+    q = urllib.parse.urlencode({"filter[identifier]": bundle, "limit": "50"})
     url = f"https://api.appstoreconnect.apple.com/v1/bundleIds?{q}"
     code, data = _request("GET", url, token)
     if code != 200:
         print(f"AVISO: GET bundleIds falhou {code}: {data}", file=sys.stderr)
         return None
     arr = data.get("data") or []
-    if not arr:
-        return None
-    return str(arr[0].get("id") or "")
+    for item in arr:
+        attrs = (item or {}).get("attributes") or {}
+        if str(attrs.get("identifier") or "") == bundle:
+            rid = item.get("id")
+            return str(rid) if rid else None
+    # Fallback: se so houver 1 e o filter foi estranho, nao adivinhar.
+    print(f"AVISO: Bundle ID exacto nao encontrado: {bundle}", file=sys.stderr)
+    return None
 
 
 def _serial_hex_upper_from_der(der: bytes) -> str:

@@ -174,19 +174,14 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           python3 "$ROOT/scripts/codemagic_ios_enable_sign_in_with_apple.py"
-      # Widget + Runner exigem App Groups no perfil — registar grupo e associar aos dois App IDs.
+      # Widget + Runner: ASC so liga capability APP_GROUPS (settings/group.com ja nao e API).
+      # Confirmacao do group.com… fica no perfil .mobileprovision (passos seguintes).
       - name: Ativar App Groups no App e Widget (API Apple)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID APP_GROUP_NAME
           python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
-          echo "Aguardando propagacao App Groups (120s)..."
-          sleep 120
-          # Fail-fast: capability do Widget TEM de listar o group.com… antes de criar perfil.
-          export APP_GROUPS_ONLY_BUNDLE="$WIDGET_BUNDLE_ID"
-          python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
-          unset APP_GROUPS_ONLY_BUNDLE
       - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
         script: |
           set -e
