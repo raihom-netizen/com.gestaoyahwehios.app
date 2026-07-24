@@ -1,0 +1,23 @@
+---
+description: Base estável — gates antes de mudanças e deploy (ver ponto memoria unico)
+alwaysApply: true
+---
+
+# Base estável — Gestão YAHWEH
+
+Referência unica: `PONTO_BASE_MEMORIA_2026-07-24_11.2.305+2134.md` (release atual `11.2.305+2134`). Tag historica Git: `baseline-11.2.295-1819`.
+
+## Antes de alterar código ou fazer deploy
+
+1. **PATH:** scripts de deploy assumem `.\scripts\ensure_gestao_yahweh_toolchain_path.ps1` (Flutter + Firebase em `C:\dev\gestao-yahweh-toolchain` ou `GESTAO_YAHWEH_TOOLCHAIN_ROOT`).
+2. **Dart:** corrigir `error` do `dart analyze` nos ficheiros tocados; não usar **getter** como valor por defeito de parâmetro opcional (só `const`).
+3. **iOS:** não reintroduzir `remote-notification` em `UIBackgroundModes` sem `aps-environment`; não pôr `http`/`https` em `LSApplicationQueriesSchemes`.
+4. **Versão:** respeitar `controle-versao.mdc` — marketing `11.2.305` fixo; bump só do `+N` quando entregar build.
+
+## Deploy completo autorizado
+
+`.\scripts\deploy_completo.ps1` (já inclui toolchain PATH). Não remover validação IPA do `codemagic.yaml`.
+
+## Upload rápido (chat / mural / eventos)
+
+Manter: `FeedPostMediaUpload` com paralelismo limitado, `skipClientPrepare` para WebP, turbo mobile em `media_upload_limits.dart`, stub Firestore no chat antes de transcode de vídeo.
