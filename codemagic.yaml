@@ -324,6 +324,11 @@ workflows:
           echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
           echo "  (CFBundleVersion = ASC último + offset — ver passo Versão iOS; sem Retry só em Publishing)"
           grep '^version:' pubspec.yaml || true
+          # Asset dotenv: pubspec lista .env.example (commitado). Nunca exigir .env (gitignore).
+          if [ ! -f .env.example ]; then
+            echo "ERRO: falta .env.example (asset obrigatório no pubspec)."
+            exit 1
+          fi
           export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID
           python3 "$ROOT/scripts/codemagic_ios_verify_widget_profile.py"
           python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist

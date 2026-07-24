@@ -1,14 +1,22 @@
-// Credenciais TDLib — lidas de `.env` via flutter_dotenv (sem hardcode).
-// Ficheiro: flutter_app/.env (asset + gitignore). Modelo: .env.example
+// Credenciais TDLib — lidas via flutter_dotenv (sem hardcode).
+// Asset commitado: `.env.example`. Localmente pode copiar para `.env` e
+// preencher secrets; no CI o exemplo (vazio) basta — TDLib fica desligado.
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-/// Carrega o asset `.env`. Seguro chamar várias vezes; falha soft se ausente.
+/// Carrega dotenv. Seguro chamar várias vezes; falha soft se ausente.
 Future<void> loadTdlibDotEnv() async {
   if (dotenv.isInitialized) return;
-  try {
-    await dotenv.load(fileName: '.env');
-  } catch (_) {
-    // Builds sem .env (CI) — TdLib fica desligado até configurar.
+  // Preferir `.env` se existir no bundle (builds locais que o incluem);
+  // senão `.env.example` (produção / CodeMagic).
+  for (final name in ['.env', '.env.example']) {
+    try {
+      await rootBundle.loadString(name);
+      await dotenv.load(fileName: name);
+      return;
+    } catch (_) {
+      // tenta próximo
+    }
   }
 }
 

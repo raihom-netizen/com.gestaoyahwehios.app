@@ -118,7 +118,9 @@ flutter:
     enable-swift-package-manager: false
   uses-material-design: true
   assets:
-    - .env
+    # Nunca listar `.env` aqui: está no gitignore e o CI (CodeMagic) falha o archive
+    # com "No file or variants found for asset: .env". Modelo commitado = .env.example.
+    - .env.example
     - assets/icon/app_icon.png
     - assets/icon/icon_avisos.png
     - assets/icon/icon_eventos.png
