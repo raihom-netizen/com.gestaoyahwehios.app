@@ -19,12 +19,31 @@ WIDGET_BUNDLE_ID = os.environ.get(
 
 
 def main() -> int:
-    plist_path = Path(
-        os.environ.get("EXPORT_OPTIONS_PATH", "ios/ExportOptions.plist")
+    candidates: list[Path] = []
+    env_path = (os.environ.get("EXPORT_OPTIONS_PATH") or "").strip()
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend(
+        [
+            Path("/tmp/ExportOptions.plist"),
+            Path("ExportOptions.plist"),
+            Path("ios/ExportOptions.plist"),
+            Path("flutter_app/ios/ExportOptions.plist"),
+        ]
     )
-    if not plist_path.is_file():
-        print(f"ERRO: {plist_path} não encontrado.")
+
+    plist_path: Path | None = None
+    for cand in candidates:
+        if cand.is_file():
+            plist_path = cand
+            break
+    if plist_path is None:
+        print(
+            "ERRO: ExportOptions.plist nao encontrado. Tentou: "
+            + ", ".join(str(c) for c in candidates)
+        )
         return 1
+    print(f"Validando ExportOptions: {plist_path.resolve()}")
 
     with open(plist_path, "rb") as f:
         data = plistlib.load(f)

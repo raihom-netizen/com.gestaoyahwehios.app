@@ -285,9 +285,13 @@ workflows:
           echo "--- Identidades de assinatura (esperado: Apple Distribution + perfil App Store) ---"
           security find-identity -v -p codesigning | head -40 || true
           # Regrava ExportOptions com app + Widget (use-profiles / install pode ter sobrescrito só o Runner).
+          export EXPORT_OPTIONS_PATH="/tmp/ExportOptions.plist"
           python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist
           python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ExportOptions.plist
           python3 "$ROOT/scripts/codemagic_ios_validate_export_options.py"
+          test -f /tmp/ExportOptions.plist
+          test -f ExportOptions.plist
+          echo "OK: ExportOptions em /tmp e $(pwd)/ExportOptions.plist"
       - name: Versão iOS = mesma base do iPhone/Web (app_version.dart) + build único
         script: |
           set -e
