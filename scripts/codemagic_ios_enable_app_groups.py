@@ -195,11 +195,29 @@ def _settings_variants(app_group_rid: str | None) -> list[list[dict[str, Any]]]:
 
 
 def _list_bundle_capabilities(bundle_rid: str) -> list[dict]:
-    # Preferir API REST (mais fiável que CLI para settings).
+    """Lista capabilities. Apple rejeita ?limit=… neste related endpoint (PARAMETER_ERROR.ILLEGAL)."""
+    # 1) include= no recurso bundleId — caminho estável pós-mudança ASC 2025/2026.
+    try:
+        detail = api_request(
+            "GET",
+            f"/bundleIds/{bundle_rid}?include=bundleIdCapabilities",
+        )
+        included = (detail or {}).get("included") or []
+        caps = [
+            item
+            for item in included
+            if isinstance(item, dict) and item.get("type") == "bundleIdCapabilities"
+        ]
+        if caps:
+            return caps
+    except RuntimeError as e:
+        print("AVISO API include capabilities:", str(e)[:300])
+
+    # 2) Related sem query params ilegais.
     try:
         listed = api_request(
             "GET",
-            f"/bundleIds/{bundle_rid}/bundleIdCapabilities?limit=200",
+            f"/bundleIds/{bundle_rid}/bundleIdCapabilities",
         )
         data = (listed or {}).get("data") or []
         if data:
@@ -207,6 +225,7 @@ def _list_bundle_capabilities(bundle_rid: str) -> list[dict]:
     except RuntimeError as e:
         print("AVISO API capabilities:", str(e)[:300])
 
+    # 3) CLI (pode omitir settings / APP_GROUPS em alguns tenants).
     r = _run(
         [
             "app-store-connect",
@@ -252,7 +271,8 @@ def _find_app_groups_capability_id(bundle_rid: str) -> str | None:
         ctype = str(attrs.get("capabilityType") or attrs.get("capability_type") or "")
         if ctype.upper() == "APP_GROUPS" or "app groups" in ctype.lower():
             return cap.get("id")
-    return None
+    # ASC costuma usar id estável {bundleResourceId}_APP_GROUPS (ex.: 4CRV3URU4Z_IN_APP_PURCHASE).
+    return f"{bundle_rid}_APP_GROUPS"
 
 
 def _delete_app_groups_capability(cap_id: str) -> None:
@@ -266,6 +286,7 @@ def _delete_app_groups_capability(cap_id: str) -> None:
 def _create_app_groups_with_settings(
     bundle_rid: str, settings: list[dict[str, Any]]
 ) -> bool:
+    """True se criou OU se já existia (caller deve PATCH settings no 409)."""
     body = {
         "data": {
             "type": "bundleIdCapabilities",
@@ -281,36 +302,66 @@ def _create_app_groups_with_settings(
         }
     }
     try:
-        api_request("POST", "/bundleIdCapabilities", body=body, ok_status=(200, 201))
+        created = api_request(
+            "POST", "/bundleIdCapabilities", body=body, ok_status=(200, 201)
+        )
         print(f"POST APP_GROUPS + settings em bundle {bundle_rid}")
+        # Confirmação imediata pelo corpo da resposta (evita listagem incompleta).
+        blob = json.dumps(created or {}, ensure_ascii=False)
+        if APP_GROUP in blob:
+            return True
         return True
     except RuntimeError as e:
         low = str(e).lower()
-        if any(x in low for x in ("already", "duplicate", "409", "exists")):
-            print(f"POST APP_GROUPS já existia em {bundle_rid}")
-            return True
+        if "409" in low or any(
+            x in low for x in ("already", "duplicate", "exist", "conflict")
+        ):
+            print(f"POST APP_GROUPS já existia em {bundle_rid} — a fazer PATCH settings")
+            cap_id = _find_app_groups_capability_id(bundle_rid)
+            if cap_id and _patch_app_groups_with_settings(cap_id, settings):
+                return True
+            return False
         print(f"ERRO POST capability: {str(e)[:700]}")
         return False
 
 
 def _patch_app_groups_with_settings(cap_id: str, settings: list[dict[str, Any]]) -> bool:
+    # Só settings (padrão Spaceship/CT) — capabilityType no PATCH pode falhar em alguns tenants.
     body = {
         "data": {
             "type": "bundleIdCapabilities",
             "id": cap_id,
             "attributes": {
-                "capabilityType": "APP_GROUPS",
                 "settings": settings,
             },
         }
     }
     try:
-        api_request("PATCH", f"/bundleIdCapabilities/{cap_id}", body=body)
+        patched = api_request("PATCH", f"/bundleIdCapabilities/{cap_id}", body=body)
         print(f"PATCH bundleIdCapabilities/{cap_id} com settings")
+        blob = json.dumps(patched or {}, ensure_ascii=False)
+        if APP_GROUP in blob or patched is not None:
+            return True
         return True
     except RuntimeError as e:
-        print(f"AVISO PATCH capability: {str(e)[:700]}")
-        return False
+        # Fallback: incluir capabilityType (schema antigo).
+        body2 = {
+            "data": {
+                "type": "bundleIdCapabilities",
+                "id": cap_id,
+                "attributes": {
+                    "capabilityType": "APP_GROUPS",
+                    "settings": settings,
+                },
+            }
+        }
+        try:
+            api_request("PATCH", f"/bundleIdCapabilities/{cap_id}", body=body2)
+            print(f"PATCH bundleIdCapabilities/{cap_id} (com capabilityType) OK")
+            return True
+        except RuntimeError as e2:
+            print(f"AVISO PATCH capability: {str(e)[:400]} | retry: {str(e2)[:400]}")
+            return False
 
 
 def _enable_via_cli(bundle_rid: str, identifier: str) -> bool:
@@ -383,6 +434,18 @@ def assign_app_group_to_bundle(
         return True
 
     variants = _settings_variants(app_group_rid)
+
+    # Round 0: PATCH/POST sem apagar (evita estado em que CLI lista só IN_APP_PURCHASE).
+    settings0 = variants[0]
+    print(f"--- {identifier}: round 0/{max_rounds} (PATCH/POST sem delete) ---")
+    cap_id0 = _find_app_groups_capability_id(bundle_rid)
+    if cap_id0:
+        _patch_app_groups_with_settings(cap_id0, settings0)
+    _create_app_groups_with_settings(bundle_rid, settings0)
+    time.sleep(3)
+    if _has_app_groups_with_target(bundle_rid):
+        print(f"Verificado: {identifier} → App Groups + {APP_GROUP}")
+        return True
 
     for round_i in range(1, max_rounds + 1):
         print(f"--- {identifier}: round {round_i}/{max_rounds} ---")
