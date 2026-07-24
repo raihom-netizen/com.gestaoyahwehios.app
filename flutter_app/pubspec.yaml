@@ -106,8 +106,11 @@ dependencies:
   just_audio: ^0.10.5
   audio_waveforms: ^2.0.2
   package_info_plus: ^9.0.1
-  # TDLib (Telegram) — JSON FFI; binários via .\scripts\download_tdlib.ps1
-  libtdjson: 0.3.0
+  # TDLib (Telegram) — motor opcional FORA do menu principal (Yahweh Chat nativo).
+  # Removido do pubspec de produção: o .a iOS está no .gitignore e o Codemagic
+  # falhava o archive (flutter_libtdjson / libtdjson.a ausente). Para reativar:
+  #   libtdjson: 0.3.0  +  dart run tool/setup_tdlib.dart --ios-only  no CI.
+  # export tdlib_service_io.dart quando os binários estiverem no pipeline.
   flutter_dotenv: ^6.0.1
 flutter:
   # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.

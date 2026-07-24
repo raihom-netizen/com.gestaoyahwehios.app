@@ -1397,14 +1397,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
-  libtdjson:
-    dependency: "direct main"
-    description:
-      name: libtdjson
-      sha256: df06af830da4f26d5b3e7fc6f380765c5b55f0d8eee0640c6d81aab40e1c9d5d
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.0"
   linkify:
     dependency: transitive
     description:
