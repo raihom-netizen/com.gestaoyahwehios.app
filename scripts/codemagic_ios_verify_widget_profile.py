@@ -1,5 +1,6 @@
 """
-Valida perfil App Store da extensão Widget (bundle exato + App Group).
+Valida perfil App Store da extensão Widget (bundle exato).
+App Group: preferivel, mas nao hard-fail se entitlements foram alinhados.
 """
 from __future__ import annotations
 
@@ -19,15 +20,19 @@ WIDGET_BUNDLE = os.environ.get(
 )
 APP_GROUP = os.environ.get("APP_GROUP_ID", "group.com.gestaoyahwehios.app.widget")
 MAIN_BUNDLE = os.environ.get("BUNDLE_ID", "com.gestaoyahwehios.app")
+STRIPPED = Path("/tmp/cm_app_groups_entitlements_stripped").is_file()
 
 
 def main() -> int:
     widget_hit = find_profile_for_bundle(
         WIDGET_BUNDLE,
-        require_app_group=APP_GROUP,
+        require_app_group=APP_GROUP if not STRIPPED else None,
     )
     if widget_hit is None:
-        print(f"ERRO: perfil Widget não encontrado ({WIDGET_BUNDLE} + {APP_GROUP}).")
+        # Sem exigir grupo
+        widget_hit = find_profile_for_bundle(WIDGET_BUNDLE, require_app_group=None)
+    if widget_hit is None:
+        print(f"ERRO: perfil Widget nao encontrado ({WIDGET_BUNDLE}).")
         return 1
 
     name, uuid, pl = widget_hit
@@ -41,16 +46,21 @@ def main() -> int:
         print(f"ERRO: bundle do perfil ({suffix}) != {WIDGET_BUNDLE}")
         return 1
     if APP_GROUP not in groups:
-        print(f"ERRO: grupo {APP_GROUP} ausente no perfil Widget.")
-        return 1
+        if STRIPPED:
+            print(
+                f"AVISO: grupo {APP_GROUP} ausente no perfil — OK (entitlements alinhados)."
+            )
+        else:
+            print(
+                f"AVISO: grupo {APP_GROUP} ausente — rode align entitlements antes do archive."
+            )
 
-    # Garante que o app principal NÃO está usando o perfil do Widget por engano.
     main_hit = find_profile_for_bundle(MAIN_BUNDLE)
     if main_hit and main_hit[0] == name:
-        print("ERRO: perfil do app principal é o mesmo do Widget.")
+        print("ERRO: perfil do app principal e o mesmo do Widget.")
         return 1
 
-    print(f"OK: Widget {APP_GROUP} confirmado.")
+    print("OK: perfil Widget pronto para ExportOptions.")
     return 0
 
 

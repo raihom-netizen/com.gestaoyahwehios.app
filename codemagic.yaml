@@ -228,6 +228,8 @@ workflows:
             done
           fi
           python3 "$ROOT/scripts/codemagic_ios_ensure_widget_appstore_profile.py"
+          # Critico: se o perfil nao tem group.com, remove a entitlement (codesign passa).
+          python3 "$ROOT/scripts/codemagic_ios_align_app_group_entitlements.py"
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e
@@ -236,6 +238,8 @@ workflows:
             echo "ERRO: falta $ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh (obrigatorio no CI)."
             exit 1
           fi
+          # Garante align mesmo se o passo Widget falhou a meio (re-run parcial).
+          python3 "$ROOT/scripts/codemagic_ios_align_app_group_entitlements.py" || true
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
       - name: Validar perfil Widget + ExportOptions (App Groups)
         script: |

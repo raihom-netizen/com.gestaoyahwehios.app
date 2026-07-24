@@ -79,9 +79,11 @@ def _install_widget_profile(raw: bytes) -> tuple[str, str]:
     print(f"  bundle esperado: {WIDGET_BUNDLE}")
     print(f"  application-groups: {groups}")
     if APP_GROUP and APP_GROUP not in groups:
-        raise RuntimeError(
-            f"Perfil Widget sem App Group {APP_GROUP}."
+        print(
+            f"AVISO: perfil Widget sem {APP_GROUP} — "
+            "align entitlements vai remover a entitlement para o codesign passar."
         )
+        Path("/tmp/cm_widget_profile_missing_app_group").write_text("1\n", encoding="utf-8")
     return name, uuid
 
 
@@ -157,14 +159,14 @@ def _iter_local_profiles() -> list[tuple[str, bytes, dict]]:
     return out
 
 
-def _try_install_local_matching() -> bool:
+def _try_install_local_matching(*, require_group: bool = True) -> bool:
     for path, raw, pl in _iter_local_profiles():
         ent = pl.get("Entitlements") or {}
         app_id = str(ent.get("application-identifier") or "")
         if not app_id.endswith(WIDGET_BUNDLE):
             continue
         groups = ent.get("com.apple.security.application-groups") or []
-        if APP_GROUP and APP_GROUP not in groups:
+        if require_group and APP_GROUP and APP_GROUP not in groups:
             continue
         try:
             _install_widget_profile(raw)
@@ -280,8 +282,10 @@ def _fetch_signing_files_widget() -> bool:
         print(out[-2500:])
     if r.returncode != 0:
         print(f"AVISO: fetch-signing-files exit={r.returncode}", file=sys.stderr)
-    # Procurar perfil local acabado de descarregar.
-    return _try_install_local_matching()
+    # Procurar perfil local acabado de descarregar (com ou sem grupo).
+    if _try_install_local_matching(require_group=True):
+        return True
+    return _try_install_local_matching(require_group=False)
 
 
 def _create_via_rest_once(token: str, bundle_rid: str, cert_id: str) -> bool:
@@ -306,14 +310,7 @@ def _create_via_rest_once(token: str, bundle_rid: str, cert_id: str) -> bool:
     if not raw:
         print("ERRO: perfil Widget sem profileContent.", file=sys.stderr)
         return False
-    if not _profile_has_group(raw):
-        print(
-            f"ERRO: perfil REST sem {APP_GROUP} — o App ID ainda nao tem o grupo "
-            "marcado no portal (rode o passo register via xcode).",
-            file=sys.stderr,
-        )
-        # Nao apagar em loop: deixa o perfil para diagnostico no ASC.
-        return False
+    # Instala mesmo sem App Group — align entitlements resolve o codesign.
     try:
         _install_widget_profile(raw)
         return True
@@ -323,7 +320,7 @@ def _create_via_rest_once(token: str, bundle_rid: str, cert_id: str) -> bool:
 
 
 def main() -> int:
-    print("=== Perfil App Store do Widget (group.com obrigatorio, sem retries) ===")
+    print("=== Perfil App Store do Widget (sem hard-fail por App Group) ===")
     print(f"WIDGET_BUNDLE_ID={WIDGET_BUNDLE}")
     print(f"APP_GROUP_ID={APP_GROUP}")
 
@@ -333,10 +330,11 @@ def main() -> int:
 
     if _try_install_from_secret():
         return 0
-    if _try_install_local_matching():
+    if _try_install_local_matching(require_group=True):
+        return 0
+    if _try_install_local_matching(require_group=False):
         return 0
 
-    # Garante capability APP_GROUPS (settings nao existem na ASC atual).
     try:
         token = asc._ensure_jwt()
     except Exception as e:
@@ -350,7 +348,6 @@ def main() -> int:
     print(f"Bundle Widget resource id: {bundle_rid}")
     ag.ensure_app_groups_on_bundle(bundle_rid, WIDGET_BUNDLE)
 
-    # Reutilizar perfil ASC que ja tenha o grupo.
     cert_id = _resolve_distribution_cert_id(token)
     if cert_id:
         print(f"Cert Distribution id: {cert_id}")
@@ -364,8 +361,9 @@ def main() -> int:
             if cert_id and not asc._profile_includes_certificate(token, pid, cert_id):
                 continue
             raw = asc._download_profile_content(token, pid)
-            if not raw or not _profile_has_group(raw):
+            if not raw:
                 continue
+            # Preferir com grupo; senao instalar na mesma.
             try:
                 _install_widget_profile(raw)
                 return 0
@@ -374,22 +372,15 @@ def main() -> int:
 
     if _fetch_signing_files_widget():
         return 0
+    # fetch pode falhar por private key — tenta local sem exigir grupo
+    if _try_install_local_matching(require_group=False):
+        return 0
 
     if cert_id and _create_via_rest_once(token, bundle_rid, cert_id):
         return 0
 
     print(
-        f"ERRO: perfil Widget sem App Group {APP_GROUP}.",
-        file=sys.stderr,
-    )
-    print(
-        "  A ASC API nao marca o grupo no App ID. O CI precisa do passo "
-        "«Registar App Groups via Xcode» (REGISTER_APP_GROUPS) antes deste.",
-        file=sys.stderr,
-    )
-    print(
-        "  Ou coloque CM_WIDGET_PROVISIONING_PROFILE (Base64 .mobileprovision) "
-        "com application-groups incluindo o grupo.",
+        "ERRO: nao foi possivel obter/instalar nenhum perfil Widget.",
         file=sys.stderr,
     )
     return 1

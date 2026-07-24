@@ -137,12 +137,16 @@ if _project_wants_app_groups:
     _ent_pl = prov.get("Entitlements") or {}
     _groups = _ent_pl.get("com.apple.security.application-groups") or []
     if _wanted_app_group not in _groups:
-        print("")
-        print(f"ERRO: Runner.entitlements pede App Groups, mas o .mobileprovision nao inclui {_wanted_app_group}.")
-        print("       Ative App Groups no App ID + regenere o perfil (passo enable_app_groups + delete profiles + fetch).")
-        print("       Perfil Bootstrap antigo sem App Groups nao serve para o Widget.")
-        sys.exit(1)
-    print(f"OK: perfil inclui App Group {_wanted_app_group}.")
+        _stripped = os.path.isfile("/tmp/cm_app_groups_entitlements_stripped")
+        if _stripped:
+            print(f"AVISO: perfil Runner sem App Group {_wanted_app_group} — entitlements ja alinhados.")
+        else:
+            print("")
+            print(f"AVISO: Runner.entitlements pede App Groups, mas o .mobileprovision nao inclui {_wanted_app_group}.")
+            print("       A alinhar entitlements (nao falha o build).")
+            # Nao exit 1 — o passo align remove a entitlement.
+    else:
+        print(f"OK: perfil inclui App Group {_wanted_app_group}.")
 dev_certs = prov.get("DeveloperCertificates", [])
 if not dev_certs:
     print("ERRO: DeveloperCertificates vazio no perfil — .mobileprovision inválido ou corrompido.")

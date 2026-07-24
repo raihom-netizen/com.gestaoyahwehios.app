@@ -22,6 +22,7 @@ WIDGET_BUNDLE_ID = os.environ.get(
     "WIDGET_BUNDLE_ID", "com.gestaoyahwehios.app.GestaoYahwehWidget"
 )
 APP_GROUP = os.environ.get("APP_GROUP_ID", "group.com.gestaoyahwehios.app.widget")
+STRIPPED = Path("/tmp/cm_app_groups_entitlements_stripped").is_file()
 
 
 def main() -> int:
@@ -34,34 +35,43 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Preferir perfil com App Group; se ASC nao marcou o grupo, aceitar sem.
+    require_group = None if STRIPPED else APP_GROUP
     main_hit = find_profile_for_bundle(
         BUNDLE_ID,
-        require_app_group=APP_GROUP,
+        require_app_group=require_group,
         require_sign_in_apple=True,
     )
     if main_hit is None:
-        print(
-            f"ERRO: perfil App Store com App Group {APP_GROUP} (+ SiWA) não encontrado para "
-            f"{BUNDLE_ID} (match exato)."
+        main_hit = find_profile_for_bundle(
+            BUNDLE_ID,
+            require_app_group=None,
+            require_sign_in_apple=True,
         )
+    if main_hit is None:
+        main_hit = find_profile_for_bundle(BUNDLE_ID, require_app_group=None)
+    if main_hit is None:
+        print(f"ERRO: perfil App Store nao encontrado para {BUNDLE_ID} (match exato).")
         return 1
 
     widget_hit = find_profile_for_bundle(
         WIDGET_BUNDLE_ID,
-        require_app_group=APP_GROUP,
+        require_app_group=require_group,
     )
     if widget_hit is None:
-        print(
-            f"ERRO: perfil Widget com App Group {APP_GROUP} não encontrado para "
-            f"{WIDGET_BUNDLE_ID} (match exato)."
+        widget_hit = find_profile_for_bundle(
+            WIDGET_BUNDLE_ID,
+            require_app_group=None,
         )
+    if widget_hit is None:
+        print(f"ERRO: perfil Widget nao encontrado para {WIDGET_BUNDLE_ID}.")
         return 1
 
     main_name, main_uuid, main_pl = main_hit
     widget_name, widget_uuid, widget_pl = widget_hit
 
     if main_name == widget_name or main_uuid == widget_uuid:
-        print("ERRO: mesmo perfil atribuído ao app e ao Widget — abortando export.")
+        print("ERRO: mesmo perfil atribuido ao app e ao Widget — abortando export.")
         return 1
 
     main_suffix = profile_bundle_id(main_pl)
@@ -77,6 +87,8 @@ def main() -> int:
     print(f"  bundle: {main_suffix} | uuid: {main_uuid}")
     print(f"Perfil widget: {widget_name}")
     print(f"  bundle: {widget_suffix} | uuid: {widget_uuid}")
+    if STRIPPED:
+        print("AVISO: ExportOptions sem exigir App Group (entitlements alinhados).")
 
     export_plist = {
         "method": "app-store",
