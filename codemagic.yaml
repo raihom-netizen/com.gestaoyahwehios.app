@@ -182,6 +182,13 @@ workflows:
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID APP_GROUP_NAME
           python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
+      # Critico: ASC nao associa group.com… — Xcode + REGISTER_APP_GROUPS faz isso no portal.
+      - name: Registar App Groups no portal (Xcode + ASC key)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_ISSUER_ID APP_GROUP_ID
+          bash "$ROOT/scripts/codemagic_ios_register_app_groups_via_xcode.sh"
       - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
         script: |
           set -e
@@ -210,10 +217,6 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export WIDGET_BUNDLE_ID APP_GROUP_ID BUNDLE_ID IOS_BUNDLE_ID
-          export WIDGET_PROFILE_MAX_ATTEMPTS=5
-          export WIDGET_APP_GROUP_PROPAGATE_SEC=45
-          # Se o passo anterior (api_only) não deixou /tmp/cm_distribution.p12, o script
-          # recria a partir do secret / perfil Runner / PEM — nunca usa fetch-signing-files.
           if [ ! -s /tmp/cm_distribution.p12 ]; then
             for cand in /tmp/cm_api_only_identity.p12 /tmp/cm_api_only_from_secret.p12 /tmp/_cm_verify_p12.bin; do
               if [ -s "$cand" ]; then
