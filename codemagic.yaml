@@ -174,6 +174,14 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           python3 "$ROOT/scripts/codemagic_ios_enable_sign_in_with_apple.py"
+      # Push: sem PUSH_NOTIFICATIONS o perfil nasce sem aps-environment e o IPA com
+      # remote-notification no Info.plist é «Binário inválido» no TestFlight.
+      - name: Ativar Push Notifications no App ID (API Apple)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-$BUNDLE_ID}"
+          python3 "$ROOT/scripts/codemagic_ios_enable_push_notifications.py"
       # Widget + Runner: ASC so liga capability APP_GROUPS (settings/group.com ja nao e API).
       # Confirmacao do group.com… fica no perfil .mobileprovision (passos seguintes).
       - name: Ativar App Groups no App e Widget (API Apple)
@@ -230,6 +238,8 @@ workflows:
           python3 "$ROOT/scripts/codemagic_ios_ensure_widget_appstore_profile.py"
           # Critico: se o perfil nao tem group.com, remove a entitlement (codesign passa).
           python3 "$ROOT/scripts/codemagic_ios_align_app_group_entitlements.py"
+          # Push: perfil sem aps → remove entitlement + remote-notification (anti Binário inválido).
+          python3 "$ROOT/scripts/codemagic_ios_align_push_entitlements.py"
       - name: Verificar perfil vs P12 Distribution (fail-fast, antes do pod)
         script: |
           set -e
@@ -240,6 +250,7 @@ workflows:
           fi
           # Garante align mesmo se o passo Widget falhou a meio (re-run parcial).
           python3 "$ROOT/scripts/codemagic_ios_align_app_group_entitlements.py" || true
+          python3 "$ROOT/scripts/codemagic_ios_align_push_entitlements.py" || true
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
       - name: Validar perfil Widget + ExportOptions (App Groups)
         script: |

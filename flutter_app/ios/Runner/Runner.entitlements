@@ -7,15 +7,16 @@
 
 	  1) Sign In with Apple (obrigatório Guideline 4.8)
 	  2) App Groups — home widget (group.com.gestaoyahwehios.app.widget)
-
-	  Push (aps-environment) permanece DESABILITADO de propósito —
-	  o profile atual do CodeMagic não inclui Push. Não reintroduzir
-	  sem regenerar o .mobileprovision do Runner.
+	  3) Push (aps-environment=production) — FCM / remote-notification
+	     Se o perfil CI ainda nao tiver Push, align_push_entitlements.py
+	     remove esta chave + remote-notification do Info.plist (anti Binário inválido).
 	-->
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>
 	</array>
+	<key>aps-environment</key>
+	<string>production</string>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.gestaoyahwehios.app.widget</string>
