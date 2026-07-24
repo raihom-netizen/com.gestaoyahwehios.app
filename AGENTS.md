@@ -2,7 +2,7 @@
 
 Este repositório usa **regras persistentes** em `.cursor/rules/` e o manual **`prompt_mestre_cursor.md`**.
 
-**Memória única (igual Controle Total):** `PONTO_BASE_MEMORIA_2026-07-21_11.2.305+2122.md` + regra `.cursor/rules/ponto-base-memoria-11-2-305-2122.mdc`. Não criar segunda memória; ao atualizar release, substituir este ficheiro e apagar o anterior.
+**Memória única (igual Controle Total):** `PONTO_BASE_MEMORIA_2026-07-24_11.2.305+2134.md` + regra `.cursor/rules/ponto-base-memoria-11-2-305-2134.mdc`. Não criar segunda memória; ao atualizar release, substituir este ficheiro e arquivar o anterior.
 
 ## Comportamento esperado do agente
 
