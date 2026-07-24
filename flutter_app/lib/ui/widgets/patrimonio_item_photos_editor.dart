@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -49,7 +48,10 @@ class PatrimonioItemPhotosSnapshot {
   int get occupiedCount {
     var n = 0;
     for (var i = 0; i < slotUrls.length; i++) {
-      if (slotUrls[i].isNotEmpty || uploadsBySlot.containsKey(i)) n++;
+      final hasUrl = slotUrls[i].trim().isNotEmpty;
+      final hasPath =
+          i < slotPaths.length && slotPaths[i].trim().isNotEmpty;
+      if (hasUrl || hasPath || uploadsBySlot.containsKey(i)) n++;
     }
     return n;
   }
@@ -93,6 +95,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   late final List<Uint8List?> _slotPending;
   late final List<String> _slotPendingNames;
   late final PageController _carouselController;
+  late final ScrollController _thumbScrollController;
+  late final List<GlobalKey> _thumbKeys;
   int _carouselIndex = 0;
   bool _mediaPicking = false;
   int _preparingPhotoCount = 0;
@@ -104,6 +108,11 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   void initState() {
     super.initState();
     _carouselController = PageController();
+    _thumbScrollController = ScrollController();
+    _thumbKeys = List<GlobalKey>.generate(
+      PatrimonioItemPhotosEditor.maxPhotos,
+      (_) => GlobalKey(),
+    );
     _slotUrls = List<String>.filled(PatrimonioItemPhotosEditor.maxPhotos, '');
     _slotPaths = List<String>.filled(PatrimonioItemPhotosEditor.maxPhotos, '');
     _slotPending = List<Uint8List?>.filled(
@@ -140,7 +149,40 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   @override
   void dispose() {
     _carouselController.dispose();
+    _thumbScrollController.dispose();
     super.dispose();
+  }
+
+  void _onCarouselPageChanged(int index) {
+    setState(() => _carouselIndex = index);
+    _scrollThumbIntoView(index);
+  }
+
+  void _goToCarouselPage(int slot) {
+    if (slot < 0 || slot >= PatrimonioItemPhotosEditor.maxPhotos) return;
+    unawaited(
+      _carouselController.animateToPage(
+        slot,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _scrollThumbIntoView(slot);
+  }
+
+  void _scrollThumbIntoView(int index) {
+    if (index < 0 || index >= _thumbKeys.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _thumbKeys[index].currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.45,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _syncPendingCache() {
@@ -195,7 +237,11 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
 
   int? _firstEmptyPhotoSlot() {
     for (var i = 0; i < PatrimonioItemPhotosEditor.maxPhotos; i++) {
-      if (_slotUrls[i].isEmpty && _slotPending[i] == null) return i;
+      if (_slotUrls[i].isEmpty &&
+          _slotPaths[i].isEmpty &&
+          _slotPending[i] == null) {
+        return i;
+      }
     }
     return null;
   }
@@ -209,9 +255,15 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
     // Web: reparo + get() no initState conflita com listeners → INTERNAL ASSERTION.
     if (kIsWeb) return;
-    if (_slotUrls.any((u) => u.isNotEmpty)) return;
+    final hasUrl = _slotUrls.any((u) => u.trim().isNotEmpty);
+    final hasPath = _slotPaths.any((p) => p.trim().isNotEmpty);
+    if (hasUrl) return;
     final state = (data['photoUploadState'] ?? '').toString().trim();
-    if (state != 'uploading' && state != 'pending_sync') return;
+    // Repara: uploading preso OU doc sem refs mas com ficheiros no Storage.
+    final shouldProbe = !hasPath ||
+        state == 'uploading' ||
+        state == 'pending_sync';
+    if (!shouldProbe) return;
     try {
       await PatrimonioPublishService.repairFromStorage(
         churchId: widget.churchId,
@@ -223,7 +275,9 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       if (ref == null) return;
       final snap = await ref.get();
       final repaired = snap.data() ?? {};
-      if (PatrimonioPhotoFields.urlsFromData(repaired).isEmpty || !mounted) {
+      final repairedUrls = PatrimonioPhotoFields.urlsFromData(repaired);
+      final repairedPaths = PatrimonioPhotoFields.pathsFromData(repaired);
+      if ((repairedUrls.isEmpty && repairedPaths.isEmpty) || !mounted) {
         return;
       }
       setState(() {
@@ -642,7 +696,9 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   }
 
   bool _slotHasContent(int slot) =>
-      (_slotPending[slot]?.isNotEmpty ?? false) || _slotUrls[slot].isNotEmpty;
+      (_slotPending[slot]?.isNotEmpty ?? false) ||
+      _slotUrls[slot].isNotEmpty ||
+      _slotPaths[slot].isNotEmpty;
 
   Future<void> _openSlot(int slot) async {
     if (_slotHasContent(slot)) {
@@ -666,9 +722,11 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     if (pending != null && pending.isNotEmpty) {
       return Image.memory(
         pending,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: double.infinity,
         height: double.infinity,
+        cacheWidth: memCarousel.clamp(64, 800),
+        cacheHeight: memCarousel.clamp(64, 800),
         gaplessPlayback: true,
         filterQuality: FilterQuality.medium,
       );
@@ -684,7 +742,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                 slot,
               ),
         candidateUrls: [_slotUrls[slot]],
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: double.infinity,
         height: double.infinity,
         memCacheWidth: memCarousel,
@@ -731,8 +789,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   Widget build(BuildContext context) {
     final cor = widget.accentColor ?? ThemeCleanPremium.primary;
     final dprForm = MediaQuery.devicePixelRatioOf(context);
-    final memThumb = (72 * dprForm).round().clamp(120, 360);
-    final memCarousel = (220 * dprForm).round().clamp(280, 720);
+    final memThumb = (56 * dprForm).round().clamp(96, 220);
+    final memCarousel = (160 * dprForm).round().clamp(200, 480);
     final canChange = widget.canChangePhotos;
     final canRemove = widget.canRemovePhotos;
     final max = PatrimonioItemPhotosEditor.maxPhotos;
@@ -861,12 +919,20 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           clipBehavior: Clip.antiAlias,
           child: Column(
             children: [
-              SizedBox(
-                height: 220,
-                child: PageView.builder(
+              // Preview compacto — web/mobile (não “gigante”).
+              LayoutBuilder(
+                builder: (context, c) {
+                  final maxH = c.maxWidth > 720 ? 200.0 : 220.0;
+                  return ConstrainedBox(
+                    constraints: BoxConstraints(maxHeight: maxH),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 10,
+                      child: ColoredBox(
+                        color: const Color(0xFF0F172A),
+                        child: PageView.builder(
                   controller: _carouselController,
                   itemCount: max,
-                  onPageChanged: (i) => setState(() => _carouselIndex = i),
+                  onPageChanged: _onCarouselPageChanged,
                   itemBuilder: (_, slot) => GestureDetector(
                     onTap: canChange && !_mediaPicking
                         ? () => unawaited(_openSlot(slot))
@@ -926,6 +992,10 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                     ),
                   ),
                 ),
+                      ),
+                    ),
+                  );
+                },
               ),
               Padding(
                 padding:
@@ -935,32 +1005,27 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                     IconButton(
                       tooltip: 'Anterior',
                       onPressed: _carouselIndex > 0
-                          ? () => _carouselController.previousPage(
-                                duration: const Duration(milliseconds: 260),
-                                curve: Curves.easeOutCubic,
-                              )
+                          ? () => _goToCarouselPage(_carouselIndex - 1)
                           : null,
                       icon: const Icon(Icons.chevron_left_rounded),
                     ),
                     Expanded(
                       child: SingleChildScrollView(
+                        controller: _thumbScrollController,
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
                             for (var slot = 0; slot < max; slot++)
                               Padding(
+                                key: _thumbKeys[slot],
                                 padding:
                                     const EdgeInsets.symmetric(horizontal: 4),
                                 child: GestureDetector(
-                                  onTap: () => _carouselController.animateToPage(
-                                    slot,
-                                    duration: const Duration(milliseconds: 260),
-                                    curve: Curves.easeOutCubic,
-                                  ),
+                                  onTap: () => _goToCarouselPage(slot),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 200),
-                                    width: 120,
-                                    height: 120,
+                                    width: 64,
+                                    height: 64,
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(16),
                                       border: Border.all(
@@ -993,10 +1058,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                     IconButton(
                       tooltip: 'Seguinte',
                       onPressed: _carouselIndex < max - 1
-                          ? () => _carouselController.nextPage(
-                                duration: const Duration(milliseconds: 260),
-                                curve: Curves.easeOutCubic,
-                              )
+                          ? () => _goToCarouselPage(_carouselIndex + 1)
                           : null,
                       icon: const Icon(Icons.chevron_right_rounded),
                     ),
@@ -1009,8 +1071,8 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         const SizedBox(height: 8),
         Text(
           _slotPending.any((b) => b != null && b.isNotEmpty)
-              ? 'Fotos novas serão enviadas ao tocar em Salvar (mantêm-se visíveis aqui).'
-              : 'Toque num slot vazio para adicionar ou numa foto para trocar.',
+              ? 'Fotos novas sobem ao tocar em Salvar (padrão Controle Total). A miniatura acompanha a foto principal.'
+              : 'Deslize a foto ou toque nas miniaturas — a faixa de baixo acompanha a navegação.',
           style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
         ),
       ],
@@ -1130,31 +1192,41 @@ class _PatrimonioItemPhotosEditorPageState
   @override
   Widget build(BuildContext context) {
     final nome = (widget.itemData['nome'] ?? 'Bem').toString();
+    final busy = _saving || _editorKey.currentState?.isBusy == true;
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surface,
       appBar: AppBar(
-        title: Text('Fotos — $nome'),
-        actions: [
-          if (widget.canChangePhotos || widget.canRemovePhotos)
-            TextButton(
-              onPressed: (_saving || _editorKey.currentState?.isBusy == true)
-                  ? null
-                  : _save,
-              child: const Text('Guardar'),
-            ),
-        ],
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: busy ? null : () => Navigator.maybePop(context, false),
+        ),
+        title: Text(
+          'Fotos — $nome',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       body: SafeArea(
         child: ListView(
           padding: ThemeCleanPremium.pagePadding(context),
           children: [
-            if (_phaseLabel.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: LinearProgressIndicator(
-                  color: ThemeCleanPremium.primary,
+            if (_phaseLabel.isNotEmpty) ...[
+              Text(
+                _phaseLabel,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
                 ),
               ),
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(
+                color: ThemeCleanPremium.primary,
+              ),
+              const SizedBox(height: 12),
+            ],
             PatrimonioItemPhotosEditor(
               key: _editorKey,
               churchId: widget.churchId,
@@ -1168,6 +1240,58 @@ class _PatrimonioItemPhotosEditorPageState
               },
             ),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Material(
+          elevation: 8,
+          color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        busy ? null : () => Navigator.maybePop(context, false),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Cancelar'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                      foregroundColor: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: FilledButton.icon(
+                    onPressed: (busy ||
+                            !(widget.canChangePhotos ||
+                                widget.canRemovePhotos))
+                        ? null
+                        : _save,
+                    icon: busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.check_rounded),
+                    label: Text(_saving ? 'Salvando…' : 'Salvar'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 48),
+                      backgroundColor: ThemeCleanPremium.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

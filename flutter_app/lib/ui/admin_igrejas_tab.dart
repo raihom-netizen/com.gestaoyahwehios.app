@@ -56,10 +56,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       });
     }
     try {
-      var list = await FirestoreWebGuard.runWithWebRecovery(
-        () => MasterChurchesListService.loadFast(force: force)
-            .timeout(const Duration(seconds: 22)),
-      );
+      var list = await MasterChurchesListService.loadFast(force: force)
+          .timeout(const Duration(seconds: 22));
       if (list.isEmpty && !force) {
         MasterDashboardSummary? summary = _masterSummary;
         if (summary == null && _masterSummaryFuture != null) {
@@ -68,10 +66,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
           } catch (_) {}
         }
         if (summary != null && summary.igrejas > 0) {
-          list = await FirestoreWebGuard.runWithWebRecovery(
-            () => MasterChurchesListService.loadFast(force: true)
-                .timeout(const Duration(seconds: 25)),
-          );
+          list = await MasterChurchesListService.loadFast(force: true)
+              .timeout(const Duration(seconds: 25));
         }
       }
       if (!mounted) return;

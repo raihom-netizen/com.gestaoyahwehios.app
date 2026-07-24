@@ -29,6 +29,7 @@ import geolocator_apple
 import google_sign_in_ios
 import in_app_purchase_storekit
 import just_audio
+import libtdjson
 import local_auth_darwin
 import package_info_plus
 import pdfium_flutter
@@ -72,6 +73,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FLTGoogleSignInPlugin.register(with: registry.registrar(forPlugin: "FLTGoogleSignInPlugin"))
   InAppPurchasePlugin.register(with: registry.registrar(forPlugin: "InAppPurchasePlugin"))
   JustAudioPlugin.register(with: registry.registrar(forPlugin: "JustAudioPlugin"))
+  LibtdjsonPlugin.register(with: registry.registrar(forPlugin: "LibtdjsonPlugin"))
   LocalAuthPlugin.register(with: registry.registrar(forPlugin: "LocalAuthPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
   PDFiumFlutterPlugin.register(with: registry.registrar(forPlugin: "PDFiumFlutterPlugin"))

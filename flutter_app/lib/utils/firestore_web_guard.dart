@@ -1,4 +1,4 @@
-import 'dart:async' show Completer, TimeoutException;
+import 'dart:async' show Completer, TimeoutException, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,15 +9,12 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
-import 'package:gestao_yahweh/utils/web_page_reload.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
 /// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
 /// Patrimônio, Cartão membro, Mural, etc.).
 class FirestoreWebGuard {
   FirestoreWebGuard._();
-
-  static bool _hardReloadScheduled = false;
 
   /// Web: evita dezenas de `snapshots()` paralelos (INTERNAL ASSERTION Firestore 11.x).
   static bool get disableLiveSnapshotsOnWeb => kIsWeb;
@@ -28,7 +25,7 @@ class FirestoreWebGuard {
   /// suave**: a fila nunca rejeita a leitura — só suaviza picos. Uma fila que
   /// lança `TimeoutException` derruba todos os módulos em cascata (regressão
   /// build 2113: Visitantes/Cargos/Fornecedores/Oração/Escalas em timeout).
-  static const int _maxWebConcurrentReads = 10;
+  static const int _maxWebConcurrentReads = 14;
   static int _webReadsInFlight = 0;
   static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
 
@@ -74,6 +71,36 @@ class FirestoreWebGuard {
         msg.contains('PersistentListenStream') ||
         msg.contains('__PRIVATE__TargetState') ||
         isTargetIdConflict(e);
+  }
+
+  /// Erro transitório de leitura no painel (Web) — NÃO deve derrubar o módulo
+  /// com banner vermelho: lista vazia estável + retry suave.
+  static bool isTransientPanelReadError(Object? e) {
+    if (e == null) return false;
+    if (e is TimeoutException) return true;
+    if (isInternalAssertionError(e) || isClientTerminated(e)) return true;
+    if (e is FirebaseException) {
+      final c = e.code.toLowerCase();
+      if (c == 'unavailable' ||
+          c == 'internal' ||
+          c == 'unknown' ||
+          c == 'deadline-exceeded' ||
+          c == 'aborted' ||
+          c == 'cancelled') {
+        return true;
+      }
+    }
+    final s = e.toString().toLowerCase();
+    return s.contains('unavailable') ||
+        s.contains('internal assertion') ||
+        s.contains('watchchangeaggregator') ||
+        s.contains('tempo esgotado') ||
+        s.contains('timeout') ||
+        s.contains('sincroniza') ||
+        s.contains('future not completed') ||
+        s.contains('conexão') ||
+        s.contains('conexao') ||
+        s.contains('network');
   }
 
   /// Firestore Web — alvo de escuta duplicado (ex.: Cartão membro + Membros em paralelo).
@@ -137,23 +164,29 @@ class FirestoreWebGuard {
     await Future<void>.delayed(const Duration(milliseconds: 80));
   }
 
-  /// Único recovery seguro após assert interno / terminated: F5 forçado (padrão CT).
+  /// Único recovery seguro após assert interno / terminated.
+  /// **Sem F5 automático** — F5 matava formulários a meio de lançamento.
+  /// Preferir soft/hard reconnect da sessão Firestore.
   static void hardReloadWebApp({String reason = 'firestore_web'}) {
-    if (!kIsWeb || _hardReloadScheduled) return;
-    _hardReloadScheduled = true;
-    debugPrint('FirestoreWebGuard.hardReloadWebApp: $reason');
-    reloadWebPageHard();
+    if (!kIsWeb) return;
+    debugPrint(
+      'FirestoreWebGuard.hardReloadWebApp: $reason — '
+      'ignorado (sem reload automático; use diálogo de versão ou F5 manual).',
+    );
+    // Mantém API pública, mas NÃO agenda location.reload — estabilidade do painel.
+    unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
   }
 
-  /// Se o erro for cliente terminado **ou** assert interno corrompido, agenda reload.
+  /// Se o erro for cliente terminado **ou** assert interno, recupera sessão
+  /// **sem** recarregar a página (utilizador continua a trabalhar).
   static bool handleFatalWebErrorIfNeeded(Object e) {
     if (!kIsWeb) return false;
     if (isClientTerminated(e) || isInternalAssertionError(e)) {
-      hardReloadWebApp(
-        reason: isClientTerminated(e)
-            ? 'terminated_client'
-            : 'internal_assertion',
+      debugPrint(
+        'FirestoreWebGuard.handleFatalWebErrorIfNeeded: soft recover '
+        '(${isClientTerminated(e) ? 'terminated' : 'assertion'})',
       );
+      unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
       return true;
     }
     return false;
@@ -278,6 +311,10 @@ class FirestoreWebGuard {
   }
 
   /// Executa [fn]; em assert interno ou cliente terminado, recupera e re-tenta até [maxAttempts].
+  ///
+  /// **Leituras/listagens do painel:** preferir NÃO usar este wrapper — use
+  /// `FirestoreReadResilience.getQuery` directo (duplo retry piora INTERNAL ASSERTION).
+  /// Manter sobretudo em **writes/publish**.
   static Future<T> runWithWebRecovery<T>(
     Future<T> Function() fn, {
     int maxAttempts = 3,
@@ -286,9 +323,8 @@ class FirestoreWebGuard {
     if (kIsWeb && WebPanelStability.isSessionExpired) {
       return fn();
     }
-    // Web: até 4 tentativas — INTERNAL ASSERTION precisa de hard recovery
-    // entre retries (disableNetwork/enableNetwork), não só 2 passes curtos.
-    final attempts = kIsWeb ? maxAttempts.clamp(2, 4) : maxAttempts;
+    // Web: no máximo 2 tentativas — cascata 3–4× getQuery derrubava módulos.
+    final attempts = kIsWeb ? maxAttempts.clamp(1, 2) : maxAttempts;
     Object? lastError;
     StackTrace? lastStack;
     for (var attempt = 0; attempt < attempts; attempt++) {
@@ -321,7 +357,7 @@ class FirestoreWebGuard {
                         e.code == 'internal' ||
                         e.code == 'unknown'));
         if (!recoverable || attempt >= attempts - 1) {
-          // Padrão CT: assert/terminated irrecuperável → F5 (não deixar SDK semi-morto).
+          // Soft recover final — sem F5 (preserva lançamentos em curso).
           if (kIsWeb) {
             handleFatalWebErrorIfNeeded(e);
           }

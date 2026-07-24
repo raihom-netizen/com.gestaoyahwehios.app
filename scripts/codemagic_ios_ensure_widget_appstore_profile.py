@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-Cria/baixa perfil IOS_APP_STORE só da extensão Widget — SEM fetch-signing-files.
+Cria/baixa perfil IOS_APP_STORE da extensão Widget — SEM fetch-signing-files.
 
-Evita: "Cannot save Signing Certificates without certificate private key".
+Garantia permanente: o perfil instalado TEM de incluir
+com.apple.security.application-groups = [APP_GROUP_ID].
 
-Resolve o certificado Distribution nesta ordem:
-  1) /tmp/cm_distribution.p12 (modo manual)
-  2) outros P12 temporários do CI (api_only)
-  3) recriar P12 a partir de CM_CERTIFICATE / CERTIFICATE_PRIVATE_KEY (Base64)
-  4) leaf DER em /tmp/cm_prov.plist (perfil do Runner já instalado)
-  5) PEM Distribution nos secrets (match SPKI na ASC)
-
-NÃO sobrescreve /tmp/cm_prov.plist nem /tmp/cm_raw.mobileprovision do app.
+Se a Apple devolver perfil com application-groups: []:
+  1) apaga o perfil mau
+  2) reassocia App Groups no App ID do Widget
+  3) espera propagação
+  4) cria de novo (várias tentativas)
 """
 from __future__ import annotations
 
@@ -28,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import codemagic_ios_asc_api_ensure_appstore_profile as asc  # noqa: E402
+import codemagic_ios_enable_app_groups as ag  # noqa: E402
 
 WIDGET_BUNDLE = os.environ.get(
     "WIDGET_BUNDLE_ID", "com.gestaoyahwehios.app.GestaoYahwehWidget"
@@ -42,6 +41,8 @@ P12_CANDIDATES = (
     "/tmp/cm_api_only_from_secret.p12",
     "/tmp/_cm_verify_p12.bin",
 )
+
+MAX_CREATE_ATTEMPTS = int(os.environ.get("WIDGET_PROFILE_MAX_ATTEMPTS") or "5")
 
 
 def _install_widget_profile(raw: bytes) -> tuple[str, str]:
@@ -66,6 +67,10 @@ def _install_widget_profile(raw: bytes) -> tuple[str, str]:
     with open(dest, "wb") as f:
         f.write(raw)
     os.chmod(dest, 0o600)
+    # Cópia estável para passos seguintes
+    shutil.copyfile(tmp, "/tmp/cm_widget.mobileprovision")
+    with open("/tmp/cm_widget_prov.plist", "wb") as out:
+        out.write(r.stdout)
     groups = (pl.get("Entitlements") or {}).get(
         "com.apple.security.application-groups"
     ) or []
@@ -85,7 +90,6 @@ def _looks_like_pem(raw: str) -> bool:
 
 
 def _materialize_p12_from_secrets() -> str | None:
-    """Recria /tmp/cm_distribution.p12 a partir do secret Base64 (se for P12)."""
     raw = (os.environ.get("CM_CERTIFICATE") or os.environ.get("CERTIFICATE_PRIVATE_KEY") or "").strip()
     if not raw or _looks_like_pem(raw):
         return None
@@ -136,13 +140,37 @@ def _cert_id_from_p12(token: str, p12_path: str) -> str | None:
     return str(match["id"])
 
 
+def _iter_local_profiles() -> list[tuple[str, dict]]:
+    out: list[tuple[str, dict]] = []
+    for d in (
+        os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles"),
+        os.path.expanduser("~/Library/Developer/Xcode/UserData/Provisioning Profiles"),
+    ):
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            if not name.endswith(".mobileprovision"):
+                continue
+            path = os.path.join(d, name)
+            r = subprocess.run(
+                ["security", "cms", "-D", "-i", path],
+                capture_output=True,
+                check=False,
+            )
+            if r.returncode != 0:
+                continue
+            try:
+                out.append((path, plistlib.loads(r.stdout)))
+            except Exception:
+                continue
+    return out
+
+
 def _cert_id_from_runner_profile(token: str) -> str | None:
-    """Usa DeveloperCertificates do perfil do Runner já instalado."""
     plist_paths = (
         "/tmp/cm_prov.plist",
         "/tmp/cm_widget_probe.plist",
     )
-    # Também tenta o primeiro .mobileprovision do bundle principal.
     main_bundle = (
         os.environ.get("BUNDLE_ID")
         or os.environ.get("IOS_BUNDLE_ID")
@@ -188,32 +216,6 @@ def _cert_id_from_runner_profile(token: str) -> str | None:
     return None
 
 
-def _iter_local_profiles() -> list[tuple[str, dict]]:
-    out: list[tuple[str, dict]] = []
-    for d in (
-        os.path.expanduser("~/Library/MobileDevice/Provisioning Profiles"),
-        os.path.expanduser("~/Library/Developer/Xcode/UserData/Provisioning Profiles"),
-    ):
-        if not os.path.isdir(d):
-            continue
-        for name in os.listdir(d):
-            if not name.endswith(".mobileprovision"):
-                continue
-            path = os.path.join(d, name)
-            r = subprocess.run(
-                ["security", "cms", "-D", "-i", path],
-                capture_output=True,
-                check=False,
-            )
-            if r.returncode != 0:
-                continue
-            try:
-                out.append((path, plistlib.loads(r.stdout)))
-            except Exception:
-                continue
-    return out
-
-
 def _cert_id_from_pem(token: str) -> str | None:
     priv = asc._load_distribution_private_key_from_env()
     if priv is None:
@@ -236,6 +238,83 @@ def _resolve_distribution_cert_id(token: str) -> str | None:
     if cid:
         return cid
     return _cert_id_from_pem(token)
+
+
+def _delete_profile(token: str, profile_id: str) -> None:
+    code, data = asc._request(
+        "DELETE",
+        f"https://api.appstoreconnect.apple.com/v1/profiles/{profile_id}",
+        token,
+    )
+    if code in (200, 204):
+        print(f"OK: perfil Widget mau apagado id={profile_id}")
+        return
+    print(f"AVISO: DELETE profile {profile_id} → HTTP {code}: {str(data)[:300]}")
+
+
+def _rebind_widget_app_groups(bundle_rid: str) -> bool:
+    print("=== Reassociar App Groups no App ID Widget (antes de criar perfil) ===")
+    app_group_rid = ag._resolve_app_group_resource_id()
+    ok = ag.assign_app_group_to_bundle(
+        bundle_rid,
+        WIDGET_BUNDLE,
+        app_group_rid=app_group_rid,
+        max_rounds=3,
+    )
+    if not ok:
+        print("ERRO: não foi possível confirmar App Group no App ID Widget.", file=sys.stderr)
+        return False
+    wait_sec = int(os.environ.get("WIDGET_APP_GROUP_PROPAGATE_SEC") or "45")
+    print(f"Aguardando propagação App Groups no Widget ({wait_sec}s)...")
+    time.sleep(wait_sec)
+    return True
+
+
+def _create_and_install(
+    token: str, bundle_rid: str, cert_id: str
+) -> bool:
+    unique = f"GestaoYahwehWidget_{int(time.time())}"
+    print(f"A criar perfil IOS_APP_STORE: {unique}")
+    created = asc._create_app_store_profile(
+        token, bundle_rid, cert_id, WIDGET_BUNDLE, unique
+    )
+    if not created:
+        print("ERRO: POST profiles (Widget) falhou.", file=sys.stderr)
+        return False
+
+    new_id = str(created.get("id") or "")
+    raw: bytes | None = None
+    inline = created.get("_inline_profileContent")
+    if isinstance(inline, str) and inline:
+        try:
+            raw = base64.b64decode(inline)
+        except Exception:
+            raw = None
+    if not raw and new_id:
+        raw = asc._download_profile_content(token, new_id)
+    if not raw:
+        print("ERRO: perfil Widget criado sem profileContent.", file=sys.stderr)
+        if new_id:
+            _delete_profile(token, new_id)
+        return False
+
+    if APP_GROUP and not asc._raw_profile_has_app_group(raw, APP_GROUP):
+        print(
+            f"AVISO: perfil novo {unique} sem App Group {APP_GROUP} — apagar e repetir.",
+            file=sys.stderr,
+        )
+        if new_id:
+            _delete_profile(token, new_id)
+        return False
+
+    try:
+        _install_widget_profile(raw)
+    except Exception as e:
+        print(f"ERRO: instalar perfil Widget: {e}", file=sys.stderr)
+        if new_id:
+            _delete_profile(token, new_id)
+        return False
+    return True
 
 
 def main() -> int:
@@ -264,7 +343,6 @@ def main() -> int:
             "(sem P12 em /tmp, sem perfil Runner, sem PEM).",
             file=sys.stderr,
         )
-        print("  Dica: confirme CM_CERTIFICATE (P12) ou perfil do app no passo anterior.", file=sys.stderr)
         return 1
 
     bundle_rid = asc._find_bundle_id(token, WIDGET_BUNDLE)
@@ -281,6 +359,7 @@ def main() -> int:
     print(f"Bundle Widget resource id: {bundle_rid}")
     print(f"Cert Distribution id: {cert_id}")
 
+    # Perfis existentes só se já tiverem o App Group.
     for pr in asc._profiles_for_bundle(token, bundle_rid):
         attr = pr.get("attributes") or {}
         if str(attr.get("profileType") or "") != "IOS_APP_STORE":
@@ -293,8 +372,9 @@ def main() -> int:
             continue
         if APP_GROUP and not asc._raw_profile_has_app_group(raw, APP_GROUP):
             print(
-                f"AVISO: perfil Widget id={pid} sem App Group — ignorar e criar novo."
+                f"AVISO: perfil Widget id={pid} sem App Group — apagar e ignorar."
             )
+            _delete_profile(token, pid)
             continue
         try:
             _install_widget_profile(raw)
@@ -302,36 +382,30 @@ def main() -> int:
         except Exception as e:
             print(f"AVISO: instalar perfil existente falhou: {e}", file=sys.stderr)
 
-    unique = f"GestaoYahwehWidget_{int(time.time())}"
-    print(f"A criar perfil IOS_APP_STORE: {unique}")
-    created = asc._create_app_store_profile(
-        token, bundle_rid, cert_id, WIDGET_BUNDLE, unique
+    # Antes da 1.ª criação: reconfirma App Groups no App ID (não confiar só no passo anterior).
+    if not _rebind_widget_app_groups(bundle_rid):
+        return 1
+
+    for attempt in range(1, MAX_CREATE_ATTEMPTS + 1):
+        print(f"=== Criar perfil Widget tentativa {attempt}/{MAX_CREATE_ATTEMPTS} ===")
+        if attempt > 1:
+            if not _rebind_widget_app_groups(bundle_rid):
+                continue
+        if _create_and_install(token, bundle_rid, cert_id):
+            return 0
+        time.sleep(20 + attempt * 10)
+
+    print(
+        f"ERRO: após {MAX_CREATE_ATTEMPTS} tentativas o perfil Widget "
+        f"continua sem App Group {APP_GROUP}.",
+        file=sys.stderr,
     )
-    if not created:
-        print("ERRO: POST profiles (Widget) falhou.", file=sys.stderr)
-        return 1
-
-    raw: bytes | None = None
-    inline = created.get("_inline_profileContent")
-    if isinstance(inline, str) and inline:
-        try:
-            raw = base64.b64decode(inline)
-        except Exception:
-            raw = None
-    if not raw:
-        new_id = str(created.get("id") or "")
-        if new_id:
-            raw = asc._download_profile_content(token, new_id)
-    if not raw:
-        print("ERRO: perfil Widget criado sem profileContent.", file=sys.stderr)
-        return 1
-
-    try:
-        _install_widget_profile(raw)
-    except Exception as e:
-        print(f"ERRO: {e}", file=sys.stderr)
-        return 1
-    return 0
+    print(
+        "  Verifique no Apple Developer → Identifiers → Widget → App Groups "
+        f"se {APP_GROUP} está marcado.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 if __name__ == "__main__":

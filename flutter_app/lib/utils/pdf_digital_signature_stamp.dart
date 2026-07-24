@@ -44,7 +44,17 @@ class PdfDigitalStampInput {
 
 String churchTaxIdChurchNameFromMap(Map<String, dynamic>? data) {
   if (data == null || data.isEmpty) return '';
-  for (final k in ['name', 'nome', 'razaoSocial', 'nomeIgreja']) {
+  for (final k in [
+    'name',
+    'nome',
+    'razaoSocial',
+    'nomeIgreja',
+    'NOME',
+    'NOME_IGREJA',
+    'displayName',
+    'nome_fantasia',
+    'nomeFantasia',
+  ]) {
     final v = (data[k] ?? '').toString().trim();
     if (v.isNotEmpty) return v;
   }

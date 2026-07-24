@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_resumo_dia_card.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_category_chip_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_cells.dart';
@@ -41,6 +42,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
@@ -138,10 +140,12 @@ abstract final class _AgendaRamCache {
 enum _AgendaViewKind { month, week, list }
 
 class _CalendarPageState extends State<CalendarPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late DateTime _focusedMonth;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  /// Dia já “primado” após 1º toque — 2º toque abre incluir/editar (padrão Escalas CT).
+  DateTime? _dayPrimedForMenu;
   _AgendaViewKind _agendaView = _AgendaViewKind.month;
   Map<String, List<_CalendarEvent>> _eventsByDay = {};
   Map<String, List<_CalendarEvent>> _legacyEventsByDay = {};
@@ -732,6 +736,7 @@ class _CalendarPageState extends State<CalendarPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _effectiveTenantId = ChurchPanelTenant.forFirestore(widget.tenantId).trim();
     _loadCustomTipos();
     unawaited(_loadEventCategories());
@@ -739,6 +744,8 @@ class _CalendarPageState extends State<CalendarPage>
     _focusedMonth = DateTime(now.year, now.month);
     _focusedDay = DateTime(now.year, now.month, now.day);
     _selectedDay = DateTime(now.year, now.month, now.day);
+    // Hoje selecionado + resumo no rodapé; 1º toque só seleciona, 2º abre o dia.
+    _dayPrimedForMenu = null;
     _slideCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -823,7 +830,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (mounted) await _loadEvents(forceRefresh: forceRefresh);
   }
 
-  /// Mobile: polling leve — evita `watchSafe` na coleção inteira (instável na Web).
+  /// Mobile: polling leve — pausa em background (evita travar o app aberto).
   void _scheduleMobileAgendaRefresh() {
     _mobileRefreshTimer?.cancel();
     if (kIsWeb) return;
@@ -831,6 +838,22 @@ class _CalendarPageState extends State<CalendarPage>
       if (!mounted || _fetching) return;
       unawaited(_reloadCalendar());
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (kIsWeb) return;
+    if (state == AppLifecycleState.resumed) {
+      _scheduleMobileAgendaRefresh();
+      if (mounted && !_fetching) {
+        unawaited(_reloadCalendar());
+      }
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _mobileRefreshTimer?.cancel();
+      _mobileRefreshTimer = null;
+    }
   }
 
   @override
@@ -849,6 +872,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _webLoadCap?.cancel();
     _mobileRefreshTimer?.cancel();
     _slideCtrl.dispose();
@@ -2138,41 +2162,10 @@ class _CalendarPageState extends State<CalendarPage>
                 child: _buildViewToggleRow(),
               ),
               const SliverToBoxAdapter(
-                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
-              SliverToBoxAdapter(
-                child: _buildVoltarHojeButton(),
-              ),
-              const SliverToBoxAdapter(
                   child: SizedBox(height: ThemeCleanPremium.spaceMd)),
               SliverToBoxAdapter(
-                child: LayoutBuilder(
-                  builder: (ctx, _) {
-                    final screenH = MediaQuery.sizeOf(ctx).height;
-                    final minFrac = wide
-                        ? 0.50
-                        : _embeddedMobile
-                            ? 0.52
-                            : isMobile
-                                ? 0.40
-                                : 0.45;
-                    final minH = screenH * minFrac;
-                    final h = math.max(_tableCalendarTotalHeight(), minH);
-                    return SizedBox(
-                      height: h,
-                      child: _buildTableCalendarCard(),
-                    );
-                  },
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(
-                    top: ThemeCleanPremium.spaceSm,
-                    bottom: ThemeCleanPremium.spaceSm,
-                  ),
-                  child: HolidayFooter(
-                      year: _holidayFooterYear, month: _holidayFooterMonth),
-                ),
+                // Card único: Hoje + calendário + Resumo do dia (clone Escalas CT).
+                child: _buildEscalasStyleCalendarBlock(),
               ),
               if (_loading)
                 const SliverToBoxAdapter(
@@ -2189,9 +2182,12 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               SliverToBoxAdapter(
                 child: Padding(
-                  padding:
-                      const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
-                  child: _buildSelectedDayEvents(),
+                  padding: const EdgeInsets.only(
+                    top: ThemeCleanPremium.spaceSm,
+                    bottom: ThemeCleanPremium.spaceSm,
+                  ),
+                  child: HolidayFooter(
+                      year: _holidayFooterYear, month: _holidayFooterMonth),
                 ),
               ),
               SliverToBoxAdapter(
@@ -2326,6 +2322,7 @@ class _CalendarPageState extends State<CalendarPage>
       _selectedDay = DateTime(now.year, now.month, now.day);
       _focusedDay = _selectedDay!;
       _focusedMonth = DateTime(now.year, now.month, 1);
+      _dayPrimedForMenu = null;
       if (_agendaView == _AgendaViewKind.list) {
         _clearAgendaBulkUi();
         _agendaView = _AgendaViewKind.month;
@@ -2335,6 +2332,9 @@ class _CalendarPageState extends State<CalendarPage>
       await _reloadCalendar();
     }
   }
+
+  bool _isDayPrimedForMenu(DateTime day) =>
+      _dayPrimedForMenu != null && isSameDay(_dayPrimedForMenu!, day);
 
   /// Botão «Hoje» em gradiente, acima do calendário (clone do módulo Escalas / Controle Total).
   Widget _buildVoltarHojeButton() {
@@ -2634,9 +2634,7 @@ class _CalendarPageState extends State<CalendarPage>
           exporting: _exportingPdf,
         ),
         const SizedBox(height: ThemeCleanPremium.spaceSm),
-        _buildVoltarHojeButton(),
-        const SizedBox(height: ThemeCleanPremium.spaceSm),
-        _buildTableCalendarCard(),
+        _buildEscalasStyleCalendarBlock(),
         ChurchAgendaWisdomUi.calendarLegend(),
         if (_loading)
           const Padding(
@@ -2661,8 +2659,6 @@ class _CalendarPageState extends State<CalendarPage>
       children: [
         _buildCalendarTopOnly(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
-        _buildSelectedDayEvents(),
-        const SizedBox(height: ThemeCleanPremium.spaceMd),
         _buildMonthSectionHeader(),
         const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildFocusedMonthSummary(),
@@ -2670,16 +2666,36 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  Widget _buildTableCalendarCard() {
+  /// Card único Escalas CT: botão Hoje + grade + Resumo do dia.
+  Widget _buildEscalasStyleCalendarBlock() {
+    return ChurchAgendaCalendarPremiumShell(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: _buildVoltarHojeButton(),
+          ),
+          _buildTableCalendarInner(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+            child: _buildSelectedDayEvents(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTableCalendarCard() => _buildEscalasStyleCalendarBlock();
+
+  Widget _buildTableCalendarInner() {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final calFormat = CalendarFormat.month;
-    // Células altas + margem mínima (alinhado ao calendário de Escalas / Controle Total).
     final rowH = isMobile ? 76.0 : 64.0;
     final dowH = isMobile ? 34.0 : 30.0;
     final cellFs = isMobile ? 17.0 : 15.5;
     final wisdomPrimary = ChurchAgendaWisdomUi.navy;
-    return ChurchAgendaCalendarPremiumShell(
-      child: TableCalendar<_CalendarEvent>(
+    return TableCalendar<_CalendarEvent>(
           locale: 'pt_BR',
           firstDay: DateTime.utc(2020, 1, 1),
           lastDay: DateTime.utc(2036, 12, 31),
@@ -2688,7 +2704,6 @@ class _CalendarPageState extends State<CalendarPage>
           selectedDayPredicate: (d) =>
               _selectedDay != null && isSameDay(_selectedDay!, d),
           calendarFormat: calFormat,
-          // Só swipe horizontal para mudar mês; o vertical fica livre para a página (scroll único).
           availableGestures: AvailableGestures.horizontalSwipe,
           startingDayOfWeek: StartingDayOfWeek.sunday,
           rowHeight: rowH,
@@ -2726,8 +2741,23 @@ class _CalendarPageState extends State<CalendarPage>
             ),
           ),
           calendarBuilders: CalendarBuilders(
-            // Célula inteira colorida (verde 1 evento; 2–3 faixas; 4+ faixas + contador).
             markerBuilder: (context, day, events) => null,
+            dowBuilder: (context, day) {
+              final isWeekend = day.weekday == DateTime.saturday ||
+                  day.weekday == DateTime.sunday;
+              final label = DateFormat.E('pt_BR').format(day).toUpperCase();
+              return Center(
+                child: Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: isMobile ? 12.5 : 12,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                    color: isWeekend ? _calendarRedDay : const Color(0xFF475569),
+                  ),
+                ),
+              );
+            },
             defaultBuilder: (context, day, focusedDay) => _buildCalendarDayWithEvents(
                   context,
                   day,
@@ -2768,116 +2798,170 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
           ),
           onDaySelected: (selected, focused) {
+            final dayStart =
+                DateTime(selected.year, selected.month, selected.day);
+            final segundoToque = _isDayPrimedForMenu(selected);
             setState(() {
               _selectedDay = selected;
               _focusedDay = focused;
               _focusedMonth = DateTime(focused.year, focused.month, 1);
+              _dayPrimedForMenu = dayStart;
             });
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) _openDayCommandSheet(selected);
-            });
+            if (segundoToque) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _openDayCommandSheet(selected);
+              });
+            }
           },
           onPageChanged: (focused) {
             _focusedDay = focused;
             _focusedMonth = DateTime(focused.year, focused.month, 1);
             _reloadCalendar();
           },
-        ),
-    );
+        );
   }
 
   // ─── Selected Day Events ───────────────────────────────────────────────────
 
   Widget _buildSelectedDayEvents() {
     if (_selectedDay == null) {
-      return _emptyDayMessage('Selecione um dia para ver os eventos');
+      return ControleTotalResumoDiaCard(
+        day: DateTime.now(),
+        showTapHint: false,
+        emptyMessage: 'Selecione um dia para ver os eventos',
+        children: const [],
+      );
     }
     final key = _dayKey(_selectedDay!);
     final events = List<_CalendarEvent>.from(_eventsByDay[key] ?? [])
       ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
-    final label = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(_selectedDay!);
     final holidayName = HolidayHelper.holidayNameOn(_selectedDay!);
+    final showHint = _isDayPrimedForMenu(_selectedDay!);
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: Column(
-        key: ValueKey(key),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
+    final children = <Widget>[
+        if (holidayName != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-              border: Border.all(color: const Color(0xFFBFDBFE)),
+              color: const Color(0xFFFEE2E2).withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFFECACA).withValues(alpha: 0.9),
+              ),
             ),
             child: Row(
               children: [
-                Icon(Icons.event_note_rounded,
-                    size: 20, color: Colors.blue.shade800),
-                const SizedBox(width: 10),
+                Icon(Icons.flag_rounded, size: 18, color: Colors.red.shade700),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    label[0].toUpperCase() + label.substring(1),
+                    'Feriado nacional: $holidayName',
                     style: GoogleFonts.poppins(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF1E3A8A),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.red.shade900,
                     ),
                   ),
                 ),
-                if (events.isNotEmpty)
-                  Text(
-                    '${events.length}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.blue.shade800,
-                    ),
-                  ),
               ],
             ),
           ),
-          if (holidayName != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(
-                horizontal: ThemeCleanPremium.spaceMd,
-                vertical: ThemeCleanPremium.spaceSm,
-              ),
-              margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2).withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                border: Border.all(
-                  color: const Color(0xFFFECACA).withValues(alpha: 0.9),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.flag_rounded,
-                      size: 18, color: Colors.red.shade700),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Feriado nacional: $holidayName',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.red.shade900,
-                      ),
-                    ),
+        ),
+      if (events.isEmpty)
+        Text(
+          'Nenhum compromisso neste dia.',
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+        )
+      else
+        ...events.map((ev) {
+        final color = _eventPaletteColor(ev);
+        final time = DateFormat('HH:mm').format(ev.dateTime);
+        final title =
+            (ev.title.isNotEmpty ? ev.title : ev.type).trim();
+        final meta =
+            '${DateFormat("EEEE", 'pt_BR').format(ev.dateTime)} · ${DateFormat('dd/MM/yyyy').format(ev.dateTime)} · $time';
+        return ControleTotalResumoDiaItem(
+          accent: color,
+          title: title,
+          subtitle: meta[0].toUpperCase() + meta.substring(1),
+          icon: Icons.event_rounded,
+          onTap: () => _showEventDetails(ev),
+          trailing: ev.type.trim().isNotEmpty
+              ? Text(
+                  ev.type.toUpperCase(),
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.primary,
                   ),
-                ],
+                )
+              : null,
+        );
+      }),
+    ];
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 280),
+      child: ControleTotalResumoDiaCard(
+        key: ValueKey(key),
+        day: _selectedDay!,
+        showTapHint: true,
+        tapHint: showHint
+            ? 'Toque novamente no dia no calendário para abrir o que tem neste dia.'
+            : 'Toque no dia no calendário para selecionar. Toque de novo para abrir.',
+        emptyMessage: 'Nenhum compromisso neste dia.',
+        footer: _agendaDaySummaryFooter(events.length),
+        children: children,
+      ),
+    );
+  }
+
+  Widget _agendaDaySummaryFooter(int count) {
+    final label = count == 0
+        ? 'Total do dia: nenhum compromisso'
+        : count == 1
+            ? 'Total do dia: 1 compromisso'
+            : 'Total do dia: $count compromissos';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            const Color(0xFF14B8A6).withValues(alpha: 0.10),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.summarize_rounded,
+            size: 18,
+            color: ThemeCleanPremium.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF0F172A),
               ),
             ),
-          ],
-          if (events.isEmpty)
-            _emptyDayMessage('Nenhum evento neste dia')
-          else
-            ...events.map(_buildEventCard),
+          ),
         ],
       ),
     );
@@ -5544,8 +5628,7 @@ class _CalendarPageState extends State<CalendarPage>
                                   onTap: () {
                                     respCtrl.text = nome;
                                     if (w.isNotEmpty) {
-                                      whatsappCtrl.text =
-                                          w.replaceAll(RegExp(r'\D'), '');
+                                      whatsappCtrl.text = brPhoneMaskLive(w);
                                     }
                                     Navigator.pop(bctx);
                                   },
@@ -5757,7 +5840,9 @@ class _CalendarPageState extends State<CalendarPage>
             : (ev?.location ?? ''));
     final respCtrl = TextEditingController(text: ev?.responsible ?? '');
     final whatsappCtrl = TextEditingController(
-      text: (doc?['whatsapp'] ?? ev?.contactPhone ?? '').toString(),
+      text: brPhoneMaskLive(
+        (doc?['whatsapp'] ?? ev?.contactPhone ?? '').toString(),
+      ),
     );
     final cepPartCtrl = TextEditingController();
     final logradouroPartCtrl = TextEditingController();
@@ -6439,10 +6524,11 @@ class _CalendarPageState extends State<CalendarPage>
               TextField(
                 controller: whatsappCtrl,
                 keyboardType: TextInputType.phone,
+                inputFormatters: const [BrPhoneInputFormatter()],
                 style: GoogleFonts.poppins(fontSize: 16),
                 decoration: const InputDecoration(
                   labelText: 'WhatsApp do responsável (opcional)',
-                  hintText: 'DDD + número, só números',
+                  hintText: '62 9.9170-5247',
                   prefixIcon: Icon(Icons.chat_rounded, color: Color(0xFF25D366)),
                 ),
               ),
@@ -6890,6 +6976,7 @@ class _CalendarPageState extends State<CalendarPage>
         _selectedDay = DateTime(picked.year, picked.month, picked.day);
         _focusedDay = _selectedDay!;
         _focusedMonth = DateTime(picked.year, picked.month, 1);
+        _dayPrimedForMenu = _selectedDay;
       });
       await _reloadCalendar(forceRefresh: true);
     }

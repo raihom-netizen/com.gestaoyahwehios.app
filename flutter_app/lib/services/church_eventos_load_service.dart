@@ -470,16 +470,9 @@ abstract final class ChurchEventosLoadService {
         );
 
     QuerySnapshot<Map<String, dynamic>> snap;
-    if (kIsWeb) {
-      snap = await FirestoreWebGuard.runWithWebRecovery(
-        read,
-        maxAttempts: 4,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
-    } else {
-      snap = await read().timeout(ChurchPanelReadTimeouts.warmCap);
-    }
+    snap = await read().timeout(
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.warmCap,
+    );
 
     final list = snap.docs.toList()
       ..sort((a, b) => (a.data()['nome'] ?? '')
@@ -521,6 +514,28 @@ abstract final class ChurchEventosLoadService {
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+      // Preferir ordenação (startAt / publicado) — plain.limit sem orderBy
+      // pode omitir o evento recém-criado quando a coleção tem muitos docs.
+      try {
+        return await FirestoreReadResilience.getQuery(
+          published(),
+          cacheKey: '${cacheKey}_pub',
+          maxAttempts: kIsWeb ? 5 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+      } catch (_) {
+        try {
+          return await FirestoreReadResilience.getQuery(
+            byStart(),
+            cacheKey: cacheKey,
+            maxAttempts: kIsWeb ? 4 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+        } catch (e) {
+          debugPrint('EVENTOS _loadFirestoreFeed ordered failed: $e');
+        }
+      }
+
       try {
         final plainSnap = await FirestoreReadResilience.getQuery(
           plain(),
@@ -539,41 +554,23 @@ abstract final class ChurchEventosLoadService {
           return MergedFirestoreQuerySnapshot(_sortByStartAt(filtered));
         }
       } catch (e) {
-        debugPrint('EVENTOS _loadFirestoreFeed plain-first failed: $e');
+        debugPrint('EVENTOS _loadFirestoreFeed plain fallback failed: $e');
       }
 
-      try {
-        return await FirestoreReadResilience.getQuery(
-          published(),
-          cacheKey: '${cacheKey}_pub',
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        try {
-          return await FirestoreReadResilience.getQuery(
-            byStart(),
-            cacheKey: cacheKey,
-            maxAttempts: kIsWeb ? 4 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-        } catch (_) {
-          return FirestoreReadResilience.getQuery(
-            plain(),
-            cacheKey: '${cacheKey}_plain_retry',
-            maxAttempts: kIsWeb ? 4 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-        }
-      }
+      return FirestoreReadResilience.getQuery(
+        plain(),
+        cacheKey: '${cacheKey}_plain_retry',
+        maxAttempts: kIsWeb ? 4 : 3,
+        attemptTimeout: ChurchPanelReadTimeouts.attempt,
+      );
     }
 
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 14))
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+    // Caminho direto — sem runWithWebRecovery (multiplicava timeouts / sync na Web).
+    final snap = await readServer().timeout(
+      kIsWeb
+          ? const Duration(seconds: 12)
+          : ChurchPanelReadTimeouts.warmCap,
+    );
 
     final sorted = _sortByStartAt(snap.docs);
     if (sorted.isNotEmpty) return sorted;
@@ -875,22 +872,16 @@ abstract final class ChurchEventosLoadService {
 
     if (kIsWeb) {
       try {
-        final plain = await FirestoreWebGuard.runWithWebRecovery(
-          plainLoad,
-          maxAttempts: 4,
-        ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
+        final plain = await plainLoad().timeout(
+          const Duration(seconds: 14),
+        );
         if (plain.isNotEmpty) return plain;
       } catch (_) {}
     }
 
-    final docs = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 14))
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+    final docs = await readServer().timeout(
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.warmCap,
+    );
 
     if (docs.isEmpty) {
       try {
@@ -953,13 +944,9 @@ abstract final class ChurchEventosLoadService {
       return _sortByStartAt(plainSnap.docs);
     }
 
-    if (kIsWeb) {
-      return FirestoreWebGuard.runWithWebRecovery(
-        readServer,
-        maxAttempts: 4,
-      ).timeout(const Duration(seconds: 14));
-    }
-    return readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+    return readServer().timeout(
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.warmCap,
+    );
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(String key) {

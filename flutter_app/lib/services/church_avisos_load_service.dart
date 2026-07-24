@@ -254,13 +254,10 @@ abstract final class ChurchAvisosLoadService {
     }
 
     try {
-      final docs = await FirestoreWebGuard.runWithWebRecovery(
-        () => _queryDocs(
-          churchId: churchId,
-          limit: limit,
-          forceServer: forceServer,
-        ),
-        maxAttempts: 4,
+      final docs = await _queryDocs(
+        churchId: churchId,
+        limit: limit,
+        forceServer: forceServer,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
 
       final now = DateTime.now();
@@ -289,7 +286,7 @@ abstract final class ChurchAvisosLoadService {
         ).catchError((_) {}),
       );
       return items;
-    } catch (_) {
+    } catch (e) {
       final hit = _ram[ramKey];
       if (hit != null) return _withoutDeleted(churchId, hit.items);
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -301,6 +298,9 @@ abstract final class ChurchAvisosLoadService {
           churchId: churchId,
           max: limit,
         );
+      }
+      if (FirestoreWebGuard.isTransientPanelReadError(e)) {
+        return const [];
       }
       rethrow;
     }

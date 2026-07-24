@@ -114,7 +114,9 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     final n = MemberProfilePhotoSyncNotifier.instance;
     final tid = (n.lastTenantId ?? '').trim();
     final uid = (n.lastAuthUid ?? '').trim();
-    if (tid.isEmpty || uid.isEmpty) return;
+    final docId = (n.lastMemberDocId ?? '').trim();
+    if (tid.isEmpty) return;
+    if (uid.isEmpty && docId.isEmpty) return;
     final myTid = (widget.tenantId ?? '').trim();
     if (myTid.isNotEmpty && myTid != tid) return;
     final mid = (widget.memberId ?? '').trim();
@@ -124,9 +126,13 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
             '')
         .toString()
         .trim();
-    final matches = mid == uid || au == uid || hintAu == uid;
-    if (!matches) return;
+    final matchesUid = uid.isNotEmpty &&
+        (mid == uid || au == uid || hintAu == uid);
+    final matchesDoc = docId.isNotEmpty &&
+        (mid == docId || au == docId || hintAu == docId);
+    if (!matchesUid && !matchesDoc) return;
     _syncBump = n.lastCacheRevision > 0 ? n.lastCacheRevision : _syncBump + 1;
+    _displayUrl = null;
     if (mounted) {
       setState(() {});
       unawaited(_resolveDisplayUrl());
@@ -292,25 +298,35 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       }
       return;
     }
-    final needsFresh = StorageMediaService.isFirebaseStorageMediaUrl(norm);
+    final displayNorm = _syncBump > 0
+        ? YahwehMediaCacheBust.apply(norm, _syncBump)
+        : YahwehMediaCacheBust.applyFromDocRevision(
+            norm,
+            widget.memberFirestoreHint,
+          );
+    final needsFresh = StorageMediaService.isFirebaseStorageMediaUrl(displayNorm);
     // Mostrar já a URL conhecida; renovar token em background (lista abre mais rápido).
     if (mounted) {
       setState(() {
-        _displayUrl = norm;
+        _displayUrl = displayNorm;
         _resolving = false;
       });
     }
     if (!needsFresh) return;
     unawaited(() async {
-      String out = norm;
+      String out = displayNorm;
       try {
         out = sanitizeImageUrl(
-            await StorageMediaService.freshPlayableMediaUrl(norm));
+            await StorageMediaService.freshPlayableMediaUrl(displayNorm));
+        if (_syncBump > 0) {
+          out = YahwehMediaCacheBust.apply(out, _syncBump);
+        }
       } catch (_) {
-        out = norm;
+        out = displayNorm;
       }
       if (!mounted) return;
-      if (isValidImageUrl(out) && sanitizeImageUrl(out) != sanitizeImageUrl(norm)) {
+      if (isValidImageUrl(out) &&
+          sanitizeImageUrl(out) != sanitizeImageUrl(displayNorm)) {
         setState(() => _displayUrl = out);
       }
     }());

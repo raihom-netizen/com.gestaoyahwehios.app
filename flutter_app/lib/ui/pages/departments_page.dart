@@ -203,11 +203,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       }
     });
     if (result.docs.isNotEmpty) {
-      unawaited(_loadMemberCpfLookup());
-      Future<void>.delayed(const Duration(seconds: 4), () {
-        if (!mounted || _membersByDeptId.isNotEmpty) return;
-        unawaited(_loadMemberCpfLookup(includeMemberRoster: true));
-      });
+      // Aquecer membros cedo — hub do dept abre sem "Carregando…" longo.
+      unawaited(_loadMemberCpfLookup(includeMemberRoster: true));
     } else if (_canWrite && result.churchId.isNotEmpty) {
       unawaited(_bootstrapDefaultDepartmentsIfAllowed(result.churchId));
     }
@@ -576,6 +573,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         _memberDataByNormCpf = byCpf;
         _memberLookupDone = true;
       });
+      for (final e in byDept.entries) {
+        ChurchDepartmentMembersLoadService.seedLinkedFromRows(
+          seedTenantId: tid,
+          departmentId: e.key,
+          rows: e.value,
+        );
+      }
     } catch (e) {
       debugPrint('DepartmentsPage._loadMemberCpfLookup: $e');
       if (mounted) {
@@ -1708,6 +1712,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         deptRef: _col.doc(deptDoc.id),
         canWrite: _canWrite,
         memberRole: widget.role,
+        initialMembers: _membersByDeptId[deptDoc.id],
         onWhatsApp: _openWhatsAppForMemberData,
         onEditDepartamento: () async {
           await _edit(doc: deptDoc);
@@ -3108,9 +3113,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       ),
       ),
     );
-    if (ok != true) return;
+    if (ok != true) {
+      nameCtrl.dispose();
+      return;
+    }
 
     final nome = nameCtrl.text.trim();
+    nameCtrl.dispose();
     if (nome.isEmpty) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3597,6 +3606,7 @@ class _DepartmentHubSheet extends StatefulWidget {
   final DocumentReference<Map<String, dynamic>> deptRef;
   final bool canWrite;
   final String memberRole;
+  final List<ChurchDepartmentMemberRow>? initialMembers;
   final Future<void> Function(Map<String, dynamic>) onWhatsApp;
   final Future<void> Function() onEditDepartamento;
   final Future<void> Function() onAddMember;
@@ -3613,6 +3623,7 @@ class _DepartmentHubSheet extends StatefulWidget {
     required this.deptRef,
     required this.canWrite,
     required this.memberRole,
+    this.initialMembers,
     required this.onWhatsApp,
     required this.onEditDepartamento,
     required this.onAddMember,
@@ -3639,13 +3650,24 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   void initState() {
     super.initState();
     _memberSearchCtrl.addListener(_onMemberSearchChanged);
-    final instant = ChurchDepartmentMembersLoadService.peekLinkedInstant(
-      widget.tenantId,
-      widget.deptId,
-    );
-    if (instant != null) {
-      _memberRows = instant.members;
+    final seeded = widget.initialMembers;
+    if (seeded != null && seeded.isNotEmpty) {
+      _memberRows = List.from(seeded);
       _hubLoading = false;
+      ChurchDepartmentMembersLoadService.seedLinkedFromRows(
+        seedTenantId: widget.tenantId,
+        departmentId: widget.deptId,
+        rows: seeded,
+      );
+    } else {
+      final instant = ChurchDepartmentMembersLoadService.peekLinkedInstant(
+        widget.tenantId,
+        widget.deptId,
+      );
+      if (instant != null) {
+        _memberRows = instant.members;
+        _hubLoading = false;
+      }
     }
     unawaited(_loadHubData());
   }
@@ -3691,10 +3713,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       }
     }
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-
+      // Membros e doc do dept em paralelo — não bloquear a lista no deptRef.
       final loadedFuture = ChurchDepartmentMembersLoadService.loadLinked(
         seedTenantId: widget.tenantId,
         departmentId: widget.deptId,
@@ -3702,23 +3721,25 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       );
       final deptFuture = FirestoreWebGuard.runWithWebRecovery(
         () => firestoreDocumentGetReliable(widget.deptRef),
-        maxAttempts: 3,
-      ).timeout(const Duration(seconds: 10)).catchError((_) => null);
+        maxAttempts: 2,
+      ).timeout(const Duration(seconds: 6)).catchError((_) => null);
 
       final loaded = await loadedFuture;
-      final deptSnap = await deptFuture;
-
       if (!mounted) return;
       setState(() {
         if (loaded.members.isNotEmpty || !hadLocal) {
           _memberRows = loaded.members;
         }
-        if (deptSnap != null) {
-          _deptData = deptSnap.data();
-        }
         _hubLoading = false;
         _hubError = loaded.members.isEmpty ? loaded.softError : null;
       });
+
+      final deptSnap = await deptFuture;
+      if (!mounted) return;
+      if (deptSnap != null) {
+        setState(() => _deptData = deptSnap.data());
+      }
+
       ChurchModuleQueryProbe.logSuccess(
         module: 'Departamentos-Hub',
         churchId: churchId,
@@ -3743,7 +3764,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         setState(() => _hubLoading = false);
       }
     } finally {
-      if (mounted) setState(() => _hubLoading = false);
+      if (mounted && _hubLoading) setState(() => _hubLoading = false);
     }
   }
 

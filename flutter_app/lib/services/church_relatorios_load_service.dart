@@ -47,10 +47,6 @@ abstract final class ChurchRelatoriosLoadService {
 
   static Future<T> _withRecovery<T>(Future<T> Function() op) async {
     await _ensureWeb();
-    if (kIsWeb) {
-      return FirestoreWebGuard.runWithWebRecovery(op, maxAttempts: 4)
-          .timeout(ChurchPanelReadTimeouts.queryCap);
-    }
     return op().timeout(ChurchPanelReadTimeouts.queryCap);
   }
 

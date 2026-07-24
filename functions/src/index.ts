@@ -3695,6 +3695,86 @@ async function copyIgrejaMembroStorageFolder(
   }
 }
 
+/**
+ * Remapeia meta da foto após migração docId→authUid.
+ * NÃO inventa path legado `fotos/{uid}.webp` (quebra a foto do cadastro público).
+ */
+function remapMemberPhotoMetaAfterMigration(
+  data: Record<string, unknown>,
+  tenantId: string,
+  fromId: string,
+  toId: string
+): void {
+  const remapPath = (v: unknown): string => {
+    const s = String(v || "").trim().replace(/\\/g, "/");
+    if (!s) return "";
+    if (fromId && s.includes(`/membros/${fromId}/`)) {
+      return s.replace(`/membros/${fromId}/`, `/membros/${toId}/`);
+    }
+    return s;
+  };
+  for (const key of ["photoStoragePath", "fotoPath", "photoThumbStoragePath"]) {
+    const next = remapPath(data[key]);
+    if (next) data[key] = next;
+  }
+  const path = String(data.photoStoragePath || data.fotoPath || "").trim();
+  if (!path) {
+    const canonical = `igrejas/${tenantId}/membros/${toId}/foto_perfil.jpg`;
+    data.photoStoragePath = canonical;
+    data.fotoPath = canonical;
+    data.photoThumbStoragePath = canonical;
+  }
+  // URLs https antigas continuam válidas se o objeto antigo ainda existir;
+  // path canónico novo é o que a UI usa via SafeNetworkImage.
+}
+
+/** Remove outros pendentes com mesmo CPF/e-mail após aprovar (anti-duplicata). */
+async function closeDuplicatePendingMembers(
+  tenantId: string,
+  keepMemberId: string,
+  cpf: string,
+  email: string
+): Promise<void> {
+  const membros = churchDocRef(db, tenantId).collection("membros");
+  const seen = new Set<string>();
+  const collect = async (
+    snap: admin.firestore.QuerySnapshot<admin.firestore.DocumentData>
+  ) => {
+    for (const doc of snap.docs) {
+      if (doc.id === keepMemberId || seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      const st = String(doc.data().status || doc.data().STATUS || "")
+        .trim()
+        .toLowerCase();
+      if (!st.includes("pendente") && !st.includes("aguard")) continue;
+      try {
+        await doc.ref.set(
+          {
+            status: "superseded",
+            STATUS: "superseded",
+            supersededBy: keepMemberId,
+            supersededAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        await doc.ref.delete();
+      } catch (e) {
+        console.warn("closeDuplicatePendingMembers", tenantId, doc.id, e);
+      }
+    }
+  };
+  try {
+    if (cpf.length === 11) {
+      await collect(await membros.where("CPF", "==", cpf).limit(10).get());
+    }
+    if (email.includes("@")) {
+      await collect(await membros.where("EMAIL", "==", email).limit(10).get());
+    }
+  } catch (e) {
+    console.warn("closeDuplicatePendingMembers query", tenantId, e);
+  }
+}
+
 /** Claims + `users/` + `usersIndex` por CPF após login Firebase criado (idempotente com merge). */
 async function applyMemberAuthSideEffects(
   tenantId: string,
@@ -3924,12 +4004,9 @@ async function ensureMemberFirebaseAuth(
           authUid: u.uid,
           MEMBER_ID: u.uid,
           legacyMemberDocId: curId,
-          // Mantém URLs legadas para evitar "sumiço" da foto se a cópia
-          // de Storage atrasar/falhar em algum ambiente.
-          photoStoragePath: `igrejas/${tenantId}/membros/fotos/${u.uid}.webp`,
-          photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${u.uid}.webp`,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
+        remapMemberPhotoMetaAfterMigration(payload, tenantId, curId, u.uid);
         const newRef = memberRef.parent.doc(u.uid);
         // FieldValue.delete() exige set/update com merge:true (Firestore rejeita merge:false).
         await newRef.set(payload, { merge: true });
@@ -3999,11 +4076,9 @@ async function ensureMemberFirebaseAuth(
       authUid,
       MEMBER_ID: authUid,
       legacyMemberDocId: oldDocId,
-      // Mantém URLs legadas para evitar perder foto/avatar durante migração de docId.
-      photoStoragePath: `igrejas/${tenantId}/membros/fotos/${authUid}.webp`,
-      photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${authUid}.webp`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+    remapMemberPhotoMetaAfterMigration(merged, tenantId, oldDocId, authUid);
     const newRef = memberRef.parent.doc(authUid);
     await newRef.set(merged, { merge: true });
     await memberRef.delete();
@@ -4369,11 +4444,9 @@ export const recreateMemberAuthForNewEmail = functions
       MEMBER_ID: newUid,
       EMAIL: newEmailRaw,
       email: newEmailRaw,
-      // Mantém URLs legadas para evitar perder foto/avatar durante migração de UID.
-      photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newUid}.webp`,
-      photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newUid}.webp`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
+    remapMemberPhotoMetaAfterMigration(merged, tenantId, oldDocId, newUid);
 
     const newMembroRef = db.collection("igrejas").doc(tenantId).collection("membros").doc(newUid);
     await newMembroRef.set(merged, { merge: true });
@@ -4865,10 +4938,9 @@ export const masterRelinkMembroAuthUid = functions.region("us-central1").https.o
     authUid: newAuthUid,
     MEMBER_ID: newAuthUid,
     legacyMemberDocId: oldDocId,
-    photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newAuthUid}.webp`,
-    photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newAuthUid}.webp`,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
+  remapMemberPhotoMetaAfterMigration(payload, tenantId, oldDocId, newAuthUid);
   await newRef.set(payload, { merge: true });
   await memberRef.delete();
 
@@ -4965,6 +5037,7 @@ export const setMemberApproved = functions
     const after = await memberRef.get();
     const d = after.data() || {};
     let authUid = String(d.authUid || "").trim();
+    let finalMemberId = memberRef.id;
     if (!authUid) {
       const r = await ensureMemberFirebaseAuth(
         tenantId,
@@ -4973,6 +5046,7 @@ export const setMemberApproved = functions
         { ...d, STATUS: "ativo", status: "ativo" },
       );
       authUid = r.uid;
+      finalMemberId = r.membroFirestoreId || authUid;
     }
     try {
       await admin.auth().updateUser(authUid, { password: MEMBER_DEFAULT_PASSWORD });
@@ -4990,13 +5064,23 @@ export const setMemberApproved = functions
     });
     await db.collection("users").doc(authUid).set({ ativo: true }, { merge: true });
     const cpf = String(d.CPF || d.cpf || "").replace(/\D/g, "");
+    const emailNorm = String(d.EMAIL || d.email || "")
+      .trim()
+      .toLowerCase();
     if (cpf.length === 11) {
       const idx = { active: true, pendingApproval: false };
       await churchUsersIndexRef(db, tenantId, cpf).set(idx, { merge: true });
     }
+    // Fecha outros cadastros pendentes com o mesmo CPF/e-mail (anti-duplicata).
+    try {
+      await closeDuplicatePendingMembers(tenantId, finalMemberId, cpf, emailNorm);
+    } catch (dupErr) {
+      console.warn("setMemberApproved closeDuplicatePendingMembers", dupErr);
+    }
     return {
       ok: true,
       uid: authUid,
+      memberId: finalMemberId,
       message: "Login ativado. Senha padrão: 123456 (o usuário pode trocar ao logar ou usar Esqueci a senha).",
     };
   });
@@ -6799,12 +6883,15 @@ export const onNewMember = functions
     const membroId = String(context.params.membroId || "").trim();
 
     try {
-      await notifyGestoresNewMember({
-        tenantId,
-        membroId,
-        nome,
-        data,
-      });
+      // Cadastro público já notifica na callable gyPublicMemberSignup.
+      if (data.gestoresNotifyFromCallable !== true) {
+        await notifyGestoresNewMember({
+          tenantId,
+          membroId,
+          nome,
+          data,
+        });
+      }
     } catch (err) {
       functions.logger.error("onNewMember notify error", {
         tenantId,
@@ -6814,7 +6901,9 @@ export const onNewMember = functions
     }
 
     const publicSignup =
-      data.PUBLIC_SIGNUP === true || data.public_signup === true;
+      data.PUBLIC_SIGNUP === true ||
+      data.publicSignup === true ||
+      data.public_signup === true;
     const emailTo = String(data.EMAIL || data.email || "")
       .trim()
       .toLowerCase();

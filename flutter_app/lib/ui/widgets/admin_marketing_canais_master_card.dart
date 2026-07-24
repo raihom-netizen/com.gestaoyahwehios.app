@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -62,9 +63,9 @@ class _AdminMarketingCanaisMasterCardState
     _youtubeCtrl.text = _trimOrEmpty(
       d['youtubeUrl'] ?? d['youtube'] ?? d['linkYoutube'],
     );
-    _whatsappCtrl.text = _trimOrEmpty(
+    _whatsappCtrl.text = brPhoneMaskLive(_trimOrEmpty(
       d['whatsapp'] ?? d['whatsappDigits'] ?? d['whatsappUrl'],
-    );
+    ));
   }
 
   Future<void> _load() async {
@@ -319,9 +320,9 @@ class _AdminMarketingCanaisMasterCardState
                 TextField(
                   controller: _whatsappCtrl,
                   keyboardType: TextInputType.phone,
+                  inputFormatters: const [BrPhoneInputFormatter()],
                   decoration: _inputDecoration(
-                    hint:
-                        'DDI + número (ex.: 5562987654321) ou https://wa.me/5562987654321',
+                    hint: '62 9.9170-5247',
                   ),
                 ),
                 const SizedBox(height: 8),

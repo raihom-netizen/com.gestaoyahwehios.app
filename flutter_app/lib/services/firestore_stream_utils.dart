@@ -139,14 +139,14 @@ class FirestoreStreamUtils {
     try {
       yield await _queryFirstSnapshot(query);
     } catch (e) {
-      // Falha de rede/SDK ≠ coleção vazia — não pintar lista vazia falsa
-      // (Cargos/Patrimônio mostravam «0 registos» com dados reais no servidor).
-      // Sem 1.ª emissão a UI mantém skeleton/cache; polling (web) ou live
-      // (mobile) abaixo entrega o snapshot real quando a rede recuperar.
-      if (!isTransientNetworkError(e) &&
-          !isPermissionDenied(e) &&
-          !FirestoreWebGuard.isInternalAssertionError(e) &&
-          !FirestoreWebGuard.isClientTerminated(e)) {
+      // Falha de rede/SDK ≠ coleção vazia — não pintar lista vazia falsa.
+      // Emite erro para a UI (banner/retry) em vez de spinner infinito.
+      if (isTransientNetworkError(e) ||
+          isPermissionDenied(e) ||
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e)) {
+        yield* Stream<QuerySnapshot<Map<String, dynamic>>>.error(e);
+      } else {
         yield const MergedFirestoreQuerySnapshot([]);
       }
     }
@@ -260,11 +260,16 @@ class FirestoreStreamUtils {
       queryWatchBootstrap(query, broadcast: broadcast);
 
   /// Web — re-fetch periódico (substitui `snapshots()`).
+  /// 1.º poll imediato (sem esperar 12s) — evita módulos «pesquisando» eternos.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _webQueryPolling(
     Query<Map<String, dynamic>> query,
   ) async* {
+    var first = true;
     while (true) {
-      await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      if (!first) {
+        await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      }
+      first = false;
       if (WebPanelStability.isSessionExpired) return;
       try {
         yield await FirestoreWebGuard.runWithWebRecovery(
@@ -279,8 +284,12 @@ class FirestoreStreamUtils {
   static Stream<DocumentSnapshot<Map<String, dynamic>>> _webDocumentPolling(
     DocumentReference<Map<String, dynamic>> ref,
   ) async* {
+    var first = true;
     while (true) {
-      await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      if (!first) {
+        await Future<void>.delayed(ChurchPanelReadTimeouts.webPollInterval);
+      }
+      first = false;
       if (WebPanelStability.isSessionExpired) return;
       try {
         yield await FirestoreWebGuard.runWithWebRecovery(

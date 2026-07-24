@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -293,7 +294,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                     Center(
                       child: Padding(
                         padding: const EdgeInsets.only(top: 2),
-                        child: Text(telefone, style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                        child: Text(brPhoneMaskLive(telefone), style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
                       ),
                     ),
                   if (canEditAvailabilityCalendar) ...[

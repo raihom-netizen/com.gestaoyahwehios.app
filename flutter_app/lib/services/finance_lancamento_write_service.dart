@@ -91,8 +91,8 @@ abstract final class FinanceLancamentoWriteService {
     });
 
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      await FirestoreWebGuard.runWithWebRecovery(runTxn, maxAttempts: 4);
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      await FirestoreWebGuard.runWithWebRecovery(runTxn, maxAttempts: 2);
     } else {
       await runTxn();
     }

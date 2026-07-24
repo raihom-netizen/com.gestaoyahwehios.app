@@ -116,10 +116,21 @@ def api_request(
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=90) as resp:
+            code = getattr(resp, "status", None) or resp.getcode()
             raw = resp.read().decode("utf-8")
+            if code not in ok_status and code not in (200, 201, 204):
+                # urllib só chega aqui se 2xx; manter parse.
+                pass
             if not raw.strip():
                 return None
             return json.loads(raw)
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", errors="replace")
+        if e.code in ok_status:
+            if not err_body.strip():
+                return None
+            try:
+                return json.loads(err_body)
+            except json.JSONDecodeError:
+                return None
         raise RuntimeError(f"ASC API {method} {path} → HTTP {e.code}: {err_body[:1200]}") from e

@@ -117,7 +117,13 @@ String buildNoticiaInviteShareMessage({
   }
 
   final site = (publicSiteUrl ?? links?.publicSiteUrl ?? '').trim();
-  final eventUrl = (inviteCardUrl ?? links?.eventPageUrl ?? '').trim();
+  // Preferir URL OG (shareEvento) — WhatsApp/Telegram leem og:image/vídeo.
+  // A URL SPA `/{slug}/{id}` NÃO passa pela Cloud Function e perde a prévia com foto.
+  final eventUrl = (inviteCardUrl ??
+          links?.socialPreviewUrl ??
+          links?.eventPageUrl ??
+          '')
+      .trim();
 
   final buf = StringBuffer();
   final kindEmoji = noticiaKind == 'evento' ? '🎉' : '📢';
@@ -166,18 +172,19 @@ String buildNoticiaInviteShareMessage({
     buf.writeln('━━━━━━━━━━━━━━━━━━');
   }
 
-  if (site.isNotEmpty) {
-    buf.writeln('🌐 *Site da igreja*');
-    buf.writeln('🔗 $site');
-  }
-
+  // Link do aviso/evento PRIMEIRO — o WhatsApp pré-visualiza o 1.º URL da mensagem.
   if (eventUrl.isNotEmpty) {
-    buf.writeln();
     final cta = noticiaKind == 'evento'
         ? '🎟 *Ver evento completo* — fotos e vídeos'
         : '📢 *Ver aviso completo* — fotos e detalhes';
     buf.writeln(cta);
     buf.writeln('🔗 $eventUrl');
+  }
+
+  if (site.isNotEmpty) {
+    if (eventUrl.isNotEmpty) buf.writeln();
+    buf.writeln('🌐 *Site da igreja*');
+    buf.writeln('🔗 $site');
   }
 
   buf.writeln();
@@ -278,8 +285,8 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   final out = <NoticiaShareMediaFile>[];
   final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '').toString().trim();
   final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
-  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString();
-  final col = colRaw == 'avisos' ? 'avisos' : 'eventos';
+  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString().trim().toLowerCase();
+  final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
 
   final httpUrls = <String>[
     ...NoticiaSharePrefetchService.httpPhotoUrlsFromPost(data),

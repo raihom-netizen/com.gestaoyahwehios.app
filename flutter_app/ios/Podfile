@@ -32,11 +32,32 @@ target 'Runner' do
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
+# BEGIN_YAHWEH_TDLIB_NOTE
+  # TDLib iOS: linkagem ESTÁTICA via pod trunk `flutter_libtdjson` (plugin libtdjson).
+  # App Store TN2435 — sem dylib custom. Fallback offline: ios/Frameworks/YahwehTdjsonStatic.podspec
+  # (não ativar junto do trunk — símbolos duplicados).
+# END_YAHWEH_TDLIB_NOTE
+
   # dSYM/upload-symbols no CI (Codemagic) — nao depender da fase Xcode nem do SPM.
   pod 'FirebaseCrashlytics'
 end
 
 post_install do |installer|
+# BEGIN_YAHWEH_TDLIB_POST_INSTALL
+    # TDLib estático: garante -lz/-lc++ nos pods do motor (FFI → DynamicLibrary.process).
+    installer.pods_project.targets.each do |target|
+      next unless ['libtdjson', 'flutter_libtdjson'].include?(target.name)
+      target.build_configurations.each do |config|
+        flags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
+        flags = [flags] unless flags.is_a?(Array)
+        flags << '-lz' unless flags.any? { |f| f.to_s == '-lz' }
+        flags << '-lc++' unless flags.any? { |f| f.to_s == '-lc++' }
+        config.build_settings['OTHER_LDFLAGS'] = flags
+        config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      end
+    end
+# END_YAHWEH_TDLIB_POST_INSTALL
+
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|

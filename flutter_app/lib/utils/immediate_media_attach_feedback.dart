@@ -26,8 +26,16 @@ abstract final class ImmediateMediaAttachFeedback {
     return '${(bytes / kb).round()} KB';
   }
 
+  /// Cache — evita re-decode em cada rebuild (teclado / MediaQuery).
+  static final Map<int, Future<String?>> _resolutionCache = {};
+
   /// Lê largura×altura de forma assíncrona (melhor-esforço) para exibir resolução.
   static Future<String?> readResolution(Uint8List bytes) {
+    if (bytes.isEmpty) return Future.value(null);
+    final key = Object.hash(identityHashCode(bytes), bytes.length);
+    final hit = _resolutionCache[key];
+    if (hit != null) return hit;
+
     final completer = Completer<String?>();
     try {
       ui.decodeImageFromList(bytes, (image) {
@@ -38,7 +46,16 @@ abstract final class ImmediateMediaAttachFeedback {
     } catch (_) {
       if (!completer.isCompleted) completer.complete(null);
     }
-    return completer.future;
+    final fut = completer.future;
+    _resolutionCache[key] = fut;
+    // Limita crescimento do cache em sessões longas com muitas fotos.
+    if (_resolutionCache.length > 48) {
+      final keys = _resolutionCache.keys.take(16).toList();
+      for (final k in keys) {
+        _resolutionCache.remove(k);
+      }
+    }
+    return fut;
   }
 
   /// SnackBar de sucesso (verde) com nome + tamanho + resolução (se disponível).

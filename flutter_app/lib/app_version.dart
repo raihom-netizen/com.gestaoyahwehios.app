@@ -1,4 +1,11 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2133: Deploy completo — Yahweh Chat visual nativo restaurado (sem hub TDLib na UI); estabilidade Web módulos; regras/functions/índices/web/AAB/iOS + force update.
+/// 11.2.305+2132: (bump AAB) alinhado no script Play.
+/// 11.2.305+2131: Deploy completo — estabilidade Web todos módulos + master (sem duplo runWithWebRecovery, banner sync suave, lista vazia estável); Eventos/Pedidos/Escalas/Financeiro/Fornecedores; regras/functions/índices/web/AAB/iOS + force update.
+/// 11.2.305+2130: Deploy completo — Yahweh Chat nativo (grupos/privadas sem colar link), share avisos/eventos com fotos, fotos+80% + botões Wisdom, web estável (dialog Atualizar/Cancelar sem reload automático); regras/functions/índices/web/AAB/iOS + force update.
+/// 11.2.305+2129: (bump intermédio) alinhado no script AAB para 2130.
+/// 11.2.305+2128: Deploy completo — Chat = Yahweh Chat (motor embutido, UI sem marca externa), visitantes/orações/máscara telefone; regras/functions/índices/web/AAB/iOS + force update.
+/// 11.2.305+2126: Deploy completo — visitantes grid/WhatsApp, orações grid, máscara telefone global `62 9.9170-5247`, performance mídia, painel master pop rápido, agenda 2 toques + resumo do dia; regras/functions/índices/web/AAB/iOS + force update.
 /// 11.2.305+2123: Deploy completo — CORS Functions us-central1, painel cache-first, partilha Instagram (fotos+vídeo), force update.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
 /// Próximo build: Patrimônio — fotos aparecem após salvar (leitura canônica
@@ -491,7 +498,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2124';
+const String appBuildNumber = '2134';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

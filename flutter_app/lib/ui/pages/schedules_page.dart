@@ -8,6 +8,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
@@ -441,19 +443,32 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     bool forceRefresh = false,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      try {
+        await FirestoreWebGuard.ensurePanelReadReady().timeout(
+          ChurchPanelReadTimeouts.readReadyCap,
+        );
+      } catch (_) {}
     }
-    final r = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchSchedulesLoadService.loadTemplates(
-        seedTenantId: tid,
-        forceServer: forceServer,
-        forceRefresh: forceRefresh,
-      ).timeout(PanelResilientLoad.queryCap),
-      maxAttempts: kIsWeb ? 2 : 4,
-    );
-    await ChurchSchedulesLoadService.persistTemplates(r);
+    // Caminho direto — sem runWithWebRecovery (multiplicava timeouts e
+    // gerava «Sincronização com o servidor em curso» na Web).
+    final queryCap = kIsWeb
+        ? const Duration(seconds: 12)
+        : PanelResilientLoad.queryCap;
+    final r = await ChurchSchedulesLoadService.loadTemplates(
+      seedTenantId: tid,
+      forceServer: forceServer,
+      forceRefresh: forceRefresh,
+    ).timeout(queryCap);
+    unawaited(ChurchSchedulesLoadService.persistTemplates(r));
     if (mounted) {
-      setState(() => _templatesLoadHint = r.softError);
+      setState(() {
+        // Lista vazia = sucesso (igreja sem modelos). SoftError só se ID inválido.
+        if (r.docs.isNotEmpty || r.readSource != 'empty_id') {
+          _templatesLoadHint = null;
+        } else if ((r.softError ?? '').trim().isNotEmpty) {
+          _templatesLoadHint = r.softError;
+        }
+      });
     }
     return r.snapshot;
   }
@@ -465,20 +480,30 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     int limit = ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      try {
+        await FirestoreWebGuard.ensurePanelReadReady().timeout(
+          ChurchPanelReadTimeouts.readReadyCap,
+        );
+      } catch (_) {}
     }
-    final r = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchSchedulesLoadService.loadEscalas(
-        seedTenantId: tid,
-        limit: limit,
-        forceServer: forceServer,
-        forceRefresh: forceRefresh,
-      ).timeout(PanelResilientLoad.queryCap),
-      maxAttempts: 4,
-    );
-    await ChurchSchedulesLoadService.persistEscalas(r);
+    final queryCap = kIsWeb
+        ? const Duration(seconds: 12)
+        : PanelResilientLoad.queryCap;
+    final r = await ChurchSchedulesLoadService.loadEscalas(
+      seedTenantId: tid,
+      limit: limit,
+      forceServer: forceServer,
+      forceRefresh: forceRefresh,
+    ).timeout(queryCap);
+    unawaited(ChurchSchedulesLoadService.persistEscalas(r));
     if (mounted) {
-      setState(() => _instancesLoadHint = r.softError);
+      setState(() {
+        if (r.docs.isNotEmpty || r.readSource != 'empty_id') {
+          _instancesLoadHint = null;
+        } else if ((r.softError ?? '').trim().isNotEmpty) {
+          _instancesLoadHint = r.softError;
+        }
+      });
     }
     return r.snapshot;
   }
@@ -527,15 +552,58 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+    _webLoadCap = Timer(const Duration(seconds: 12), () {
       if (!mounted) return;
       if (!_templatesFetching && !_instancesFetching && !_deptsFetching) return;
       setState(() {
         _templatesFetching = false;
         _instancesFetching = false;
         _deptsFetching = false;
+        // Sem dados + timeout: estado vazio utilizável (criar modelo), sem erro de sync.
+        if (_templatesDocs.isEmpty) _templatesLoadHint = null;
+        if (_instancesDocs.isEmpty) _instancesLoadHint = null;
       });
     });
+  }
+
+  Future<void> _hydrateSchedulesFromHive(String churchId) async {
+    if (churchId.isEmpty) return;
+    try {
+      if (_templatesDocs.isEmpty) {
+        final hive = await TenantModuleHiveCache.readDocs(
+          churchId,
+          TenantModuleKeys.escalaTemplates,
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty && mounted && _templatesDocs.isEmpty) {
+          final docs = TenantModuleHiveCache.toQueryDocuments(hive);
+          if (docs.isNotEmpty) {
+            setState(() {
+              _templatesDocs = docs;
+              _templatesFetching = true;
+              _templatesLoadHint = null;
+              _syncLegacyFutures();
+            });
+          }
+        }
+      }
+      if (_instancesDocs.isEmpty) {
+        final hive = await TenantModuleHiveCache.readDocs(
+          churchId,
+          TenantModuleKeys.escalas,
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty && mounted && _instancesDocs.isEmpty) {
+          final docs = TenantModuleHiveCache.toQueryDocuments(hive);
+          if (docs.isNotEmpty) {
+            setState(() {
+              _instancesDocs = docs;
+              _instancesFetching = true;
+              _instancesLoadHint = null;
+              _syncLegacyFutures();
+            });
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   void _seedSchedulesPanel() {
@@ -560,7 +628,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           ChurchSchedulesLoadService.peekTemplatesRam(churchId, limit: 120) ??
               const [];
       _instancesDocs =
-          ChurchSchedulesLoadService.peekEscalasRam(churchId, limit: 200) ??
+          ChurchSchedulesLoadService.peekEscalasRam(
+                churchId,
+                limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
+              ) ??
+              ChurchSchedulesLoadService.peekEscalasRam(churchId, limit: 200) ??
               const [];
       _deptsItems = const [];
     }
@@ -586,6 +658,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       return;
     }
     _effectiveTenantId = churchId;
+    if (!forceFresh) {
+      await _hydrateSchedulesFromHive(churchId);
+    }
     final hadTemplates = _templatesDocs.isNotEmpty;
     final hadInstances = _instancesDocs.isNotEmpty;
     if (mounted) {
@@ -593,6 +668,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         if (_templatesDocs.isEmpty) _templatesFetching = true;
         if (_instancesDocs.isEmpty) _instancesFetching = true;
         if (_deptsItems.isEmpty) _deptsFetching = true;
+        // Não mostrar erro enquanto tenta de novo.
+        if (!forceFresh) {
+          _templatesLoadHint = null;
+          _instancesLoadHint = null;
+        }
       });
     }
     _startWebLoadingCap();
@@ -601,8 +681,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     Object? templatesErr;
     Object? instancesErr;
 
-    // Paralelo — não serializar modelos+escalas (cada um já passa pelo
-    // semáforo web; em série o 2.º esperava o queryCap do 1.º).
     final results = await Future.wait<Object?>([
       _fetchTemplates(
         churchId,
@@ -630,52 +708,45 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
     if (!mounted) return;
 
+    // Preservar cache local se a rede falhou/vazia.
+    if (templates.isEmpty && hadTemplates) templates = _templatesDocs;
+    if (instances.isEmpty && hadInstances) instances = _instancesDocs;
+
     _SchedulesPageRamCache.put(
       churchId,
       templates: templates,
       instances: instances,
       depts: _deptsItems,
     );
-    final tplUi = templatesErr != null
-        ? PanelResilientLoad.afterError(
-            hadLocalData: hadTemplates,
-            error: templatesErr,
-          )
-        : PanelResilientLoad.afterFetch(
-            hadLocalData: hadTemplates,
-            newItems: templates,
-            fromCache: !forceFresh,
-            forceFresh: forceFresh,
-          );
-    final instUi = instancesErr != null
-        ? PanelResilientLoad.afterError(
-            hadLocalData: hadInstances,
-            error: instancesErr,
-          )
-        : PanelResilientLoad.afterFetch(
-            hadLocalData: hadInstances,
-            newItems: instances,
-            fromCache: !forceFresh,
-            forceFresh: forceFresh,
-          );
     setState(() {
       _templatesDocs = templates;
       _instancesDocs = instances;
-      _templatesFetching = tplUi.fetching;
-      _instancesFetching = instUi.fetching;
-      if (templates.isNotEmpty) _templatesLoadHint = null;
-      if (instances.isNotEmpty) _instancesLoadHint = null;
-      if (_templatesDocs.isEmpty && templatesErr != null) {
-        _templatesLoadHint ??= formatFirebaseErrorForUser(
+      _templatesFetching = false;
+      _instancesFetching = false;
+      // Empty = sucesso. Erro bloqueante só se falhou E continua vazio E forceFresh.
+      _templatesLoadHint = null;
+      _instancesLoadHint = null;
+      if (templates.isEmpty &&
+          templatesErr != null &&
+          forceFresh &&
+          !hadTemplates) {
+        _templatesLoadHint = formatFirebaseErrorForUser(
           templatesErr,
           logToCrashlytics: false,
         );
       }
-      if (_instancesDocs.isEmpty && instancesErr != null) {
-        _instancesLoadHint ??= formatFirebaseErrorForUser(
+      if (instances.isEmpty &&
+          instancesErr != null &&
+          forceFresh &&
+          !hadInstances) {
+        _instancesLoadHint = formatFirebaseErrorForUser(
           instancesErr,
           logToCrashlytics: false,
         );
+      }
+      // Silenciar soft "sync in progress" — retry em background.
+      if (templates.isEmpty && templatesErr != null && !forceFresh) {
+        unawaited(_softRetryTemplates(churchId));
       }
       _syncLegacyFutures();
       if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
@@ -702,6 +773,31 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }),
     );
     _webLoadCap?.cancel();
+  }
+
+  Future<void> _softRetryTemplates(String churchId) async {
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return;
+      final snap = await _fetchTemplates(
+        churchId,
+        forceServer: false,
+        forceRefresh: false,
+      );
+      if (!mounted || snap.docs.isEmpty) return;
+      setState(() {
+        _templatesDocs = snap.docs;
+        _templatesFetching = false;
+        _templatesLoadHint = null;
+        _syncLegacyFutures();
+      });
+      _SchedulesPageRamCache.put(
+        churchId,
+        templates: snap.docs,
+        instances: _instancesDocs,
+        depts: _deptsItems,
+      );
+    } catch (_) {}
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
@@ -883,38 +979,42 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void _refreshTemplates() {
     final tid = _churchId;
     setState(() {
-      _templatesFetching = true;
+      _templatesFetching = _templatesDocs.isEmpty;
       _templatesLoadHint = null;
     });
     _startWebLoadingCap();
-    unawaited(
-      _fetchTemplates(tid, forceServer: false, forceRefresh: true).then((snap) {
+    unawaited(() async {
+      try {
+        var snap = await _fetchTemplates(
+          tid,
+          forceServer: false,
+          forceRefresh: false,
+        );
         if (!mounted) return;
-        setState(() {
-          _templatesDocs = snap.docs;
-          _templatesFetching = false;
-          _templatesFuture = Future.value(snap);
-          if (snap.docs.isEmpty && _templatesLoadHint == null) {
-            // Mantém hint se _fetchTemplates já definiu softError via setState interno.
-          }
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        setState(() {
-          _templatesFetching = false;
-          if (_templatesDocs.isEmpty) {
-            _templatesLoadHint = formatFirebaseErrorForUser(
-              e,
-              logToCrashlytics: false,
-            );
-          }
-        });
-      }).whenComplete(() {
-        if (mounted && _templatesFetching) {
-          setState(() => _templatesFetching = false);
+        if (snap.docs.isEmpty) {
+          snap = await _fetchTemplates(
+            tid,
+            forceServer: true,
+            forceRefresh: false,
+          );
         }
-      }),
-    );
+        if (!mounted) return;
+        setState(() {
+          if (snap.docs.isNotEmpty) _templatesDocs = snap.docs;
+          _templatesFetching = false;
+          _templatesFuture = Future.value(
+            MergedFirestoreQuerySnapshot(_templatesDocs),
+          );
+          _templatesLoadHint = null;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _templatesFetching = false;
+          if (_templatesDocs.isEmpty) _templatesLoadHint = null;
+        });
+      }
+    }());
   }
 
   void _refreshInstances() {
@@ -2585,9 +2685,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   // ── Tab: Modelos ───────────────────────────────────────────────────────────
   Widget _buildTemplatesTab() {
-    if (_templatesLoadHint != null &&
-        _templatesDocs.isEmpty &&
-        !_templatesFetching) {
+    // Erro bloqueante só para «igreja não identificada» — sync falhou → empty + criar.
+    final hardError = (_templatesLoadHint ?? '').contains('não identificada');
+    if (hardError && _templatesDocs.isEmpty && !_templatesFetching) {
       return Padding(
         padding: const EdgeInsets.all(16),
         child: ChurchPanelResilientLoadBanner(
@@ -2613,113 +2713,186 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     if (docs.isEmpty) {
       final hasInstances = _instancesDocs.isNotEmpty;
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.event_note_rounded, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          Text(
-            hasInstances
-                ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
-                : _templatesFetching
-                    ? 'Carregando modelos…'
-                    : 'Nenhum modelo de escala.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-          ),
-          if (hasInstances) ...[
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => _tab.animateTo(1),
-              icon: const Icon(Icons.calendar_month_rounded),
-              label: const Text('Ver escalas geradas'),
-            ),
-          ],
-          if (_canWrite) ...[
-            const SizedBox(height: 16),
-            FilledButton.icon(
-                onPressed: () => _editTemplate(),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Criar modelo')),
-          ],
-          if (_templatesLoadHint != null &&
-              _templatesLoadHint!.trim().isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _templatesLoadHint!,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [
+                    _wisdomAccent.withValues(alpha: 0.18),
+                    _wisdomAccent.withValues(alpha: 0.06),
+                  ],
+                ),
+              ),
+              child: Icon(
+                Icons.event_note_rounded,
+                size: 48,
+                color: _wisdomAccent,
               ),
             ),
-          ],
-          if (_templatesFetching) ...[
-            const SizedBox(height: 16),
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(strokeWidth: 2.5),
+            const SizedBox(height: 18),
+            Text(
+              hasInstances
+                  ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
+                  : _templatesFetching
+                      ? 'Carregando modelos…'
+                      : 'Nenhum modelo de escala.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
             ),
-          ],
-        ]),
+            if (hasInstances) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => _tab.animateTo(1),
+                icon: const Icon(Icons.calendar_month_rounded),
+                label: const Text('Ver escalas geradas'),
+              ),
+            ],
+            if (_canWrite) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => _editTemplate(),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Criar modelo'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _wisdomAccent,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 14,
+                  ),
+                ),
+              ),
+            ],
+            if (!_templatesFetching) ...[
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _refreshTemplates,
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Atualizar'),
+              ),
+            ],
+            if (_templatesFetching) ...[
+              const SizedBox(height: 16),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            ],
+          ]),
+        ),
       );
     }
     final allDepts = _deptsItems;
     return RefreshIndicator(
       onRefresh: () async => _refreshTemplates(),
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-        itemCount: docs.length + (_templatesFetching ? 1 : 0),
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (_, i) {
-          if (i >= docs.length) {
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final w = constraints.maxWidth;
+          final crossCount = w >= 1100
+              ? 3
+              : w >= 700
+                  ? 2
+                  : 1;
+          return CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                sliver: SliverToBoxAdapter(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${docs.length} modelo${docs.length == 1 ? '' : 's'}',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                      if (_templatesFetching)
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            );
-          }
-          final tplDeptId = (docs[i].data()['departmentId'] ?? '').toString();
-          final canTpl =
-              _canWriteFull || _managedDeptIds.contains(tplDeptId);
-          return _TemplateCard(
-            doc: docs[i],
-            deptColor: _colorForDept(allDepts
-                .indexWhere(
-                    (d) => d.id == (docs[i].data()['departmentId'] ?? ''))
-                .clamp(0, 99)),
-            canWrite: canTpl,
-            canGenerate: canTpl,
-            onEdit: () => _editTemplate(doc: docs[i]),
-            onGenerate: () => _generate(docs[i]),
-            onDelete: () async {
-              final ok = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Excluir modelo?'),
-                  content:
-                      const Text('Escalas já geradas não serão afetadas.'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancelar')),
-                    FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: ThemeCleanPremium.error),
-                        child: const Text('Excluir')),
-                  ],
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                sliver: SliverGrid(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossCount,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    mainAxisExtent: crossCount == 1 ? 168 : 188,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      final tplDeptId =
+                          (docs[i].data()['departmentId'] ?? '').toString();
+                      final canTpl =
+                          _canWriteFull || _managedDeptIds.contains(tplDeptId);
+                      return _TemplateCard(
+                        doc: docs[i],
+                        deptColor: _colorForDept(allDepts
+                            .indexWhere(
+                              (d) =>
+                                  d.id ==
+                                  (docs[i].data()['departmentId'] ?? ''),
+                            )
+                            .clamp(0, 99)),
+                        canWrite: canTpl,
+                        canGenerate: canTpl,
+                        onEdit: () => _editTemplate(doc: docs[i]),
+                        onGenerate: () => _generate(docs[i]),
+                        onDelete: () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Excluir modelo?'),
+                              content: const Text(
+                                'Escalas já geradas não serão afetadas.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('Cancelar'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: ThemeCleanPremium.error,
+                                  ),
+                                  child: const Text('Excluir'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok == true) {
+                            await docs[i].reference.delete();
+                            if (mounted) _refreshTemplates();
+                          }
+                        },
+                      );
+                    },
+                    childCount: docs.length,
+                  ),
                 ),
-              );
-              if (ok == true) {
-                await docs[i].reference.delete();
-                if (mounted) _refreshTemplates();
-              }
-            },
+              ),
+            ],
           );
         },
       ),
@@ -6261,7 +6434,29 @@ class _TemplateCard extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onGenerate;
   final VoidCallback onDelete;
-  const _TemplateCard({required this.doc, required this.deptColor, required this.canWrite, required this.canGenerate, required this.onEdit, required this.onGenerate, required this.onDelete});
+  const _TemplateCard({
+    required this.doc,
+    required this.deptColor,
+    required this.canWrite,
+    required this.canGenerate,
+    required this.onEdit,
+    required this.onGenerate,
+    required this.onDelete,
+  });
+
+  static String _iniciais(String title) {
+    final parts = title
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'E';
+    if (parts.length == 1) {
+      final s = parts.first;
+      return (s.length >= 2 ? s.substring(0, 2) : s).toUpperCase();
+    }
+    return ('${parts.first[0]}${parts[1][0]}').toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -6273,38 +6468,83 @@ class _TemplateCard extends StatelessWidget {
     final time = (m['time'] ?? '').toString();
     final cpfs = ((m['memberCpfs'] as List?) ?? []);
     final names = ((m['memberNames'] as List?) ?? []);
-    final recLabel = {'daily': 'Diário', 'weekly': 'Semanal', 'monthly': 'Mensal', 'yearly': 'Anual'}[rec] ?? rec;
+    final recLabel = {
+          'daily': 'Diário',
+          'weekly': 'Semanal',
+          'monthly': 'Mensal',
+          'yearly': 'Anual',
+        }[rec] ??
+        rec;
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, deptColor.withOpacity(0.04)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFE8EEF5)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 5,
-            height: 130,
-            decoration: BoxDecoration(
-              color: deptColor,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: canWrite ? onEdit : null,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                deptColor.withValues(alpha: 0.06),
+              ],
             ),
+            border: Border.all(color: deptColor.withValues(alpha: 0.16)),
+            boxShadow: [
+              BoxShadow(
+                color: deptColor.withValues(alpha: 0.1),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            deptColor,
+                            Color.lerp(deptColor, const Color(0xFF0F172A), 0.25)!,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Text(
+                        _iniciais(title.isEmpty ? 'Escala' : title),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        title.isEmpty ? 'Sem título' : title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          height: 1.2,
+                        ),
+                      ),
+                    ),
                     if (canWrite)
                       PopupMenuButton<String>(
                         onSelected: (v) {
@@ -6312,27 +6552,63 @@ class _TemplateCard extends StatelessWidget {
                           if (v == 'delete') onDelete();
                         },
                         itemBuilder: (_) => [
-                          const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                          const PopupMenuItem(value: 'delete', child: Text('Excluir')),
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Editar'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Excluir'),
+                          ),
                         ],
-                        child: const Icon(Icons.more_vert_rounded, size: 20),
+                        child: Icon(
+                          Icons.more_vert_rounded,
+                          size: 20,
+                          color: Colors.grey.shade600,
+                        ),
                       ),
-                  ]),
-                  const SizedBox(height: 6),
-                  Wrap(spacing: 8, runSpacing: 6, children: [
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
                     _InfoChip(icon: Icons.repeat_rounded, text: recLabel),
-                    if (day.isNotEmpty) _InfoChip(icon: Icons.today_rounded, text: day),
-                    if (time.isNotEmpty) _InfoChip(icon: Icons.access_time_rounded, text: time),
-                    if (deptName.isNotEmpty) _InfoChip(icon: Icons.groups_rounded, text: deptName, color: deptColor),
-                  ]),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Icon(Icons.people_rounded, size: 16, color: Colors.grey.shade600),
+                    if (day.isNotEmpty)
+                      _InfoChip(icon: Icons.today_rounded, text: day),
+                    if (time.isNotEmpty)
+                      _InfoChip(icon: Icons.access_time_rounded, text: time),
+                    if (deptName.isNotEmpty)
+                      _InfoChip(
+                        icon: Icons.groups_rounded,
+                        text: deptName,
+                        color: deptColor,
+                      ),
+                  ],
+                ),
+                const Spacer(),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.people_rounded,
+                      size: 16,
+                      color: Colors.grey.shade600,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        names.isNotEmpty ? names.take(4).join(', ') + (names.length > 4 ? ' +${names.length - 4}' : '') : '${cpfs.length} membro(s)',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                        names.isNotEmpty
+                            ? names.take(3).join(', ') +
+                                (names.length > 3
+                                    ? ' +${names.length - 3}'
+                                    : '')
+                            : '${cpfs.length} membro(s)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -6340,15 +6616,24 @@ class _TemplateCard extends StatelessWidget {
                       FilledButton.tonalIcon(
                         onPressed: onGenerate,
                         icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-                        label: const Text('Gerar', style: TextStyle(fontSize: 12)),
-                        style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), minimumSize: const Size(0, 36)),
+                        label: const Text(
+                          'Gerar',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          minimumSize: const Size(48, 40),
+                        ),
                       ),
-                  ]),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -6887,129 +7172,315 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = const Color(0xFF0891B2);
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
-        title: Text(widget.doc == null ? 'Nova Escala' : 'Editar Escala'),
-        actions: [
-          if (!_saving)
-            FilledButton(
-              onPressed: _save,
-              style: FilledButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.2)),
-              child: const Text('Salvar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-            ),
-          const SizedBox(width: 12),
-        ],
+        elevation: 0,
+        backgroundColor: accent,
+        foregroundColor: Colors.white,
+        title: Text(
+          widget.doc == null ? 'Nova Escala' : 'Editar Escala',
+          style: GoogleFonts.inter(fontWeight: FontWeight.w800),
+        ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.pop(context),
+          style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+        ),
       ),
       body: SafeArea(
         child: _saving
             ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: ThemeCleanPremium.pagePadding(context),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _SectionCard(
-                      title: 'Informações',
-                      icon: Icons.info_outline_rounded,
-                      children: [
-                        TextField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Título da escala', prefixIcon: Icon(Icons.title_rounded))),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          value: _recurrence,
-                          decoration: const InputDecoration(labelText: 'Recorrência', prefixIcon: Icon(Icons.repeat_rounded)),
-                          items: const [
-                            DropdownMenuItem(value: 'daily', child: Text('Diário')),
-                            DropdownMenuItem(value: 'weekly', child: Text('Semanal')),
-                            DropdownMenuItem(value: 'monthly', child: Text('Mensal')),
-                            DropdownMenuItem(value: 'yearly', child: Text('Anual')),
-                          ],
-                          onChanged: (v) => setState(() => _recurrence = v ?? 'weekly'),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(children: [
-                          Expanded(child: TextField(controller: _dayCtrl, decoration: const InputDecoration(labelText: 'Dia (ex: Domingo)', prefixIcon: Icon(Icons.today_rounded)))),
-                          const SizedBox(width: 12),
-                          Expanded(child: TextField(controller: _timeCtrl, decoration: const InputDecoration(labelText: 'Horário', prefixIcon: Icon(Icons.access_time_rounded)))),
-                        ]),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _SectionCard(
-                      title: 'Departamento',
-                      icon: Icons.groups_rounded,
-                      children: [
-                        DropdownButtonFormField<String>(
-                          value: _departmentId.isEmpty ? null : _departmentId,
-                          decoration: const InputDecoration(labelText: 'Vincular ao departamento', prefixIcon: Icon(Icons.groups_rounded)),
-                          items: widget.depts.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
-                          onChanged: (v) {
-                            final sel = widget.depts.firstWhere((d) => d.id == v, orElse: () => const _DeptItem(id: '', name: ''));
-                            setState(() {
-                              _departmentId = v ?? '';
-                              _departmentName = sel.name;
-                              _selectedCpfs.clear();
-                            });
-                            if (_departmentId.isNotEmpty) _loadDeptMembers();
-            },
-          ),
-        ],
-                    ),
-                    if (_departmentId.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      _SectionCard(
-                        title: 'Membros do Departamento',
-                        icon: Icons.people_rounded,
-                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                          TextButton(onPressed: () => setState(() { for (final m in _deptMembers) _selectedCpfs.add(m.cpf); }), child: const Text('Todos', style: TextStyle(fontSize: 12))),
-                          TextButton(onPressed: () => setState(() => _selectedCpfs.clear()), child: const Text('Nenhum', style: TextStyle(fontSize: 12))),
-                        ]),
+            : Column(
+                children: [
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: ThemeCleanPremium.pagePadding(context)
+                          .copyWith(bottom: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          if (_loadingMembers) const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
-                          else if (_deptMembers.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Text('Nenhum membro vinculado a este departamento.', style: TextStyle(color: Colors.grey.shade600)),
-                            )
-                          else ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(color: ThemeCleanPremium.primary.withOpacity(0.06), borderRadius: BorderRadius.circular(10)),
-                              child: Row(children: [
-                                Icon(Icons.check_circle_rounded, size: 16, color: ThemeCleanPremium.primary),
-                                const SizedBox(width: 8),
-                                Text('${_selectedCpfs.length} de ${_deptMembers.length} selecionados', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.primary)),
-                              ]),
-                            ),
-                            const SizedBox(height: 8),
-                            for (final m in _deptMembers)
-                              _MemberCheckTile(
-                                member: m,
-                                selected: _selectedCpfs.contains(m.cpf),
-                                warningLines: _templateWarningLines(m),
-                                onChanged: (v) {
-                                  setState(() {
-                                    if (v == true) { _selectedCpfs.add(m.cpf); }
-                                    else { _selectedCpfs.remove(m.cpf); }
-                                  });
+                          _SectionCard(
+                            title: 'Informações',
+                            icon: Icons.info_outline_rounded,
+                            children: [
+                              TextField(
+                                controller: _titleCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Título da escala',
+                                  prefixIcon: Icon(Icons.title_rounded),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                'Recorrência',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (final e in const [
+                                    ('daily', 'Diário'),
+                                    ('weekly', 'Semanal'),
+                                    ('monthly', 'Mensal'),
+                                    ('yearly', 'Anual'),
+                                  ])
+                                    ChoiceChip(
+                                      label: Text(e.$2),
+                                      selected: _recurrence == e.$1,
+                                      onSelected: (_) => setState(
+                                        () => _recurrence = e.$1,
+                                      ),
+                                      selectedColor: accent.withValues(
+                                        alpha: 0.18,
+                                      ),
+                                      labelStyle: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: _recurrence == e.$1
+                                            ? accent
+                                            : Colors.grey.shade700,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              LayoutBuilder(
+                                builder: (context, c) {
+                                  final narrow = c.maxWidth < 420;
+                                  final dayField = TextField(
+                                    controller: _dayCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Dia (ex: Domingo)',
+                                      prefixIcon: Icon(Icons.today_rounded),
+                                    ),
+                                  );
+                                  final timeField = TextField(
+                                    controller: _timeCtrl,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Horário',
+                                      prefixIcon:
+                                          Icon(Icons.access_time_rounded),
+                                    ),
+                                  );
+                                  if (narrow) {
+                                    return Column(
+                                      children: [
+                                        dayField,
+                                        const SizedBox(height: 12),
+                                        timeField,
+                                      ],
+                                    );
+                                  }
+                                  return Row(
+                                    children: [
+                                      Expanded(child: dayField),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: timeField),
+                                    ],
+                                  );
                                 },
                               ),
-                            const SizedBox(height: 8),
-                            SizedBox(
-                              width: double.infinity,
-                              child: OutlinedButton.icon(
-                                onPressed: _checkConflicts,
-                                icon: const Icon(Icons.warning_amber_rounded, size: 18),
-                                label: const Text('Verificar conflitos'),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _SectionCard(
+                            title: 'Departamento',
+                            icon: Icons.groups_rounded,
+                            children: [
+                              DropdownButtonFormField<String>(
+                                value:
+                                    _departmentId.isEmpty ? null : _departmentId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Vincular ao departamento',
+                                  prefixIcon: Icon(Icons.groups_rounded),
+                                ),
+                                items: widget.depts
+                                    .map(
+                                      (d) => DropdownMenuItem(
+                                        value: d.id,
+                                        child: Text(d.name),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) {
+                                  final sel = widget.depts.firstWhere(
+                                    (d) => d.id == v,
+                                    orElse: () =>
+                                        const _DeptItem(id: '', name: ''),
+                                  );
+                                  setState(() {
+                                    _departmentId = v ?? '';
+                                    _departmentName = sel.name;
+                                    _selectedCpfs.clear();
+                                  });
+                                  if (_departmentId.isNotEmpty) {
+                                    _loadDeptMembers();
+                                  }
+                                },
                               ),
+                            ],
+                          ),
+                          if (_departmentId.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            _SectionCard(
+                              title: 'Membros do Departamento',
+                              icon: Icons.people_rounded,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  TextButton(
+                                    onPressed: () => setState(() {
+                                      for (final m in _deptMembers) {
+                                        _selectedCpfs.add(m.cpf);
+                                      }
+                                    }),
+                                    child: const Text(
+                                      'Todos',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        setState(() => _selectedCpfs.clear()),
+                                    child: const Text(
+                                      'Nenhum',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              children: [
+                                if (_loadingMembers)
+                                  const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(20),
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  )
+                                else if (_deptMembers.isEmpty)
+                                  Text(
+                                    'Nenhum membro neste departamento.',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  )
+                                else ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: accent.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 16,
+                                          color: accent,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${_selectedCpfs.length} de ${_deptMembers.length} selecionados',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: accent,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  ..._deptMembers.map(
+                                    (m) => _MemberCheckTile(
+                                      member: m,
+                                      selected: _selectedCpfs.contains(m.cpf),
+                                      warningLines: _templateWarningLines(m),
+                                      onChanged: (v) => setState(() {
+                                        if (v == true) {
+                                          _selectedCpfs.add(m.cpf);
+                                        } else {
+                                          _selectedCpfs.remove(m.cpf);
+                                        }
+                                      }),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton.icon(
+                                      onPressed: _checkConflicts,
+                                      icon: const Icon(
+                                        Icons.warning_amber_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Verificar conflitos'),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
                         ],
                       ),
-                    ],
-                    const SizedBox(height: 80),
-                  ],
-                ),
+                    ),
+                  ),
+                  Material(
+                    elevation: 8,
+                    color: Colors.white,
+                    child: SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(48, 48),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                ),
+                                child: const Text('Cancelar'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: FilledButton.icon(
+                                onPressed: _save,
+                                icon: const Icon(Icons.check_rounded),
+                                label: const Text(
+                                  'Salvar',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: accent,
+                                  minimumSize: const Size(48, 48),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
       ),
     );
@@ -7675,24 +8146,51 @@ class _SectionCard extends StatelessWidget {
   final IconData icon;
   final List<Widget> children;
   final Widget? trailing;
-  const _SectionCard({required this.title, required this.icon, required this.children, this.trailing});
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.children,
+    this.trailing,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(icon, size: 20, color: ThemeCleanPremium.primary),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
+            ),
             const SizedBox(width: 10),
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+            Expanded(
+              child: Text(
+                title,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
             if (trailing != null) trailing!,
           ]),
           const SizedBox(height: 14),

@@ -63,6 +63,16 @@
 	<string>Se você permitir localização em segundo plano, usamos apenas para funcionalidades que você ativar (alertas ou rotas). Pode alterar nas Configurações do iPhone.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Usado apenas se você optar por importar contatos para o cadastro de membros — nada é enviado sem sua confirmação.</string>
+	<!-- TDLib / chat nativo: descoberta de rede local + ATS (HTTPS Telegram). -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>O chat YAHWEH usa a rede para sincronizar o motor Telegram (TDLib) com segurança.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<!-- Não incluir http/https (ITMS-90048). url_launcher usa canOpenURL só para esquemas abaixo. -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
@@ -70,6 +80,8 @@
 		<string>tel</string>
 		<string>sms</string>
 		<string>whatsapp</string>
+		<string>tg</string>
+		<string>telegram</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

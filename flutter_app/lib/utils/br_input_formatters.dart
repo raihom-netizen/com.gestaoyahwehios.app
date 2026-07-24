@@ -138,23 +138,25 @@ DateTime? parseBrDateDdMmYyyy(
 }
 
 /// Apenas dígitos do telefone (máx. 11 — celular BR).
+/// Se colar com DDI `55`, remove o país e mantém DDD+número.
 String brPhoneDigitsOnly(String raw) {
-  final d = raw.replaceAll(RegExp(r'\D'), '');
+  var d = raw.replaceAll(RegExp(r'\D'), '');
+  if (d.startsWith('55') && d.length >= 12 && d.length <= 13) {
+    d = d.substring(2);
+  }
   if (d.length <= 11) return d;
   return d.substring(0, 11);
 }
 
-/// Máscara ao digitar — celular: `(62) 9.9170-5247`; fixo 10 díg.: `(62) 3210-5247`.
+/// Máscara ao digitar — celular: `62 9.9170-5247`; fixo 10 díg.: `62 3210-5247`.
 String brPhoneMaskLive(String raw) {
   final d = brPhoneDigitsOnly(raw);
   if (d.isEmpty) return '';
-  if (d.length <= 2) {
-    return d.length == 1 ? '($d' : '($d)';
-  }
+  if (d.length <= 2) return d;
 
   final ddd = d.substring(0, 2);
   final rest = d.substring(2);
-  final b = StringBuffer('($ddd)');
+  final b = StringBuffer(ddd);
 
   if (rest.isEmpty) return b.toString();
 
@@ -187,7 +189,7 @@ String brPhoneMaskLive(String raw) {
   return b.toString();
 }
 
-/// [TextInputFormatter] — telefone BR com máscara `(DD) 9.XXXX-XXXX`.
+/// [TextInputFormatter] — telefone BR com máscara `DD 9.XXXX-XXXX`.
 class BrPhoneInputFormatter extends TextInputFormatter {
   const BrPhoneInputFormatter();
 

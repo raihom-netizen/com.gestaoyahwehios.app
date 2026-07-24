@@ -1,20 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 
-/// Paleta canónica WhatsApp — header, bolhas e fundos (Web / mobile).
+/// Paleta canónica Yahweh Chat — header teal, bolhas e fundos (Web / mobile).
 abstract final class ChurchChatWhatsAppTheme {
   ChurchChatWhatsAppTheme._();
 
-  static const Color header = Color(0xFF128C7E);
-  static const Color headerDark = Color(0xFF075E54);
-  static const Color outgoingBubble = Color(0xFFD9FDD3);
+  /// Teal Yahweh (#0D9488) — alinhado ao módulo Chat do shell.
+  static const Color header = Color(0xFF0D9488);
+  static const Color headerDark = Color(0xFF0F766E);
+  static const Color outgoingBubble = Color(0xFFCCFBF1);
   static const Color incomingBubble = Color(0xFFFFFFFF);
-  static const Color threadBackground = Color(0xFFECE5DD);
-  static const Color hubBackground = Color(0xFFF0F2F5);
-  static const Color inputBarBackground = Color(0xFFF0F2F5);
-  static const Color activeRowBackground = Color(0xFFF0F2F5);
-  static const Color chipSelected = Color(0xFF128C7E);
-  static const Color chipUnselectedBg = Color(0xFFE9EDEF);
+  static const Color threadBackground = Color(0xFFF0FDFA);
+  static const Color hubBackground = Color(0xFFF8FAFC);
+  static const Color inputBarBackground = Color(0xFFF1F5F9);
+  static const Color activeRowBackground = Color(0xFFECFEFF);
+  static const Color chipSelected = Color(0xFF0D9488);
+  static const Color chipUnselectedBg = Color(0xFFE2E8F0);
 }
 
 /// Chips horizontais — Tudo · Não lidas · Favoritas · Grupos (referência WhatsApp Web).
@@ -58,7 +59,7 @@ class ChurchChatWhatsAppFilterChips<T extends Enum> extends StatelessWidget {
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 backgroundColor: ChurchChatWhatsAppTheme.chipUnselectedBg,
-                selectedColor: const Color(0xFFE7F8F3),
+                selectedColor: const Color(0xFFCCFBF1),
                 side: BorderSide(
                   color: selected == item
                       ? ChurchChatWhatsAppTheme.chipSelected.withValues(alpha: 0.35)
@@ -104,8 +105,8 @@ class ChurchChatWhatsAppSplitEmptyPane extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Selecione uma conversa à esquerda para enviar e receber mensagens '
-                'com o mesmo fluxo do WhatsApp — texto, fotos, vídeos, reações e apagar para si ou para todos.',
+                'Toque num departamento ou conversa privada à esquerda. '
+                'Fotos, vídeos, voz e arquivos — tudo dentro do app.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 14,

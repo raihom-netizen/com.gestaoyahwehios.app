@@ -202,6 +202,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
   bool _departmentsLoading = false;
+  String? _departmentsSoftError;
   int _deptSyncGeneration = 0;
   /// Stream único de `chat_threads` (reconexão automática em [ChatHubThreads]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
@@ -436,8 +437,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   void _onMemberProfilePhotoSynced() {
     final tid = _resolvedTenantId;
-    final uid =
-        MemberProfilePhotoSyncNotifier.instance.lastAuthUid?.trim() ?? '';
+    final n = MemberProfilePhotoSyncNotifier.instance;
+    final uid = n.lastAuthUid?.trim() ?? '';
     if (tid == null || uid.isEmpty) return;
     unawaited(_refreshPeerProfilesForAuthUids(tid, {uid}));
   }
@@ -1225,9 +1226,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
     if (!seesAll) {
       try {
-        if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-        }
         final prefIds =
             await YahwehChatEngineService.loadMemberDepartmentGroupIds(seed);
         if (prefIds.isNotEmpty) {
@@ -1236,6 +1234,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             setState(() {
               _departments = fromPrefs;
               _departmentsLoading = false;
+              _departmentsSoftError = null;
             });
             final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
             if (uid.isNotEmpty) {
@@ -1252,26 +1251,26 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       setState(() {
         _departments = _entriesFromDeptDocs(instant);
         _departmentsLoading = false;
+        _departmentsSoftError = null;
       });
     }
 
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final docs = await ChurchChatHubDepartmentsService.loadDocs(
+      final result = await ChurchChatHubDepartmentsService.load(
         seedTenantId: seed,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 90),
       );
       if (!mounted) return;
-      if (docs.isNotEmpty) {
+      if (result.docs.isNotEmpty) {
         if (seesAll) {
-          _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
+          _ChatHubDepartmentsRamCache.put(
+            ChurchPanelTenant.resolve(seed),
+            result.docs,
+          );
         }
         setState(() {
-          _departments = _entriesFromDeptDocs(docs);
+          _departments = _entriesFromDeptDocs(result.docs);
           _departmentsLoading = false;
+          _departmentsSoftError = null;
         });
         final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
         if (uid.isNotEmpty) {
@@ -1279,12 +1278,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
         return;
       }
-    } catch (_) {}
+      if (result.softError != null && result.softError!.trim().isNotEmpty) {
+        setState(() => _departmentsSoftError = result.softError);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _departmentsSoftError = e.toString());
+      }
+    }
 
     if (mounted && _departments.isEmpty) {
       final fromThreads = await _loadDepartmentsFromDeptChatThreads(seed);
       if (fromThreads.isNotEmpty && mounted) {
-        setState(() => _departments = fromThreads);
+        setState(() {
+          _departments = fromThreads;
+          _departmentsSoftError = null;
+        });
         final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
         if (uid.isNotEmpty) {
           unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
@@ -1300,17 +1309,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     await _primeDepartmentsFromHive(tid);
     final cached = await _loadDepartmentsFromFirestoreCache(tid);
     if (cached.isNotEmpty && mounted) {
-      setState(() => _departments = cached);
+      setState(() {
+        _departments = cached;
+        _departmentsSoftError = null;
+      });
     }
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final docs = await ChurchChatHubDepartmentsService.loadDocs(
+      final result = await ChurchChatHubDepartmentsService.load(
         seedTenantId: tid,
         forceServer: cached.isEmpty,
       );
-      var entries = _entriesFromDeptDocs(docs);
+      var entries = _entriesFromDeptDocs(result.docs);
       if (entries.isEmpty) {
         final prefIds =
             await YahwehChatEngineService.loadMemberDepartmentGroupIds(tid);
@@ -1323,10 +1332,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
       if (!mounted) return;
       if (entries.isNotEmpty) {
-        if (docs.isNotEmpty) {
-          _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(tid), docs);
+        if (result.docs.isNotEmpty) {
+          _ChatHubDepartmentsRamCache.put(
+            ChurchPanelTenant.resolve(tid),
+            result.docs,
+          );
         }
-        setState(() => _departments = entries);
+        setState(() {
+          _departments = entries;
+          _departmentsSoftError = null;
+        });
+      } else if (result.softError != null &&
+          result.softError!.trim().isNotEmpty) {
+        setState(() => _departmentsSoftError = result.softError);
       }
       unawaited(
         ChatHubOperations.syncUserChatProfile(
@@ -1341,9 +1359,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       if (_departments.isEmpty) {
         final fromThreads = await _loadDepartmentsFromDeptChatThreads(tid);
         if (fromThreads.isNotEmpty && mounted) {
-          setState(() => _departments = fromThreads);
+          setState(() {
+            _departments = fromThreads;
+            _departmentsSoftError = null;
+          });
         } else if (cached.isEmpty && mounted && _departments.isEmpty) {
-          setState(() => _departments = const []);
+          setState(() {
+            _departments = const [];
+            _departmentsSoftError = e.toString();
+          });
         }
       }
     }
@@ -1464,7 +1488,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
     Timer? cap;
     cap = Timer(
-      kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 90),
+      kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 90),
       () {
       if (mounted && syncGen == _deptSyncGeneration && _departmentsLoading) {
         setState(() => _departmentsLoading = false);
@@ -1475,12 +1499,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     try {
       if (_chatHubSeesAllDepartmentGroups(widget.role, widget.permissions)) {
         if (forceServer) {
-          final docs = await ChurchChatHubDepartmentsService.loadDocs(
+          final result = await ChurchChatHubDepartmentsService.load(
             seedTenantId: tid,
             forceServer: true,
           );
-          if (docs.isNotEmpty && mounted) {
-            setState(() => _departments = _entriesFromDeptDocs(docs));
+          if (result.docs.isNotEmpty && mounted) {
+            setState(() {
+              _departments = _entriesFromDeptDocs(result.docs);
+              _departmentsSoftError = null;
+            });
+          } else if (mounted &&
+              result.softError != null &&
+              result.softError!.trim().isNotEmpty) {
+            setState(() => _departmentsSoftError = result.softError);
           }
         }
         await _syncAllDepartmentsForLeadership(tid, uid);
@@ -2356,10 +2387,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   String? _chatHubModuleBarSubtitle() {
-    final dn = (firebaseDefaultAuth.currentUser?.displayName ?? '').trim();
-    if (dn.isNotEmpty) return dn;
-    final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
-    return email.isNotEmpty ? email : null;
+    return 'Grupos e privadas · tudo dentro do app';
   }
 
   Future<void> _onChatHubProfilePhotoTap(String tid, String uidMe) async {
@@ -3147,10 +3175,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         _departmentsLoading
                             ? 'A carregar grupos…'
                             : _departments.isEmpty
-                                ? (_chatHubSeesAllDepartmentGroups(
-                                        widget.role, widget.permissions)
-                                    ? 'Não foi possível carregar os grupos dos departamentos.'
-                                    : 'Sem grupos — faça parte de um departamento na sua ficha de membro.')
+                                ? (_departmentsSoftError != null &&
+                                        _departmentsSoftError!
+                                            .trim()
+                                            .isNotEmpty
+                                    ? 'Não foi possível carregar os grupos. Verifique a rede e toque em Carregar grupos.'
+                                    : (_chatHubSeesAllDepartmentGroups(
+                                            widget.role, widget.permissions)
+                                        ? 'Nenhum departamento cadastrado ainda. Crie departamentos no módulo Departamentos para aparecerem aqui como grupos.'
+                                        : 'Sem grupos — faça parte de um departamento na sua ficha de membro.'))
                                 : 'Nenhum grupo corresponde à pesquisa.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
@@ -3159,6 +3192,21 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      if (!_departmentsLoading &&
+                          _departments.isEmpty &&
+                          _departmentsSoftError != null &&
+                          _departmentsSoftError!.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          _departmentsSoftError!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       if (!_departmentsLoading && _departments.isEmpty) ...[
                         const SizedBox(height: 20),
                         FilledButton.icon(

@@ -88,32 +88,30 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         'MasterChurchDetail _loadAuditTimeline ensurePanelReadReady: $e\n$st',
       );
     });
-    return FirestoreWebGuard.runWithWebRecovery(() async {
-      try {
-        final snap = await firebaseDefaultFirestore
-            .collection('auditoria')
-            .where('tenantId', isEqualTo: widget.tenantId)
-            .orderBy('data', descending: true)
-            .limit(12)
-            .get();
-        return snap.docs;
-      } catch (e, st) {
-        debugPrint('MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st');
-        final snap = await firebaseDefaultFirestore
-            .collection('auditoria')
-            .limit(24)
-            .get();
-        return snap.docs
-            .where((d) {
-              final data = d.data();
-              final tid = (data['tenantId'] ?? '').toString();
-              final det = (data['details'] ?? '').toString();
-              return tid == widget.tenantId || det.contains(widget.tenantId);
-            })
-            .take(12)
-            .toList();
-      }
-    });
+    try {
+      final snap = await firebaseDefaultFirestore
+          .collection('auditoria')
+          .where('tenantId', isEqualTo: widget.tenantId)
+          .orderBy('data', descending: true)
+          .limit(12)
+          .get();
+      return snap.docs;
+    } catch (e, st) {
+      debugPrint('MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st');
+      final snap = await firebaseDefaultFirestore
+          .collection('auditoria')
+          .limit(24)
+          .get();
+      return snap.docs
+          .where((d) {
+            final data = d.data();
+            final tid = (data['tenantId'] ?? '').toString();
+            final det = (data['details'] ?? '').toString();
+            return tid == widget.tenantId || det.contains(widget.tenantId);
+          })
+          .take(12)
+          .toList();
+    }
   }
 
   Future<void> _loadTechnicalHealth() async {

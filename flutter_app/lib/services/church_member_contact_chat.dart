@@ -4,9 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
+/// Contato por Yahweh Chat (hub nativo Conversas/Grupos) ou WhatsApp — web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
 
@@ -77,13 +77,13 @@ abstract final class ChurchMemberContactChat {
   ) async {
     final id = docId.trim();
     if (churchId.trim().isEmpty || id.isEmpty) return null;
-    Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
-        ChurchUiCollections.membros(churchId).doc(id).get();
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      return FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 4);
+      try {
+        await FirestoreWebGuard.ensurePanelReadReady()
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {}
     }
-    return read();
+    return ChurchUiCollections.membros(churchId).doc(id).get();
   }
 
   /// Resolve `authUid` do destinatário — doc directo `igrejas/{churchId}/membros`.
@@ -155,9 +155,7 @@ abstract final class ChurchMemberContactChat {
                 .where('authUid', isEqualTo: auth)
                 .limit(1)
                 .get();
-        final q = kIsWeb
-            ? await FirestoreWebGuard.runWithWebRecovery(query, maxAttempts: 4)
-            : await query();
+        final q = await query();
         if (q.docs.isNotEmpty) {
           await mergeSnap(q.docs.first);
           peer = auth;
@@ -169,7 +167,7 @@ abstract final class ChurchMemberContactChat {
     return (data: data, memberDocId: docId, peerUid: peerFromData());
   }
 
-  /// Atalho único — YahwehChat: abre módulo + conversa individual (web/iOS/Android).
+  /// Atalho único — Yahweh Chat: abre módulo + conversa individual (web/iOS/Android).
   static void tapYahwehChat({
     required BuildContext context,
     required String tenantId,
@@ -355,25 +353,18 @@ abstract final class ChurchMemberContactChat {
     if (operationalTenant.isEmpty) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Igreja não identificada para abrir o YahwehChat.',
+          'Igreja não identificada para abrir o Yahweh Chat.',
         ),
       );
       return;
     }
 
-    // WhatsApp-like: peer do mapa local primeiro — sem esperar Firestore.
-    var peerUid = peerAuthUidFromMember(
-      memberData,
+    final resolved = await resolvePeerForChat(
+      tenantId: operationalTenant,
+      memberData: memberData,
       memberDocId: memberDocId,
-    )?.trim();
-    if (peerUid == null || peerUid.isEmpty) {
-      final resolved = await resolvePeerForChat(
-        tenantId: operationalTenant,
-        memberData: memberData,
-        memberDocId: memberDocId,
-      );
-      peerUid = resolved.peerUid?.trim();
-    }
+    );
+    final peerUid = resolved.peerUid?.trim();
     if (peerUid == null || peerUid.isEmpty) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
@@ -399,7 +390,7 @@ abstract final class ChurchMemberContactChat {
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = (draftText ?? faleComigoDraft()).trim();
 
-    // Navega na hora — hub abre a conversa sem esperar ensureDm.
+    // Navega para o Yahweh Chat nativo (hub consome DM pendente).
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
       tenantId: operationalTenant,
@@ -407,11 +398,11 @@ abstract final class ChurchMemberContactChat {
       displayName: titulo,
       initialDraftText: draft.isEmpty ? null : draft,
     );
-    // Re-notifica só 1× curto (hub a montar no shell).
-    Future<void>.delayed(const Duration(milliseconds: 120), () {
+    ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+    Future<void>.delayed(const Duration(milliseconds: 350), () {
       ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     });
-    Future<void>.delayed(const Duration(milliseconds: 400), () {
+    Future<void>.delayed(const Duration(milliseconds: 900), () {
       ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     });
 

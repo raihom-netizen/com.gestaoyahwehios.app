@@ -6,11 +6,18 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:intl/intl.dart';
 
-/// Células do calendário — padrão WISDOMAPP (compromissos / cultos / agenda igreja).
+/// Células do calendário — **idêntico ao Escalas do Controle Total**.
+///
+/// Hoje sem eventos: fundo branco, borda azul, número + texto «Hoje».
+/// Hoje com eventos: faixas coloridas + selo «Hoje» + realce.
+/// SAB/DOM/feriado: vermelho negrito.
 abstract final class ChurchAgendaCalendarCells {
   ChurchAgendaCalendarCells._();
 
   static const Color kNationalHolidayDot = Color(0xFFE11D48);
+
+  /// Vermelho SAB/DOM/feriado — padrão Controle Total Escalas.
+  static const Color calendarRedDay = Color(0xFFE53935);
 
   static const List<Color> compromissoPalette = [
     AgendaVisualPalette.culto,
@@ -52,8 +59,167 @@ abstract final class ChurchAgendaCalendarCells {
   static String dayKey(DateTime d) =>
       DateFormat('yyyy-MM-dd').format(DateTime(d.year, d.month, d.day));
 
-  /// Vermelho SAB/DOM/feriado — padrão Controle Total Escalas.
-  static const Color calendarRedDay = Color(0xFFE53935);
+  static bool isCalendarRedDay(DateTime day) {
+    final weekend =
+        day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
+    return weekend || HolidayHelper.holidayNameOn(day) != null;
+  }
+
+  /// Halo 3D do dia atual (com eventos) — clone Escalas CT.
+  static List<BoxShadow> _todaySoftLift(Color accent) {
+    final primary = ThemeCleanPremium.primary;
+    return [
+      BoxShadow(
+        color: primary.withValues(alpha: 0.55),
+        blurRadius: 14,
+        spreadRadius: 1.5,
+      ),
+      BoxShadow(
+        color: accent.withValues(alpha: 0.45),
+        blurRadius: 16,
+        offset: const Offset(0, 5),
+        spreadRadius: 1,
+      ),
+      BoxShadow(
+        color: Colors.black.withValues(alpha: 0.18),
+        blurRadius: 8,
+        offset: const Offset(0, 4),
+      ),
+    ];
+  }
+
+  /// Célula «hoje sem eventos» — fundo branco, borda azul, número + «Hoje».
+  /// Mantém o visual mesmo quando o dia está selecionado (não vira azul sólido).
+  static Widget buildTodayCellNoEvents(
+    BuildContext context,
+    DateTime day, {
+    required bool isHoliday,
+    bool showSelectionDot = false,
+  }) {
+    final isMobile = ThemeCleanPremium.isMobile(context);
+    final primary = ThemeCleanPremium.primary;
+    final fsNumber = isMobile ? 18.0 : 16.0;
+    final radius = ControleTotalCalendarTheme.cellRadius + 4;
+
+    return Padding(
+      padding: const EdgeInsets.all(1.85),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: primary, width: 2.5),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withValues(alpha: 0.18),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '${day.day}',
+                        style: TextStyle(
+                          color: isHoliday ? calendarRedDay : primary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: fsNumber,
+                          height: 1.05,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 1),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Hoje',
+                        style: TextStyle(
+                          color: primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: isMobile ? 10 : 9,
+                          letterSpacing: 0.3,
+                          height: 1.0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (showSelectionDot)
+              Positioned(
+                top: 3,
+                right: 3,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: primary,
+                    boxShadow: [
+                      BoxShadow(
+                        color: primary.withValues(alpha: 0.45),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Selo «Hoje» sobre célula com eventos (texto legível em cima).
+  static Widget _hojeLabelOnEvents({required bool compact}) {
+    return Positioned(
+      left: 2,
+      right: 2,
+      bottom: 2,
+      child: Center(
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 4 : 5,
+            vertical: 1.5,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: ThemeCleanPremium.primary,
+              width: 1.1,
+            ),
+          ),
+          child: Text(
+            'Hoje',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: ThemeCleanPremium.primary,
+              fontWeight: FontWeight.w900,
+              fontSize: compact ? 8 : 9,
+              letterSpacing: 0.2,
+              height: 1.0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   static Widget buildPlainDay(
     BuildContext context,
@@ -65,13 +231,21 @@ abstract final class ChurchAgendaCalendarCells {
   }) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final cellFs = isMobile ? 22.0 : 19.0;
-    final isWeekend =
-        day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
+    final isRedDay = isCalendarRedDay(day);
     final isHoliday = HolidayHelper.holidayNameOn(day) != null;
-    final isRedDay = isWeekend || isHoliday;
     const outerPad = EdgeInsets.all(1.85);
     final radius = ControleTotalCalendarTheme.cellRadius;
     final primary = ThemeCleanPremium.primary;
+
+    // Hoje (mesmo selecionado) — nunca azul sólido; clone Escalas CT.
+    if (isToday && !isOutside) {
+      return buildTodayCellNoEvents(
+        context,
+        day,
+        isHoliday: isRedDay,
+        showSelectionDot: isSelected,
+      );
+    }
 
     BoxDecoration deco;
     TextStyle textStyle;
@@ -106,39 +280,18 @@ abstract final class ChurchAgendaCalendarCells {
             : Colors.grey.shade400,
       );
     } else if (isRedDay) {
-      // Sábado, domingo e feriado — vermelho negrito igual Escalas CT.
       deco = BoxDecoration(
-        color: isHoliday
-            ? const Color(0xFFFFF1F2)
-            : const Color(0xFFF8FAFC),
+        color: isHoliday ? const Color(0xFFFFF1F2) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: isHoliday
-              ? const Color(0xFFFECDD3)
-              : const Color(0xFFCBD5E1),
-          width: isToday ? 2.2 : 1.05,
+          color: isHoliday ? const Color(0xFFFECDD3) : const Color(0xFFCBD5E1),
+          width: 1.05,
         ),
       );
-      if (isToday) {
-        deco = deco.copyWith(
-          border: Border.all(color: primary, width: 2.2),
-        );
-      }
       textStyle = TextStyle(
         fontSize: cellFs,
         fontWeight: FontWeight.w900,
         color: calendarRedDay,
-      );
-    } else if (isToday) {
-      deco = BoxDecoration(
-        color: primary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: primary, width: 2.2),
-      );
-      textStyle = TextStyle(
-        fontSize: cellFs,
-        fontWeight: FontWeight.w800,
-        color: primary,
       );
     } else {
       deco = BoxDecoration(
@@ -153,38 +306,13 @@ abstract final class ChurchAgendaCalendarCells {
       );
     }
 
-    final showHolidayDot = isHoliday && (isSelected || isToday || isOutside);
-
     return Padding(
       padding: outerPad,
       child: DecoratedBox(
         decoration: deco,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(radius - 0.5),
-          child: Stack(
-            fit: StackFit.expand,
-            clipBehavior: Clip.hardEdge,
-            children: [
-              Center(child: Text(day.day.toString(), style: textStyle)),
-              if (showHolidayDot)
-                Positioned(
-                  bottom: 5,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        color: kNationalHolidayDot,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 1),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          child: Center(child: Text(day.day.toString(), style: textStyle)),
         ),
       ),
     );
@@ -212,7 +340,7 @@ abstract final class ChurchAgendaCalendarCells {
     }
 
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final cellFs = isMobile ? 22.0 : 19.0;
+    final cellFs = isMobile ? 20.0 : 17.0;
     final n = eventCount;
     final dim = isOutside ? 0.45 : 1.0;
     const outerPad = EdgeInsets.all(1.85);
@@ -230,7 +358,10 @@ abstract final class ChurchAgendaCalendarCells {
 
     Border border;
     List<BoxShadow>? cellShadow;
-    if (isSelected) {
+    if (isToday && !isOutside) {
+      border = Border.all(color: primary, width: 3.0);
+      cellShadow = _todaySoftLift(fill1);
+    } else if (isSelected) {
       border = Border.all(color: primary, width: 3.2);
       cellShadow = [
         BoxShadow(
@@ -240,10 +371,7 @@ abstract final class ChurchAgendaCalendarCells {
         ),
       ];
     } else if (n >= 2 && !isOutside) {
-      border = Border.all(
-        color: isToday ? primary : const Color(0xFF0F172A),
-        width: isToday ? 3.0 : 2.65,
-      );
+      border = Border.all(color: const Color(0xFF0F172A), width: 2.65);
       cellShadow = [
         BoxShadow(
           color: Colors.black.withValues(alpha: 0.12),
@@ -251,8 +379,6 @@ abstract final class ChurchAgendaCalendarCells {
           offset: const Offset(0, 2),
         ),
       ];
-    } else if (isToday) {
-      border = Border.all(color: primary, width: 2.4);
     } else {
       border = Border.all(
         color: isOutside ? const Color(0xFFCBD5E1) : const Color(0xFF94A3B8),
@@ -338,7 +464,13 @@ abstract final class ChurchAgendaCalendarCells {
             clipBehavior: Clip.hardEdge,
             children: [
               Positioned.fill(child: stripes),
-              Center(child: Text(dayNum, style: numStyle)),
+              Align(
+                alignment: isToday && !isOutside
+                    ? const Alignment(0, -0.35)
+                    : Alignment.center,
+                child: Text(dayNum, style: numStyle),
+              ),
+              if (isToday && !isOutside) _hojeLabelOnEvents(compact: isMobile),
               if (extra > 0)
                 Positioned(
                   right: 3,
@@ -361,7 +493,7 @@ abstract final class ChurchAgendaCalendarCells {
                     ),
                   ),
                 ),
-              if (isNationalHoliday)
+              if (isNationalHoliday && !(isToday && !isOutside))
                 Positioned(
                   right: 4,
                   top: 4,

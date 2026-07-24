@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -13,17 +13,22 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 
-/// Barra estilo Instagram: curtir, comentar, confirmar presença (evento).
-/// Contadores em tempo real via stream do documento da notícia.
+/// Barra moderna: Participar · Comentar · Compartilhar (WhatsApp 1 toque).
+/// Contadores em tempo real via stream do documento.
 class YahwehSocialPostBar extends StatefulWidget {
   final String tenantId;
   final String postId;
   final bool isEvento;
-  /// Slug da igreja (link no texto da agenda).
+  /// Slug da igreja (link no texto da agenda / WhatsApp).
   final String churchSlug;
-  /// `noticias` (eventos) ou `avisos` (mural de avisos).
+  /// Nome da igreja para mensagem WhatsApp.
+  final String churchName;
+  /// `eventos` ou `avisos`.
   final String postsParentCollection;
+  /// Se true, permite abrir comentários só para leitura sem login.
+  final bool allowGuestCommentView;
 
   const YahwehSocialPostBar({
     super.key,
@@ -31,7 +36,9 @@ class YahwehSocialPostBar extends StatefulWidget {
     required this.postId,
     required this.isEvento,
     this.churchSlug = '',
+    this.churchName = '',
     this.postsParentCollection = ChurchTenantPostsCollections.eventos,
+    this.allowGuestCommentView = true,
   });
 
   @override
@@ -82,13 +89,27 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     return (name: name.isEmpty ? 'Membro' : name, photo: photo);
   }
 
+  String _socialErrMsg(Object e, String fallback) {
+    final s = e.toString();
+    if (s.contains('Entre na área') || s.contains('Entre no app')) {
+      return s.replaceFirst(RegExp(r'^Bad state:\s*'), '');
+    }
+    if (s.contains('permission-denied') || s.contains('PERMISSION_DENIED')) {
+      return 'Sem permissão para esta ação. Entre como membro desta igreja e tente de novo.';
+    }
+    if (s.contains('unavailable') || s.contains('network')) {
+      return 'Sem conexão. Verifique a internet e tente de novo.';
+    }
+    return fallback;
+  }
+
   Future<void> _toggleLike(Map<String, dynamic> data, bool currentlyLiked) async {
     final user = firebaseDefaultAuth.currentUser;
-    if (user == null) {
+    if (user == null || user.isAnonymous) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Entre no app (área do membro) para curtir e comentar.',
+          'Entre na área do membro para curtir, comentar ou participar.',
         ),
       );
       return;
@@ -100,21 +121,21 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
     });
     try {
       final m = await _memberDisplay();
-      await NoticiaSocialService.toggleCurtida(
-        tenantId: _tenantId,
-        postId: widget.postId,
+      await NoticiaSocialService.toggleCurtidaOnPost(
+        postRef: _postRef,
         uid: uid,
         memberName: m.name,
         photoUrl: m.photo,
         currentlyLiked: currentlyLiked,
-        parentCollection: widget.postsParentCollection,
       );
     } catch (e, st) {
       debugPrint('SocialPostBar _toggleLike: $e\n$st');
       if (mounted) {
         setState(() => _optLiked = null);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Não foi possível atualizar a curtida.'),
+          ThemeCleanPremium.feedbackSnackBar(
+            _socialErrMsg(e, 'Não foi possível atualizar a curtida.'),
+          ),
         );
       }
     } finally {
@@ -129,11 +150,11 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
 
   Future<void> _toggleRsvp(Map<String, dynamic> data, bool current) async {
     final user = firebaseDefaultAuth.currentUser;
-    if (user == null) {
+    if (user == null || user.isAnonymous) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Entre no app para confirmar presença.',
+          'Entre na área do membro para confirmar presença.',
         ),
       );
       return;
@@ -188,7 +209,9 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
       if (mounted) {
         setState(() => _optRsvp = null);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Não foi possível confirmar presença.'),
+          ThemeCleanPremium.feedbackSnackBar(
+            _socialErrMsg(e, 'Não foi possível confirmar presença.'),
+          ),
         );
       }
     } finally {
@@ -203,7 +226,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
 
   Future<void> _openComments() async {
     final user = firebaseDefaultAuth.currentUser;
-    if (user == null) {
+    if (user == null && !widget.allowGuestCommentView) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
@@ -228,27 +251,35 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
             Future<void> send() async {
               final t = ctrl.text.trim();
               if (t.isEmpty || sending) return;
+              final u = firebaseDefaultAuth.currentUser;
+              if (u == null || u.isAnonymous) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    ThemeCleanPremium.feedbackSnackBar(
+                      'Entre na área do membro para comentar.',
+                    ),
+                  );
+                }
+                return;
+              }
               setLocal(() => sending = true);
               try {
                 final m = await _memberDisplay();
-                await commentsRef.add({
-                  'authorUid': user.uid,
-                  'authorName': m.name,
-                  'authorPhoto': m.photo,
-                  'text': t,
-                  'texto': t,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-                await _postRef.set(
-                  {'commentsCount': FieldValue.increment(1)},
-                  SetOptions(merge: true),
+                await NoticiaSocialService.addComment(
+                  postRef: _postRef,
+                  uid: u.uid,
+                  authorName: m.name,
+                  text: t,
+                  authorPhoto: m.photo,
                 );
                 ctrl.clear();
               } catch (e, st) {
                 debugPrint('SocialPostBar _openComments send: $e\n$st');
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    ThemeCleanPremium.feedbackSnackBar('Erro ao enviar comentário.'),
+                    ThemeCleanPremium.feedbackSnackBar(
+                      _socialErrMsg(e, 'Erro ao enviar comentário.'),
+                    ),
                   );
                 }
               } finally {
@@ -286,6 +317,19 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
                             .limit(40)
                             .watchSafe(),
                         builder: (context, snap) {
+                          if (snap.hasError) {
+                            return Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  'Não foi possível carregar comentários.\n'
+                                  'Entre como membro e tente de novo.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey.shade700),
+                                ),
+                              ),
+                            );
+                          }
                           final docs = snap.data?.docs ?? [];
                           if (docs.isEmpty) {
                             return Center(
@@ -426,100 +470,213 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
         final commentsCount = (data['commentsCount'] is num)
             ? (data['commentsCount'] as num).toInt()
             : 0;
+        final churchName = widget.churchName.trim().isNotEmpty
+            ? widget.churchName.trim()
+            : 'Nossa igreja';
 
         return Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Linha única: Participar · Comentar · Compartilhar · ♥ (WISDOM colorido).
               Row(
                 children: [
-                  IconButton(
-                    tooltip: liked ? 'Remover curtida' : 'Curtir',
-                    onPressed: _likeBusy ? null : () => _toggleLike(data, serverLiked),
-                    icon: Icon(
-                      liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                      color: liked ? const Color(0xFFE11D48) : Colors.grey.shade800,
-                      size: 26,
+                  Expanded(
+                    child: _ModernEngageChip(
+                      icon: rsvp
+                          ? Icons.check_circle_rounded
+                          : Icons.event_available_rounded,
+                      label: 'Participar',
+                      selected: rsvp,
+                      accent: const Color(0xFF10B981),
+                      onTap: _rsvpBusy
+                          ? null
+                          : () => _toggleRsvp(data, serverRsvp),
                     ),
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(
-                        ThemeCleanPremium.minTouchTarget,
-                        ThemeCleanPremium.minTouchTarget,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: _ModernEngageChip(
+                      icon: Icons.chat_bubble_rounded,
+                      label: 'Comentar',
+                      accent: const Color(0xFF6366F1),
+                      onTap: _openComments,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: YahwehNoticiaWhatsAppOneTapButton(
+                      churchName: churchName,
+                      churchSlug: widget.churchSlug,
+                      tenantId: _tenantId,
+                      noticiaId: widget.postId,
+                      postData: data.isNotEmpty
+                          ? data
+                          : <String, dynamic>{
+                              'title': '',
+                              'text': '',
+                            },
+                      noticiaKindOverride:
+                          widget.isEvento ? 'evento' : 'aviso',
+                      compact: true,
+                      label: 'Compartilhar',
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Material(
+                    color: liked
+                        ? const Color(0xFFE11D48).withValues(alpha: 0.14)
+                        : const Color(0xFFFCE7F3),
+                    borderRadius: BorderRadius.circular(10),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: _likeBusy
+                          ? null
+                          : () => _toggleLike(data, serverLiked),
+                      child: SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Icon(
+                          liked
+                              ? Icons.favorite_rounded
+                              : Icons.favorite_border_rounded,
+                          color: const Color(0xFFE11D48),
+                          size: 18,
+                        ),
                       ),
                     ),
                   ),
-                  IconButton(
-                    tooltip: 'Comentar',
-                    onPressed: _openComments,
-                    icon: Icon(Icons.chat_bubble_outline_rounded,
-                        size: 24, color: Colors.grey.shade800),
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(
-                        ThemeCleanPremium.minTouchTarget,
-                        ThemeCleanPremium.minTouchTarget,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  if (widget.isEvento)
-                    FilledButton.tonalIcon(
-                      onPressed: _rsvpBusy ? null : () => _toggleRsvp(data, serverRsvp),
-                      icon: Icon(
-                        rsvp ? Icons.event_available_rounded : Icons.event_outlined,
-                        size: 20,
-                      ),
-                      label: Text(rsvp ? 'Confirmado' : 'Vou participar'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(left: 4, right: 4, bottom: 4),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (likeCount > 0)
-                      Text(
-                        '$likeCount ${likeCount == 1 ? 'curtida' : 'curtidas'}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
+              if (likeCount > 0 || rsvpCount > 0 || commentsCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 4, right: 4),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
+                    children: [
+                      if (likeCount > 0)
+                        Text(
+                          '$likeCount ${likeCount == 1 ? 'curtida' : 'curtidas'}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
                         ),
-                      ),
-                    if (widget.isEvento && rsvpCount > 0)
-                      Text(
-                        '$rsvpCount ${rsvpCount == 1 ? 'pessoa confirmou' : 'pessoas confirmaram'} presença',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                          color: ThemeCleanPremium.success,
+                      if (rsvpCount > 0)
+                        Text(
+                          '$rsvpCount ${rsvpCount == 1 ? 'confirmou' : 'confirmaram'} presença',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: Color(0xFF059669),
+                          ),
                         ),
-                      ),
-                    if (commentsCount > 0)
-                      Text(
-                        'Ver os $commentsCount comentários',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600,
+                      if (commentsCount > 0)
+                        GestureDetector(
+                          onTap: _openComments,
+                          child: Text(
+                            'Ver $commentsCount comentário${commentsCount == 1 ? '' : 's'}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _ModernEngageChip extends StatelessWidget {
+  const _ModernEngageChip({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.accent,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final Color accent;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = selected
+        ? accent
+        : Color.lerp(accent, Colors.white, 0.88)!;
+    final fg = selected ? Colors.white : accent;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          height: 36,
+          decoration: BoxDecoration(
+            gradient: selected
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      bg,
+                      Color.lerp(accent, Colors.white, 0.78)!,
+                    ],
+                  ),
+            color: selected ? accent : null,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: accent.withValues(alpha: selected ? 1 : 0.45),
+              width: 1.1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.18),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Center(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 13, color: fg),
+                    const SizedBox(width: 3),
+                    Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                        color: fg,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

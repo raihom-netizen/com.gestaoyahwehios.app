@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatUploadErrorForUser, kFeedPublishQueuedUserMessage;
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
@@ -14,9 +13,10 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
-/// Fluxo único de anexo de comprovante — padrão Controle Total.
+/// Fluxo único de anexo de comprovante — **igual Controle Total**.
 ///
-/// Pick → Storage `putData` → Firestore → sucesso imediato.
+/// Pick → Storage → Firestore → SnackBar.
+/// **Sem** faixa global «A trocar comprovante… — N%» (upload silencioso).
 /// Falha de rede (mobile): fila local + sync em background.
 abstract final class FinanceComprovanteAttachFlow {
   FinanceComprovanteAttachFlow._();
@@ -47,14 +47,7 @@ abstract final class FinanceComprovanteAttachFlow {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
 
-    final label =
-        jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
-    GlobalUploadProgress.instance.start(label);
-
-    void report(double p) => GlobalUploadProgress.instance.update(p);
-
     try {
-      report(0.05);
       final refDate =
           FinanceComprovantePublishService.referenceDateFromMap(data);
       final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
@@ -70,11 +63,9 @@ abstract final class FinanceComprovanteAttachFlow {
         previousDownloadUrl:
             (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
                 .toString(),
-        onProgress: report,
         alreadyCompressed: picked.alreadyOptimized,
       );
 
-      report(1.0);
       if (context.mounted && !suppressSuccessSnackBar) {
         ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -86,7 +77,6 @@ abstract final class FinanceComprovanteAttachFlow {
       unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
       return true;
     } on FinanceComprovanteQueuedLocally {
-      report(1.0);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
@@ -117,12 +107,10 @@ abstract final class FinanceComprovanteAttachFlow {
         );
       }
       return false;
-    } finally {
-      GlobalUploadProgress.instance.end();
     }
   }
 
-  /// Compromisso de fornecedor — mesmo fluxo CT (pick → Storage → Firestore).
+  /// Compromisso de fornecedor — mesmo fluxo CT (silencioso, sem faixa %).
   static Future<bool> attachToCompromisso({
     required BuildContext context,
     required String tenantId,
@@ -150,14 +138,7 @@ abstract final class FinanceComprovanteAttachFlow {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
 
-    final label =
-        jaTem ? 'A trocar comprovante…' : 'A enviar comprovante…';
-    GlobalUploadProgress.instance.start(label);
-
-    void report(double p) => GlobalUploadProgress.instance.update(p);
-
     try {
-      report(0.05);
       final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
 
       await FornecedorCompromissoPublishService.attachComprovanteControleTotal(
@@ -168,11 +149,9 @@ abstract final class FinanceComprovanteAttachFlow {
         bytes: picked.bytes,
         mimeType: mime,
         fileName: picked.fileName,
-        onProgress: report,
         alreadyCompressed: picked.alreadyOptimized,
       );
 
-      report(1.0);
       if (context.mounted && !suppressSuccessSnackBar) {
         ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -183,7 +162,6 @@ abstract final class FinanceComprovanteAttachFlow {
       }
       return true;
     } on FinanceComprovanteQueuedLocally {
-      report(1.0);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
@@ -210,8 +188,6 @@ abstract final class FinanceComprovanteAttachFlow {
         );
       }
       return false;
-    } finally {
-      GlobalUploadProgress.instance.end();
     }
   }
 }

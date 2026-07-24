@@ -70,13 +70,13 @@ double churchPublicFeedInstagramColumnWidth(double parentMaxWidth) {
 /// Altura útil para vídeos institucionais / blocos que não usam o quadro quadrado do feed.
 double churchPublicFeedMediaMaxHeight(Size mq) {
   if (mq.width < 600) {
-    return (mq.width * 0.52).clamp(200.0, 320.0);
+    return (mq.width * 0.78).clamp(360.0, 580.0);
   }
-  return (mq.shortestSide * 0.36).clamp(200.0, 280.0);
+  return (mq.shortestSide * 0.55).clamp(360.0, 520.0);
 }
 
-/// Altura do carrossel de fotos no mural (painel / app): evita pôsteres verticais a ocupar o ecrã inteiro.
-/// [widthOverHeightAspect] é largura÷altura (ex.: 4/5 = 0,8 para retrato tipo Instagram).
+/// Altura do carrossel de fotos no mural (painel / app / site).
+/// [widthOverHeightAspect] é largura÷altura (ex.: 4/5 = 0,8 para retrato).
 double churchMuralCarouselClipHeight(
   BuildContext context,
   double cardWidth,
@@ -89,14 +89,14 @@ double churchMuralCarouselClipHeight(
   final narrow = screenW < 600;
   final ar = widthOverHeightAspect.clamp(0.5, 2.0);
   final idealH = cardWidth / ar;
-  // Tectos mais generosos: antes ~320px cortava demais e o cover “esmagava” a composição.
-  final capScreen = screenH * (narrow ? 0.52 : 0.46);
-  final capAbs = narrow ? 560.0 : 520.0;
+  // +80% vs tetos anteriores (pedido UX — fotos maiores no painel/módulos/site).
+  final capScreen = screenH * (narrow ? 0.78 : 0.70);
+  final capAbs = narrow ? 900.0 : 860.0;
   final maxH = math.min(capScreen, capAbs);
-  return idealH.clamp(188.0, maxH);
+  return idealH.clamp(300.0, maxH);
 }
 
-/// Faixa de mídia no feed: proporção ~4:5 (estilo Instagram), mais alta que 16:9.
+/// Faixa de mídia no feed: proporção ~4:5 (estilo Instagram), mais alta.
 class ChurchPublicConstrainedMedia extends StatelessWidget {
   final Widget child;
 
@@ -108,8 +108,8 @@ class ChurchPublicConstrainedMedia extends StatelessWidget {
       builder: (context, constraints) {
         final fullW = constraints.maxWidth;
         if (fullW <= 0) return const SizedBox.shrink();
-        // Área mais alta para pôsteres/eventos: mídia com [BoxFit.contain] no filho.
-        final targetH = (fullW * 5 / 4).clamp(200.0, 560.0);
+        // +80% vs clamp(200, 560) anterior.
+        final targetH = (fullW * 5 / 4 * 1.8).clamp(360.0, 980.0);
         return SizedBox(
           width: fullW,
           height: targetH,

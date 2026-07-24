@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -205,6 +206,9 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
       final filtered =
           r.docs.where((d) {
             final m = d.data();
+            if (fid.isEmpty) {
+              return (m['fornecedorId'] ?? '').toString().trim().isNotEmpty;
+            }
             return (m['fornecedorId'] ?? '').toString().trim() == fid;
           }).toList()..sort((a, b) {
             final da = financeLancamentoDate(a.data());
@@ -214,16 +218,17 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
             return db.compareTo(da);
           });
       if (!mounted) return;
-      final saldoBancos = await fornecedorFinanceLoadSaldoBancos(
-        tid,
-        forceRefresh: force,
-      );
-      if (!mounted) return;
       setState(() {
         _docs = filtered;
-        _saldoBancos = saldoBancos;
         _loading = false;
       });
+      try {
+        final saldoBancos = await fornecedorFinanceLoadSaldoBancos(
+          tid,
+          forceRefresh: force,
+        );
+        if (mounted) setState(() => _saldoBancos = saldoBancos);
+      } catch (_) {}
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -683,34 +688,43 @@ class _FornecedoresFinanceModuloTabState
     setState(() => _loading = _finance.isEmpty);
     try {
       final tid = ChurchRepository.churchId(widget.tenantId);
-      final fn = await ChurchFornecedoresLoadService.load(
-        seedTenantId: tid,
-        limit: 200,
-        forceRefresh: force,
-      );
       final nomes = <String, String>{};
-      for (final d in fn.docs) {
-        nomes[d.id] = (d.data()['nome'] ?? d.id).toString();
+      // Nomes instantâneos (RAM) — não bloqueia lançamentos.
+      final ram = ChurchFornecedoresLoadService.peekRamAny(tid);
+      if (ram != null) {
+        for (final d in ram) {
+          nomes[d.id] = (d.data()['nome'] ?? d.id).toString();
+        }
       }
-      final fin = await ChurchFinanceLoadService.loadLancamentos(
+
+      final finFuture = ChurchFinanceLoadService.loadLancamentos(
         seedTenantId: tid,
         limit: YahwehPerformanceV4.financeChartsSampleLimit,
         forceRefresh: force,
-      );
-      final contas = await ChurchFinanceLoadService.loadContas(
+        forceServer: force,
+      ).timeout(PanelResilientLoad.queryCap);
+
+      final contasFuture = ChurchFinanceLoadService.loadContas(
         seedTenantId: tid,
         forceRefresh: force,
+      ).timeout(PanelResilientLoad.queryCap);
+
+      // Cadastros em paralelo; UI não espera isto para sair do skeleton.
+      final fnFuture = ChurchFornecedoresLoadService.load(
+        seedTenantId: tid,
+        limit: 200,
+        forceRefresh: force,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 10) : PanelResilientLoad.queryCap,
+        onTimeout: () => ChurchFornecedoresLoadResult(
+          churchId: tid,
+          docs: const [],
+          readSource: 'timeout',
+          collectionPath: 'fornecedores',
+        ),
       );
-      final contaIds = contas.docs
-          .map((d) => d.id)
-          .where((id) => id.trim().isNotEmpty)
-          .toSet();
-      final saldoMap = financeSaldoPorContaAteInclusive(
-        contaIdsAtivas: contaIds,
-        lancamentos: fin.docs.map((d) => d.data()),
-        ateInclusive: DateTime.now(),
-      );
-      final saldoBancos = saldoMap.values.fold<double>(0, (a, b) => a + b);
+
+      final fin = await finFuture;
       final linked = fin.docs
           .where(
             (d) =>
@@ -725,13 +739,37 @@ class _FornecedoresFinanceModuloTabState
           nomes.putIfAbsent(fid, () => n);
         }
       }
+
       if (!mounted) return;
+      // 1.ª pintura: lançamentos já bastam (utilizador disse que estão ok).
       setState(() {
-        _nomes = nomes;
+        _nomes = Map<String, String>.from(nomes);
         _finance = linked;
-        _saldoBancos = saldoBancos;
         _loading = false;
       });
+
+      try {
+        final contas = await contasFuture;
+        final contaIds = contas.docs
+            .map((d) => d.id)
+            .where((id) => id.trim().isNotEmpty)
+            .toSet();
+        final saldoMap = financeSaldoPorContaAteInclusive(
+          contaIdsAtivas: contaIds,
+          lancamentos: fin.docs.map((d) => d.data()),
+          ateInclusive: DateTime.now(),
+        );
+        final saldoBancos = saldoMap.values.fold<double>(0, (a, b) => a + b);
+        if (mounted) setState(() => _saldoBancos = saldoBancos);
+      } catch (_) {}
+
+      try {
+        final fn = await fnFuture;
+        for (final d in fn.docs) {
+          nomes[d.id] = (d.data()['nome'] ?? d.id).toString();
+        }
+        if (mounted) setState(() => _nomes = Map<String, String>.from(nomes));
+      } catch (_) {}
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -1159,7 +1197,7 @@ class _TopFornecedoresChart extends StatelessWidget {
         PieChartSectionData(
           value: rows[i].valor <= 0 ? 0.001 : rows[i].valor,
           color: _palette[i % _palette.length],
-          radius: 46,
+          radius: 48,
           title: pct >= 8 ? '${pct.toStringAsFixed(0)}%' : '',
           titleStyle: const TextStyle(
             fontSize: 10,
@@ -1234,29 +1272,72 @@ class _TopFornecedoresChart extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: const Color(0xFFE8EEF4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Top despesas por fornecedor',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDC2626).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.insights_rounded,
+                  color: Color(0xFFDC2626),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text(
+                  'Top despesas por fornecedor',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            money.format(total),
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.4,
+              color: Color(0xFFDC2626),
+            ),
+          ),
+          Text(
+            'Total no período',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
           ),
           const SizedBox(height: 14),
           LayoutBuilder(
             builder: (context, constraints) {
               final chart = SizedBox(
-                width: 140,
-                height: 140,
+                width: 148,
+                height: 148,
                 child: PieChart(
                   PieChartData(
                     sectionsSpace: 2,
-                    centerSpaceRadius: 30,
+                    centerSpaceRadius: 40,
+                    startDegreeOffset: -90,
                     sections: sections,
                   ),
+                  duration: const Duration(milliseconds: 450),
                 ),
               );
               if (constraints.maxWidth < 500) {
@@ -1303,6 +1384,20 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
   final bool saldoNegativo;
   final VoidCallback onTap;
 
+  static String _iniciais(String nome) {
+    final parts = nome
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'F';
+    if (parts.length == 1) {
+      final s = parts.first;
+      return (s.length >= 2 ? s.substring(0, 2) : s).toUpperCase();
+    }
+    return ('${parts.first[0]}${parts[1][0]}').toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final saldoColor = saldoNegativo
@@ -1345,6 +1440,7 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                   Container(
                     width: 42,
                     height: 42,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -1363,10 +1459,14 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Icon(
-                      Icons.storefront_rounded,
-                      color: Colors.white,
-                      size: 21,
+                    child: Text(
+                      _iniciais(nome),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        letterSpacing: -0.2,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 11),
@@ -2103,9 +2203,7 @@ class _FornecedorLancamentoCtCard extends StatelessWidget {
         ? const Color(0xFF6366F1)
         : (isSaida ? const Color(0xFFDC2626) : const Color(0xFF15803D));
     final hasComp = FinanceComprovanteAttachService.hasComprovanteReady(m);
-    final compEnviando = FinanceComprovanteAttachService.isComprovanteUploading(
-      m,
-    );
+    // Upload CT = silencioso (sem spinner/faixa %).
     final pendente = isSaida
         ? financeLancamentoPendentePagamento(m)
         : financeLancamentoPendenteRecebimento(m);
@@ -2302,16 +2400,7 @@ class _FornecedorLancamentoCtCard extends StatelessWidget {
                           onTap: onRemoverComprovante,
                           tooltip: 'Remover comprovante',
                         ),
-                      ] else if (compEnviando)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 6),
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      else
+                      ] else
                         FinancePremiumIconAction(
                           icon: Icons.visibility_rounded,
                           color: Colors.grey.shade400,
@@ -2319,24 +2408,14 @@ class _FornecedorLancamentoCtCard extends StatelessWidget {
                           tooltip: 'Sem comprovante',
                         ),
                       FinancePremiumIconAction(
-                        icon: hasComp || compEnviando
+                        icon: hasComp
                             ? Icons.sync_rounded
                             : Icons.photo_camera_rounded,
                         color: const Color(0xFF7C3AED),
-                        tooltip: hasComp || compEnviando
+                        tooltip: hasComp
                             ? 'Trocar comprovante'
                             : 'Anexar comprovante',
-                        onTap: compEnviando
-                            ? () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Comprovante ainda sincronizando…',
-                                    ),
-                                  ),
-                                );
-                              }
-                            : onComprovante,
+                        onTap: onComprovante,
                       ),
                     ],
                   ),

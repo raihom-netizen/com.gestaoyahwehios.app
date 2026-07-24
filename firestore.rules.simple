@@ -1,0 +1,17 @@
+rules_version = '2';
+// BRIDGE TEMPORARIO — aquecer firebaserules API (POST pequeno).
+// Preferir regras autenticadas (NAO deny-all) para nao derrubar producao se a etapa completa falhar.
+// Fluxo: publicar ESTE → em seguida firestore.rules completo.
+// Memoria: .cursor/rules/firestore-rules-publicar-duas-etapas.mdc
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    // Bridge minimo: autenticados leem/escrevem; anonimo bloqueado.
+    // A completa substitui imediatamente com o modelo igrejas/{churchId}.
+    match /{document=**} {
+      allow read, write: if signedIn();
+    }
+  }
+}

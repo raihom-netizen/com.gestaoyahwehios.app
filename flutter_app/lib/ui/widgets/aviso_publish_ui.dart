@@ -18,6 +18,117 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 abstract final class EcofirePublishProgressUi {
   EcofirePublishProgressUi._();
 
+  /// Publicação silenciosa (padrão Controle Total): fecha o editor na hora,
+  /// upload em background **sem** faixa de %, e snack de sucesso **só depois**
+  /// da gravação (evita «publicou» com Feed/painel ainda vazios).
+  static Future<T> runSilentControleTotal<T>({
+    required BuildContext context,
+    required String successMessage,
+    required VoidCallback closeEditor,
+    required Future<T> Function(void Function(double progress)) action,
+    String Function(Object error)? formatError,
+    VoidCallback? onPublishSucceeded,
+  }) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    var editorClosed = false;
+
+    void closeOnce() {
+      if (editorClosed) return;
+      editorClosed = true;
+      closeEditor();
+    }
+
+    void reportProgress(double _) {}
+
+    try {
+      closeOnce();
+      var gateSoftOffline = false;
+      try {
+        await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
+      } catch (gateErr) {
+        if (EcoFireResilientPublish.shouldQueueFeedPublish(gateErr)) {
+          gateSoftOffline = true;
+          if (kDebugMode) {
+            debugPrint('publish_gate_soft_offline_silent: $gateErr');
+          }
+        } else {
+          rethrow;
+        }
+      }
+      final result =
+          await _runPublishActionWithNoAppRetry(action, reportProgress);
+      messenger?.showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          gateSoftOffline ? kFeedPublishQueuedUserMessage : successMessage,
+        ),
+      );
+      onPublishSucceeded?.call();
+      return result;
+    } catch (e) {
+      if (EcoFireResilientPublish.isQueuedSuccess(e)) {
+        closeOnce();
+        messenger?.showSnackBar(
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+        );
+        onPublishSucceeded?.call();
+        rethrow;
+      }
+      final msg = formatError?.call(e) ?? formatUploadErrorForUser(e);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Tentar novamente',
+            textColor: Colors.white,
+            onPressed: () {
+              unawaited(
+                _retryPublishOnlySilent(
+                  messenger: messenger,
+                  successMessage: successMessage,
+                  action: action,
+                  formatError: formatError,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  static Future<void> _retryPublishOnlySilent<T>({
+    required ScaffoldMessengerState? messenger,
+    required String successMessage,
+    required Future<T> Function(void Function(double progress)) action,
+    String Function(Object error)? formatError,
+  }) async {
+    try {
+      await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
+      await _runPublishActionWithNoAppRetry(action, (_) {});
+      messenger?.showSnackBar(
+        ThemeCleanPremium.successSnackBar(successMessage),
+      );
+    } catch (e) {
+      if (EcoFireResilientPublish.isQueuedSuccess(e)) {
+        messenger?.showSnackBar(
+          ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+        );
+        return;
+      }
+      final msg = formatError?.call(e) ?? formatUploadErrorForUser(e);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   /// Publicação estilo WhatsApp: garante Firebase → fecha editor → barra global.
   static Future<T> runInBackgroundNonBlocking<T>({
     required BuildContext context,

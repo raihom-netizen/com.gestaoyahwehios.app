@@ -172,12 +172,7 @@ abstract final class MemberCardLoadService {
               maxAttempts: kIsWeb ? 4 : 2,
               attemptTimeout: _attempt,
             );
-        final snap = kIsWeb
-            ? await FirestoreWebGuard.runWithWebRecovery(
-                read,
-                maxAttempts: 4,
-              )
-            : await read();
+        final snap = await read();
         if (snap.exists) {
           tenant = Map<String, dynamic>.from(snap.data() ?? {})
             ..['id'] = igrejaDocId;
@@ -227,9 +222,7 @@ abstract final class MemberCardLoadService {
               maxAttempts: kIsWeb ? 4 : 2,
               attemptTimeout: _attempt,
             );
-        final snap = kIsWeb
-            ? await FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 4)
-            : await read();
+        final snap = await read();
         if (snap.exists) return snap;
       } catch (_) {}
       return null;
@@ -263,12 +256,7 @@ abstract final class MemberCardLoadService {
               .where('authUid', isEqualTo: uid)
               .limit(1)
               .get(const GetOptions(source: Source.serverAndCache));
-          final live = kIsWeb
-              ? await FirestoreWebGuard.runWithWebRecovery(
-                  read,
-                  maxAttempts: 4,
-                ).timeout(_queryCap)
-              : await read().timeout(_queryCap);
+          final live = await read().timeout(_queryCap);
           if (live.docs.isNotEmpty) {
             final d = live.docs.first;
             return (id: d.id, data: d.data());

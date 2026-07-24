@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
+import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -51,6 +52,10 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
   /// lançamentos no Financeiro ou em Fornecedores.
   final Stream<QuerySnapshot<Map<String, dynamic>>>? financeStream;
 
+  /// Incrementa em [ChurchFinanceRealtimeService.mutationEpoch] — recarrega saldos
+  /// automaticamente após lançar (padrão Controle Total).
+  final int financeRefreshTick;
+
   const ChurchMinistryHealthPanel({
     super.key,
     required this.tenantId,
@@ -60,6 +65,7 @@ class ChurchMinistryHealthPanel extends StatefulWidget {
     required this.financePeriodRange,
     required this.financePeriodPreset,
     this.financeStream,
+    this.financeRefreshTick = 0,
     this.onNavigateToMembers,
     this.onRefreshDashboard,
     this.deferFinanceBlock = false,
@@ -114,6 +120,12 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       _load();
       return;
     }
+    if (oldWidget.financeRefreshTick != widget.financeRefreshTick &&
+        widget.canViewFinance) {
+      // Lançamento novo (Financeiro/Fornecedores) — saldos ao vivo.
+      unawaited(_reloadFinanceAfterMutation());
+      return;
+    }
     if (oldWidget.financeStream != widget.financeStream) {
       if (widget.canViewFinance && widget.financeStream != null) {
         if (_cachedChurchData != null) {
@@ -142,6 +154,30 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       _load();
     }
   }
+
+  /// Recarrega lançamentos/contas após mutação — sem esperar F5.
+  Future<void> _reloadFinanceAfterMutation() async {
+    if (!widget.canViewFinance) return;
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final fin = await ChurchFinanceRealtimeService.fetchFinanceFresh(
+        tid,
+        limit: ChurchDashboardQueryLimits.financeLedgerSnapshotMax,
+      );
+      final contas = await ChurchFinanceRealtimeService.fetchContasFresh(tid);
+      if (!mounted) return;
+      _mergeFinanceIntoState(fin.docs);
+      setState(() {
+        _contasDocs = contas.docs;
+      });
+    } catch (_) {
+      if (mounted) unawaited(_load());
+    }
+  }
+
+  /// API pública — dashboard pode forçar refresh dos saldos.
+  Future<void> reloadFinanceFresh() => _reloadFinanceAfterMutation();
 
   void _recomputeIntelOnly() {
     if (!widget.canViewFinance || _financeAllDocs.isEmpty) return;
@@ -665,7 +701,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
 
     final desc =
-        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Em cada faixa, escolha YahwehChat ou WhatsApp.';
+        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Em cada faixa, escolha Yahweh Chat ou WhatsApp.';
 
     if (kIsWeb) {
       await showDialog<void>(

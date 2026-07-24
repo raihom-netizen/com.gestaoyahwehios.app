@@ -76,7 +76,7 @@ const _kSistemaModulosResumo = <_SistemaModuloResumo>[
   ),
   _SistemaModuloResumo(
     shellIndex: ChurchShellIndices.chatIgreja,
-    description: 'Conversas internas, grupos e mídia em tempo real',
+    description: 'Yahweh Chat — conversas, grupos por departamento e canais',
   ),
   _SistemaModuloResumo(
     shellIndex: ChurchShellIndices.configuracoes,

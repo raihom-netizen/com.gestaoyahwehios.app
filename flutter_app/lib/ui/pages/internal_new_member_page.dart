@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -768,24 +769,13 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                           child: TextFormField(
                             controller: _phoneCtrl,
                             keyboardType: TextInputType.phone,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(15),
-                              TextInputFormatter.withFunction(
-                                (oldValue, newValue) {
-                                  final masked = memberSignupFormatPhoneMask(
-                                      newValue.text);
-                                  return TextEditingValue(
-                                    text: masked,
-                                    selection: TextSelection.collapsed(
-                                        offset: masked.length),
-                                  );
-                                },
-                              ),
+                            inputFormatters: const [
+                              BrPhoneInputFormatter(),
                             ],
                             decoration: memberSignupInputDecoration(
                               label: 'Telefone',
                               icon: Icons.phone_rounded,
+                              hint: '62 9.9170-5247',
                             ),
                             validator: _req,
                           ),

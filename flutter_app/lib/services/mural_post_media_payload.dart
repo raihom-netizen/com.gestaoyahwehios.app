@@ -173,41 +173,39 @@ abstract final class MuralPostMediaPayload {
     bool allowDeleteSentinels = true,
     Map<String, dynamic>? imageVariants,
   }) {
-    final firstUrl = allUrls.isNotEmpty ? allUrls[0] : '';
+    final urls = allUrls
+        .map((u) => sanitizeImageUrl(u.trim()))
+        .where((u) => u.isNotEmpty)
+        .toList();
+    final firstUrl = urls.isNotEmpty ? urls[0] : '';
     final patch = <String, dynamic>{};
-    patch['imageUrl'] = firstUrl;
-    patch['imageUrls'] = allUrls;
-    patch['defaultImageUrl'] = firstUrl;
-    if (firstUrl.isNotEmpty) {
+    if (urls.isNotEmpty) {
+      patch['imageUrl'] = firstUrl;
+      patch['imageUrls'] = urls;
+      patch['defaultImageUrl'] = firstUrl;
       patch['imagemUrl'] = firstUrl;
       patch['imagem_url'] = firstUrl;
-    } else if (allowDeleteSentinels) {
-      patch['imagemUrl'] = FieldValue.delete();
-      patch['imagem_url'] = FieldValue.delete();
-    }
-    if (imageVariants != null && imageVariants.isNotEmpty) {
-      patch['imageVariants'] = imageVariants;
-    }
-    if (allUrls.isNotEmpty) {
       patch['media_info'] = <String, dynamic>{
         'url_original': firstUrl,
         'aspect_ratio': aspectRatio,
         'tipo': hasVideo ? 'video' : 'image',
       };
-    } else if (allowDeleteSentinels) {
-      patch['media_info'] = FieldValue.delete();
-    }
-    if (allUrls.isEmpty) {
-      if (allowDeleteSentinels) {
-        patch['imageStoragePath'] = FieldValue.delete();
-        patch['imageStoragePaths'] = FieldValue.delete();
-      }
-    } else {
-      final paths = _pathsFromImageUrls(allUrls);
+      final paths = _pathsFromImageUrls(urls);
       if (paths != null && paths.isNotEmpty) {
         patch['imageStoragePath'] = paths.first;
         patch['imageStoragePaths'] = paths;
       }
+    } else {
+      // Path-only (getDownloadURL soft-fail): NÃO gravar imageUrl/imageUrls vazios
+      // (apagavam refs e escondiam a foto no painel/site). Paths ficam em
+      // buildStoragePathOnlyFields; limpeza de mídia = paths vazios lá.
+      if (allowDeleteSentinels) {
+        patch['imagemUrl'] = FieldValue.delete();
+        patch['imagem_url'] = FieldValue.delete();
+      }
+    }
+    if (imageVariants != null && imageVariants.isNotEmpty) {
+      patch['imageVariants'] = imageVariants;
     }
     return patch;
   }

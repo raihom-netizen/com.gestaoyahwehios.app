@@ -48,7 +48,7 @@ abstract final class MemberProfilePhotoResolver {
       final full = MemberProfileVariantsService.profilePhotoUrl(data);
       if (full != null && full.isNotEmpty) return full;
 
-      final mapUrl = imageUrlFromMap(data);
+      final mapUrl = _memberOnlyImageUrlFromMap(data);
       return mapUrl.isEmpty ? null : mapUrl;
     }
 
@@ -62,8 +62,23 @@ abstract final class MemberProfilePhotoResolver {
     final full = MemberProfileVariantsService.profilePhotoUrl(data);
     if (full != null && full.isNotEmpty) return full;
 
-    final mapUrl = imageUrlFromMap(data);
+    final mapUrl = _memberOnlyImageUrlFromMap(data);
     return mapUrl.isEmpty ? null : mapUrl;
+  }
+
+  /// Nunca usar logo/banner da igreja como foto do membro (carteirinha / painel).
+  static String _memberOnlyImageUrlFromMap(Map<String, dynamic> data) {
+    final filtered = Map<String, dynamic>.from(data)
+      ..remove('logoUrl')
+      ..remove('logo_url')
+      ..remove('logo')
+      ..remove('logoProcessedUrl')
+      ..remove('logoProcessed')
+      ..remove('bannerUrl')
+      ..remove('capaUrl')
+      ..remove('churchLogoUrl')
+      ..remove('_carteiraLogoStoragePath');
+    return imageUrlFromMap(filtered);
   }
 
   static String? _tenantIdFromData(Map<String, dynamic> data) {

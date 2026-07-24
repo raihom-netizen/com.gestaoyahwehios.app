@@ -48,6 +48,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_public_site_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
@@ -1301,16 +1302,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
-        if (photoStoragePathField != null &&
-            photoUrlField != null &&
-            photoStoragePathField.isNotEmpty &&
-            photoUrlField.isNotEmpty)
+        // Path no Storage basta — URL pode vir vazia (timeout getDownloadURL).
+        // A CF resolve a URL com Admin SDK se necessário.
+        if (photoStoragePathField != null && photoStoragePathField.isNotEmpty)
           ...ChurchCanonicalMediaPublish.memberProfileFields(
-            downloadUrl: photoUrlField,
+            downloadUrl: photoUrlField ?? '',
             storagePath: photoStoragePathField,
             thumbStoragePath: photoStoragePathField,
           ),
         'PUBLIC_SIGNUP': true,
+        'publicSignup': true,
         'STATUS': 'pendente',
         'status': 'pendente',
         'role': 'membro',
@@ -1697,23 +1698,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           child: TextFormField(
                             controller: _phoneCtrl,
                             keyboardType: TextInputType.phone,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(11),
-                              TextInputFormatter.withFunction(
-                                  (oldValue, newValue) {
-                                final masked = memberSignupFormatPhoneMask(newValue.text);
-                                return TextEditingValue(
-                                  text: masked,
-                                  selection: TextSelection.collapsed(
-                                      offset: masked.length),
-                                );
-                              }),
+                            inputFormatters: const [
+                              BrPhoneInputFormatter(),
                             ],
                             decoration: _signInput(
                                 label: 'Telefone',
                                 icon: Icons.phone_rounded,
-                                hint: 'Opcional'),
+                                hint: '62 9.9170-5247'),
                           ),
                         ),
                       ],

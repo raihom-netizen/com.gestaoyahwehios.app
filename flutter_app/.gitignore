@@ -67,9 +67,20 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.local
+.env.*.local
+!.env.example
 
 # dataconnect generated files
 .dataconnect
 
 # Dart obfuscation symbols (flutter build appbundle --obfuscate --split-debug-info=./debug-info)
 debug-info/
+
+# TDLib nativos (gerados por tool/download_tdlib.dart — ~40MB+ por ABI)
+android/app/src/main/jniLibs/
+ios/Frameworks/libtdjson.xcframework/
+ios/Frameworks/libtdjson-static.xcframework/
+ios/Frameworks/YahwehTdjsonStatic.podspec
+ios/Frameworks/TDLIB_README.txt
+android/local-maven/io/github/up9cloud/td/

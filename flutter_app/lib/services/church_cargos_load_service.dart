@@ -157,17 +157,14 @@ abstract final class ChurchCargosLoadService {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      return FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchModuleFirestoreListRead.queryPlainFirst(
-          reference: ref,
-          cacheKey: '${key}_$suffix',
-          limit: limit,
-          forceServer: forceServer,
-          orderByField: 'order',
-          orderDescending: false,
-          sortDocs: _sortDocs,
-        ),
-        maxAttempts: 4,
+      return ChurchModuleFirestoreListRead.queryPlainFirst(
+        reference: ref,
+        cacheKey: '${key}_$suffix',
+        limit: limit,
+        forceServer: forceServer,
+        orderByField: 'order',
+        orderDescending: false,
+        sortDocs: _sortDocs,
       );
     }
 
@@ -249,12 +246,10 @@ abstract final class ChurchCargosLoadService {
         if (kIsWeb) {
           await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
         }
-        final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
-          () => ChurchUiCollections.cargos(churchId)
-              .limit(kLimit)
-              .get(const GetOptions(source: Source.cache)),
-          maxAttempts: 3,
-        ).timeout(const Duration(seconds: 3));
+        final cacheSnap = await ChurchUiCollections.cargos(churchId)
+            .limit(kLimit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
           final docs = _sortDocs(cacheSnap.docs);
           putRam(churchId, docs);
@@ -431,12 +426,10 @@ abstract final class ChurchCargosLoadService {
     final cid = ChurchRepository.churchId(churchId.trim());
     if (cid.isEmpty) return;
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchUiCollections.cargos(cid)
-            .limit(kLimit)
-            .get(const GetOptions(source: Source.cache)),
-        maxAttempts: 2,
-      ).timeout(const Duration(seconds: 4));
+      final snap = await ChurchUiCollections.cargos(cid)
+          .limit(kLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
       if (snap.docs.isEmpty) return;
       putRam(cid, _sortDocs(snap.docs));
     } catch (_) {}
@@ -455,10 +448,9 @@ abstract final class ChurchCargosLoadService {
     final ref = ChurchUiCollections.cargos(cid).doc(id);
     await _prepareWrite();
     try {
-      final existing = await FirestoreWebGuard.runWithWebRecovery(
-        () => ref.get(const GetOptions(source: Source.cache)),
-        maxAttempts: 2,
-      ).timeout(const Duration(seconds: 3));
+      final existing = await ref
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
       if (existing.exists) {
         throw StateError('Já existe um cargo com a chave «$id».');
       }

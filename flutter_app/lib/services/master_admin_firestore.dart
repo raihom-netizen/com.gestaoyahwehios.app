@@ -31,17 +31,24 @@ abstract final class MasterAdminFirestore {
   static Future<QuerySnapshot<Map<String, dynamic>>> query(
     Query<Map<String, dynamic>> q, {
     required String cacheKey,
-    int maxAttempts = 5,
+    int maxAttempts = 3,
   }) async {
     await ensureReady();
-    return FirestoreWebGuard.runWithWebRecovery(
-      () => FirestoreReadResilience.getQuery(
+    // Sem runWithWebRecovery — getQuery já recupera; duplo retry piora assert Web.
+    try {
+      return await FirestoreReadResilience.getQuery(
         q,
         cacheKey: cacheKey,
-        maxAttempts: maxAttempts,
-      ),
-      maxAttempts: 3,
-    );
+        maxAttempts: maxAttempts.clamp(1, 3),
+      );
+    } catch (e) {
+      if (FirestoreWebGuard.isTransientPanelReadError(e)) {
+        final mem = FirestoreReadResilience.peekLastGoodQuery(cacheKey);
+        if (mem != null) return mem;
+        return const MergedFirestoreQuerySnapshot([]);
+      }
+      rethrow;
+    }
   }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> document(
@@ -50,25 +57,21 @@ abstract final class MasterAdminFirestore {
     Source source = Source.serverAndCache,
   }) async {
     await ensureReady();
-    return FirestoreWebGuard.runWithWebRecovery(
-      () async {
-        try {
-          return await ref
-              .get(GetOptions(source: source))
-              .timeout(const Duration(seconds: 18));
-        } catch (e) {
-          if (FirestoreWebGuard.isInternalAssertionError(e) ||
-              FirestoreWebGuard.isClientTerminated(e)) {
-            return FirestoreReadResilience.getDocument(
-              ref,
-              cacheKey: cacheKey,
-            );
-          }
-          rethrow;
-        }
-      },
-      maxAttempts: 3,
-    );
+    try {
+      return await ref
+          .get(GetOptions(source: source))
+          .timeout(const Duration(seconds: 18));
+    } catch (e) {
+      if (FirestoreWebGuard.isInternalAssertionError(e) ||
+          FirestoreWebGuard.isClientTerminated(e) ||
+          FirestoreWebGuard.isTransientPanelReadError(e)) {
+        return FirestoreReadResilience.getDocument(
+          ref,
+          cacheKey: cacheKey,
+        );
+      }
+      rethrow;
+    }
   }
 
   static Future<T> write<T>(Future<T> Function() fn) async {

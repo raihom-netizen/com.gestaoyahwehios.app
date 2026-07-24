@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart'
@@ -152,17 +153,21 @@ class VideoHandlerService implements IVideoHandlerService {
       );
 
       String thumbUrl = '';
-      if (!_isIosNative) {
-        final thumbFile = await MediaService.getVideoThumbnail(compressed);
+      // Miniatura estilo Instagram/YouTube — Android + iOS (falha não bloqueia o vídeo).
+      try {
+        final thumbFile = await MediaService.getVideoThumbnail(compressed)
+            .timeout(const Duration(seconds: 20), onTimeout: () => null);
         if (thumbFile != null && thumbFile.existsSync()) {
           final thumbBytes = await thumbFile.readAsBytes();
-          thumbUrl = await EcoFireStorageUpload.putData(
-            storagePath: thumbPath,
-            bytes: thumbBytes,
-            mimeType: 'image/jpeg',
-          );
+          if (thumbBytes.isNotEmpty) {
+            thumbUrl = await EcoFireStorageUpload.putData(
+              storagePath: thumbPath,
+              bytes: thumbBytes,
+              mimeType: 'image/jpeg',
+            );
+          }
         }
-      }
+      } catch (_) {}
 
       return VideoUploadResult(
         videoUrl: videoUrl,

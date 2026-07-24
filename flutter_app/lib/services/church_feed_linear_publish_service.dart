@@ -441,6 +441,16 @@ abstract final class ChurchFeedLinearPublishService {
       payload['defaultImageUrl'] = first;
       payload['imagemUrl'] = first;
       payload['imagem_url'] = first;
+    } else if (allPaths.isNotEmpty) {
+      // Sem https (token/getDownloadURL falhou): gravar paths como refs de mídia
+      // para painel, módulo e site público resolverem via Storage.
+      final first = allPaths.first;
+      payload['fotos'] = allPaths;
+      payload['imageUrl'] = first;
+      payload['imageUrls'] = allPaths;
+      payload['defaultImageUrl'] = first;
+      payload['imagemUrl'] = first;
+      payload['imagem_url'] = first;
     }
     payload['ativo'] = true;
     payload['publicado'] = true;

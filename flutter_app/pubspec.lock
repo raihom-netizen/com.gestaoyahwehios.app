@@ -670,6 +670,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.0"
+  flutter_dotenv:
+    dependency: "direct main"
+    description:
+      name: flutter_dotenv
+      sha256: d41da11fb497314fbf89811ec30af02d1d898b47980a129f0a8c0a1720460ba2
+      url: "https://pub.dev"
+    source: hosted
+    version: "6.0.1"
   flutter_image_compress:
     dependency: "direct main"
     description:
@@ -1389,6 +1397,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.2"
+  libtdjson:
+    dependency: "direct main"
+    description:
+      name: libtdjson
+      sha256: df06af830da4f26d5b3e7fc6f380765c5b55f0d8eee0640c6d81aab40e1c9d5d
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.0"
   linkify:
     dependency: transitive
     description:
@@ -2443,7 +2459,7 @@ packages:
     source: hosted
     version: "4.13.1"
   webview_flutter_android:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: webview_flutter_android
       sha256: a97db7a44f8e71af2f3971c45550a08cce1fb60059c1b8e534251e6cfb753490
@@ -2459,7 +2475,7 @@ packages:
     source: hosted
     version: "2.15.1"
   webview_flutter_wkwebview:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: webview_flutter_wkwebview
       sha256: c879dd64b87c452aa84381b244d5469da57ba7e8cca6884c7b1e0d406372c12d

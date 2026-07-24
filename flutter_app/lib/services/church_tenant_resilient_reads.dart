@@ -236,33 +236,32 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _avisosFeedQueryResilient(
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final avisosCol = ChurchUiCollections.avisos(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            avisosCol
-                .where('ativo', isEqualTo: true)
-                .where('publicado', isEqualTo: true)
-                .orderBy('createdAt', descending: true)
-                .limit(limit),
-            cacheKey: _key(tenantId, 'avisos_feed_pub_$limit'),
-          );
-        } catch (_) {
-          try {
-            return await FirestoreReadResilience.getQuery(
-              avisosCol.orderBy('createdAt', descending: true).limit(limit),
-              cacheKey: _key(tenantId, 'avisos_feed_$limit'),
-            );
-          } catch (_) {
-            final plain = await FirestoreReadResilience.getQuery(
-              avisosCol.limit(limit),
-              cacheKey: _key(tenantId, 'avisos_plain_$limit'),
-            );
-            return _sortAvisosSnapshot(plain);
-          }
-        }
-      });
+  }) async {
+    final avisosCol = ChurchUiCollections.avisos(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        avisosCol
+            .where('ativo', isEqualTo: true)
+            .where('publicado', isEqualTo: true)
+            .orderBy('createdAt', descending: true)
+            .limit(limit),
+        cacheKey: _key(tenantId, 'avisos_feed_pub_$limit'),
+      );
+    } catch (_) {
+      try {
+        return await FirestoreReadResilience.getQuery(
+          avisosCol.orderBy('createdAt', descending: true).limit(limit),
+          cacheKey: _key(tenantId, 'avisos_feed_$limit'),
+        );
+      } catch (_) {
+        final plain = await FirestoreReadResilience.getQuery(
+          avisosCol.limit(limit),
+          cacheKey: _key(tenantId, 'avisos_plain_$limit'),
+        );
+        return _sortAvisosSnapshot(plain);
+      }
+    }
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> noticiasByStartAt(
     String tenantId, {
@@ -301,46 +300,45 @@ abstract final class ChurchTenantResilientReads {
       _noticiasByStartAtQueryResilient(
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
+  }) async {
+    final church = _church(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        church
+            .collection('eventos')
+            .where('ativo', isEqualTo: true)
+            .where('publicado', isEqualTo: true)
+            .orderBy('startAt', descending: true)
+            .limit(limit),
+        cacheKey: _key(tenantId, 'noticias_start_pub_$limit'),
+      );
+    } catch (_) {
+      try {
+        return await FirestoreReadResilience.getQuery(
+          church
+              .collection('eventos')
+              .orderBy('startAt', descending: true)
+              .limit(limit),
+          cacheKey: _key(tenantId, 'noticias_start_$limit'),
+        );
+      } catch (_) {
         try {
           return await FirestoreReadResilience.getQuery(
             church
-                .collection('eventos')
-                .where('ativo', isEqualTo: true)
-                .where('publicado', isEqualTo: true)
+                .collection('events')
                 .orderBy('startAt', descending: true)
                 .limit(limit),
-            cacheKey: _key(tenantId, 'noticias_start_pub_$limit'),
+            cacheKey: _key(tenantId, 'noticias_start_events_en_$limit'),
           );
-        } catch (_) {
-          try {
-            return await FirestoreReadResilience.getQuery(
-              church
-                  .collection('eventos')
-                  .orderBy('startAt', descending: true)
-                  .limit(limit),
-              cacheKey: _key(tenantId, 'noticias_start_$limit'),
-            );
-          } catch (_) {
-            try {
-              return await FirestoreReadResilience.getQuery(
-                church
-                    .collection('events')
-                    .orderBy('startAt', descending: true)
-                    .limit(limit),
-                cacheKey: _key(tenantId, 'noticias_start_events_en_$limit'),
-              );
-            } catch (_) {}
-            final plain = await FirestoreReadResilience.getQuery(
-              church.collection('eventos').limit(limit),
-              cacheKey: _key(tenantId, 'noticias_plain_$limit'),
-            );
-            return _sortNoticiasByStartAtSnapshot(plain);
-          }
-        }
-      });
+        } catch (_) {}
+        final plain = await FirestoreReadResilience.getQuery(
+          church.collection('eventos').limit(limit),
+          cacheKey: _key(tenantId, 'noticias_plain_$limit'),
+        );
+        return _sortNoticiasByStartAtSnapshot(plain);
+      }
+    }
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> eventCategories(
     String tenantIdHint, {
@@ -373,17 +371,17 @@ abstract final class ChurchTenantResilientReads {
         tenantId: tenantId,
         module: TenantModuleKeys.agenda,
         firestoreCacheKey: _key(tenantId, 'event_templates_all'),
+        // Sem runWithWebRecovery no hot path — multiplica timeouts e gera
+        // «Sincronização com o servidor em curso» na Web (mesmo padrão Escalas).
         networkFetch: () => _queryWithSiblingFallback(
           tenantId,
-          (tid) => FirestoreWebGuard.runWithWebRecovery(
-            () => FirestoreReadResilience.getQuery(
-              _church(tid).collection('event_templates'),
-              cacheKey: _key(tid, 'event_templates_all'),
-              maxAttempts: 4,
-              attemptTimeout: kIsWeb
-                  ? const Duration(seconds: 12)
-                  : const Duration(seconds: 18),
-            ),
+          (tid) => FirestoreReadResilience.getQuery(
+            _church(tid).collection('event_templates'),
+            cacheKey: _key(tid, 'event_templates_all'),
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: kIsWeb
+                ? const Duration(seconds: 10)
+                : const Duration(seconds: 18),
           ),
         ),
       );
@@ -438,48 +436,46 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     bool? respondidaFilter,
     int limit = 300,
-  }) {
+  }) async {
     final col = _church(tenantId).collection('pedidosOracao');
     final suffix = respondidaFilter == true
         ? 'respondidas'
         : respondidaFilter == false
             ? 'pendentes'
             : 'all';
-    return FirestoreWebGuard.runWithWebRecovery(() async {
-      try {
-        late final Query<Map<String, dynamic>> q;
-        if (respondidaFilter == true) {
-          q = col
-              .where('respondida', isEqualTo: true)
-              .orderBy('createdAt', descending: true)
-              .limit(limit);
-        } else if (respondidaFilter == false) {
-          q = col
-              .where('respondida', isEqualTo: false)
-              .orderBy('createdAt', descending: true)
-              .limit(limit);
-        } else {
-          q = col.orderBy('createdAt', descending: true).limit(limit);
-        }
-        return await FirestoreReadResilience.getQuery(
-          q,
-          cacheKey: _key(tenantId, 'pedidos_oracao_$suffix'),
-        );
-      } catch (_) {
-        final plain = await FirestoreReadResilience.getQuery(
-          col.limit(limit),
-          cacheKey: _key(tenantId, 'pedidos_oracao_plain_$suffix'),
-        );
-        if (respondidaFilter == null) {
-          return _sortPedidosOracaoSnapshot(plain);
-        }
-        final filtered = plain.docs.where((d) {
-          final r = d.data()['respondida'];
-          return respondidaFilter ? r == true : r == false;
-        }).toList();
-        return _sortPedidosOracaoSnapshot(MergedFirestoreQuerySnapshot(filtered));
+    try {
+      late final Query<Map<String, dynamic>> q;
+      if (respondidaFilter == true) {
+        q = col
+            .where('respondida', isEqualTo: true)
+            .orderBy('createdAt', descending: true)
+            .limit(limit);
+      } else if (respondidaFilter == false) {
+        q = col
+            .where('respondida', isEqualTo: false)
+            .orderBy('createdAt', descending: true)
+            .limit(limit);
+      } else {
+        q = col.orderBy('createdAt', descending: true).limit(limit);
       }
-    });
+      return await FirestoreReadResilience.getQuery(
+        q,
+        cacheKey: _key(tenantId, 'pedidos_oracao_$suffix'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        col.limit(limit),
+        cacheKey: _key(tenantId, 'pedidos_oracao_plain_$suffix'),
+      );
+      if (respondidaFilter == null) {
+        return _sortPedidosOracaoSnapshot(plain);
+      }
+      final filtered = plain.docs.where((d) {
+        final r = d.data()['respondida'];
+        return respondidaFilter ? r == true : r == false;
+      }).toList();
+      return _sortPedidosOracaoSnapshot(MergedFirestoreQuerySnapshot(filtered));
+    }
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> pedidosOracaoResilient(
@@ -549,11 +545,9 @@ abstract final class ChurchTenantResilientReads {
             module: 'Departamentos',
             churchId: tid,
             path: path,
-            run: () => FirestoreWebGuard.runWithWebRecovery(
-              () => FirestoreReadResilience.getQuery(
-                _church(tid).collection('departamentos').limit(limit),
-                cacheKey: _key(tid, 'departamentos_$limit'),
-              ),
+            run: () => FirestoreReadResilience.getQuery(
+              _church(tid).collection('departamentos').limit(limit),
+              cacheKey: _key(tid, 'departamentos_$limit'),
             ),
           );
       final query = TenantStaleWhileRevalidate.loadQuery(
@@ -631,22 +625,21 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _cargosQueryResilient(
     String tenantId, {
     int limit = 120,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final cargosCol = ChurchUiCollections.cargos(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            cargosCol.orderBy('name').limit(limit),
-            cacheKey: _key(tenantId, 'cargos_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            cargosCol.limit(limit),
-            cacheKey: _key(tenantId, 'cargos_plain_$limit'),
-          );
-          return _sortCargosSnapshot(plain);
-        }
-      });
+  }) async {
+    final cargosCol = ChurchUiCollections.cargos(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        cargosCol.orderBy('name').limit(limit),
+        cacheKey: _key(tenantId, 'cargos_$limit'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        cargosCol.limit(limit),
+        cacheKey: _key(tenantId, 'cargos_plain_$limit'),
+      );
+      return _sortCargosSnapshot(plain);
+    }
+  }
 
   static DateTime? _financeCreatedAt(Map<String, dynamic> data) {
     final raw = data['createdAt'] ?? data['date'];
@@ -674,22 +667,21 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _financeQueryResilient(
     String tenantId, {
     required int limit,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final financeCol = ChurchUiCollections.financeiro(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            financeCol.orderBy('createdAt', descending: true).limit(limit),
-            cacheKey: _key(tenantId, 'finance_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            financeCol.limit(limit),
-            cacheKey: _key(tenantId, 'finance_plain_$limit'),
-          );
-          return _sortFinanceSnapshot(plain);
-        }
-      });
+  }) async {
+    final financeCol = ChurchUiCollections.financeiro(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        financeCol.orderBy('createdAt', descending: true).limit(limit),
+        cacheKey: _key(tenantId, 'finance_$limit'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        financeCol.limit(limit),
+        cacheKey: _key(tenantId, 'finance_plain_$limit'),
+      );
+      return _sortFinanceSnapshot(plain);
+    }
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> financeRecent(
     String tenantId, {
@@ -832,29 +824,28 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _contasQueryResilient(
     String tenantId, {
     int limit = 80,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            church.collection('contas').orderBy('nome').limit(limit),
-            cacheKey: _key(tenantId, 'contas_resilient_$limit'),
-            maxAttempts: 4,
-            attemptTimeout: kIsWeb
-                ? const Duration(seconds: 12)
-                : const Duration(seconds: 18),
-          );
-        } catch (_) {
-          return FirestoreReadResilience.getQuery(
-            church.collection('contas').limit(limit),
-            cacheKey: _key(tenantId, 'contas_resilient_plain_$limit'),
-            maxAttempts: 3,
-            attemptTimeout: kIsWeb
-                ? const Duration(seconds: 10)
-                : const Duration(seconds: 15),
-          );
-        }
-      });
+  }) async {
+    final church = _church(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        church.collection('contas').orderBy('nome').limit(limit),
+        cacheKey: _key(tenantId, 'contas_resilient_$limit'),
+        maxAttempts: 4,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 12)
+            : const Duration(seconds: 18),
+      );
+    } catch (_) {
+      return FirestoreReadResilience.getQuery(
+        church.collection('contas').limit(limit),
+        cacheKey: _key(tenantId, 'contas_resilient_plain_$limit'),
+        maxAttempts: 3,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 15),
+      );
+    }
+  }
 
   static bool _isMercadoPagoContaData(Map<String, dynamic> data) {
     if (data['ativo'] == false) return false;
@@ -1045,22 +1036,21 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _fornecedoresQueryResilient(
     String tenantId, {
     required int limit,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            church.collection('fornecedores').orderBy('nome').limit(limit),
-            cacheKey: _key(tenantId, 'fornecedores_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection('fornecedores').limit(limit),
-            cacheKey: _key(tenantId, 'fornecedores_plain_$limit'),
-          );
-          return _sortFornecedoresSnapshot(plain);
-        }
-      });
+  }) async {
+    final church = _church(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        church.collection('fornecedores').orderBy('nome').limit(limit),
+        cacheKey: _key(tenantId, 'fornecedores_$limit'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        church.collection('fornecedores').limit(limit),
+        cacheKey: _key(tenantId, 'fornecedores_plain_$limit'),
+      );
+      return _sortFornecedoresSnapshot(plain);
+    }
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> fornecedores(
     String tenantId, {
@@ -1151,45 +1141,43 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> _escalaTemplatesQueryResilient(
     String tenantId, {
     int limit = 120,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            church
-                .collection('escala_templates')
-                .orderBy('title')
-                .limit(limit),
-            cacheKey: _key(tenantId, 'escala_templates_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection('escala_templates').limit(limit),
-            cacheKey: _key(tenantId, 'escala_templates_plain_$limit'),
-          );
-          return _sortEscalaTemplatesSnapshot(plain);
-        }
-      });
+  }) async {
+    final church = _church(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        church
+            .collection('escala_templates')
+            .orderBy('title')
+            .limit(limit),
+        cacheKey: _key(tenantId, 'escala_templates_$limit'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        church.collection('escala_templates').limit(limit),
+        cacheKey: _key(tenantId, 'escala_templates_plain_$limit'),
+      );
+      return _sortEscalaTemplatesSnapshot(plain);
+    }
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> _escalasRecentQueryResilient(
     String tenantId, {
     int limit = 120,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final escalasCol = ChurchUiCollections.escalas(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            escalasCol.orderBy('date', descending: true).limit(limit),
-            cacheKey: _key(tenantId, 'escalas_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            escalasCol.limit(limit),
-            cacheKey: _key(tenantId, 'escalas_plain_$limit'),
-          );
-          return _sortEscalasByDateSnapshot(plain, descending: true);
-        }
-      });
+  }) async {
+    final escalasCol = ChurchUiCollections.escalas(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        escalasCol.orderBy('date', descending: true).limit(limit),
+        cacheKey: _key(tenantId, 'escalas_$limit'),
+      );
+    } catch (_) {
+      final plain = await FirestoreReadResilience.getQuery(
+        escalasCol.limit(limit),
+        cacheKey: _key(tenantId, 'escalas_plain_$limit'),
+      );
+      return _sortEscalasByDateSnapshot(plain, descending: true);
+    }
+  }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> panelCacheSummary(
     String tenantId,
@@ -1228,24 +1216,23 @@ abstract final class ChurchTenantResilientReads {
     required bool descending,
     required int limit,
     required String cacheSuffix,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            church
-                .collection(subcollection)
-                .orderBy(orderField, descending: descending)
-                .limit(limit),
-            cacheKey: _key(tenantId, cacheSuffix),
-          );
-        } catch (_) {
-          return await FirestoreReadResilience.getQuery(
-            church.collection(subcollection).limit(limit),
-            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
-          );
-        }
-      });
+  }) async {
+    final church = _church(tenantId);
+    try {
+      return await FirestoreReadResilience.getQuery(
+        church
+            .collection(subcollection)
+            .orderBy(orderField, descending: descending)
+            .limit(limit),
+        cacheKey: _key(tenantId, cacheSuffix),
+      );
+    } catch (_) {
+      return await FirestoreReadResilience.getQuery(
+        church.collection(subcollection).limit(limit),
+        cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
+      );
+    }
+  }
 
   static String _rangeCacheSuffix(Timestamp start, Timestamp end) =>
       '${start.seconds}_${end.seconds}';
@@ -1258,49 +1245,48 @@ abstract final class ChurchTenantResilientReads {
     required Timestamp end,
     required String cacheSuffix,
     int plainLimit = 500,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        final startDate = start.toDate();
-        final endDate = end.toDate();
+  }) async {
+    final church = _church(tenantId);
+    final startDate = start.toDate();
+    final endDate = end.toDate();
 
-        bool docInRange(Map<String, dynamic> data) {
-          final dt = AgendaFirestoreFields.parseDate(data);
-          if (dt == null) return false;
-          return !dt.isBefore(startDate) && !dt.isAfter(endDate);
-        }
+    bool docInRange(Map<String, dynamic> data) {
+      final dt = AgendaFirestoreFields.parseDate(data);
+      if (dt == null) return false;
+      return !dt.isBefore(startDate) && !dt.isAfter(endDate);
+    }
 
-        Future<QuerySnapshot<Map<String, dynamic>>> plainFallback() async {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection(collection).limit(plainLimit),
-            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
-            maxAttempts: kIsWeb ? 2 : 3,
-            attemptTimeout: kIsWeb
-                ? const Duration(seconds: 10)
-                : const Duration(seconds: 16),
-          );
-          final filtered =
-              plain.docs.where((d) => docInRange(d.data())).toList();
-          return MergedFirestoreQuerySnapshot(filtered);
-        }
+    Future<QuerySnapshot<Map<String, dynamic>>> plainFallback() async {
+      final plain = await FirestoreReadResilience.getQuery(
+        church.collection(collection).limit(plainLimit),
+        cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
+        maxAttempts: kIsWeb ? 2 : 3,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 16),
+      );
+      final filtered =
+          plain.docs.where((d) => docInRange(d.data())).toList();
+      return MergedFirestoreQuerySnapshot(filtered);
+    }
 
-        try {
-          final ranged = await FirestoreReadResilience.getQuery(
-            church
-                .collection(collection)
-                .where(dateField, isGreaterThanOrEqualTo: start)
-                .where(dateField, isLessThanOrEqualTo: end),
-            cacheKey: _key(tenantId, cacheSuffix),
-            maxAttempts: kIsWeb ? 2 : 3,
-            attemptTimeout: kIsWeb
-                ? const Duration(seconds: 10)
-                : const Duration(seconds: 16),
-          );
-          if (ranged.docs.isNotEmpty) return ranged;
-        } catch (_) {}
+    try {
+      final ranged = await FirestoreReadResilience.getQuery(
+        church
+            .collection(collection)
+            .where(dateField, isGreaterThanOrEqualTo: start)
+            .where(dateField, isLessThanOrEqualTo: end),
+        cacheKey: _key(tenantId, cacheSuffix),
+        maxAttempts: kIsWeb ? 2 : 3,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 16),
+      );
+      if (ranged.docs.isNotEmpty) return ranged;
+    } catch (_) {}
 
-        return plainFallback();
-      });
+    return plainFallback();
+  }
 
   /// Cultos no intervalo — doc operacional + irmãos.
   static Future<QuerySnapshot<Map<String, dynamic>>> cultosByDateRange(
@@ -1366,7 +1352,7 @@ abstract final class ChurchTenantResilientReads {
   }) =>
       _queryWithSiblingFallback(
         tenantId,
-        (tid) => FirestoreWebGuard.runWithWebRecovery(() async {
+        (tid) async {
           final church = _church(tid);
           final suffix = 'mural_startAt_${_rangeCacheSuffix(start, end)}';
           try {
@@ -1399,7 +1385,7 @@ abstract final class ChurchTenantResilientReads {
             }).toList();
             return MergedFirestoreQuerySnapshot(filtered);
           }
-        }),
+        },
       );
 
   /// Escalas no intervalo.

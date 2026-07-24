@@ -56,7 +56,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
@@ -207,13 +207,17 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
     final cUrls = <String>[];
     final cPaths = <String?>[];
     for (final r in canonical) {
+      final path = r.storagePath.isNotEmpty ? r.storagePath : null;
       final u = r.downloadUrl.isNotEmpty
           ? YahwehMediaCacheBust.applyFromDocRevision(r.downloadUrl, m)
           : '';
-      cUrls.add(u);
-      cPaths.add(r.storagePath.isNotEmpty ? r.storagePath : null);
+      // Path-only: usar o path como ref do slide (SafeNetwork/FotoPatrimonio resolve).
+      final slideRef = u.isNotEmpty ? u : (path ?? '');
+      if (slideRef.isEmpty && path == null) continue;
+      cUrls.add(slideRef.isNotEmpty ? slideRef : (path ?? ''));
+      cPaths.add(path);
     }
-    return (urls: cUrls, paths: cPaths);
+    if (cUrls.isNotEmpty) return (urls: cUrls, paths: cPaths);
   }
 
   bool looksLikeStoragePath(String s) {
@@ -1343,6 +1347,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final result = await Navigator.push<Object?>(
       context,
       MaterialPageRoute(
+        fullscreenDialog: true,
         builder: (_) => _PatrimonioFormPage(
           col: _col,
           doc: doc,
@@ -1841,8 +1846,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final dprD = MediaQuery.devicePixelRatioOf(layoutContext);
     final sheetW = MediaQuery.sizeOf(layoutContext).width;
     // Decode proporcional ao carrossel (220px altura) — evita decodificar largura total em 4K.
-    final memDetailW = (sheetW * dprD).round().clamp(240, 960);
-    final memDetailH = (220 * dprD).round().clamp(200, 720);
+    final memDetailW = (sheetW * 0.55 * dprD).round().clamp(200, 720);
+    final memDetailH = (160 * dprD).round().clamp(160, 480);
     return SingleChildScrollView(
       controller: scrollController,
       padding: EdgeInsets.fromLTRB(
@@ -1876,42 +1881,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              IconButton(
-                tooltip: 'Fechar',
-                onPressed: () {
-                  if (sheetContext != null) Navigator.pop(sheetContext);
-                },
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    if (sheetContext != null) Navigator.pop(sheetContext);
-                  },
-                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                  label: const Text('Voltar'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    if (sheetContext != null) Navigator.pop(sheetContext);
-                  },
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  label: const Text('Cancelar'),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 16),
-                  // Foto em destaque — SafeNetworkImage + refresh token (web/desktop/mobile)
-                  Container(
+                  // Foto em destaque — preview compacto (não gigante na web).
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: Container(
                     width: double.infinity,
                     margin: const EdgeInsets.only(bottom: 20),
                     decoration: BoxDecoration(
@@ -1919,6 +1895,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                           BorderRadius.circular(ThemeCleanPremium.radiusMd),
                       boxShadow: ThemeCleanPremium.softUiCardShadow,
                       border: Border.all(color: const Color(0xFFF1F5F9)),
+                      color: const Color(0xFF0F172A),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: fotoUrls.isNotEmpty
@@ -1931,45 +1908,15 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                             memCacheWidth: memDetailW,
                             memCacheHeight: memDetailH,
                           )
-                        : Container(
-                            height: 220,
-                            color: cor.withOpacity(0.08),
+                        : SizedBox(
+                            height: 160,
                             child: Center(
                                 child: Icon(_catIcon(categoria),
-                                    size: 56, color: cor.withOpacity(0.5))),
+                                    size: 48, color: cor.withOpacity(0.5))),
                           ),
                   ),
-                  if (_canWrite) ...[
-                    const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final ok = await showPatrimonioItemPhotosEditorSheet(
-                            layoutContext,
-                            churchId: _effectiveTenantId,
-                            itemId: doc.id,
-                            itemData: m,
-                            corePayload: Map<String, dynamic>.from(m),
-                            canChangePhotos: _canWrite,
-                            canRemovePhotos: _canWrite,
-                            docRef: doc.reference,
-                          );
-                          if (ok == true && sheetContext != null && sheetContext.mounted) {
-                            Navigator.pop(sheetContext);
-                            unawaited(
-                              ChurchPatrimonioLoadService.invalidate(
-                                _effectiveTenantId,
-                              ),
-                            );
-                            if (mounted) setState(() {});
-                          }
-                        },
-                        icon: const Icon(Icons.photo_library_outlined, size: 18),
-                        label: const Text('Gerir fotos'),
-                      ),
-                    ),
-                  ],
+                  ),
+                  // Gerir fotos / editar ficam no rodapé da tela full screen.
                   // Header — Super Premium
                   Container(
                     padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
@@ -2342,28 +2289,122 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             );
   }
 
-  void _showDetail(DocumentSnapshot<Map<String, dynamic>> doc) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.vertical(
-              top: Radius.circular(ThemeCleanPremium.radiusMd)),
-        ),
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.7,
-          maxChildSize: 0.92,
-          minChildSize: 0.35,
-          builder: (ctx, scrollCtrl) => _patrimonioDetailScrollContent(
-            doc,
-            scrollController: scrollCtrl,
-            sheetContext: ctx,
-            layoutContext: ctx,
-            showDragHandle: true,
+  Future<void> _showDetail(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    var liveDoc = doc;
+    final tid = _effectiveTenantId.trim();
+    final initialSlots = _patrimonioCarouselSlotsFromData(doc.data() ?? {});
+    // Carrossel vazio: tenta recuperar fotos ainda no Storage (bug path-only antigo).
+    if (initialSlots.urls.isEmpty && tid.isNotEmpty && !kIsWeb) {
+      try {
+        await PatrimonioPublishService.repairFromStorage(
+          churchId: tid,
+          itemId: doc.id,
+          corePayload: doc.data(),
+        );
+        final fresh = await doc.reference.get();
+        if (fresh.exists) liveDoc = fresh;
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => Scaffold(
+          backgroundColor: ThemeCleanPremium.surfaceVariant,
+          appBar: AppBar(
+            backgroundColor: ThemeCleanPremium.primary,
+            foregroundColor: Colors.white,
+            leading: IconButton(
+              tooltip: 'Voltar',
+              icon: const Icon(Icons.arrow_back_rounded),
+              onPressed: () => Navigator.pop(ctx),
+            ),
+            title: Text(
+              (liveDoc.data()?['nome'] ?? 'Bem').toString(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          body: SafeArea(
+            child: _patrimonioDetailScrollContent(
+              liveDoc,
+              sheetContext: ctx,
+              layoutContext: ctx,
+              showDragHandle: false,
+            ),
+          ),
+          bottomNavigationBar: SafeArea(
+            child: Material(
+              elevation: 8,
+              color: Colors.white,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Cancelar'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 48),
+                        ),
+                      ),
+                    ),
+                    if (_canWrite) ...[
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final ok =
+                                await showPatrimonioItemPhotosEditorSheet(
+                              ctx,
+                              churchId: _effectiveTenantId,
+                              itemId: liveDoc.id,
+                              itemData: liveDoc.data() ?? {},
+                              corePayload:
+                                  Map<String, dynamic>.from(liveDoc.data() ?? {}),
+                              canChangePhotos: _canWrite,
+                              canRemovePhotos: _canWrite,
+                              docRef: liveDoc.reference,
+                            );
+                            if (ok == true && ctx.mounted) {
+                              Navigator.pop(ctx);
+                              unawaited(
+                                ChurchPatrimonioLoadService.invalidate(
+                                  _effectiveTenantId,
+                                ),
+                              );
+                              if (mounted) setState(() {});
+                            }
+                          },
+                          icon: const Icon(Icons.photo_library_outlined),
+                          label: const Text('Fotos'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            unawaited(_openForm(doc: liveDoc));
+                          },
+                          icon: const Icon(Icons.edit_rounded),
+                          label: const Text('Editar'),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            backgroundColor: ThemeCleanPremium.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -2371,7 +2412,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   void _onBemTapped(DocumentSnapshot<Map<String, dynamic>> doc) {
-    _showDetail(doc);
+    unawaited(_showDetail(doc));
   }
 
   // ─── BUILD ─────────────────────────────────────────────────────────────────
@@ -7838,10 +7879,16 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
           return FotoPatrimonioWidget(
             key: ValueKey('pat_photo_${raw}_${path}_$i'),
             storagePath: path,
-            candidateUrls: raw.isNotEmpty ? [raw] : <String>[],
-            fit: BoxFit.cover,
+            candidateUrls: [
+              if (raw.isNotEmpty) raw,
+              if (path != null &&
+                  path.isNotEmpty &&
+                  path != raw)
+                path,
+            ],
+            fit: BoxFit.contain,
             width: double.infinity,
-            height: 220,
+            height: 160,
             memCacheWidth: widget.memCacheWidth,
             memCacheHeight: widget.memCacheHeight,
             placeholder: Container(
@@ -7879,7 +7926,7 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
             behavior: HitTestBehavior.opaque,
             onTap: _openFullscreenZoom,
             child: SizedBox(
-              height: 220,
+              height: 160,
               child: widget.urls.length > 1
                   ? Stack(
                       alignment: Alignment.center,
@@ -8044,7 +8091,7 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
               final h = sz.height * 0.88;
               final previewW = (sz.width * dpr).round().clamp(240, 960);
               final previewH = (h * dpr).round().clamp(240, 960);
-              if (raw.isEmpty) {
+              if (raw.isEmpty && (path == null || path.isEmpty)) {
                 return PhotoViewGalleryPageOptions.customChild(
                   child: const Center(
                     child: Icon(Icons.broken_image_rounded,
@@ -8056,32 +8103,25 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
                 );
               }
               return PhotoViewGalleryPageOptions.customChild(
-                child: Stack(
-                  fit: StackFit.expand,
-                  alignment: Alignment.center,
-                  children: [
-                    FotoPatrimonioWidget(
-                      storagePath: path,
-                      candidateUrls: [raw],
-                      width: sz.width,
-                      height: h,
-                      memCacheWidth: previewW,
-                      memCacheHeight: previewH,
-                      fit: BoxFit.contain,
-                      placeholder: const ColoredBox(color: Colors.black),
-                      errorWidget: const SizedBox.shrink(),
-                    ),
-                    ResilientNetworkImage(
-                      imageUrl: raw,
-                      fit: BoxFit.contain,
-                      width: sz.width,
-                      height: h,
-                      memCacheWidth: 4096,
-                      memCacheHeight: 4096,
-                      placeholder: const SizedBox.shrink(),
-                      errorWidget: const SizedBox.shrink(),
-                    ),
+                child: FotoPatrimonioWidget(
+                  storagePath: path,
+                  candidateUrls: [
+                    if (raw.isNotEmpty) raw,
+                    if (path != null &&
+                        path.isNotEmpty &&
+                        path != raw)
+                      path,
                   ],
+                  width: sz.width,
+                  height: h,
+                  memCacheWidth: previewW,
+                  memCacheHeight: previewH,
+                  fit: BoxFit.contain,
+                  placeholder: const ColoredBox(color: Colors.black),
+                  errorWidget: const Center(
+                    child: Icon(Icons.broken_image_rounded,
+                        color: Colors.white54, size: 64),
+                  ),
                 ),
                 minScale: PhotoViewComputedScale.contained,
                 maxScale: PhotoViewComputedScale.covered * 3.5,
@@ -8507,6 +8547,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
     try {
       YahwehFlowLog.patrimonioStart();
+      await ChurchMediaUploadFacade.ensureReady();
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
       final tenantId = _churchIdForPublish;
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();
@@ -8611,29 +8655,25 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         return;
       }
 
-      GlobalUploadProgress.instance.start('A enviar fotos do bem…');
-      try {
-        final corePayload = buildCorePayload();
-        await PatrimonioSaveService.save(
-          churchIdHint: tenantId,
-          itemId: itemId,
-          corePayload: corePayload,
-          isNewDoc: widget.doc == null,
-          uploadsBySlot: uploadsBySlot,
-          indexedSlotUrls: indexedSlotUrls,
-          indexedSlotPaths: indexedSlotPaths,
-          onProgress: (p, label) {
-            if (mounted) {
-              setState(() {
-                _uploadProgress = p;
-                _uploadProgressLabel = label;
-              });
-            }
-          },
-        );
-      } finally {
-        GlobalUploadProgress.instance.end();
-      }
+      // Upload silencioso (padrão CT) — sem faixa «A enviar fotos do bem…».
+      final corePayload = buildCorePayload();
+      await PatrimonioSaveService.save(
+        churchIdHint: tenantId,
+        itemId: itemId,
+        corePayload: corePayload,
+        isNewDoc: widget.doc == null,
+        uploadsBySlot: uploadsBySlot,
+        indexedSlotUrls: indexedSlotUrls,
+        indexedSlotPaths: indexedSlotPaths,
+        onProgress: (p, label) {
+          if (mounted) {
+            setState(() {
+              _uploadProgress = p;
+              _uploadProgressLabel = label;
+            });
+          }
+        },
+      );
 
       YahwehFlowLog.patrimonioSuccess();
       if (!mounted) return;
@@ -8746,50 +8786,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           onPressed: _saving ? null : () => Navigator.maybePop(context),
         ),
         title: Text(isEditing ? 'Editar Patrimônio' : 'Novo Patrimônio'),
-        actions: [
-          TextButton(
-            onPressed: _saving ? null : () => Navigator.maybePop(context),
-            child: const Text(
-              'Cancelar',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          TextButton.icon(
-            onPressed: _saving ? null : _save,
-            icon: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.check_rounded, color: Colors.white),
-            label: Text(_saving ? 'Salvando patrimônio…' : 'Salvar',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w700)),
-          ),
-        ],
       ),
       body: SafeArea(
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: _saving ? null : () => Navigator.maybePop(context),
-                  icon: const Icon(Icons.arrow_back_rounded, size: 22),
-                  label: const Text('Voltar'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: ThemeCleanPremium.primary,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
               _SectionHeader(
                 title: 'Fotos do Bem',
                 icon: Icons.photo_library_rounded,
@@ -9065,7 +9068,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 const SizedBox(height: 14),
               ],
 
-              // Botão salvar
+              // Progresso de upload (rodapé tem Salvar/Cancelar).
               if (_saving) ...[
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
@@ -9087,10 +9090,35 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
               ],
-              SizedBox(
-                  height: 52,
+            ],
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Material(
+          elevation: 10,
+          color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        _saving ? null : () => Navigator.maybePop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Cancelar'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 52),
+                      foregroundColor: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
                   child: FilledButton.icon(
                     onPressed: (_saving ||
                             _photosEditorKey.currentState?.isBusy == true)
@@ -9101,25 +9129,31 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                             width: 20,
                             height: 20,
                             child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
                         : const Icon(Icons.save_rounded),
                     label: Text(
-                        _saving
-                            ? 'Salvando patrimônio…'
-                            : (isEditing
-                                ? 'Atualizar Patrimônio'
-                                : 'Cadastrar Patrimônio'),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 15)),
+                      _saving
+                          ? 'Salvando…'
+                          : (isEditing
+                              ? 'Salvar'
+                              : 'Salvar'),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
                     style: FilledButton.styleFrom(
-                        backgroundColor: _saving
-                            ? Colors.grey.shade500
-                            : ThemeCleanPremium.primary,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusMd))),
-                  )),
-            ],
+                      minimumSize: const Size(0, 52),
+                      backgroundColor: ThemeCleanPremium.primary,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

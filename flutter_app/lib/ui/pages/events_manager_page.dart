@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, Timer, unawaited;
+import 'dart:async' show Completer, TimeoutException, Timer, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -26,7 +26,6 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
-import 'package:gestao_yahweh/ui/widgets/storage_upload_progress_indicator.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     hide formatUploadErrorForUser;
 import 'package:gestao_yahweh/services/publication_engine.dart';
@@ -49,7 +48,6 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
@@ -120,6 +118,8 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/video_thumb_capture.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
@@ -159,7 +159,7 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
-import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage, noticiaGalleryRefsForShare;
@@ -292,15 +292,41 @@ abstract final class _EventTemplatesRamCache {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     final key = ChurchRepository.churchId(tenantId).trim();
-    if (key.isEmpty || docs.isEmpty) return;
+    if (key.isEmpty) return;
     final safeDocs = TenantDeletedDocTombstones.filter(
       key,
       'event_templates',
       List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
       (d) => d.id,
     );
-    if (safeDocs.isEmpty) return;
+    // Lista vazia = limpar cache (ex.: apagou o último evento fixo).
+    if (safeDocs.isEmpty) {
+      _byTenant.remove(key);
+      return;
+    }
     _byTenant[key] = (docs: safeDocs, at: DateTime.now());
+  }
+
+  /// Remove IDs excluídos do cache RAM (exclusão otimista).
+  static void removeIds(String tenantId, Iterable<String> docIds) {
+    final key = ChurchRepository.churchId(tenantId).trim();
+    if (key.isEmpty) return;
+    final hit = _byTenant[key];
+    if (hit == null) return;
+    final remove = docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (remove.isEmpty) return;
+    final next = hit.docs.where((d) => !remove.contains(d.id)).toList();
+    if (next.isEmpty) {
+      _byTenant.remove(key);
+    } else {
+      _byTenant[key] = (docs: next, at: DateTime.now());
+    }
+  }
+
+  static void clear(String tenantId) {
+    final key = ChurchRepository.churchId(tenantId).trim();
+    if (key.isEmpty) return;
+    _byTenant.remove(key);
   }
 }
 
@@ -651,28 +677,29 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                 resolvedTenantId: igrejaId,
                 noticias: noticias,
                 doc: doc)));
-    final published = result == true ||
-        (result is Map && (result['ok'] == true || result['ok'] == 'true'));
+    Future<void>? awaitPublish;
+    var published = result == true;
+    if (result is Map) {
+      published = result['ok'] == true || result['ok'] == 'true';
+      final pending = result['awaitPublish'];
+      if (pending is Future) {
+        awaitPublish = pending.then<void>((_) {});
+      }
+    } else if (result is Future) {
+      published = true;
+      awaitPublish = result.then<void>((_) {});
+    }
     if (published && mounted) {
-      void refreshFeed() {
-        if (!mounted) return;
-        _feedTabKey.currentState?._refresh();
-        setState(() {});
+      if (awaitPublish != null) {
+        try {
+          await awaitPublish;
+        } catch (_) {
+          // Erro já foi mostrado no formulário / runSilentControleTotal.
+        }
       }
-
-      // Editor fecha cedo (barra global) — NÃO refrescar o feed enquanto o
-      // upload/gravação ainda corre (causava timeout «Demorou demais» na Web).
-      if (GlobalUploadProgress.instance.state.value != null) {
-        late final VoidCallback listener;
-        listener = () {
-          if (GlobalUploadProgress.instance.state.value != null) return;
-          GlobalUploadProgress.instance.state.removeListener(listener);
-          refreshFeed();
-        };
-        GlobalUploadProgress.instance.state.addListener(listener);
-      } else {
-        refreshFeed();
-      }
+      ChurchEventosLoadService.invalidate(_tid);
+      await _feedTabKey.currentState?._refresh(forceServer: true);
+      if (mounted) setState(() {});
     }
   }
 
@@ -768,12 +795,29 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ],
       ),
     );
-    if (ok == true) {
-      TenantDeletedDocTombstones.mark(_churchId, 'event_templates', [doc.id]);
+    if (ok != true) return;
+    final tid = _tid;
+    final docId = doc.id;
+    // Lápide + cache ANTES do delete — evita o item «voltar» no refresh.
+    TenantDeletedDocTombstones.mark(tid, 'event_templates', [docId]);
+    _EventTemplatesRamCache.removeIds(tid, [docId]);
+    _fixosTabKey.currentState?._removeTemplateLocally(docId);
+    try {
       await doc.reference.delete();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Evento fixo excluído.'));
+        _fixosTabKey.currentState?._refresh();
+      }
+    } catch (e) {
+      TenantDeletedDocTombstones.unmark(tid, 'event_templates', docId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível excluir: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
         _fixosTabKey.currentState?._refresh();
       }
     }
@@ -806,7 +850,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         quality: 85,
       );
 
-  Future<String?> _pickAndUploadEventoFixoCover({
+  Future<({String url, String storagePath})?> _pickAndUploadEventoFixoCover({
     required String tenantId,
     required String templateStorageId,
   }) async {
@@ -818,7 +862,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     );
     if (picked == null) return null;
     await EventoMediaUpload.ensureUploadReady();
-    final downloadUrl = await EventoMediaUpload.uploadTemplateCover(
+    final uploaded = await EventoMediaUpload.uploadTemplateCover(
       churchId: tenantId,
       templateId: templateStorageId,
       compressedBytes: picked.bytes,
@@ -827,7 +871,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       tenantId: tenantId,
       templateUniqueId: templateStorageId,
     );
-    return downloadUrl;
+    return uploaded;
   }
 
   Map<String, dynamic> _eventoFixoCoverClearPatch() => {
@@ -860,39 +904,90 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     // Mesma extração do feed/eventos: imageUrls (lista ou mapas), imageUrl, defaultImageUrl, fotos, etc.
     final urls = _eventImageUrlsFromData(data);
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
+    final initialCoverPath = (data['coverStoragePath'] ??
+            data['photoStoragePath'] ??
+            data['defaultImageStoragePath'] ??
+            data['imageStoragePath'] ??
+            '')
+        .toString()
+        .trim();
     final defaultPhotoUrl = ValueNotifier<String>(initialPhoto);
+    final coverStoragePath = ValueNotifier<String>(initialCoverPath);
+    final pendingCoverBytes = ValueNotifier<Uint8List?>(null);
     final uploadingPhoto = ValueNotifier<bool>(false);
+    var coverClearedByUser = false;
     final tenantId = _tid;
+    final churchId = ChurchRepository.churchId(tenantId);
     final stableTemplateId = doc?.id ?? _templates.doc().id;
 
-    Future<void> pickAndUploadCover(void Function(void Function()) setSheetState) async {
+    Future<void> pickAndUploadCover(
+        void Function(void Function()) setSheetState) async {
       if (uploadingPhoto.value) return;
-      uploadingPhoto.value = true;
-      setSheetState(() {});
       try {
-        final downloadUrl = await _pickAndUploadEventoFixoCover(
-          tenantId: tenantId,
-          templateStorageId: stableTemplateId,
+        // Padrão CT: escolher → preview imediato → upload silencioso.
+        final picked = await ChurchCtModuleUpload.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 88,
+          maxWidth: 1920,
         );
-        if (downloadUrl == null) return;
-        defaultPhotoUrl.value = downloadUrl;
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Capa enviada e pronta para salvar.'),
+        if (picked == null) return;
+        coverClearedByUser = false;
+        pendingCoverBytes.value = picked.bytes;
+        defaultPhotoUrl.value = '';
+        setSheetState(() {});
+        uploadingPhoto.value = true;
+        setSheetState(() {});
+        try {
+          await EventoMediaUpload.ensureUploadReady();
+          final uploaded = await EventoMediaUpload.uploadTemplateCover(
+            churchId: churchId,
+            templateId: stableTemplateId,
+            compressedBytes: picked.bytes,
           );
+          FirebaseStorageCleanupService
+              .scheduleCleanupAfterEventTemplateCoverUpload(
+            tenantId: churchId,
+            templateUniqueId: stableTemplateId,
+          );
+          final url = sanitizeImageUrl(uploaded.url);
+          coverStoragePath.value = uploaded.storagePath;
+          defaultPhotoUrl.value = url;
+          // URL vazia (timeout getDownloadURL) — mantém bytes locais no preview.
+          if (url.isNotEmpty) {
+            pendingCoverBytes.value = null;
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar(
+                'Capa pronta — toque em Salvar para gravar.',
+              ),
+            );
+          }
+        } catch (e) {
+          // Mantém pendingCoverBytes — Salvar tenta enviar de novo.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Erro ao enviar capa: $e'),
+                backgroundColor: ThemeCleanPremium.error,
+              ),
+            );
+          }
+        } finally {
+          uploadingPhoto.value = false;
+          setSheetState(() {});
         }
       } catch (e) {
+        uploadingPhoto.value = false;
+        setSheetState(() {});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Erro ao enviar foto: $e'),
+              content: Text('Erro ao escolher foto: $e'),
               backgroundColor: ThemeCleanPremium.error,
             ),
           );
         }
-      } finally {
-        uploadingPhoto.value = false;
-        setSheetState(() {});
       }
     }
 
@@ -1144,11 +1239,20 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                   ValueListenableBuilder<bool>(
                     valueListenable: uploadingPhoto,
                     builder: (_, uploading, __) {
-                      return ValueListenableBuilder<String>(
-                        valueListenable: defaultPhotoUrl,
-                        builder: (_, url, ___) {
-                          final hasPhoto = url.trim().isNotEmpty;
-                          return Container(
+                      return ValueListenableBuilder<Uint8List?>(
+                        valueListenable: pendingCoverBytes,
+                        builder: (_, pendingBytes, ___) {
+                          return ValueListenableBuilder<String>(
+                            valueListenable: coverStoragePath,
+                            builder: (_, coverPath, ____) {
+                              return ValueListenableBuilder<String>(
+                            valueListenable: defaultPhotoUrl,
+                            builder: (_, url, _____) {
+                              final hasPhoto = url.trim().isNotEmpty ||
+                                  coverPath.trim().isNotEmpty ||
+                                  (pendingBytes != null &&
+                                      pendingBytes.isNotEmpty);
+                              return Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(
@@ -1193,7 +1297,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                         onPressed: uploading
                                             ? null
                                             : () {
+                                                coverClearedByUser = true;
                                                 defaultPhotoUrl.value = '';
+                                                coverStoragePath.value = '';
+                                                pendingCoverBytes.value = null;
                                                 setSheetState(() {});
                                               },
                                         icon: const Icon(
@@ -1219,8 +1326,23 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                     child: Stack(
                                       alignment: Alignment.center,
                                       children: [
-                                        SafeNetworkImage(
-                                          imageUrl: url,
+                                        if (pendingBytes != null &&
+                                            pendingBytes.isNotEmpty)
+                                          Image.memory(
+                                            pendingBytes,
+                                            width: double.infinity,
+                                            height: 148,
+                                            fit: BoxFit.cover,
+                                            cacheWidth: 720,
+                                            gaplessPlayback: true,
+                                            filterQuality: FilterQuality.low,
+                                          )
+                                        else if (url.trim().isNotEmpty ||
+                                            coverPath.trim().isNotEmpty)
+                                          SafeNetworkImage(
+                                          imageUrl: url.trim().isNotEmpty
+                                              ? url
+                                              : coverPath,
                                           width: double.infinity,
                                           height: 148,
                                           fit: BoxFit.cover,
@@ -1242,7 +1364,17 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                               size: 40,
                                             ),
                                           ),
-                                        ),
+                                        )
+                                        else
+                                          Container(
+                                            height: 148,
+                                            color: Colors.grey.shade200,
+                                            child: Icon(
+                                              Icons.image_outlined,
+                                              color: Colors.grey.shade500,
+                                              size: 40,
+                                            ),
+                                          ),
                                         if (uploading)
                                           Container(
                                             height: 148,
@@ -1310,7 +1442,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                         ),
                                   label: Text(
                                     uploading
-                                        ? 'Enviando capa…'
+                                        ? 'A preparar capa…'
                                         : hasPhoto
                                             ? 'Trocar capa'
                                             : 'Escolher capa',
@@ -1328,6 +1460,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                 ),
                               ],
                             ),
+                          );
+                            },
+                          );
+                            },
                           );
                         },
                       );
@@ -1472,6 +1608,51 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     await Future.delayed(const Duration(milliseconds: 150));
     final now = Timestamp.now();
+    // Capa: URL e/ou path Storage (path basta — URL pode falhar no getDownloadURL).
+    var coverUrl = sanitizeImageUrl(defaultPhotoUrl.value.trim());
+    var coverPath = coverStoragePath.value.trim();
+    final pending = pendingCoverBytes.value;
+    if (!coverClearedByUser &&
+        (coverUrl.isEmpty || coverPath.isEmpty) &&
+        pending != null &&
+        pending.isNotEmpty) {
+      try {
+        await EventoMediaUpload.ensureUploadReady();
+        final uploaded = await EventoMediaUpload.uploadTemplateCover(
+          churchId: churchId,
+          templateId: stableTemplateId,
+          compressedBytes: pending,
+        );
+        coverUrl = sanitizeImageUrl(uploaded.url);
+        coverPath = uploaded.storagePath.trim().isNotEmpty
+            ? uploaded.storagePath.trim()
+            : ChurchStorageLayout.eventTemplateCoverPath(
+                churchId,
+                stableTemplateId,
+              );
+        defaultPhotoUrl.value = coverUrl;
+        coverStoragePath.value = coverPath;
+        if (coverUrl.isNotEmpty) pendingCoverBytes.value = null;
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Não foi possível gravar a capa: $e'),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
+        return;
+      }
+    }
+    if (!coverClearedByUser &&
+        coverPath.isEmpty &&
+        (coverUrl.isNotEmpty || (pending != null && pending.isNotEmpty))) {
+      coverPath = ChurchStorageLayout.eventTemplateCoverPath(
+        churchId,
+        stableTemplateId,
+      );
+    }
     final payload = <String, dynamic>{
       'title': titleCtrl.text.trim(),
       'weekday': dow.value,
@@ -1482,28 +1663,33 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       'active': true,
       'updatedAt': now,
     };
-    if (defaultPhotoUrl.value.isNotEmpty) {
-      final u = defaultPhotoUrl.value;
-      final coverPath = ChurchStorageLayout.eventTemplateCoverPath(
-        tenantId,
-        stableTemplateId,
-      );
+    if (coverClearedByUser) {
+      payload.addAll(_eventoFixoCoverClearPatch());
+    } else if (coverPath.isNotEmpty || coverUrl.isNotEmpty) {
+      final path = coverPath.isNotEmpty
+          ? coverPath
+          : ChurchStorageLayout.eventTemplateCoverPath(
+              churchId,
+              stableTemplateId,
+            );
       payload.addAll(
         ChurchCanonicalMediaPublish.eventTemplateCoverFields(
-          downloadUrl: u,
-          storagePath: coverPath,
+          downloadUrl: coverUrl,
+          storagePath: path,
         ),
       );
-    } else if (doc != null && initialPhoto.isNotEmpty) {
-      payload.addAll(_eventoFixoCoverClearPatch());
+      // Cache-bust para a capa trocada aparecer na hora na lista.
+      payload['fotoUrlCacheRevision'] = now.millisecondsSinceEpoch;
     }
     if (doc == null) {
       payload['createdAt'] = now;
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       await _templates.doc(stableTemplateId).set(payload);
     } else {
-      await doc.reference.update(payload);
+      await doc.reference.set(payload, SetOptions(merge: true));
     }
+    // Invalida cache da lista para a capa nova aparecer.
+    _EventTemplatesRamCache.clear(churchId);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Evento fixo salvo.'));
@@ -1753,7 +1939,6 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       body: SafeArea(
           top: widget.onShellBack == null,
           child: Column(children: [
-        const StorageUploadProgressIndicator(compact: true),
         if (widget.onShellBack != null)
           ChurchEmbeddedModuleBar(
             title: 'Mural de Eventos',
@@ -2359,50 +2544,59 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       fit: StackFit.expand,
       children: [
         if (directHttps)
-          SafeNetworkImage(
-            imageUrl: coverRef,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
-            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
-            skipFreshDisplayUrl: true,
-            placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
-            errorWidget: const ColoredBox(
-              color: Color(0xFFF1F5F9),
-              child: Center(child: Icon(Icons.photo_library_outlined)),
+          ColoredBox(
+            color: const Color(0xFFF1F5F9),
+            child: SafeNetworkImage(
+              imageUrl: coverRef,
+              fit: BoxFit.contain,
+              width: double.infinity,
+              height: double.infinity,
+              memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+              memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
+              skipFreshDisplayUrl: true,
+              placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
+              errorWidget: const ColoredBox(
+                color: Color(0xFFF1F5F9),
+                child: Center(child: Icon(Icons.photo_library_outlined)),
+              ),
             ),
           )
         else if ((coverPath != null && coverPath.trim().isNotEmpty) ||
             storageLikeRef)
-          StableStorageImage(
-            storagePath: (coverPath != null && coverPath.trim().isNotEmpty)
-                ? coverPath
-                : null,
-            gsUrl: coverRef.toLowerCase().startsWith('gs://') ? coverRef : null,
-            imageUrl: coverRef.isNotEmpty ? coverRef : null,
-            fit: BoxFit.cover,
-            width: double.infinity,
-            height: double.infinity,
-            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
-            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
-            placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
-            skipFreshDisplayUrl: true,
-            errorWidget: const ColoredBox(
-              color: Color(0xFFF1F5F9),
-              child: Center(child: Icon(Icons.photo_library_outlined)),
+          ColoredBox(
+            color: const Color(0xFFF1F5F9),
+            child: StableStorageImage(
+              storagePath: (coverPath != null && coverPath.trim().isNotEmpty)
+                  ? coverPath
+                  : null,
+              gsUrl: coverRef.toLowerCase().startsWith('gs://') ? coverRef : null,
+              imageUrl: coverRef.isNotEmpty ? coverRef : null,
+              fit: BoxFit.contain,
+              width: double.infinity,
+              height: double.infinity,
+              memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+              memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
+              placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
+              skipFreshDisplayUrl: true,
+              errorWidget: const ColoredBox(
+                color: Color(0xFFF1F5F9),
+                child: Center(child: Icon(Icons.photo_library_outlined)),
+              ),
             ),
           )
         else if (isValidImageUrl(coverRef))
-          SafeNetworkImage(
-            imageUrl: coverRef,
-            fit: BoxFit.cover,
-            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
-            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
-            skipFreshDisplayUrl: true,
-            errorWidget: const ColoredBox(
-              color: Color(0xFFF1F5F9),
-              child: Center(child: Icon(Icons.photo_library_outlined)),
+          ColoredBox(
+            color: const Color(0xFFF1F5F9),
+            child: SafeNetworkImage(
+              imageUrl: coverRef,
+              fit: BoxFit.contain,
+              memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+              memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
+              skipFreshDisplayUrl: true,
+              errorWidget: const ColoredBox(
+                color: Color(0xFFF1F5F9),
+                child: Center(child: Icon(Icons.photo_library_outlined)),
+              ),
             ),
           )
         else
@@ -3055,7 +3249,7 @@ class _EventGalleryDetailPage extends StatelessWidget {
                       ),
                       child: SafeNetworkImage(
                         imageUrl: photos[i],
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain,
                         errorWidget: Container(
                           color: const Color(0xFFF1F5F9),
                           alignment: Alignment.center,
@@ -3675,27 +3869,33 @@ class _FeedTabState extends State<_FeedTab> {
     super.dispose();
   }
 
-  Future<void> _loadInitialEvents({bool backgroundRefresh = false}) async {
+  Future<void> _loadInitialEvents({
+    bool backgroundRefresh = false,
+    bool forceServer = false,
+  }) async {
     if (!backgroundRefresh && !await _awaitEventosFirebasePanelReady()) {
-      if (mounted) {
-        setState(() {
-          _isInitialLoading = false;
-          _feedLoadError = StateError(
-            'A sincronizar com o servidor… tente de novo em instantes.',
-          );
-        });
+      // Sem bloquear: se já há docs locais, mantém; senão deixa o load tentar cache.
+      if (_loadedDocs.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _isInitialLoading = false;
+            _feedLoadError = null;
+            _showingOfflineEvents = true;
+          });
+        }
+        return;
       }
-      return;
     }
     if (!backgroundRefresh) {
       setState(() {
         _isInitialLoading = _loadedDocs.isEmpty;
         _showingOfflineEvents = false;
         _feedLoadError = null;
-        if (_loadedDocs.isEmpty) {
+        if (_loadedDocs.isEmpty || forceServer) {
           _hasMoreFeedPages = true;
           _feedLastCursor = null;
-          _loadedDocs.clear();
+          if (forceServer) _loadedDocs.clear();
+          else if (_loadedDocs.isEmpty) _loadedDocs.clear();
         }
       });
     }
@@ -3703,17 +3903,18 @@ class _FeedTabState extends State<_FeedTab> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchEventosLoadService.loadFeed(
-          seedTenantId: widget.tenantId.trim(),
-          limit: _feedPageSize,
-        ),
-        maxAttempts: 4,
+      // Caminho direto — ChurchEventosLoadService já tem cache/resilience;
+      // runWithWebRecovery aqui multiplicava timeouts na Web.
+      final result = await ChurchEventosLoadService.loadFeed(
+        seedTenantId: widget.tenantId.trim(),
+        limit: _feedPageSize,
+        forceRefresh: forceServer,
+        forceServer: forceServer,
       ).timeout(PanelResilientLoad.queryCap);
       final docs = result.docs;
       if (!mounted) return;
       setState(() {
-        if (docs.isNotEmpty || _loadedDocs.isEmpty) {
+        if (docs.isNotEmpty || _loadedDocs.isEmpty || forceServer) {
           _loadedDocs
             ..clear()
             ..addAll(docs);
@@ -3734,7 +3935,7 @@ class _FeedTabState extends State<_FeedTab> {
       }
     } catch (e) {
       if (!mounted) return;
-      if (_loadedDocs.isNotEmpty) {
+      if (_loadedDocs.isNotEmpty && !forceServer) {
         setState(() {
           _showingOfflineEvents = true;
           _feedLoadError = null;
@@ -3747,7 +3948,7 @@ class _FeedTabState extends State<_FeedTab> {
             limit: _feedPageSize,
           ) ??
           _EventosNoticiasRamCache.peek(widget.tenantId.trim());
-      if (ram != null && ram.isNotEmpty) {
+      if (ram != null && ram.isNotEmpty && !forceServer) {
         setState(() {
           _loadedDocs
             ..clear()
@@ -3834,8 +4035,8 @@ class _FeedTabState extends State<_FeedTab> {
     }
   }
 
-  Future<void> _refresh() async {
-    await _loadInitialEvents();
+  Future<void> _refresh({bool forceServer = false}) async {
+    await _loadInitialEvents(forceServer: forceServer);
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEventsSnapshot() async {
@@ -5163,7 +5364,13 @@ class _EventoPostState extends State<_EventoPost>
   }
 
   Future<void> _openShareSheet(Rect? shareOrigin) async {
-    final data = widget.doc.data();
+    final data = Map<String, dynamic>.from(widget.doc.data());
+    data['tenantId'] = widget.tenantId.trim();
+    data['churchId'] = widget.tenantId.trim();
+    data['id'] = widget.doc.id;
+    data['postId'] = widget.doc.id;
+    data['type'] = 'evento';
+    data['collection'] = 'eventos';
     final title = (data['title'] ?? '').toString();
     final text = churchPostPlainText(Map<String, dynamic>.from(data));
     final loc = (data['location'] ?? '').toString();
@@ -5192,7 +5399,7 @@ class _EventoPostState extends State<_EventoPost>
       locationLat: elat,
       locationLng: elng,
       publicSiteUrl: links.publicSiteUrl,
-      inviteCardUrl: links.eventPageUrl,
+      inviteCardUrl: links.socialPreviewUrl,
       tenantId: widget.tenantId.trim(),
       noticiaId: widget.doc.id,
       churchSlug: links.resolvedSlug,
@@ -5200,7 +5407,7 @@ class _EventoPostState extends State<_EventoPost>
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
       context,
-      shareLink: links.eventPageUrl,
+      shareLink: links.socialPreviewUrl,
       shareMessage: msg,
       shareSubject: churchName,
       previewImageUrl: null,
@@ -5323,14 +5530,6 @@ class _EventoPostState extends State<_EventoPost>
   @override
   Widget build(BuildContext context) {
     final data = widget.doc.data();
-    final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
-    final liked = _myUid != null && mergedLikes.contains(_myUid!);
-    final likeCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
-    final rsvpUids = List<String>.from(
-      ((data['rsvp'] as List?) ?? []).map((e) => e.toString()),
-    );
-    final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
-    final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
     final title = (data['title'] ?? '').toString();
     final allImages = _eventFeedCardPhotoUrls(data);
     final hasImages = allImages.isNotEmpty || eventNoticiaDocHasPhotoMedia(data);
@@ -5372,8 +5571,6 @@ class _EventoPostState extends State<_EventoPost>
         ? '${_wn(eventDt.weekday)}, ${eventDt.day.toString().padLeft(2, '0')}/${eventDt.month.toString().padLeft(2, '0')}/${eventDt.year} às ${eventDt.hour.toString().padLeft(2, '0')}:${eventDt.minute.toString().padLeft(2, '0')}'
         : '';
     final createdAgo = createdDt != null ? _timeAgo(createdDt) : '';
-    final isFuture = eventDt != null && eventDt.isAfter(DateTime.now());
-
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -5840,104 +6037,18 @@ class _EventoPostState extends State<_EventoPost>
               ),
           ],
         ),
-        // Actions
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(children: [
-            IconButton(
-              onPressed: widget.selectionMode ? null : _toggleLike,
-              icon: Icon(
-                  liked ? Icons.thumb_up_rounded : Icons.thumb_up_outlined,
-                  color:
-                      liked ? ThemeCleanPremium.primary : Colors.grey.shade800,
-                  size: 26),
-              style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
-            ),
-            IconButton(
-              onPressed: widget.selectionMode ? null : _openComments,
-              icon: Icon(Icons.forum_outlined,
-                  color: Colors.grey.shade800, size: 24),
-              style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
-            ),
-            IconButton(
-              onPressed: widget.selectionMode
-                  ? null
-                  : () {
-                      final origin = shareRectFromContext(context);
-                      _openShareSheet(origin);
-                    },
-              icon: Icon(Icons.share_rounded,
-                  color: Colors.grey.shade800, size: 24),
-              style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
-            ),
-            if (!widget.selectionMode)
-              YahwehNoticiaWhatsAppOneTapButton(
-                churchName: widget.nomeIgreja,
-                churchSlug: widget.churchSlug,
-                tenantId: widget.tenantId,
-                noticiaId: widget.doc.id,
-                postData: widget.doc.data(),
-                noticiaKindOverride: 'evento',
-              ),
-            const Spacer(),
-            if (isFuture)
-              Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: widget.selectionMode ? null : _toggleRsvp,
-                    borderRadius: BorderRadius.circular(20),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                          color: rsvp
-                              ? ThemeCleanPremium.success
-                              : ThemeCleanPremium.success.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color:
-                                  ThemeCleanPremium.success.withOpacity(0.3))),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(
-                            rsvp
-                                ? Icons.check_circle_rounded
-                                : Icons.add_circle_outline_rounded,
-                            size: 16,
-                            color: rsvp
-                                ? Colors.white
-                                : ThemeCleanPremium.success),
-                        const SizedBox(width: 4),
-                        Text(rsvp ? 'Confirmado' : 'Participar',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: rsvp
-                                    ? Colors.white
-                                    : ThemeCleanPremium.success)),
-                      ]),
-                    ),
-                  )),
-          ]),
-        ),
-        // Likes + RSVP count
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (likeCount > 0)
-              Text('$likeCount curtida${likeCount > 1 ? 's' : ''}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 13)),
-            if (rsvpCount > 0 && isFuture)
-              Text(
-                  '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presença',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: ThemeCleanPremium.success,
-                      fontWeight: FontWeight.w600)),
-          ]),
-        ),
+        // Actions — barra WISDOM unificada (Participar · Comentar · Compartilhar · ♥).
+        if (!widget.selectionMode)
+          YahwehSocialPostBar(
+            tenantId: widget.tenantId,
+            postId: widget.doc.id,
+            isEvento: true,
+            churchSlug: widget.churchSlug,
+            churchName: widget.nomeIgreja,
+            postsParentCollection: ChurchTenantPostsCollections.eventos,
+          )
+        else
+          const SizedBox(height: 8),
         // Texto de divulgação (título já está na faixa)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -7315,9 +7426,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   /// Mostra resolução (WxH) da foto local — melhor-esforço, assíncrono.
+  /// Future cacheado no State — não recria em cada rebuild (teclado).
+  final Map<String, Future<String?>> _localResolutionFutures = {};
+
   Widget _resolutionChip({Uint8List? bytes, String? path}) {
+    final key = bytes != null
+        ? 'b:${identityHashCode(bytes)}:${bytes.length}'
+        : 'p:${path ?? ''}';
+    final future = _localResolutionFutures.putIfAbsent(
+      key,
+      () => _readLocalResolution(bytes: bytes, path: path),
+    );
     return FutureBuilder<String?>(
-      future: _readLocalResolution(bytes: bytes, path: path),
+      future: future,
       builder: (_, snap) {
         final r = snap.data;
         if (r == null || r.isEmpty) return const SizedBox.shrink();
@@ -7352,7 +7473,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
-  final List<Map<String, String>> _eventVideos = [];
+  final List<Map<String, dynamic>> _eventVideos = [];
   DateTime _date = DateTime.now().add(const Duration(days: 1));
   DateTime? _validUntil;
   bool _publicSite = true;
@@ -8209,12 +8330,104 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Widget _videoPlaceholder() => Container(
-        width: 100,
-        height: 100,
-        color: Colors.grey.shade300,
-        child: Icon(Icons.play_circle_outline_rounded,
-            size: 40, color: Colors.grey.shade600),
+        width: 160,
+        height: 160,
+        color: const Color(0xFF0F172A),
+        child: Center(
+          child: Icon(
+            Icons.play_circle_rounded,
+            size: 48,
+            color: Colors.white.withValues(alpha: 0.85),
+          ),
+        ),
       );
+
+  Widget _videoPreviewTile({
+    required Map<String, dynamic> video,
+    required VoidCallback onRemove,
+  }) {
+    final thumbUrl = (video['thumbUrl'] ?? '').toString().trim();
+    final thumbBytes = video['thumbBytes'];
+    final hasBytes = thumbBytes is Uint8List && thumbBytes.isNotEmpty;
+    final hasUrl = thumbUrl.isNotEmpty && isValidImageUrl(thumbUrl);
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: SizedBox(
+            width: 160,
+            height: 160,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (hasBytes)
+                  Image.memory(
+                    thumbBytes,
+                    fit: BoxFit.cover,
+                    cacheWidth: 320,
+                    cacheHeight: 320,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.low,
+                  )
+                else if (hasUrl)
+                  SafeNetworkImage(
+                    imageUrl: thumbUrl,
+                    width: 160,
+                    height: 160,
+                    fit: BoxFit.cover,
+                    placeholder: Container(
+                      color: Colors.grey.shade200,
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                    errorWidget: _videoPlaceholder(),
+                  )
+                else
+                  _videoPlaceholder(),
+                // Overlay play estilo Instagram / YouTube.
+                ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  child: Center(
+                    child: Icon(
+                      Icons.play_circle_filled_rounded,
+                      size: 52,
+                      color: Colors.white.withValues(alpha: 0.95),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'Vídeo',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          top: 4,
+          right: 4,
+          child: _mediaRemoveButton(onRemove: onRemove),
+        ),
+      ],
+    );
+  }
 
   /// Slot 0/1 explícito no path (`_v0.mp4`); legado sem sufixo → `null` (apenas apagar por URL).
   int? _hostedVideoStorageSlotFromUrl(String videoUrl) {
@@ -8312,8 +8525,30 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         );
       }
       if (!mounted) return;
+      Uint8List? thumbBytes;
+      try {
+        if (kIsWeb) {
+          final bytes = await xfile.readAsBytes();
+          thumbBytes = await captureVideoFirstFrameJpeg(
+            bytes,
+            mimeType: xfile.mimeType ?? 'video/mp4',
+          ).timeout(const Duration(seconds: 12), onTimeout: () => null);
+        } else {
+          final thumbFile =
+              await MediaService.getVideoThumbnail(File(localPath))
+                  .timeout(const Duration(seconds: 12), onTimeout: () => null);
+          if (thumbFile != null && thumbFile.existsSync()) {
+            thumbBytes = await thumbFile.readAsBytes();
+          }
+        }
+      } catch (_) {}
+      if (!mounted) return;
       setState(() {
-        _eventVideos.add({'localPath': localPath});
+        _eventVideos.add({
+          'localPath': localPath,
+          if (thumbBytes != null && thumbBytes.isNotEmpty)
+            'thumbBytes': thumbBytes,
+        });
       });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
@@ -8944,20 +9179,25 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       payload.remove('videoUrl');
 
+      final publishDone = Completer<bool>();
       try {
-        await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
+        await EcofirePublishProgressUi.runSilentControleTotal<void>(
           context: context,
-          uploadLabel: 'Enviando foto…',
-          saveLabel: 'A gravar evento…',
-          distributeLabel: 'A notificar e publicar no site…',
           successMessage: isNewDoc
               ? 'Evento publicado com sucesso.'
               : 'Evento atualizado.',
           closeEditor: () {
             if (!mounted) return;
-            Navigator.pop(context, true);
+            // Fecha na hora; o Feed/painel só refrescam quando [publishDone] completar.
+            Navigator.pop(context, <String, dynamic>{
+              'ok': true,
+              'awaitPublish': publishDone.future,
+            });
           },
           formatError: formatUploadErrorForUser,
+          onPublishSucceeded: () {
+            if (!publishDone.isCompleted) publishDone.complete(true);
+          },
           action: (reportProgress) async {
             await EventoCreatePublishService.publish(
               docRef: docRef,
@@ -8980,6 +9220,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               agendaColorHex: _agendaColorHexForCategory(),
               onUploadProgress: reportProgress,
             );
+            ChurchEventosLoadService.invalidate(publishTenantId);
             await MuralPostPendingMediaCache.remove(
               tenantId: publishTenantId,
               postId: postId,
@@ -8995,19 +9236,25 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             );
           },
         );
+        if (!publishDone.isCompleted) publishDone.complete(true);
         EventosPublishVerificationService.clearLastError();
         _clearPendingEventPhotosAfterPublish();
         unawaited(IosPublishMemory.releaseAfterHeavyWork());
       } catch (e, st) {
+        if (!publishDone.isCompleted) publishDone.complete(false);
         if (EcoFireResilientPublish.isQueuedSuccess(e) ||
             EcoFireResilientPublish.treatAsSilentSuccess(e)) {
           _clearPendingEventPhotosAfterPublish();
           EventosPublishVerificationService.clearLastError();
+          ChurchEventosLoadService.invalidate(publishTenantId);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
             );
-            Navigator.pop(context, true);
+            Navigator.pop(context, <String, dynamic>{
+              'ok': true,
+              'awaitPublish': Future<bool>.value(true),
+            });
           }
           return;
         }
@@ -9212,7 +9459,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 imageUrl: _existingUrls[idx],
                 width: 220,
                 height: 220,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
                 placeholder: Container(
                     width: 220,
                     height: 220,
@@ -9418,12 +9665,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               padding.bottom + bottomInset),
           children: [
             AsyncUploadProgressStrip(
-              localActive: _mediaPicking || _uploadingVideo || _saving,
+              localActive: _mediaPicking || _uploadingVideo,
               localLabel: _uploadingVideo
-                  ? 'A enviar vídeo…'
-                  : (_mediaPicking
-                      ? 'A preparar fotos…'
-                      : 'A publicar evento…'),
+                  ? 'A preparar vídeo…'
+                  : 'A preparar fotos…',
             ),
             if (_firebaseBootstrapError != null) ...[
               const SizedBox(height: 10),
@@ -9517,40 +9762,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       ...allPreviews,
                       ...List.generate(_eventVideos.length, (i) {
-                        final v = _eventVideos[i];
-                        final thumbUrl = v['thumbUrl'] ?? '';
-                        return Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: thumbUrl.isNotEmpty &&
-                                      isValidImageUrl(thumbUrl)
-                                  ? SafeNetworkImage(
-                                      imageUrl: thumbUrl,
-                                      width: 160,
-                                      height: 160,
-                                      fit: BoxFit.cover,
-                                      placeholder: Container(
-                                        width: 160,
-                                        height: 160,
-                                        color: Colors.grey.shade200,
-                                        child: const Center(
-                                            child: CircularProgressIndicator(
-                                                strokeWidth: 2)),
-                                      ),
-                                      errorWidget: _videoPlaceholder(),
-                                    )
-                                  : _videoPlaceholder(),
-                            ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: _mediaRemoveButton(
-                                onRemove: () =>
-                                    unawaited(_removeEventVideoAt(i)),
-                              ),
-                            ),
-                          ],
+                        return _videoPreviewTile(
+                          video: _eventVideos[i],
+                          onRemove: () => unawaited(_removeEventVideoAt(i)),
                         );
                       }),
                     ]),
@@ -10684,10 +10898,25 @@ class _FixosTabState extends State<_FixosTab> {
         const Duration(milliseconds: 1800),
       );
       if (!mounted || snap.docs.isEmpty) return;
-      _EventTemplatesRamCache.put(tid, snap.docs);
+      final filtered = TenantDeletedDocTombstones.filter(
+        tid,
+        'event_templates',
+        snap.docs.toList(),
+        (d) => d.id,
+      );
+      if (filtered.isEmpty && TenantDeletedDocTombstones.hasAny(tid, 'event_templates')) {
+        // Só restavam docs excluídos — não repor lista fantasma.
+        _EventTemplatesRamCache.put(tid, filtered);
+        setState(() {
+          _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(filtered);
+          _templatesFuture = Future.value(_lastGoodTemplatesSnap!);
+        });
+        return;
+      }
+      _EventTemplatesRamCache.put(tid, filtered);
       setState(() {
-        _lastGoodTemplatesSnap = snap;
-        _templatesFuture = Future.value(snap);
+        _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(filtered);
+        _templatesFuture = Future.value(_lastGoodTemplatesSnap!);
       });
     } catch (_) {}
 
@@ -10698,10 +10927,16 @@ class _FixosTabState extends State<_FixosTab> {
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       if (!mounted || snap.docs.isEmpty) return;
-      _EventTemplatesRamCache.put(tid, snap.docs);
+      final filtered = TenantDeletedDocTombstones.filter(
+        tid,
+        'event_templates',
+        snap.docs.toList(),
+        (d) => d.id,
+      );
+      _EventTemplatesRamCache.put(tid, filtered);
       setState(() {
-        _lastGoodTemplatesSnap = snap;
-        _templatesFuture = Future.value(snap);
+        _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(filtered);
+        _templatesFuture = Future.value(_lastGoodTemplatesSnap!);
       });
     } catch (_) {}
   }
@@ -10709,28 +10944,65 @@ class _FixosTabState extends State<_FixosTab> {
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
     final tid = widget.templates.parent?.id ?? '';
     if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-    if (!await _awaitEventosFirebasePanelReady()) {
-      return _lastGoodTemplatesSnap ?? const MergedFirestoreQuerySnapshot([]);
-    }
+    // Não bloquear a UI se o bootstrap ainda sincroniza — cache/vazio = sucesso.
+    unawaited(_awaitEventosFirebasePanelReady());
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        try {
+          await FirestoreWebGuard.ensurePanelReadReady().timeout(
+            const Duration(seconds: 2),
+          );
+        } catch (_) {}
       }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.eventTemplates(tid),
-        maxAttempts: 4,
-      ).timeout(const Duration(seconds: 14));
-      if (snap.docs.isNotEmpty) {
-        _EventTemplatesRamCache.put(tid, snap.docs);
-        _lastGoodTemplatesSnap = snap;
+      // Caminho direto — sem runWithWebRecovery (evita INTERNAL ASSERTION / sync).
+      final queryCap =
+          kIsWeb ? const Duration(seconds: 12) : PanelResilientLoad.queryCap;
+      final snap = await ChurchTenantResilientReads.eventTemplates(tid)
+          .timeout(queryCap);
+      final filtered = _filteredTemplatesSnap(tid, snap) ??
+          const MergedFirestoreQuerySnapshot([]);
+      if (filtered.docs.isNotEmpty) {
+        _EventTemplatesRamCache.put(tid, filtered.docs);
       }
-      return snap;
+      _lastGoodTemplatesSnap = filtered;
+      return filtered;
     } on TimeoutException {
-      return _lastGoodTemplatesSnap ?? const MergedFirestoreQuerySnapshot([]);
-    } catch (e) {
-      if (_lastGoodTemplatesSnap != null) return _lastGoodTemplatesSnap!;
-      rethrow;
+      return _filteredTemplatesSnap(tid, _lastGoodTemplatesSnap) ??
+          const MergedFirestoreQuerySnapshot([]);
+    } catch (_) {
+      // Lista vazia = sucesso (igreja sem modelos). Nunca rethrow no hot path.
+      return _filteredTemplatesSnap(tid, _lastGoodTemplatesSnap) ??
+          const MergedFirestoreQuerySnapshot([]);
     }
+  }
+
+  /// Remove docs com lápide — exclusão não «volta» pelo cache Firestore.
+  QuerySnapshot<Map<String, dynamic>>? _filteredTemplatesSnap(
+    String tid,
+    QuerySnapshot<Map<String, dynamic>>? snap,
+  ) {
+    if (snap == null) return null;
+    final docs = TenantDeletedDocTombstones.filter(
+      tid,
+      'event_templates',
+      snap.docs.toList(),
+      (d) => d.id,
+    );
+    return MergedFirestoreQuerySnapshot(docs);
+  }
+
+  /// Exclusão otimista na UI (antes do round-trip do servidor).
+  void _removeTemplateLocally(String docId) {
+    final tid = widget.templates.parent?.id ?? '';
+    final id = docId.trim();
+    if (tid.isEmpty || id.isEmpty) return;
+    final prev = _lastGoodTemplatesSnap;
+    if (prev == null) return;
+    final next = prev.docs.where((d) => d.id != id).toList();
+    setState(() {
+      _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(next);
+      _templatesFuture = Future.value(_lastGoodTemplatesSnap!);
+    });
   }
 
   static int _timeSortMinutes(String t) {
@@ -10761,32 +11033,19 @@ class _FixosTabState extends State<_FixosTab> {
   }
 
   /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instâncias com data.
+  /// Nunca lança — falha de sync/rede devolve lista vazia (UI útil, sem banner vermelho).
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadProximosNoticias() async {
     final now = DateTime.now();
     final rangeStart = DateTime(now.year, now.month, now.day);
     final rangeEnd = rangeStart.add(const Duration(days: 400));
-    try {
-      final snap = await widget.noticias
-          .where('type', isEqualTo: 'evento')
-          .where('startAt',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
-          .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
-          .orderBy('startAt')
-          .limit(_proximosNoticiasLimit)
-          .get();
-      return snap.docs;
-    } catch (_) {
-      QuerySnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await widget.noticias
-            .orderBy('startAt', descending: false)
-            .limit(_proximosNoticiasLimit)
-            .get();
-      } catch (_) {
-        snap = await widget.noticias.limit(_proximosNoticiasLimit).get();
-      }
-      final out = snap.docs.where((d) {
+    final queryCap =
+        kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 14);
+
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> filterRange(
+      Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ) {
+      final out = docs.where((d) {
         if ((d.data()['type'] ?? '').toString() != 'evento') return false;
         final sa = d.data()['startAt'];
         if (sa is! Timestamp) return false;
@@ -10801,6 +11060,74 @@ class _FixosTabState extends State<_FixosTab> {
       });
       return out;
     }
+
+    Query<Map<String, dynamic>> ranged() => widget.noticias
+        .where('type', isEqualTo: 'evento')
+        .where('startAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+        .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+        .orderBy('startAt')
+        .limit(_proximosNoticiasLimit);
+
+    // Cache-first — pintura imediata na Web quando o SDK já tem dados locais.
+    try {
+      final cacheSnap = await ranged()
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 2));
+      if (cacheSnap.docs.isNotEmpty) {
+        unawaited(_softRefreshProximosNoticias());
+        return cacheSnap.docs;
+      }
+    } catch (_) {}
+
+    try {
+      final snap = await ranged().get().timeout(queryCap);
+      return snap.docs;
+    } catch (_) {
+      try {
+        final snap = await widget.noticias
+            .orderBy('startAt', descending: false)
+            .limit(_proximosNoticiasLimit)
+            .get()
+            .timeout(queryCap);
+        return filterRange(snap.docs);
+      } catch (_) {
+        try {
+          final snap = await widget.noticias
+              .limit(_proximosNoticiasLimit)
+              .get()
+              .timeout(queryCap);
+          return filterRange(snap.docs);
+        } catch (_) {
+          return const [];
+        }
+      }
+    }
+  }
+
+  Future<void> _softRefreshProximosNoticias() async {
+    try {
+      final fresh = await _loadProximosNoticiasServerOnly();
+      if (!mounted || fresh.isEmpty) return;
+      setState(() => _proximosNoticiasFuture = Future.value(fresh));
+    } catch (_) {}
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadProximosNoticiasServerOnly() async {
+    final now = DateTime.now();
+    final rangeStart = DateTime(now.year, now.month, now.day);
+    final rangeEnd = rangeStart.add(const Duration(days: 400));
+    final snap = await widget.noticias
+        .where('type', isEqualTo: 'evento')
+        .where('startAt',
+            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+        .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+        .orderBy('startAt')
+        .limit(_proximosNoticiasLimit)
+        .get(const GetOptions(source: Source.server))
+        .timeout(const Duration(seconds: 12));
+    return snap.docs;
   }
 
   Future<void> _loadMoreProximosNoticias() async {
@@ -11201,23 +11528,52 @@ class _FixosTabState extends State<_FixosTab> {
     );
     if (ok != true || !mounted) return;
 
-    const int chunkSize = 400;
-    for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = ChurchRepository.batch();
-      final chunk = refs.sublist(
-          i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
-      for (final r in chunk) {
-        batch.delete(r);
-      }
-      await batch.commit();
+    final tid = widget.templates.parent?.id ?? widget.tenantId;
+    final ids = refs.map((r) => r.id).toList();
+    TenantDeletedDocTombstones.mark(tid, 'event_templates', ids);
+    _EventTemplatesRamCache.removeIds(tid, ids);
+    final prev = _lastGoodTemplatesSnap;
+    if (prev != null) {
+      final idSet = ids.toSet();
+      final next = prev.docs.where((d) => !idSet.contains(d.id)).toList();
+      setState(() {
+        _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(next);
+        _templatesFuture = Future.value(_lastGoodTemplatesSnap!);
+      });
     }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Eventos fixos excluídos.'));
-      _selectedTemplateIds.clear();
-      _selectMode = false;
-      _refresh();
+    try {
+      const int chunkSize = 400;
+      for (var i = 0; i < refs.length; i += chunkSize) {
+        final batch = ChurchRepository.batch();
+        final chunk = refs.sublist(
+            i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
+        for (final r in chunk) {
+          batch.delete(r);
+        }
+        await batch.commit();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar('Eventos fixos excluídos.'));
+        _selectedTemplateIds.clear();
+        _selectMode = false;
+        _refresh();
+      }
+    } catch (e) {
+      for (final id in ids) {
+        TenantDeletedDocTombstones.unmark(tid, 'event_templates', id);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível excluir: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+        _refresh();
+      }
     }
   }
 
@@ -11459,24 +11815,16 @@ class _FixosTabState extends State<_FixosTab> {
         var templatesLoadFailed = false;
         if (snap.hasError) {
           templatesLoadFailed = true;
-          if (_lastGoodTemplatesSnap != null &&
-              _lastGoodTemplatesSnap!.docs.isNotEmpty) {
-            // Mantém cache local — banner no topo da lista.
-          } else {
-            return ChurchPanelResilientLoadBanner(
-              hasLocalData: false,
-              isSyncing: false,
-              errorTitle: 'Não foi possível carregar os eventos fixos',
-              error: snap.error,
-              onRetry: _refresh,
-            );
-          }
+          // Cache local se houver; senão lista vazia (UI útil, sem tela vermelha).
         }
         QuerySnapshot<Map<String, dynamic>>? effectiveSnap = snap.data;
-        if (snap.hasError &&
-            _lastGoodTemplatesSnap != null &&
-            _lastGoodTemplatesSnap!.docs.isNotEmpty) {
-          effectiveSnap = _lastGoodTemplatesSnap;
+        if (snap.hasError) {
+          if (_lastGoodTemplatesSnap != null &&
+              _lastGoodTemplatesSnap!.docs.isNotEmpty) {
+            effectiveSnap = _lastGoodTemplatesSnap;
+          } else {
+            effectiveSnap = const MergedFirestoreQuerySnapshot([]);
+          }
         }
         if ((snap.connectionState != ConnectionState.done || !snap.hasData) &&
             effectiveSnap == null &&
@@ -11487,28 +11835,27 @@ class _FixosTabState extends State<_FixosTab> {
         if (effectiveSnap == null) {
           return const ChurchPanelLoadingBody();
         }
-        final docs = effectiveSnap.docs.toList()..sort(_compareTemplates);
+        final tid = widget.templates.parent?.id ?? widget.tenantId;
+        final docs = TenantDeletedDocTombstones.filter(
+          tid,
+          'event_templates',
+          effectiveSnap.docs.toList(),
+          (d) => d.id,
+        )..sort(_compareTemplates);
         if (docs.isEmpty) {
           return FutureBuilder<
               List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
             future: _proximosNoticiasFuture,
             builder: (context, proxSnap) {
-              if (proxSnap.hasError) {
-                return ChurchPanelResilientLoadBanner(
-                  hasLocalData: false,
-                  isSyncing: false,
-                  errorTitle: 'Não foi possível carregar agenda e feed',
-                  error: proxSnap.error,
-                  onRetry: () => setState(() {
-                    _proximosNoticiasFuture = _loadProximosNoticias();
-                  }),
-                );
-              }
-              if (proxSnap.connectionState != ConnectionState.done ||
-                  !proxSnap.hasData) {
-                return const ChurchPanelLoadingBody();
-              }
-              final upcoming = proxSnap.data!;
+              // Vazio / erro de sync = UI útil (nunca banner vermelho de tela cheia).
+              final stillLoadingProximos =
+                  proxSnap.connectionState != ConnectionState.done &&
+                      !proxSnap.hasData &&
+                      !proxSnap.hasError;
+              final upcoming = proxSnap.hasError
+                  ? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]
+                  : (proxSnap.data ??
+                      const <QueryDocumentSnapshot<Map<String, dynamic>>>[]);
               final vis = _applyUpcomingFilter(upcoming);
               return RefreshIndicator(
                 onRefresh: () async {
@@ -11516,7 +11863,10 @@ class _FixosTabState extends State<_FixosTab> {
                     _templatesFuture = _load();
                     _proximosNoticiasFuture = _loadProximosNoticias();
                   });
-                  await _proximosNoticiasFuture;
+                  await Future.wait([
+                    _templatesFuture,
+                    _proximosNoticiasFuture ?? Future.value(const []),
+                  ]);
                 },
                 child: CustomScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -11527,6 +11877,20 @@ class _FixosTabState extends State<_FixosTab> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
+                            if (templatesLoadFailed || proxSnap.hasError)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: ChurchPanelResilientLoadBanner(
+                                  hasLocalData: true,
+                                  isSyncing: false,
+                                  showStaleCache: true,
+                                  errorTitle: templatesLoadFailed
+                                      ? 'Eventos fixos em sincronização — toque para atualizar'
+                                      : 'Agenda em sincronização — toque para atualizar',
+                                  error: proxSnap.error ?? snap.error,
+                                  onRetry: _refresh,
+                                ),
+                              ),
                             Icon(Icons.event_repeat_rounded,
                                 size: 56,
                                 color: ThemeCleanPremium.primary
@@ -11557,18 +11921,30 @@ class _FixosTabState extends State<_FixosTab> {
                             Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                upcoming.isEmpty
-                                    ? 'Programação'
-                                    : vis.length == upcoming.length
-                                        ? 'Próximos na programação (${upcoming.length})'
-                                        : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
+                                stillLoadingProximos
+                                    ? 'A carregar programação…'
+                                    : upcoming.isEmpty
+                                        ? 'Programação'
+                                        : vis.length == upcoming.length
+                                            ? 'Próximos na programação (${upcoming.length})'
+                                            : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
                                 style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
                                     color: Colors.grey.shade800),
                               ),
                             ),
-                            if (upcoming.isNotEmpty) ...[
+                            if (stillLoadingProximos) ...[
+                              const SizedBox(height: 16),
+                              const Center(
+                                child: SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2.5),
+                                ),
+                              ),
+                            ] else if (upcoming.isNotEmpty) ...[
                               const SizedBox(height: 10),
                               _buildUpcomingFilterChips(),
                               if (widget.canWrite) ...[
@@ -11580,7 +11956,9 @@ class _FixosTabState extends State<_FixosTab> {
                         ),
                       ),
                     ),
-                    if (upcoming.isEmpty)
+                    if (stillLoadingProximos)
+                      const SliverToBoxAdapter(child: SizedBox(height: 48))
+                    else if (upcoming.isEmpty)
                       SliverFillRemaining(
                         hasScrollBody: false,
                         child: Padding(
@@ -11963,7 +12341,8 @@ class _FixosTabState extends State<_FixosTab> {
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(12),
                                       child: PainelProgramacaoEventLeading(
-                                        churchId: widget.tenantId,
+                                        churchId:
+                                            ChurchRepository.churchId(widget.tenantId),
                                         data: coverData,
                                         size: 52,
                                         memCacheSize: 104,
@@ -12271,15 +12650,8 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       });
     }
     final tid = widget.noticias.parent?.id ?? '';
-    if (!await _awaitEventosFirebasePanelReady()) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'A sincronizar com o servidor… tente de novo em instantes.';
-        });
-      }
-      return;
-    }
+    // Não bloquear dashboard com «sincronização» — tenta cache/rede na mesma.
+    unawaited(_awaitEventosFirebasePanelReady());
     try {
       QuerySnapshot<Map<String, dynamic>> snap;
       final ram = tid.isNotEmpty ? _EventosNoticiasRamCache.peek(tid) : null;
@@ -12298,22 +12670,30 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           snap = mem;
         } else {
           try {
-            snap = await FirestoreWebGuard.runWithWebRecovery(
-              () => FirestoreReadResilience.getQuery(
-                widget.noticias
-                    .orderBy('startAt', descending: true)
-                    .limit(YahwehPerformanceV4.dashboardStatsSampleLimit),
-                cacheKey: '${tid}_eventos_dashboard_stats',
-              ),
+            snap = await FirestoreReadResilience.getQuery(
+              widget.noticias
+                  .orderBy('startAt', descending: true)
+                  .limit(YahwehPerformanceV4.dashboardStatsSampleLimit),
+              cacheKey: '${tid}_eventos_dashboard_stats',
+              maxAttempts: kIsWeb ? 2 : 3,
+              attemptTimeout: kIsWeb
+                  ? const Duration(seconds: 10)
+                  : const Duration(seconds: 18),
+            ).timeout(
+              kIsWeb ? const Duration(seconds: 12) : PanelResilientLoad.queryCap,
             );
           } catch (_) {
-            snap = await FirestoreWebGuard.runWithWebRecovery(
-              () => FirestoreReadResilience.getQuery(
-                widget.noticias.limit(
-                  YahwehPerformanceV4.dashboardStatsSampleLimit,
-                ),
-                cacheKey: '${tid}_eventos_dashboard_plain',
+            snap = await FirestoreReadResilience.getQuery(
+              widget.noticias.limit(
+                YahwehPerformanceV4.dashboardStatsSampleLimit,
               ),
+              cacheKey: '${tid}_eventos_dashboard_plain',
+              maxAttempts: kIsWeb ? 2 : 3,
+              attemptTimeout: kIsWeb
+                  ? const Duration(seconds: 10)
+                  : const Duration(seconds: 18),
+            ).timeout(
+              kIsWeb ? const Duration(seconds: 12) : PanelResilientLoad.queryCap,
             );
           }
         }

@@ -245,16 +245,35 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<Map<String, dynamic>> _ensureTenantProfileLoaded() async {
-    if (_tenant != null && _tenant!.isNotEmpty) {
+    bool looksUsable(Map<String, dynamic> t) {
+      final name = churchTaxIdChurchNameFromMap(t).trim();
+      if (name.isEmpty) return false;
+      // Cabeçalho ofício precisa de endereço (ou legado) — senão relê o doc.
+      return (t['rua'] ?? t['address'] ?? t['logradouro'] ?? '')
+              .toString()
+              .trim()
+              .isNotEmpty ||
+          (t['endereco'] ?? t['ENDERECO'] ?? t['enderecoCompleto'] ?? '')
+              .toString()
+              .trim()
+              .isNotEmpty ||
+          (t['cidade'] ?? t['CIDADE'] ?? '').toString().trim().isNotEmpty;
+    }
+
+    if (_tenant != null && looksUsable(_tenant!)) {
       return Map<String, dynamic>.from(_tenant!);
     }
     final ctx = ChurchContextService.currentChurchData;
-    if (ctx != null && ctx.isNotEmpty) {
+    if (ctx != null && looksUsable(ctx)) {
       if (mounted) setState(() => _tenant = Map<String, dynamic>.from(ctx));
       return Map<String, dynamic>.from(ctx);
     }
     final churchId = _loadChurchId;
-    if (churchId.isEmpty) return const {};
+    if (churchId.isEmpty) {
+      return _tenant != null
+          ? Map<String, dynamic>.from(_tenant!)
+          : const {};
+    }
 
     try {
       final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
@@ -290,7 +309,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
     } catch (_) {}
 
-    return const {};
+    return _tenant != null
+        ? Map<String, dynamic>.from(_tenant!)
+        : const {};
   }
 
   List<ChurchLetterMemberEntry> _memberEntriesFromDocs(
@@ -783,16 +804,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   String get _nomeIgreja {
-    final t = _tenant;
-    if (t != null) {
-      final n = (t['nome'] ?? t['name'] ?? '').toString().trim();
-      if (n.isNotEmpty) return n;
-    }
-    final ctx = ChurchContextService.currentChurchData;
-    if (ctx != null) {
-      final n = (ctx['nome'] ?? ctx['name'] ?? '').toString().trim();
-      if (n.isNotEmpty) return n;
-    }
+    final fromTenant = churchTaxIdChurchNameFromMap(_tenant).trim();
+    if (fromTenant.isNotEmpty) return fromTenant;
+    final fromCtx =
+        churchTaxIdChurchNameFromMap(ChurchContextService.currentChurchData)
+            .trim();
+    if (fromCtx.isNotEmpty) return fromCtx;
     final brand = _brandingReady?.churchName.trim() ?? '';
     if (brand.isNotEmpty) return brand;
     return 'Igreja';
@@ -814,15 +831,33 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   String _enderecoCompletoLine() {
     final d = _tenant;
     if (d == null) return '';
-    final rua = (d['rua'] ?? d['address'] ?? '').toString().trim();
-    final qd = (d['quadraLoteNumero'] ?? '').toString().trim();
+    final rua = (d['rua'] ?? d['address'] ?? d['logradouro'] ?? '')
+        .toString()
+        .trim();
+    final qd = (d['quadraLoteNumero'] ?? d['quadra_lote_numero'] ?? '')
+        .toString()
+        .trim();
     final ruaC = rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
     final bairro = (d['bairro'] ?? '').toString().trim();
+    final cidade =
+        (d['cidade'] ?? d['CIDADE'] ?? d['localidade'] ?? '').toString().trim();
+    final uf = (d['estado'] ?? d['UF'] ?? d['uf'] ?? '').toString().trim();
+    final cep = (d['cep'] ?? d['CEP'] ?? '').toString().trim();
     final parts = <String>[
       if (ruaC.isNotEmpty) ruaC,
       if (bairro.isNotEmpty) bairro,
+      if (cidade.isNotEmpty && uf.isNotEmpty)
+        '$cidade - $uf'
+      else if (cidade.isNotEmpty)
+        cidade
+      else if (uf.isNotEmpty)
+        uf,
+      if (cep.isNotEmpty) 'CEP $cep',
     ];
-    return parts.join(' · ');
+    if (parts.isNotEmpty) return parts.join(' · ');
+    return (d['endereco'] ?? d['ENDERECO'] ?? d['enderecoCompleto'] ?? '')
+        .toString()
+        .trim();
   }
 
   String _telefoneIgrejaLine() {

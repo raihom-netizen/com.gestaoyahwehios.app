@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Abre link público: no app nativo prioriza rota in-app (instantâneo); senão Safari/Chrome.
@@ -160,7 +162,8 @@ class ChurchPanelSyncBanner extends StatelessWidget {
   }
 }
 
-/// Erro bloqueante só quando não há dados locais; senão faixa offline/sync.
+/// Erro bloqueante só quando não há dados locais **e** o erro não é transitório.
+/// Sync/INTERNAL ASSERTION → faixa suave (lista vazia estável nos módulos).
 class ChurchPanelResilientLoadBanner extends StatelessWidget {
   const ChurchPanelResilientLoadBanner({
     super.key,
@@ -207,6 +210,38 @@ class ChurchPanelResilientLoadBanner extends StatelessWidget {
         message: (syncMessage != null && syncMessage!.isNotEmpty)
             ? syncMessage!
             : 'Sincronizando…',
+      );
+    }
+    // Erro transitório Web (assert/sync/timeout): NÃO derruba o módulo.
+    if (FirestoreWebGuard.isTransientPanelReadError(error)) {
+      return Material(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.sync_rounded, size: 20, color: Colors.amber.shade800),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  syncMessage ??
+                      'Sincronização em curso — a lista pode aparecer vazia por instantes. Puxe para atualizar.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.amber.shade900,
+                  ),
+                ),
+              ),
+              if (onRetry != null)
+                TextButton(
+                  onPressed: onRetry,
+                  child: const Text('Atualizar'),
+                ),
+            ],
+          ),
+        ),
       );
     }
     return ChurchPanelErrorBody(
@@ -267,6 +302,31 @@ class _ResilientPanelQueryFutureBuilderState
                   ),
                 ),
                 Expanded(child: widget.builder(context, fallback, showingStaleCache: true)),
+              ],
+            );
+          }
+          // Erro transitório → lista vazia estável (não banner vermelho bloqueante).
+          if (FirestoreWebGuard.isTransientPanelReadError(snap.error)) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    error: snap.error,
+                    errorTitle: widget.errorTitle,
+                    onRetry: widget.onRetry,
+                  ),
+                ),
+                Expanded(
+                  child: widget.builder(
+                    context,
+                    const MergedFirestoreQuerySnapshot([]),
+                    showingStaleCache: false,
+                  ),
+                ),
               ],
             );
           }

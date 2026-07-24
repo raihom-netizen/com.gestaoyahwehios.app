@@ -20,7 +20,9 @@ abstract final class EventoMediaUpload {
   }
 
   /// Capa de template — `igrejas/{id}/eventos/templates/{templateId}.jpg`.
-  static Future<String> uploadTemplateCover({
+  /// Retorna path sempre; URL pode vir vazia (timeout getDownloadURL) — o Firestore
+  /// grava o path e a UI resolve depois (StableStorageImage / SafeNetworkImage).
+  static Future<({String url, String storagePath})> uploadTemplateCover({
     required String churchId,
     required String templateId,
     required Uint8List compressedBytes,
@@ -45,7 +47,12 @@ abstract final class EventoMediaUpload {
       timeout: uploadTimeout,
       skipEnsureReady: true,
     );
-    return uploaded.downloadUrl;
+    return (
+      url: uploaded.downloadUrl.trim(),
+      storagePath: uploaded.storagePath.trim().isNotEmpty
+          ? uploaded.storagePath.trim()
+          : path,
+    );
   }
 
   static Future<EcoFireFeedPhotoSlot> uploadPhotoSlot({

@@ -544,4 +544,5 @@ exports.warmChurchPublicFeedCache = functions
     await refreshPublicFeedCacheForTenant(tenantId);
     return { ok: true, tenantId, warmed: true };
 });
+// release 2124 share video fast-path 2026-07-22T09:28:22.6247507-03:00
 //# sourceMappingURL=churchPerformancePack.js.map

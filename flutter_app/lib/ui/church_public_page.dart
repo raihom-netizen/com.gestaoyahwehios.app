@@ -2542,6 +2542,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                               churchIdHint: igrejaId,
                                               compact: true,
                                               forPublicSite: true,
+                                              churchSlug: slugClean,
+                                              churchName: nome,
                                             ),
                                             const SizedBox(height: 24),
                                             FutureBuilder<
@@ -3038,8 +3040,8 @@ class _PublicNoticiaDeepLinkOpenerState
                           0,
                           nPhotos > 0 ? nPhotos : 1,
                         );
-                        final maxH = MediaQuery.sizeOf(ctx).height * 0.58;
-                        final h = (w / ar).clamp(160.0, maxH);
+                        final maxH = MediaQuery.sizeOf(ctx).height * 0.78;
+                        final h = (w / ar).clamp(300.0, maxH);
                         return SizedBox(
                           width: w,
                           height: h,
@@ -5800,6 +5802,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                             postId: d.id,
                             isEvento: isEvento,
                             churchSlug: slugClean,
+                            churchName: nome,
                             postsParentCollection: seg,
                           ),
                         ],

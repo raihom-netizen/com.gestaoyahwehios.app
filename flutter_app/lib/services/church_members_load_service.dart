@@ -423,17 +423,14 @@ abstract final class ChurchMembersLoadService {
     required bool forceServer,
     required int limit,
   }) =>
-      FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchModuleFirestoreListRead.queryPlainFirst(
-          reference: reference,
-          cacheKey: cacheKey,
-          limit: limit,
-          forceServer: forceServer,
-          legacyFallbackSubcollections: const ['members'],
-          orderByField: 'updatedAt',
-          sortDocs: _sortByName,
-        ),
-        maxAttempts: 2,
+      ChurchModuleFirestoreListRead.queryPlainFirst(
+        reference: reference,
+        cacheKey: cacheKey,
+        limit: limit,
+        forceServer: forceServer,
+        legacyFallbackSubcollections: const ['members'],
+        orderByField: 'updatedAt',
+        sortDocs: _sortByName,
       ).timeout(ChurchPanelReadTimeouts.queryCap);
 
   static Future<void> invalidate(String seedTenantId) async {

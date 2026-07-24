@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 
 /// Dados visuais da igreja para PDFs de relatórios (logo + nome + cor de destaque).
 class ReportPdfBranding {
@@ -114,7 +115,7 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
     tenant = snap.data() ?? {};
   } catch (_) {}
 
-  final name = (tenant['name'] ?? tenant['nome'] ?? '').toString().trim();
+  final name = churchTaxIdChurchNameFromMap(tenant);
   final accent = _accentFromTenant(tenant);
 
   Map<String, dynamic> cert = {};

@@ -51,6 +51,8 @@ Thumbs.db
 # Raiz — segredos, cache Firebase CLI, artefactos locais, backup
 .env
 .env.*
+!.env.example
+!**/.env.example
 secrets/
 gestaoyahweh-gcp-deploy-key.json
 gestaoyahweh*-firebase-adminsdk*.json
@@ -60,3 +62,7 @@ _deploy_out/
 functions/.env*
 firebase.json.bak
 firebase-debug.log
+
+# CI token local (nunca commitar)
+.firebase-ci-token
+**/.firebase-ci-token

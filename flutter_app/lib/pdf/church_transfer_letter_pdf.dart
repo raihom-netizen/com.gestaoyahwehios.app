@@ -454,8 +454,12 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
 
 List<String> _churchHeaderExtraLines(Map<String, dynamic> data) {
   final lines = <String>[];
-  final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
-  final qd = (data['quadraLoteNumero'] ?? '').toString().trim();
+  final rua = (data['rua'] ?? data['address'] ?? data['logradouro'] ?? '')
+      .toString()
+      .trim();
+  final qd = (data['quadraLoteNumero'] ?? data['quadra_lote_numero'] ?? '')
+      .toString()
+      .trim();
   final ruaC = rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
   final bairro = (data['bairro'] ?? '').toString().trim();
   final cidade =
@@ -475,6 +479,14 @@ List<String> _churchHeaderExtraLines(Map<String, dynamic> data) {
   if (cep.isNotEmpty) parts.add('CEP $cep');
   if (parts.isNotEmpty) {
     lines.add(parts.join(', '));
+  } else {
+    final legacy = (data['endereco'] ??
+            data['ENDERECO'] ??
+            data['enderecoCompleto'] ??
+            '')
+        .toString()
+        .trim();
+    if (legacy.isNotEmpty) lines.add(legacy);
   }
   final tel = (data['telefoneIgreja'] ??
           data['telefone'] ??

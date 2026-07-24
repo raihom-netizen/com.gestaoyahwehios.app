@@ -390,7 +390,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     String severity = "medium",
   }) async {
     try {
-      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp)
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable("reportSecurityEvent");
       await callable.call({
         "event": event,
@@ -447,7 +447,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     if (key == null) return;
 
     try {
-      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp)
+      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable('bootstrapAdmin');
       final res = await callable.call({'setupKey': key.trim()});
       final ok =
@@ -656,7 +656,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         content = const AdminMultiTenantDiagnosticPage();
         break;
       case AdminMenuItem.sistemaHome:
-        content = const Center(child: Text('Voltar ao Início'));
+        content = const Center(child: Text('Voltar ao aplicativo'));
         break;
     }
     return content;
@@ -690,7 +690,12 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       return;
     }
     if (item == AdminMenuItem.sistemaHome) {
-      Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+      // Padrão Controle Total: pop rápido para o painel da igreja (sem recriar a app).
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      } else {
+        Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
+      }
       return;
     }
     final isNarrow = MediaQuery.sizeOf(context).width <
@@ -859,7 +864,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                           'Feature flags', AdminMenuItem.sistemaFeatureFlags),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaHome))
                       _drawerTile(context, Icons.home_rounded,
-                          'Voltar ao Início', AdminMenuItem.sistemaHome),
+                          'Voltar ao aplicativo', AdminMenuItem.sistemaHome),
                   ],
                 ),
               ),
@@ -1234,14 +1239,12 @@ class _AdminHeader extends StatelessWidget {
       return _marketingCacheFuture!;
     }
     _marketingCachedAt = now;
-    _marketingCacheFuture = FirestoreWebGuard.runWithWebRecovery(
-      () async {
-        final snap = await firebaseDefaultFirestore
-            .doc(MarketingOfficialConfig.firestoreDocPath)
-            .get(const GetOptions(source: Source.serverAndCache));
-        return snap.data();
-      },
-    );
+    _marketingCacheFuture = () async {
+      final snap = await firebaseDefaultFirestore
+          .doc(MarketingOfficialConfig.firestoreDocPath)
+          .get(const GetOptions(source: Source.serverAndCache));
+      return snap.data();
+    }();
     return _marketingCacheFuture!;
   }
 

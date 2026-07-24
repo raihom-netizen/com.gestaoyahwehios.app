@@ -247,16 +247,22 @@ class AppConstants {
 
   /// Conta master do produto: vê/gerencia todas as igrejas (bypass de isolamento multi-tenant).
   static const String productMasterEmail = 'raihom@gmail.com';
+  /// E-mails com acesso ao Painel Master (escudo na barra — paridade Controle Total).
+  static const List<String> productMasterEmails = [
+    'raihom@gmail.com',
+    'isabellecardoso@gmail.com',
+    'isabelle.cardoso@gmail.com',
+  ];
   /// CPF (somente dígitos) do titular master — reforço além do e-mail.
   static const String productMasterCpfDigits = '94536368191';
 
-  /// Identifica o operador global (e-mail ou CPF do [linkedCpf] do painel).
+  /// Identifica o operador global (e-mail master ou CPF do [linkedCpf] do painel).
   static bool isProductMasterAccount({
     String? email,
     String? cpfDigitsOrRaw,
   }) {
     final e = (email ?? '').trim().toLowerCase();
-    if (e == productMasterEmail) return true;
+    if (e.isNotEmpty && productMasterEmails.contains(e)) return true;
     final d = (cpfDigitsOrRaw ?? '').replaceAll(RegExp(r'\D'), '');
     return d.isNotEmpty && d == productMasterCpfDigits;
   }

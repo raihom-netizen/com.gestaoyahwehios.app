@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -28,6 +29,7 @@ import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
@@ -48,6 +50,7 @@ import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_cells.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_shell.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_resumo_dia_card.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
@@ -976,7 +979,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   void _startFornecedoresWebCap() {
     if (!kIsWeb) return;
     _fornecedoresWebCap?.cancel();
-    _fornecedoresWebCap = Timer(PanelResilientLoad.webLoadingCap, () {
+    // Cap curto: Hive/RAM já pintam; evita skeleton infinito na Web.
+    _fornecedoresWebCap = Timer(const Duration(seconds: 12), () {
       if (!mounted || !_fornecedoresFetching) return;
       final hasLocal = (_fornecedoresSnap?.docs.isNotEmpty ?? false);
       setState(() {
@@ -999,10 +1003,35 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     } else {
       _seedFornecedoresLocal();
     }
-    // Se a lista local está vazia, forçar servidor (evita cache vazio «fantasma»).
-    final emptyLocal = !(_fornecedoresSnap?.docs.isNotEmpty ?? false);
-    unawaited(_fetchFornecedores(forceFresh: forceFresh || emptyLocal));
+    // Cache-first: lista vazia na RAM não invalida Hive/servidor (isso deixava
+    // o skeleton preso). Só forceFresh em refresh explícito do utilizador.
+    unawaited(_fetchFornecedores(forceFresh: forceFresh));
     _startFornecedoresWebCap();
+  }
+
+  /// Hive rápido para pintar Cadastros sem esperar Firestore.
+  Future<void> _hydrateFornecedoresFromHive() async {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) return;
+    if (_fornecedoresSnap?.docs.isNotEmpty ?? false) return;
+    try {
+      final hive = await TenantModuleHiveCache.readDocs(
+        tid,
+        TenantModuleKeys.fornecedores,
+      ).timeout(const Duration(seconds: 2));
+      if (hive.isEmpty || !mounted) return;
+      if (_fornecedoresSnap?.docs.isNotEmpty ?? false) return;
+      final docs = TenantModuleHiveCache.toQueryDocuments(hive);
+      if (docs.isEmpty) return;
+      final snap = MergedFirestoreQuerySnapshot(docs);
+      _FornecedoresRamCache.store(tid, snap);
+      setState(() {
+        _fornecedoresSnap = snap;
+        _fornecedoresFetching = true;
+        _fornecedoresError = null;
+        _fornecedoresShowingStaleCache = false;
+      });
+    } catch (_) {}
   }
 
   Future<void> _fetchFornecedores({bool forceFresh = false}) async {
@@ -1018,12 +1047,23 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     }
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        try {
+          await FirestoreWebGuard.ensurePanelReadReady().timeout(
+            ChurchPanelReadTimeouts.readReadyCap,
+          );
+        } catch (_) {}
+      }
+      if (!forceFresh) {
+        await _hydrateFornecedoresFromHive();
       }
       if (forceFresh) {
         await ChurchFornecedoresLoadService.invalidate(tid);
         _FornecedoresRamCache.invalidate(tid);
       }
+      // Web: cap mais curto na 1.ª pintura (lançamentos já estão ok em paralelo).
+      final queryCap = kIsWeb
+          ? const Duration(seconds: 12)
+          : ChurchPanelReadTimeouts.queryCap;
       final result =
           await ChurchFornecedoresLoadService.loadAll(
             seedTenantId: tid,
@@ -1031,7 +1071,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
             forceRefresh: forceFresh,
             forceServer: forceFresh,
           ).timeout(
-            ChurchPanelReadTimeouts.queryCap,
+            queryCap,
             onTimeout: () => ChurchFornecedoresLoadResult(
               churchId: tid,
               docs: const [],
@@ -1073,38 +1113,17 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           _fornecedoresError = ui.loadError;
         });
       } else {
-        // Lista vazia no servidor: tentar restaurar cadastros órfãos a partir
-        // dos lançamentos financeiros (fornecedorId + fornecedorNome).
-        final healed = await _healOrphanFornecedoresFromFinance(tid);
-        if (healed.isNotEmpty) {
-          await ChurchFornecedoresLoadService.invalidate(tid);
-          final again = await ChurchFornecedoresLoadService.loadAll(
-            seedTenantId: tid,
-            limit: _fornecedoresListLimit,
-            forceRefresh: true,
-            forceServer: true,
-          );
-          if (!mounted) return;
-          if (again.docs.isNotEmpty) {
-            final snap = again.snapshot;
-            _FornecedoresRamCache.store(tid, snap);
-            setState(() {
-              _fornecedoresSnap = snap;
-              _fornecedoresFetching = false;
-              _fornecedoresError = null;
-              _fornecedoresShowingStaleCache = false;
-              _loadHint =
-                  '${FirebasePaths.fornecedores(tid)} (heal, ${again.docs.length})';
-            });
-            return;
-          }
-        }
+        // Lista vazia: libera UI imediatamente; heal de órfãos em background.
         setState(() {
           _fornecedoresSnap = result.snapshot;
           _fornecedoresFetching = false;
           _fornecedoresError = null;
           _fornecedoresShowingStaleCache = false;
+          _loadHint =
+              '${FirebasePaths.fornecedores(tid)} '
+              '(${result.readSource}, 0)';
         });
+        unawaited(_healOrphansInBackground(tid));
       }
     } catch (e) {
       if (!mounted) return;
@@ -1128,6 +1147,32 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     }
   }
 
+  /// Restaura cadastros referenciados no Financeiro sem bloquear o skeleton.
+  Future<void> _healOrphansInBackground(String tenantId) async {
+    final healed = await _healOrphanFornecedoresFromFinance(tenantId);
+    if (healed.isEmpty || !mounted) return;
+    try {
+      await ChurchFornecedoresLoadService.invalidate(tenantId);
+      final again = await ChurchFornecedoresLoadService.loadAll(
+        seedTenantId: tenantId,
+        limit: _fornecedoresListLimit,
+        forceRefresh: true,
+        forceServer: true,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      if (!mounted || again.docs.isEmpty) return;
+      final snap = again.snapshot;
+      _FornecedoresRamCache.store(tenantId, snap);
+      setState(() {
+        _fornecedoresSnap = snap;
+        _fornecedoresFetching = false;
+        _fornecedoresError = null;
+        _fornecedoresShowingStaleCache = false;
+        _loadHint =
+            '${FirebasePaths.fornecedores(tenantId)} (heal, ${again.docs.length})';
+      });
+    } catch (_) {}
+  }
+
   /// Restaura docs em `fornecedores/` referenciados por lançamentos sem cadastro.
   Future<List<String>> _healOrphanFornecedoresFromFinance(
     String tenantId,
@@ -1135,12 +1180,13 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     final tid = ChurchRepository.churchId(tenantId);
     if (tid.isEmpty) return const [];
     try {
+      // Sem forceServer: usa cache do Financeiro (já rápido no módulo).
       final fin = await ChurchFinanceLoadService.loadLancamentos(
         seedTenantId: tid,
         limit: 400,
-        forceRefresh: true,
-        forceServer: true,
-      );
+        forceRefresh: false,
+        forceServer: false,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
       final orphans = <String, String>{};
       for (final d in fin.docs) {
         final m = d.data();
@@ -1153,9 +1199,27 @@ class _FornecedoresPageState extends State<FornecedoresPage>
 
       final col = ChurchUiCollections.fornecedores(tid);
       final created = <String>[];
-      for (final e in orphans.entries) {
+      // Cap: evita N+1 longo na Web quando há muitos IDs órfãos.
+      final entries = orphans.entries.take(40).toList();
+      for (final e in entries) {
         final ref = col.doc(e.key);
-        final exists = await ref.get(const GetOptions(source: Source.server));
+        DocumentSnapshot<Map<String, dynamic>> exists;
+        try {
+          exists = await ref.get(const GetOptions(source: Source.cache));
+          if (!exists.exists) {
+            exists = await ref
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 4));
+          }
+        } catch (_) {
+          try {
+            exists = await ref
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 4));
+          } catch (_) {
+            continue;
+          }
+        }
         if (exists.exists) continue;
         await ref.set({
           'nome': e.value,
@@ -1252,6 +1316,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     final initial = ChurchRepository.churchId(widget.tenantId).trim();
     if (initial.isNotEmpty) _resolvedTenantId = initial;
     _seedFornecedoresLocal();
+    _startFornecedoresWebCap();
     unawaited(_fetchFornecedores());
     unawaited(_bootstrapTenant());
   }
@@ -1432,22 +1497,22 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     String? docId,
     Map<String, dynamic>? initialData,
   }) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _FornecedorFormSheet(
-        tenantId: _effectiveTenantId,
-        col: _col,
-        docId: docId,
-        initialData:
-            initialData ??
-            (docId != null
-                ? ChurchFornecedoresLoadService.peekDocData(
-                    _effectiveTenantId,
-                    docId,
-                  )
-                : null),
+    await Navigator.of(context, rootNavigator: true).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (ctx) => _FornecedorFormSheet(
+          tenantId: _effectiveTenantId,
+          col: _col,
+          docId: docId,
+          initialData:
+              initialData ??
+              (docId != null
+                  ? ChurchFornecedoresLoadService.peekDocData(
+                      _effectiveTenantId,
+                      docId,
+                    )
+                  : null),
+        ),
       ),
     );
     if (mounted) setState(_reloadFornecedoresList);
@@ -1693,7 +1758,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
             controller: _searchCtrl,
             onChanged: (v) {
               _searchDebounce?.cancel();
-              _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+              _searchDebounce = Timer(const Duration(milliseconds: 280), () {
                 if (!mounted) return;
                 final next = v.trim().toLowerCase();
                 if (next == _q) return;
@@ -2032,6 +2097,20 @@ class _FornecedorCadastroCardContent extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
+  static String _fornecedorIniciais(String nome) {
+    final parts = nome
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return 'F';
+    if (parts.length == 1) {
+      final s = parts.first;
+      return (s.length >= 2 ? s.substring(0, 2) : s).toUpperCase();
+    }
+    return ('${parts.first[0]}${parts[1][0]}').toUpperCase();
+  }
+
   Color get _statusBackground => status == 'inativo'
       ? const Color(0xFFF1F5F9)
       : status == 'pendente_docs'
@@ -2097,10 +2176,15 @@ class _FornecedorCadastroCardContent extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Icon(
-                kFornecedoresModuleIcon,
-                color: Colors.white,
-                size: 26,
+              alignment: Alignment.center,
+              child: Text(
+                _fornecedorIniciais(nome),
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  letterSpacing: -0.2,
+                ),
               ),
             ),
             const SizedBox(width: 14),
@@ -3358,59 +3442,14 @@ class _FornecedoresResumoDiaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final raw = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(day);
-    final label = raw.isEmpty
-        ? ''
-        : '${raw[0].toUpperCase()}${raw.substring(1)}';
     final holidayName = HolidayHelper.holidayNameOn(day);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEFF6FF),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFBFDBFE)),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.event_note_rounded,
-                size: 20,
-                color: Colors.blue.shade800,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF1E3A8A),
-                  ),
-                ),
-              ),
-              if (items.isNotEmpty)
-                Text(
-                  '${items.length}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.blue.shade800,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        if (holidayName != null)
-          Container(
+    final children = <Widget>[
+      if (holidayName != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: const Color(0xFFFEE2E2).withValues(alpha: 0.65),
               borderRadius: BorderRadius.circular(12),
@@ -3425,7 +3464,7 @@ class _FornecedoresResumoDiaCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Feriado nacional: $holidayName',
-                    style: TextStyle(
+                    style: GoogleFonts.poppins(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
                       color: Colors.red.shade900,
@@ -3435,150 +3474,92 @@ class _FornecedoresResumoDiaCard extends StatelessWidget {
               ],
             ),
           ),
-        if (items.isEmpty)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Text(
-              'Nenhum compromisso neste dia.',
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-          )
-        else
-          ...items.map((d) {
-            final m = d.data();
-            final ts = m['dataVencimento'];
-            final when = ts is Timestamp ? _when(ts) : '';
-            final valor = m['valorEstimado'];
-            final vStr = valor is num
-                ? NumberFormat.currency(
-                    locale: 'pt_BR',
-                    symbol: r'R$',
-                  ).format(valor.toDouble())
-                : '';
-            final cor = FornecedorAgendaCalendarCells.corFromCompromisso(m);
-            final nome = nomeFornecedor?.call(d) ?? '';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.03),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3),
+        ),
+      if (items.isEmpty)
+        Text(
+          'Nenhum compromisso neste dia.',
+          style: GoogleFonts.poppins(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey.shade600,
+          ),
+        )
+      else
+        ...items.map((d) {
+          final m = d.data();
+          final ts = m['dataVencimento'];
+          final when = ts is Timestamp ? _when(ts) : '';
+          final valor = m['valorEstimado'];
+          final vStr = valor is num
+              ? NumberFormat.currency(
+                  locale: 'pt_BR',
+                  symbol: r'R$',
+                ).format(valor.toDouble())
+              : '';
+          final cor = FornecedorAgendaCalendarCells.corFromCompromisso(m);
+          final nome = nomeFornecedor?.call(d) ?? '';
+          final titulo = (m['titulo'] ?? '').toString().trim();
+          final subtitleParts = <String>[
+            if (nome.isNotEmpty) nome,
+            if (when.isNotEmpty) when,
+            if (vStr.isNotEmpty) vStr,
+          ];
+          return ControleTotalResumoDiaItem(
+            accent: cor,
+            title: titulo.isNotEmpty ? titulo : 'Compromisso',
+            subtitle: subtitleParts.isEmpty ? null : subtitleParts.join(' · '),
+            icon: Icons.handshake_rounded,
+            below: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _FornecedorContatoChipsRow(
+                  endereco: enderecoFornecedor(d),
+                  whatsappDigits: whatsappFornecedor(d),
+                ),
+                if (onEdit != null || onDelete != null) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Wrap(
+                      spacing: 4,
+                      children: [
+                        if (onEdit != null)
+                          IconButton(
+                            tooltip: 'Editar',
+                            icon: const Icon(
+                              Icons.edit_rounded,
+                              color: Color(0xFF16A34A),
+                              size: 20,
+                            ),
+                            onPressed: () => onEdit!(d),
+                          ),
+                        if (onDelete != null)
+                          IconButton(
+                            tooltip: 'Excluir',
+                            icon: const Icon(
+                              Icons.delete_outline_rounded,
+                              color: Color(0xFFDC2626),
+                              size: 20,
+                            ),
+                            onPressed: () => onDelete!(d),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Container(
-                        width: 5,
-                        decoration: BoxDecoration(
-                          color: cor,
-                          borderRadius: const BorderRadius.horizontal(
-                            left: Radius.circular(14),
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (nome.isNotEmpty)
-                                Text(
-                                  nome,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 12.5,
-                                    color: ThemeCleanPremium.primary,
-                                  ),
-                                ),
-                              Text(
-                                (m['titulo'] ?? '').toString(),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                [when, if (vStr.isNotEmpty) vStr].join(' · '),
-                                style: TextStyle(
-                                  color: Colors.grey.shade800,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12.5,
-                                ),
-                              ),
-                              _FornecedorContatoChipsRow(
-                                endereco: enderecoFornecedor(d),
-                                whatsappDigits: whatsappFornecedor(d),
-                              ),
-                              if (onEdit != null || onDelete != null) ...[
-                                const SizedBox(height: 8),
-                                Divider(height: 1, color: Colors.grey.shade200),
-                                const SizedBox(height: 6),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Wrap(
-                                    spacing: 4,
-                                    children: [
-                                      if (onEdit != null)
-                                        IconButton(
-                                          tooltip: 'Editar',
-                                          icon: const Icon(
-                                            Icons.edit_rounded,
-                                            color: Color(0xFF16A34A),
-                                            size: 20,
-                                          ),
-                                          onPressed: () => onEdit!(d),
-                                        ),
-                                      if (onDelete != null)
-                                        IconButton(
-                                          tooltip: 'Excluir',
-                                          icon: const Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Color(0xFFDC2626),
-                                            size: 20,
-                                          ),
-                                          onPressed: () => onDelete!(d),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
                   ),
-                ),
-              ),
-            );
-          }),
-      ],
+                ],
+              ],
+            ),
+          );
+        }),
+    ];
+
+    return ControleTotalResumoDiaCard(
+      day: day,
+      showTapHint: true,
+      tapHint:
+          'Toque novamente no dia no calendário para incluir, trocar ou editar.',
+      emptyMessage: 'Nenhum compromisso neste dia.',
+      children: children,
     );
   }
 }
@@ -3932,10 +3913,6 @@ class _FornecedoresAgendaGeralTabState
                     ),
                   ),
                   const SizedBox(height: 10),
-                  _FornecedoresHojeButton(
-                    focusedMonth: _focused,
-                    onTap: _goToToday,
-                  ),
                 ],
               ),
             ),
@@ -3945,7 +3922,17 @@ class _FornecedoresAgendaGeralTabState
               padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
               child: RepaintBoundary(
                 child: ChurchAgendaCalendarPremiumShell(
-                  child: TableCalendar<Object?>(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                        child: _FornecedoresHojeButton(
+                          focusedMonth: _focused,
+                          onTap: _goToToday,
+                        ),
+                      ),
+                      TableCalendar<Object?>(
                     locale: 'pt_BR',
                     startingDayOfWeek: StartingDayOfWeek.sunday,
                     firstDay: DateTime.utc(2020, 1, 1),
@@ -3953,10 +3940,10 @@ class _FornecedoresAgendaGeralTabState
                     availableGestures: AvailableGestures.horizontalSwipe,
                     focusedDay: _focused,
                     sixWeekMonthsEnforced: true,
-                    rowHeight: ThemeCleanPremium.isMobile(context) ? 64 : 60,
+                    rowHeight: ThemeCleanPremium.isMobile(context) ? 76 : 64,
                     daysOfWeekHeight: ThemeCleanPremium.isMobile(context)
-                        ? 26
-                        : 22,
+                        ? 34
+                        : 30,
                     selectedDayPredicate: (d) =>
                         _selected != null && isSameDay(_selected, d),
                     eventLoader: (_) => const [],
@@ -4011,9 +3998,6 @@ class _FornecedoresAgendaGeralTabState
                         _selected = sel;
                         _focused = foc;
                       });
-                      // Resumo do dia fica inline abaixo do calendário
-                      // (padrão Agenda / Controle Total). Sheet só se quiser
-                      // ações rápidas — mantido no toque longo via cards.
                     },
                     onPageChanged: (f) {
                       if (_focused.year != f.year ||
@@ -4067,29 +4051,33 @@ class _FornecedoresAgendaGeralTabState
                       ),
                     ),
                   ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
+                        child: _FornecedoresResumoDiaCard(
+                          day: _selected ?? DateTime.now(),
+                          items: selectedItems,
+                          nomeFornecedor: (d) {
+                            final fid =
+                                (d.data()['fornecedorId'] ?? '').toString();
+                            return nomePorId[fid] ??
+                                (fid.isEmpty
+                                    ? 'Fornecedor'
+                                    : 'Fornecedor #$fid');
+                          },
+                          enderecoFornecedor: endOf,
+                          whatsappFornecedor: waOf,
+                          onEdit: (d) =>
+                              unawaited(_editarCompromissoAgendaGeral(d)),
+                          onDelete: (d) =>
+                              unawaited(_excluirCompromissoAgendaGeral(d)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-          if (_selected != null)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                child: _FornecedoresResumoDiaCard(
-                  day: _selected!,
-                  items: selectedItems,
-                  nomeFornecedor: (d) {
-                    final fid = (d.data()['fornecedorId'] ?? '').toString();
-                    return nomePorId[fid] ??
-                        (fid.isEmpty ? 'Fornecedor' : 'Fornecedor #$fid');
-                  },
-                  enderecoFornecedor: endOf,
-                  whatsappFornecedor: waOf,
-                  onEdit: (d) => unawaited(_editarCompromissoAgendaGeral(d)),
-                  onDelete: (d) => unawaited(_excluirCompromissoAgendaGeral(d)),
-                ),
-              ),
-            ),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
@@ -4477,8 +4465,8 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     _bairroCtrl.text = (m['bairro'] ?? '').toString();
     _cidadeCtrl.text = (m['cidade'] ?? '').toString();
     _ufCtrl.text = (m['uf'] ?? '').toString();
-    _telCtrl.text = (m['telefone'] ?? '').toString();
-    _waCtrl.text = (m['whatsapp'] ?? '').toString();
+    _telCtrl.text = brPhoneMaskLive((m['telefone'] ?? '').toString());
+    _waCtrl.text = brPhoneMaskLive((m['whatsapp'] ?? '').toString());
     _emailCtrl.text = (m['email'] ?? '').toString();
     _obsCtrl.text = (m['observacoes'] ?? '').toString();
     _pixChaveCtrl.text = (m['pixChave'] ?? '').toString();
@@ -4691,98 +4679,52 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final bottom = MediaQuery.viewInsetsOf(context).bottom;
     final accent =
         kChurchShellNavEntries[ChurchShellIndices.fornecedores].accent;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottom),
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: accent,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Retornar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: _saving ? null : () => Navigator.maybePop(context),
+          style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
         ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(ThemeCleanPremium.radiusLg),
-          ),
-          boxShadow: ThemeCleanPremium.softUiCardShadow,
-        ),
-        child: Column(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+            Text(
+              _isEdit ? 'Editar fornecedor' : 'Novo fornecedor',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+                letterSpacing: -0.2,
               ),
             ),
-            Container(
-              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    accent.withValues(alpha: 0.12),
-                    accent.withValues(alpha: 0.04),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                border: Border.all(color: accent.withValues(alpha: 0.22)),
+            Text(
+              FirebasePaths.fornecedores(
+                ChurchRepository.churchId(widget.tenantId),
               ),
-              child: Row(
-                children: [
-                  IconButton.filledTonal(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    tooltip: 'Voltar',
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: accent,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isEdit ? 'Editar fornecedor' : 'Novo fornecedor',
-                          style: GoogleFonts.inter(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        Text(
-                          FirebasePaths.fornecedores(
-                            ChurchRepository.churchId(widget.tenantId),
-                          ),
-                          style: GoogleFonts.inter(
-                            fontSize: 10.5,
-                            color: Colors.grey.shade600,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                    tooltip: 'Fechar',
-                  ),
-                ],
+              style: GoogleFonts.inter(
+                fontSize: 10.5,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            Expanded(
-              child: Form(
-                key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  children: [
+          ],
+        ),
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
                     SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(
@@ -4806,6 +4748,8 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                       decoration: InputDecoration(
                         labelText: _tipo == 'pj' ? 'CNPJ' : 'CPF',
                         border: const OutlineInputBorder(),
+                        filled: true,
+                        fillColor: Colors.white,
                         suffixIcon: _tipo == 'pj'
                             ? IconButton(
                                 icon: _loadingCnpj
@@ -4829,6 +4773,8 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                       decoration: const InputDecoration(
                         labelText: 'Razão social / nome completo',
                         border: OutlineInputBorder(),
+                        filled: true,
+                        fillColor: Colors.white,
                       ),
                       validator: (v) => (v == null || v.trim().isEmpty)
                           ? 'Obrigatório'
@@ -4844,6 +4790,8 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                             decoration: const InputDecoration(
                               labelText: 'CEP',
                               border: OutlineInputBorder(),
+                              filled: true,
+                              fillColor: Colors.white,
                             ),
                             keyboardType: TextInputType.number,
                             inputFormatters: [
@@ -4862,8 +4810,9 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                                 : () async {
                                     setState(() => _loadingCep = true);
                                     await _buscarCep();
-                                    if (mounted)
+                                    if (mounted) {
                                       setState(() => _loadingCep = false);
+                                    }
                                   },
                             child: _loadingCep
                                 ? const SizedBox(
@@ -4946,8 +4895,11 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                     ),
                     TextFormField(
                       controller: _telCtrl,
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: const [BrPhoneInputFormatter()],
                       decoration: const InputDecoration(
                         labelText: 'Telefone',
+                        hintText: '62 9.9170-5247',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -4958,10 +4910,12 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                           child: TextFormField(
                             controller: _waCtrl,
                             decoration: const InputDecoration(
-                              labelText: 'WhatsApp (só números)',
+                              labelText: 'WhatsApp',
+                              hintText: '62 9.9170-5247',
                               border: OutlineInputBorder(),
                             ),
                             keyboardType: TextInputType.phone,
+                            inputFormatters: const [BrPhoneInputFormatter()],
                           ),
                         ),
                         IconButton(
@@ -5099,29 +5053,103 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                       decoration: const InputDecoration(
                         labelText: 'Observações',
                         border: OutlineInputBorder(),
+                        filled: true,
+                        fillColor: Colors.white,
                         alignLabelWithHint: true,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: _saving ? null : _salvar,
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.save_rounded),
-                      label: Text(_saving ? 'Salvando…' : 'Salvar'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
           ],
+        ),
+      ),
+      bottomNavigationBar: Material(
+        elevation: 10,
+        color: Colors.white,
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 420;
+                final retornar = OutlinedButton.icon(
+                  onPressed:
+                      _saving ? null : () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  label: const Text('Retornar'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    foregroundColor: accent,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 12,
+                    ),
+                  ),
+                );
+                final cancelar = OutlinedButton.icon(
+                  onPressed:
+                      _saving ? null : () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancelar'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    foregroundColor: Colors.grey.shade700,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 12,
+                    ),
+                  ),
+                );
+                final salvar = FilledButton.icon(
+                  onPressed: _saving ? null : _salvar,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save_rounded, size: 18),
+                  label: Text(_saving ? 'Salvando…' : 'Salvar'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: accent,
+                    minimumSize: const Size(48, 48),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                  ),
+                );
+                if (narrow) {
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      salvar,
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: retornar),
+                          const SizedBox(width: 8),
+                          Expanded(child: cancelar),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: retornar),
+                    const SizedBox(width: 8),
+                    Expanded(child: cancelar),
+                    const SizedBox(width: 8),
+                    Expanded(flex: 2, child: salvar),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -5671,15 +5699,15 @@ class _CadastroTab extends StatelessWidget {
                   foregroundColor: Colors.white,
                 ),
                 onPressed: () async {
-                  await showModalBottomSheet<void>(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (ctx) => _FornecedorFormSheet(
-                      tenantId: tenantId,
-                      col: fornecedorRef.parent,
-                      docId: fornecedorRef.id,
-                      initialData: Map<String, dynamic>.from(m),
+                  await Navigator.of(context, rootNavigator: true).push<void>(
+                    MaterialPageRoute(
+                      fullscreenDialog: true,
+                      builder: (ctx) => _FornecedorFormSheet(
+                        tenantId: tenantId,
+                        col: fornecedorRef.parent,
+                        docId: fornecedorRef.id,
+                        initialData: Map<String, dynamic>.from(m),
+                      ),
                     ),
                   );
                 },
@@ -6396,11 +6424,11 @@ class _AgendaTabState extends State<_AgendaTab> {
                           focusedDay: _focused,
                           sixWeekMonthsEnforced: true,
                           rowHeight: ThemeCleanPremium.isMobile(context)
-                              ? 72
+                              ? 76
                               : 64,
                           daysOfWeekHeight: ThemeCleanPremium.isMobile(context)
-                              ? 28
-                              : 22,
+                              ? 34
+                              : 30,
                           selectedDayPredicate: (d) =>
                               _selected != null && isSameDay(_selected, d),
                           eventLoader: (_) => const [],

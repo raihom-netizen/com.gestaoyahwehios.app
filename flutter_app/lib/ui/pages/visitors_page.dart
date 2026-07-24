@@ -257,7 +257,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
   /// Relatório: ano civil + mês opcional para totais e gráfico.
   int _reportYear = DateTime.now().year;
   int? _reportMonth;
-  bool _reportExpanded = true;
+  bool _reportExpanded = false;
 
   /// Seleção múltipla — excluir individual, selecionados ou todos.
   bool _selectionMode = false;
@@ -617,79 +617,102 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                         ],
-                        _VisitorsHeroHeader(
-                          totalCount: allVisitors.length,
-                          novosHoje: allVisitors.where((v) {
-                            final d = v.createdAt;
-                            if (d == null) return false;
-                            final now = DateTime.now();
-                            return d.year == now.year &&
-                                d.month == now.month &&
-                                d.day == now.day;
-                          }).length,
-                        ),
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        if (isMobile && !widget.embeddedInShell) ...[
-                          Text(
-                            'Visitantes',
-                            style: tt.headlineMedium?.copyWith(
-                              color: ThemeCleanPremium.onSurface,
-                              fontWeight: FontWeight.w700,
-                            ),
+                        if (_kpiDrill == _VisitorKpiDrill.none) ...[
+                          _VisitorsHeroHeader(
+                            totalCount: allVisitors.length,
+                            novosHoje: allVisitors.where((v) {
+                              final d = v.createdAt;
+                              if (d == null) return true;
+                              final now = DateTime.now();
+                              return d.year == now.year &&
+                                  d.month == now.month &&
+                                  d.day == now.day;
+                            }).length,
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        ],
-                        _SummaryCards(
-                          visitors: allVisitors,
-                          isMobile: isMobile,
-                          selectedDrill: _kpiDrill,
-                          onDrillTap: (d) {
-                            setState(() {
-                              _kpiDrill =
-                                  _kpiDrill == d ? _VisitorKpiDrill.none : d;
-                            });
-                          },
-                        ),
-                        if (_kpiDrill != _VisitorKpiDrill.none) ...[
+                          if (isMobile && !widget.embeddedInShell) ...[
+                            Text(
+                              'Visitantes',
+                              style: tt.headlineMedium?.copyWith(
+                                color: ThemeCleanPremium.onSurface,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          ],
+                          _SummaryCards(
+                            visitors: allVisitors,
+                            isMobile: isMobile,
+                            selectedDrill: _kpiDrill,
+                            onDrillTap: (d) {
+                              setState(() {
+                                _kpiDrill = d;
+                                _selectionMode = false;
+                                _selectedIds.clear();
+                              });
+                            },
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          _buildTabBar(context),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          if (_tab == _TabVisitante.historico) ...[
+                            _buildFiltrosHistorico(context, tt),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                          ] else ...[
+                            _buildSearchField(tt),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                          ],
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          _VisitorsListHeader(
+                            tab: _tab,
+                            count: filtered.length,
+                            totalHoje: allVisitors.where((v) {
+                              final d = v.createdAt;
+                              if (d == null) return true;
+                              final now = DateTime.now();
+                              return d.year == now.year &&
+                                  d.month == now.month &&
+                                  d.day == now.day;
+                            }).length,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceSm),
+                        ] else ...[
                           _KpiDrillHeader(
                             drill: _kpiDrill,
                             count: filtered.length,
-                            onClose: () =>
-                                setState(() => _kpiDrill = _VisitorKpiDrill.none),
+                            onClose: () => setState(() {
+                              _kpiDrill = _VisitorKpiDrill.none;
+                              _selectionMode = false;
+                              _selectedIds.clear();
+                            }),
+                            onSelectAll: _canManage
+                                ? () {
+                                    setState(() => _selectionMode = true);
+                                    unawaited(_selectAllVisible());
+                                  }
+                                : null,
+                            onEnterSelection: _canManage
+                                ? () => setState(() => _selectionMode = true)
+                                : null,
                           ),
-                        ],
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _buildTabBar(context),
-                        const SizedBox(height: ThemeCleanPremium.spaceMd),
-                        if (_tab == _TabVisitante.historico) ...[
-                          _buildFiltrosHistorico(context, tt),
-                          const SizedBox(height: ThemeCleanPremium.spaceSm),
-                        ] else ...[
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
                           _buildSearchField(tt),
                           const SizedBox(height: ThemeCleanPremium.spaceSm),
                         ],
-                        const SizedBox(height: ThemeCleanPremium.spaceMd),
-                        _VisitorsReportPanel(
-                          visitors: allVisitors,
-                          year: _reportYear,
-                          month: _reportMonth,
-                          expanded: _reportExpanded,
-                          onToggleExpanded: () => setState(
-                              () => _reportExpanded = !_reportExpanded),
-                          onYearChanged: (y) => setState(() {
-                            _reportYear = y;
-                          }),
-                          onMonthChanged: (m) => setState(() => _reportMonth = m),
-                        ),
-                        const SizedBox(height: ThemeCleanPremium.spaceMd),
                       ]),
                     ),
                   ),
                   if (filtered.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _buildEmptyState(tt),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: ThemeCleanPremium.isNarrow(context)
+                              ? ThemeCleanPremium.spaceSm
+                              : ThemeCleanPremium.spaceLg,
+                          vertical: ThemeCleanPremium.spaceLg,
+                        ),
+                        child: _buildEmptyState(tt),
+                      ),
                     )
                   else
                     SliverPadding(
@@ -700,45 +723,76 @@ class _VisitorsPageState extends State<VisitorsPage> {
                       ),
                       sliver: SliverList(
                         delegate: SliverChildBuilderDelegate(
-                          (context, i) => _VisitorCard(
-                            visitor: filtered[i],
-                            tenantId: widget.tenantId,
-                            canManage: _canManage,
-                            selectionMode: _selectionMode,
-                            selected: _selectedIds.contains(filtered[i].id),
-                            onSelectionChanged: _selectionMode
-                                ? (v) => setState(() {
-                                      if (v) {
-                                        _selectedIds.add(filtered[i].id);
+                          (context, i) {
+                            final v = filtered[i];
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                bottom: i == filtered.length - 1
+                                    ? 8
+                                    : ThemeCleanPremium.spaceSm,
+                              ),
+                              child: _VisitorModernRow(
+                                visitor: v,
+                                selectionMode: _selectionMode,
+                                selected: _selectedIds.contains(v.id),
+                                canManage: _canManage,
+                                onSelectionChanged: _selectionMode
+                                    ? (sel) => setState(() {
+                                          if (sel) {
+                                            _selectedIds.add(v.id);
+                                          } else {
+                                            _selectedIds.remove(v.id);
+                                          }
+                                        })
+                                    : null,
+                                onTap: () {
+                                  if (_selectionMode) {
+                                    setState(() {
+                                      if (_selectedIds.contains(v.id)) {
+                                        _selectedIds.remove(v.id);
                                       } else {
-                                        _selectedIds.remove(filtered[i].id);
+                                        _selectedIds.add(v.id);
                                       }
-                                    })
-                                : null,
-                            onTap: () {
-                              if (_selectionMode) {
-                                final id = filtered[i].id;
-                                setState(() {
-                                  if (_selectedIds.contains(id)) {
-                                    _selectedIds.remove(id);
+                                    });
                                   } else {
-                                    _selectedIds.add(id);
+                                    _openVisitorDetails(context, v);
                                   }
-                                });
-                              } else {
-                                _openVisitorDetails(context, filtered[i]);
-                              }
-                            },
-                            onEdit: () => _openVisitorForm(context,
-                                visitor: filtered[i]),
-                            onDelete: () =>
-                                _confirmDelete(context, filtered[i]),
-                          ),
+                                },
+                                onEdit: () =>
+                                    _openVisitorForm(context, visitor: v),
+                                onDelete: () => _confirmDelete(context, v),
+                              ),
+                            );
+                          },
                           childCount: filtered.length,
                         ),
                       ),
                     ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 80)),
+                  if (_kpiDrill == _VisitorKpiDrill.none)
+                  SliverPadding(
+                    padding: ThemeCleanPremium.pagePadding(context),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
+                        _VisitorsReportPanel(
+                          visitors: allVisitors,
+                          year: _reportYear,
+                          month: _reportMonth,
+                          expanded: _reportExpanded,
+                          onToggleExpanded: () => setState(
+                              () => _reportExpanded = !_reportExpanded),
+                          onYearChanged: (y) => setState(() {
+                            _reportYear = y;
+                          }),
+                          onMonthChanged: (m) =>
+                              setState(() => _reportMonth = m),
+                        ),
+                        const SizedBox(height: 80),
+                      ]),
+                    ),
+                  )
+                  else
+                    const SliverToBoxAdapter(child: SizedBox(height: 80)),
                 ],
               ),
             );
@@ -783,7 +837,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
               ),
               TextButton(
                 onPressed: _bulkDeleting ? null : _selectAllVisible,
-                child: const Text('Todos'),
+                child: const Text('Selecionar todos'),
               ),
               const SizedBox(width: 4),
               FilledButton.icon(
@@ -1170,9 +1224,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
     final endOfToday = startOfToday.add(const Duration(days: 1));
 
     if (_tab == _TabVisitante.doDia) {
+      // Sem data (Timestamp ainda a sincronizar) → mostra no dia para não “sumir”.
       result = result.where((v) {
         final d = v.createdAt;
-        return d != null && !d.isBefore(startOfToday) && d.isBefore(endOfToday);
+        if (d == null) return true;
+        return !d.isBefore(startOfToday) && d.isBefore(endOfToday);
       }).toList();
     } else {
       result = result.where((v) {
@@ -1242,7 +1298,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
       ),
     )
         .then((saved) {
-      if (mounted && saved == true) _refreshVisitantesBackground();
+      if (!mounted || saved != true) return;
+      // saveVisitor já inseriu no RAM — pinta na hora; sync em background.
+      final instant = _peekInstantVisitantesSnap();
+      if (instant != null) {
+        setState(() {
+          _visitantesLoadPending = false;
+          _visitantesFuture = Future.value(instant);
+        });
+      }
+      unawaited(_refreshVisitantesBackground(forceRefresh: true));
     });
   }
 
@@ -1357,11 +1422,9 @@ class _VisitorData {
   String get observacoes => (data['observacoes'] ?? '').toString();
   int get followupCount => (data['followupCount'] ?? 0) as int;
 
-  DateTime? get createdAt {
-    final ts = data['createdAt'];
-    if (ts is Timestamp) return ts.toDate();
-    return null;
-  }
+  DateTime? get createdAt =>
+      ChurchVisitantesLoadService.parseVisitorInstant(data['createdAt']) ??
+      ChurchVisitantesLoadService.parseVisitorInstant(data['updatedAt']);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1453,6 +1516,295 @@ class _VisitorsHeroHeader extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _VisitorsListHeader extends StatelessWidget {
+  const _VisitorsListHeader({
+    required this.tab,
+    required this.count,
+    required this.totalHoje,
+  });
+
+  final _TabVisitante tab;
+  final int count;
+  final int totalHoje;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final isDia = tab == _TabVisitante.doDia;
+    final title = isDia ? 'Visitantes de hoje' : 'Histórico';
+    final qtyLabel = isDia
+        ? (totalHoje == 1 ? '1 no dia' : '$totalHoje no dia')
+        : (count == 1 ? '1 visitante' : '$count visitantes');
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: tt.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isDia
+                    ? 'Nomes cadastrados neste dia'
+                    : 'Registros anteriores',
+                style: tt.bodySmall?.copyWith(
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            gradient: isDia ? _VisitorsPremiumTheme.heroGradient : null,
+            color: isDia ? null : ThemeCleanPremium.primary.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: isDia
+                ? [
+                    BoxShadow(
+                      color:
+                          _VisitorsPremiumTheme.orange.withValues(alpha: 0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            qtyLabel,
+            style: tt.labelLarge?.copyWith(
+              color: isDia ? Colors.white : ThemeCleanPremium.primary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VisitorModernRow extends StatelessWidget {
+  const _VisitorModernRow({
+    required this.visitor,
+    required this.selectionMode,
+    required this.selected,
+    required this.canManage,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+    this.onSelectionChanged,
+  });
+
+  final _VisitorData visitor;
+  final bool selectionMode;
+  final bool selected;
+  final bool canManage;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool>? onSelectionChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final accent = _VisitorsPremiumTheme.statusAccent(visitor.status);
+    final nome = visitor.nome.trim().isEmpty ? 'Sem nome' : visitor.nome.trim();
+    final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
+    final phone = visitor.telefone.trim();
+    final narrow = ThemeCleanPremium.isNarrow(context);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: Colors.white,
+            border: Border.all(
+              color: selected
+                  ? _VisitorsPremiumTheme.orange
+                  : accent.withValues(alpha: 0.28),
+              width: selected ? 1.8 : 1,
+            ),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    if (selectionMode) ...[
+                      Checkbox(
+                        value: selected,
+                        activeColor: _VisitorsPremiumTheme.orange,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        onChanged: onSelectionChanged == null
+                            ? null
+                            : (v) => onSelectionChanged!(v ?? false),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Container(
+                      width: 4,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: accent,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: accent.withValues(alpha: 0.18),
+                      child: Text(
+                        initial,
+                        style: TextStyle(
+                          color: accent,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nome,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: tt.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: accent.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  visitor.status,
+                                  style: tt.labelSmall?.copyWith(
+                                    color: accent,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              if (phone.isNotEmpty)
+                                Text(
+                                  brPhoneMaskLive(phone),
+                                  style: tt.labelSmall?.copyWith(
+                                    color: ThemeCleanPremium.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                )
+                              else
+                                Text(
+                                  _VisitorCard._formatDate(visitor.createdAt),
+                                  style: tt.labelSmall?.copyWith(
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!selectionMode && canManage && !narrow) ...[
+                      IconButton(
+                        tooltip: 'Editar',
+                        onPressed: onEdit,
+                        icon: Icon(Icons.edit_rounded,
+                            color: ThemeCleanPremium.primary),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Excluir',
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_outline_rounded,
+                            color: ThemeCleanPremium.error),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
+                      ),
+                    ],
+                    if (phone.isNotEmpty && !selectionMode)
+                      IconButton(
+                        tooltip: 'WhatsApp',
+                        onPressed: () => launchWhatsAppContact(phone),
+                        icon: const WhatsappBrandIcon(
+                            size: 22, color: Color(0xFF25D366)),
+                        constraints: const BoxConstraints(
+                          minWidth: 48,
+                          minHeight: 48,
+                        ),
+                      ),
+                  ],
+                ),
+                if (!selectionMode && canManage && narrow) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: onEdit,
+                        icon: const Icon(Icons.edit_rounded, size: 18),
+                        label: const Text('Editar'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          foregroundColor: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        label: const Text('Excluir'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          foregroundColor: ThemeCleanPremium.error,
+                          side: const BorderSide(color: ThemeCleanPremium.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1708,23 +2060,27 @@ class _SummaryCardData {
   const _SummaryCardData(this.label, this.value, this.icon, this.color);
 }
 
-/// Cabeçalho do filtro ao tocar num cartão KPI.
+/// Cabeçalho do filtro ao tocar num cartão KPI — Retornar + seleção em massa.
 class _KpiDrillHeader extends StatelessWidget {
   final _VisitorKpiDrill drill;
   final int count;
   final VoidCallback onClose;
+  final VoidCallback? onSelectAll;
+  final VoidCallback? onEnterSelection;
 
   const _KpiDrillHeader({
     required this.drill,
     required this.count,
     required this.onClose,
+    this.onSelectAll,
+    this.onEnterSelection,
   });
 
   @override
   Widget build(BuildContext context) {
     final primary = ThemeCleanPremium.primary;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -1743,46 +2099,101 @@ class _KpiDrillHeader extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Material(
-            color: Colors.white.withValues(alpha: 0.14),
-            shape: const CircleBorder(),
-            child: IconButton(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Material(
+                color: Colors.white.withValues(alpha: 0.14),
+                shape: const CircleBorder(),
+                child: IconButton(
+                  onPressed: onClose,
+                  tooltip: 'Retornar',
+                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _kpiDrillTitle(drill),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '$count ${count == 1 ? "visitante" : "visitantes"} · linhas modernas com editar e excluir',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white.withValues(alpha: 0.9),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 48,
+            child: FilledButton.tonalIcon(
               onPressed: onClose,
-              tooltip: 'Fechar lista filtrada',
-              icon: const Icon(Icons.close_rounded, color: Colors.white),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.arrow_back_rounded),
+              label: const Text(
+                'Retornar',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (onSelectAll != null || onEnterSelection != null) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Text(
-                  _kpiDrillTitle(drill),
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                    letterSpacing: -0.3,
-                    height: 1.2,
+                if (onEnterSelection != null)
+                  OutlinedButton.icon(
+                    onPressed: onEnterSelection,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white70),
+                      minimumSize: const Size(0, 44),
+                    ),
+                    icon: const Icon(Icons.checklist_rounded, size: 18),
+                    label: const Text('Selecionar'),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '$count ${count == 1 ? 'visitante' : 'visitantes'} · WhatsApp nas linhas quando houver telefone',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.9),
-                    height: 1.35,
+                if (onSelectAll != null)
+                  OutlinedButton.icon(
+                    onPressed: onSelectAll,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white70),
+                      minimumSize: const Size(0, 44),
+                    ),
+                    icon: const Icon(Icons.select_all_rounded, size: 18),
+                    label: const Text('Selecionar todos'),
                   ),
-                ),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -2203,7 +2614,9 @@ class _VisitorCard extends StatelessWidget {
                                 ConstrainedBox(
                                   constraints: const BoxConstraints(maxWidth: 200),
                                   child: Text(
-                                    visitor.telefone,
+                                    visitor.telefone.isEmpty
+                                        ? ''
+                                        : brPhoneMaskLive(visitor.telefone),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
@@ -2667,8 +3080,10 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                           TextFormField(
                             controller: _telCtrl,
                             decoration: _fieldDecoration(
-                              label: 'Telefone',
+                              label: 'Telefone / WhatsApp',
                               icon: Icons.phone_outlined,
+                            ).copyWith(
+                              hintText: '62 9.9170-5247',
                             ),
                             keyboardType: TextInputType.phone,
                             inputFormatters: const [
@@ -3041,7 +3456,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
           const SizedBox(height: ThemeCleanPremium.spaceMd),
           Divider(color: Colors.grey.shade200),
           const SizedBox(height: ThemeCleanPremium.spaceSm),
-          _infoRow(Icons.phone_outlined, 'Telefone', v.telefone.isEmpty ? '—' : v.telefone),
+          _infoRow(Icons.phone_outlined, 'Telefone', v.telefone.isEmpty ? '—' : brPhoneMaskLive(v.telefone)),
           _infoRow(Icons.email_outlined, 'E-mail', v.email.isEmpty ? '—' : v.email),
           _infoRow(Icons.info_outline_rounded, 'Como conheceu', v.comoConheceu.isEmpty ? '—' : v.comoConheceu),
           _infoRow(Icons.calendar_today_outlined, 'Primeiro contato', _VisitorCard._formatDate(v.createdAt)),

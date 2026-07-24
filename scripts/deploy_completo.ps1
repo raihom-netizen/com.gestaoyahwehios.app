@@ -52,7 +52,9 @@ if ($SkipWeb)               { $invokeArgs.SkipWeb               = $true }
 if ($LogTo)                { $invokeArgs.LogTo                = $LogTo }
 
 # Padrao otimizado: nao bloquear horas em 503 da API Rules -- web/AAB/iOS seguem.
-if (-not $PSBoundParameters.ContainsKey('ContinueOnRulesFailure')) {
+# Se o utilizador passar -ContinueOnRulesFailure, tambem tem de ir no splat
+# (antes: passar a flag explicitamente fazia o default NAO aplicar = caminho estrito).
+if ($ContinueOnRulesFailure -or -not $PSBoundParameters.ContainsKey('ContinueOnRulesFailure')) {
     $invokeArgs.ContinueOnRulesFailure = $true
 }
 

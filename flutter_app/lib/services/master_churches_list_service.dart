@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Igreja leve para o Painel Master (Lista Igrejas).
@@ -155,9 +154,7 @@ abstract final class MasterChurchesListService {
     }
 
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => fetch(forceServer ? Source.server : Source.serverAndCache),
-      );
+      final snap = await fetch(forceServer ? Source.server : Source.serverAndCache);
       final parsed = _parseChurches(snap.data());
       if (parsed.isNotEmpty) {
         _storeMem(parsed);
@@ -181,9 +178,7 @@ abstract final class MasterChurchesListService {
         'getMasterChurchesList',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
       );
-      final res = await FirestoreWebGuard.runWithWebRecovery(
-        () => callable.call<Map<String, dynamic>>({}),
-      );
+      final res = await callable.call<Map<String, dynamic>>({});
       final data = res.data;
       final churches = data['churches'];
       if (churches is List) {
@@ -264,40 +259,38 @@ abstract final class MasterChurchesListService {
   static Future<List<MasterChurchListItem>> _loadDirectFallback({
     bool forceServer = false,
   }) async {
-    return FirestoreWebGuard.runWithWebRecovery(() async {
-      final db = firebaseDefaultFirestore;
-      QuerySnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await db
-            .collection('igrejas')
-            .limit(80)
-            .get(
-              GetOptions(
-                source: forceServer ? Source.server : Source.serverAndCache,
-              ),
-            )
-            .timeout(const Duration(seconds: 14));
-      } catch (_) {
-        snap = await db
-            .collection('igrejas')
-            .limit(80)
-            .get()
-            .timeout(const Duration(seconds: 14));
-      }
-      final docs = snap.docs.toList()
-        ..sort((a, b) {
-          final na = '${a.data()['nome'] ?? a.data()['name'] ?? a.id}'
-              .toLowerCase();
-          final nb = '${b.data()['nome'] ?? b.data()['name'] ?? b.id}'
-              .toLowerCase();
-          return na.compareTo(nb);
-        });
-      final out = docs
-          .map((d) => MasterChurchListItem(id: d.id, data: d.data()))
-          .toList();
-      if (out.isNotEmpty) _storeMem(out);
-      return out;
-    });
+    final db = firebaseDefaultFirestore;
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await db
+          .collection('igrejas')
+          .limit(80)
+          .get(
+            GetOptions(
+              source: forceServer ? Source.server : Source.serverAndCache,
+            ),
+          )
+          .timeout(const Duration(seconds: 14));
+    } catch (_) {
+      snap = await db
+          .collection('igrejas')
+          .limit(80)
+          .get()
+          .timeout(const Duration(seconds: 14));
+    }
+    final docs = snap.docs.toList()
+      ..sort((a, b) {
+        final na = '${a.data()['nome'] ?? a.data()['name'] ?? a.id}'
+            .toLowerCase();
+        final nb = '${b.data()['nome'] ?? b.data()['name'] ?? b.id}'
+            .toLowerCase();
+        return na.compareTo(nb);
+      });
+    final out = docs
+        .map((d) => MasterChurchListItem(id: d.id, data: d.data()))
+        .toList();
+    if (out.isNotEmpty) _storeMem(out);
+    return out;
   }
 }
 

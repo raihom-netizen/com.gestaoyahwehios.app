@@ -367,11 +367,12 @@ class _CategoryPieCard extends StatelessWidget {
     final sorted = entries.entries.where((e) => e.value > 0).toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final money = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final accent = colors.isNotEmpty ? colors.first : ThemeCleanPremium.primary;
 
     if (sorted.isEmpty || total <= 0) {
-      return _ChartShell(
+      return _ModernCategoryShell(
         title: title,
-        icon: Icons.pie_chart_rounded,
+        accent: accent,
         child: SizedBox(
           height: 160,
           child: Center(
@@ -385,96 +386,175 @@ class _CategoryPieCard extends StatelessWidget {
     }
 
     final sections = sorted.asMap().entries.map((e) {
+      final pct = (e.value.value / total * 100);
       return PieChartSectionData(
         value: e.value.value,
-        title: '',
+        title: pct >= 8 ? '${pct.toStringAsFixed(0)}%' : '',
         color: colors[e.key % colors.length],
-        radius: 58,
+        radius: 48,
+        titleStyle: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
       );
     }).toList();
 
-    return _ChartShell(
+    return _ModernCategoryShell(
       title: title,
-      icon: Icons.pie_chart_rounded,
-      child: SizedBox(
-        height: 220,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: PieChart(
-                PieChartData(
-                  sections: sections,
-                  sectionsSpace: 2,
-                  centerSpaceRadius: 36,
-                  startDegreeOffset: -90,
+      accent: accent,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final stacked = c.maxWidth < 320;
+          final chart = SizedBox(
+            width: stacked ? double.infinity : 148,
+            height: 148,
+            child: PieChart(
+              PieChartData(
+                sections: sections,
+                sectionsSpace: 2,
+                centerSpaceRadius: 40,
+                startDegreeOffset: -90,
+              ),
+              duration: const Duration(milliseconds: 450),
+            ),
+          );
+          final legend = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                money.format(total),
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                  color: accent,
                 ),
               ),
-            ),
-            Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    money.format(total),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  Text(
-                    'Total no período',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...sorted.take(5).toList().asMap().entries.map((ie) {
-                    final e = ie.value;
-                    final pct = (e.value / total * 100).clamp(0, 999);
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: colors[ie.key % colors.length],
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              e.key,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '${pct.toStringAsFixed(0)}%',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                ],
+              Text(
+                'Total no período',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600,
+                ),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(height: 12),
+              ...sorted.take(6).toList().asMap().entries.map((ie) {
+                final e = ie.value;
+                final pct = (e.value / total * 100).clamp(0, 999);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 7),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: colors[ie.key % colors.length],
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          e.key,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${pct.toStringAsFixed(0)}%',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          );
+          if (stacked) {
+            return Column(
+              children: [
+                chart,
+                const SizedBox(height: 14),
+                legend,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              chart,
+              const SizedBox(width: 14),
+              Expanded(child: legend),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Card donut modernizado — visual Controle Total (ícone insight + total + %).
+class _ModernCategoryShell extends StatelessWidget {
+  const _ModernCategoryShell({
+    required this.title,
+    required this.accent,
+    required this.child,
+  });
+
+  final String title;
+  final Color accent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFE8EEF4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.insights_rounded, color: accent, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          child,
+        ],
       ),
     );
   }

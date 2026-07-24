@@ -90,18 +90,29 @@ Widget _churchPublicProcessingMediaPlaceholder(Color accent) {
 }
 
 /// Miniatura rápida quando o post tem [media_info] (mural Instagram).
+/// Aceita https **ou** path Storage (publicação path-only sem getDownloadURL).
 String? churchPublicPostThumbUrl(Map<String, dynamic> p) {
   final mi = p['media_info'];
   if (mi is Map) {
     for (final k in ['url_thumb', 'urlThumb', 'url_original', 'urlOriginal']) {
       final u = sanitizeImageUrl((mi[k] ?? '').toString());
-      if (u.isNotEmpty && isValidImageUrl(u)) return u;
+      if (u.isNotEmpty &&
+          (isValidImageUrl(u) || firebaseStorageMediaUrlLooksLike(u))) {
+        return u;
+      }
     }
   }
   final img = sanitizeImageUrl(
       (p['imageUrl'] ?? p['imagemUrl'] ?? p['defaultImageUrl'] ?? '')
           .toString());
-  if (img.isNotEmpty && isValidImageUrl(img)) return img;
+  if (img.isNotEmpty &&
+      (isValidImageUrl(img) || firebaseStorageMediaUrlLooksLike(img))) {
+    return img;
+  }
+  final cover = eventNoticiaFeedCoverHintUrl(p);
+  if (cover.isNotEmpty) return cover;
+  final path = eventNoticiaImageStoragePath(p);
+  if (path != null && path.isNotEmpty) return path;
   return null;
 }
 
@@ -1358,6 +1369,7 @@ class ChurchPublicPostLightbox {
     required QueryDocumentSnapshot<Map<String, dynamic>> doc,
     required String igrejaId,
     required String churchSlug,
+    String churchName = '',
     required Color accent,
     required int memCacheW,
     required int memCacheH,
@@ -1423,6 +1435,7 @@ class ChurchPublicPostLightbox {
                 igrejaId: igrejaId,
                 postId: postId,
                 churchSlug: churchSlug,
+                churchName: churchName,
                 post: p,
                 onOpenVideo: () => onOpenHostedVideo(ctx, p, postId),
                 showAssistVideoButton: showAssistBtn,
@@ -1678,6 +1691,7 @@ class _LightboxTextPanel extends StatelessWidget {
   final String igrejaId;
   final String postId;
   final String churchSlug;
+  final String churchName;
   final Map<String, dynamic> post;
   final VoidCallback onOpenVideo;
   final bool showAssistVideoButton;
@@ -1691,6 +1705,7 @@ class _LightboxTextPanel extends StatelessWidget {
     required this.igrejaId,
     required this.postId,
     required this.churchSlug,
+    this.churchName = '',
     required this.post,
     required this.onOpenVideo,
     required this.showAssistVideoButton,
@@ -1791,6 +1806,7 @@ class _LightboxTextPanel extends StatelessWidget {
                   postId: postId,
                   isEvento: isEvento,
                   churchSlug: churchSlug,
+                  churchName: churchName,
                   postsParentCollection: postsParentCollection,
                 ),
               ],

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -27,13 +29,48 @@ abstract final class ChurchChatHubDepartmentsService {
     return mem != null && mem.docs.isNotEmpty ? mem.docs : null;
   }
 
-  /// Carga canónica — mesma API do módulo Departamentos (Hive + retry web 100s).
-  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadDocs({
+  /// Carga canónica — mesma API do módulo Departamentos (Hive + retry web).
+  /// Devolve [ChurchDepartmentsLoadResult] com [softError] quando a rede falha.
+  static Future<ChurchDepartmentsLoadResult> load({
     required String seedTenantId,
     bool forceServer = false,
   }) async {
     final id = _churchId(seedTenantId);
-    if (id.isEmpty) return const [];
+    if (id.isEmpty) {
+      return const ChurchDepartmentsLoadResult(
+        churchId: '',
+        docs: [],
+        readSource: 'empty_id',
+        softError: 'Igreja não identificada.',
+      );
+    }
+
+    // Cache/Hive primeiro — não bloqueia em ensurePanelReadReady.
+    if (!forceServer) {
+      final instant = peekInstant(seedTenantId);
+      if (instant != null && instant.isNotEmpty) {
+        unawaited(() async {
+          try {
+            if (kIsWeb) {
+              await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+            }
+            final refreshed = await ChurchDepartmentsLoadService.load(
+              seedTenantId: id,
+              forceRefresh: true,
+              forceServer: false,
+            );
+            if (refreshed.docs.isNotEmpty) {
+              await ChurchDepartmentsLoadService.persistAfterLoad(refreshed);
+            }
+          } catch (_) {}
+        }());
+        return ChurchDepartmentsLoadResult(
+          churchId: id,
+          docs: instant,
+          readSource: 'peek_instant',
+        );
+      }
+    }
 
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -43,11 +80,31 @@ abstract final class ChurchChatHubDepartmentsService {
       seedTenantId: id,
       forceRefresh: forceServer,
       forceServer: forceServer,
-    ).timeout(ChurchPanelReadTimeouts.queryCap);
+    ).timeout(
+      ChurchPanelReadTimeouts.queryCap,
+      onTimeout: () => ChurchDepartmentsLoadResult(
+        churchId: id,
+        docs: const [],
+        readSource: 'timeout',
+        softError: 'Tempo esgotado ao carregar grupos dos departamentos.',
+      ),
+    );
 
     if (result.docs.isNotEmpty) {
       await ChurchDepartmentsLoadService.persistAfterLoad(result);
     }
+    return result;
+  }
+
+  /// Compat: só docs (preferir [load] para softError).
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadDocs({
+    required String seedTenantId,
+    bool forceServer = false,
+  }) async {
+    final result = await load(
+      seedTenantId: seedTenantId,
+      forceServer: forceServer,
+    );
     return result.docs;
   }
 }

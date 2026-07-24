@@ -232,7 +232,7 @@ class VersionService {
       final message = (data['message'] ?? '').toString();
       final storeUrlAndroid = (data['storeUrlAndroid'] ?? '').toString().trim();
       final storeUrlIos = (data['storeUrlIos'] ?? '').toString().trim();
-      final webRefresh = data['webRefresh'] == true;
+      // webRefresh no doc é legado; na web sempre oferecemos reload no diálogo.
 
       final outdated = await isInstalledBelowRequiredVersion(
         minVersion: minVersion,
@@ -247,32 +247,23 @@ class VersionService {
       );
 
       if (kIsWeb) {
-        // Web: «atualizar» = recarregar o bundle do Hosting. Só faz sentido
-        // bloquear se o servidor já tem build >= instalado; senão o utilizador
-        // fica preso num loop de reload sem solução.
+        // Web: «atualizar» = recarregar o bundle do Hosting.
+        // NUNCA hard-reload silencioso — o utilizador escolhe no diálogo
+        // (Atualizar / Cancelar) para não interromper lançamentos.
         final installedBuild = int.tryParse(appBuildNumber) ?? 0;
         final serverBuild = await _reload.fetchServerBuildNumber();
-        if (serverBuild > 0 && serverBuild <= installedBuild) {
-          return const VersionResult();
-        }
-        // Auto-recuperação: 1 hard reload silencioso (SW + CacheStorage +
-        // cache-bust) por alvo antes de mostrar diálogo bloqueante.
-        const flagKey = 'gyh_force_reload_target';
-        final flag = _reload.readLocalFlag(flagKey);
-        if (flag != targetLabel) {
-          _reload.writeLocalFlag(flagKey, targetLabel);
-          await _reload.hardReloadWeb();
+        // Sem version.json ou build remoto == instalado → não avisar.
+        if (serverBuild <= 0 || serverBuild <= installedBuild) {
           return const VersionResult();
         }
       }
 
       String updateUrl = '';
       if (kIsWeb) {
-        if (webRefresh) {
-          updateUrl = Uri.base.origin;
-          if (Uri.base.hasPort && Uri.base.port != 80 && Uri.base.port != 443) {
-            updateUrl = '${Uri.base.origin}:${Uri.base.port}';
-          }
+        // Sempre oferecer recarregar a página (mesmo se webRefresh=false no doc).
+        updateUrl = Uri.base.origin;
+        if (Uri.base.hasPort && Uri.base.port != 80 && Uri.base.port != 443) {
+          updateUrl = '${Uri.base.scheme}://${Uri.base.host}:${Uri.base.port}';
         }
       } else {
         if (defaultTargetPlatform == TargetPlatform.android) {
@@ -289,7 +280,9 @@ class VersionService {
 
       return VersionResult(
         outdated: true,
-        force: forceUpdate,
+        // Na web o force NÃO bloqueia o painel — só avisa; o utilizador cancela
+        // e continua lançamentos. Mobile pode manter bloqueio se forceUpdate.
+        force: forceUpdate && !kIsWeb,
         current: targetLabel,
         installedLabel: installedLabel,
         message: message.trim().isNotEmpty

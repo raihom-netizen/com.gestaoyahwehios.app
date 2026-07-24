@@ -6,13 +6,17 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
+import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -20,12 +24,10 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         MemberProfilePhotoBytesCache,
         firebaseStorageObjectPathFromHttpUrl,
         imageUrlFromMap,
-        isValidImageUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
@@ -132,6 +134,95 @@ class MemberProfilePhotoUpdateService {
       );
       MemberCardPhotoCache.invalidateMember(tid, mid);
     }
+  }
+
+  /// Propaga foto nova nos caches locais (directory, membros, certificados, chat, UI).
+  static void propagatePhotoToLocalModules({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required String photoUrl,
+    String? photoThumbUrl,
+    required int cacheRevision,
+    String? photoStoragePath,
+    String? photoThumbStoragePath,
+  }) {
+    final tid = tenantId.trim();
+    final mid = memberDocId.trim();
+    if (tid.isEmpty || mid.isEmpty) return;
+
+    final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+        .toString()
+        .trim();
+    final url = sanitizeImageUrl(photoUrl);
+    final thumb = sanitizeImageUrl(photoThumbUrl ?? '');
+    final bustedUrl =
+        url.isEmpty ? '' : YahwehMediaCacheBust.apply(url, cacheRevision);
+    final bustedThumb = thumb.isEmpty
+        ? bustedUrl
+        : YahwehMediaCacheBust.apply(thumb, cacheRevision);
+    final sp = (photoStoragePath ?? '').trim();
+    final tsp = (photoThumbStoragePath ?? '').trim();
+
+    MembersDirectorySnapshotService.patchMemberPhotoInMemory(
+      tenantId: tid,
+      memberDocId: mid,
+      authUid: authUid.isEmpty ? null : authUid,
+      photoUrl: bustedUrl.isEmpty ? null : bustedUrl,
+      photoThumbUrl: bustedThumb.isEmpty ? null : bustedThumb,
+      photoStoragePath: sp.isEmpty ? null : sp,
+      photoThumbStoragePath: tsp.isEmpty ? null : tsp,
+      cacheRevision: cacheRevision,
+    );
+
+    unawaited(ChurchMembersLoadService.invalidate(tid));
+    ChurchCertificadosLoadService.invalidate(tid);
+
+    if (authUid.isNotEmpty) {
+      final memberRefData = Map<String, dynamic>.from(memberData)
+        ..['authUid'] = authUid
+        ..['firebaseUid'] = authUid
+        ..['fotoUrlCacheRevision'] = cacheRevision;
+      if (bustedUrl.isNotEmpty) {
+        memberRefData['fotoUrl'] = bustedUrl;
+        memberRefData['photoUrl'] = bustedUrl;
+        memberRefData['FOTO_URL_OU_ID'] = bustedUrl;
+      }
+      if (bustedThumb.isNotEmpty) {
+        memberRefData['fotoThumbUrl'] = bustedThumb;
+        memberRefData['photoThumbUrl'] = bustedThumb;
+      }
+      if (sp.isNotEmpty) {
+        memberRefData['photoStoragePath'] = sp;
+        memberRefData['fotoPath'] = sp;
+      }
+      if (tsp.isNotEmpty) {
+        memberRefData['photoThumbStoragePath'] = tsp;
+        memberRefData['fotoThumbPath'] = tsp;
+      }
+      final displayPhoto = bustedThumb.isNotEmpty
+          ? bustedThumb
+          : (bustedUrl.isNotEmpty
+              ? bustedUrl
+              : (tsp.isNotEmpty ? tsp : (sp.isEmpty ? null : sp)));
+      ChurchChatPeerProfileService.invalidateAuthUid(tid, authUid);
+      ChurchChatPeerProfileService.patchCachedMemberRef(
+        tid,
+        ChurchChatMemberRef(
+          memberId: mid,
+          data: memberRefData,
+          authUid: authUid,
+          photoUrl: displayPhoto,
+        ),
+      );
+    }
+
+    MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
+      tenantId: tid,
+      authUid: authUid.isEmpty ? mid : authUid,
+      memberDocId: mid,
+      cacheRevision: cacheRevision,
+    );
   }
 
   /// Localiza o documento do membro logado (CPF, doc id = authUid, ou campo `authUid`).
@@ -280,13 +371,7 @@ class MemberProfilePhotoUpdateService {
           (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
               .toString()
               .trim();
-      // Atualiza avatares já montados (hub/thread) antes dos espelhos remotos.
-      MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
-        tenantId: tenantId,
-        authUid: authUid.isEmpty ? memberDocId : authUid,
-        cacheRevision: r.cacheRevision,
-      );
-      // Sync users/chat em background — UI já tem Storage+Firestore OK.
+      // Sync users/chat + caches locais — UI já tem Storage+Firestore OK.
       unawaited(
         _afterPhotoSaved(
           tenantId: tenantId,
@@ -336,12 +421,33 @@ class MemberProfilePhotoUpdateService {
 
     final mergedMember = Map<String, dynamic>.from(memberData)
       ..addAll({
+        if (photoUrl.isNotEmpty) ...{
+          'fotoUrl': photoUrl,
+          'photoUrl': photoUrl,
+          'FOTO_URL_OU_ID': photoUrl,
+        },
+        if (thumbUrl.isNotEmpty) ...{
+          'fotoThumbUrl': thumbUrl,
+          'photoThumbUrl': thumbUrl,
+        },
         'photoStoragePath': result.storagePath,
         'photoThumbStoragePath': result.thumbStoragePath,
         'fotoPath': result.storagePath,
         'fotoThumbPath': result.thumbStoragePath,
         'fotoUrlCacheRevision': result.cacheRevision,
       });
+
+    // UI imediata: directory + chat + cartão/certificados/painel (notifier).
+    propagatePhotoToLocalModules(
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: mergedMember,
+      photoUrl: photoUrl,
+      photoThumbUrl: thumbUrl,
+      cacheRevision: result.cacheRevision,
+      photoStoragePath: result.storagePath,
+      photoThumbStoragePath: result.thumbStoragePath,
+    );
 
     final futures = <Future<void>>[];
     if (authUid.isNotEmpty) {
@@ -493,10 +599,24 @@ class MemberProfilePhotoUpdateService {
             '')
         .toString()
         .trim();
+    final bustedUrl =
+        url.isEmpty ? '' : YahwehMediaCacheBust.apply(url, cacheRevision);
+    final bustedThumb = thumb.isEmpty
+        ? bustedUrl
+        : YahwehMediaCacheBust.apply(thumb, cacheRevision);
+
     final peerPayload = <String, dynamic>{
       'authUid': authUid,
       'memberDocId': memberDocId,
       'displayName': displayName.isEmpty ? 'Membro' : displayName,
+      if (bustedUrl.isNotEmpty) ...{
+        'fotoUrl': bustedUrl,
+        'photoUrl': bustedUrl,
+      },
+      if (bustedThumb.isNotEmpty) ...{
+        'fotoThumbUrl': bustedThumb,
+        'photoThumbUrl': bustedThumb,
+      },
       if (sp.isNotEmpty) 'photoStoragePath': sp,
       if (tsp.isNotEmpty) 'photoThumbStoragePath': tsp,
       if (sp.isNotEmpty) 'fotoPath': sp,
@@ -509,6 +629,15 @@ class MemberProfilePhotoUpdateService {
       ..['authUid'] = authUid
       ..['firebaseUid'] = authUid
       ..['fotoUrlCacheRevision'] = cacheRevision;
+    if (bustedUrl.isNotEmpty) {
+      memberRefData['fotoUrl'] = bustedUrl;
+      memberRefData['photoUrl'] = bustedUrl;
+      memberRefData['FOTO_URL_OU_ID'] = bustedUrl;
+    }
+    if (bustedThumb.isNotEmpty) {
+      memberRefData['fotoThumbUrl'] = bustedThumb;
+      memberRefData['photoThumbUrl'] = bustedThumb;
+    }
     if (sp.isNotEmpty) {
       memberRefData['photoStoragePath'] = sp;
       memberRefData['fotoPath'] = sp;
@@ -517,11 +646,12 @@ class MemberProfilePhotoUpdateService {
       memberRefData['photoThumbStoragePath'] = tsp;
       memberRefData['fotoThumbPath'] = tsp;
     }
-    final displayPhoto = tsp.isNotEmpty
-        ? tsp
-        : (sp.isNotEmpty
-            ? sp
-            : (thumb.isNotEmpty ? thumb : (url.isEmpty ? null : url)));
+    // HTTPS primeiro — path Storage sozinho atrasava avatar no chat.
+    final displayPhoto = bustedThumb.isNotEmpty
+        ? bustedThumb
+        : (bustedUrl.isNotEmpty
+            ? bustedUrl
+            : (tsp.isNotEmpty ? tsp : (sp.isEmpty ? null : sp)));
     final chatRef = ChurchChatMemberRef(
       memberId: memberDocId,
       data: memberRefData,
@@ -551,6 +681,7 @@ class MemberProfilePhotoUpdateService {
     MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
       tenantId: primaryTenantId,
       authUid: authUid,
+      memberDocId: memberDocId,
       cacheRevision: cacheRevision,
     );
   }
@@ -658,8 +789,8 @@ class MemberProfilePhotoUpdateService {
     }
     clearedData['fotoUrlCacheRevision'] = revision;
 
-    await syncChatPeerProfilesAfterPhotoUpdate(
-      primaryTenantId: churchId,
+    propagatePhotoToLocalModules(
+      tenantId: churchId,
       memberDocId: docId,
       memberData: clearedData,
       photoUrl: '',
@@ -669,10 +800,15 @@ class MemberProfilePhotoUpdateService {
       photoThumbStoragePath: '',
     );
 
-    MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
-      tenantId: churchId,
-      authUid: authUid.isEmpty ? docId : authUid,
+    await syncChatPeerProfilesAfterPhotoUpdate(
+      primaryTenantId: churchId,
+      memberDocId: docId,
+      memberData: clearedData,
+      photoUrl: '',
+      photoThumbUrl: '',
       cacheRevision: revision,
+      photoStoragePath: '',
+      photoThumbStoragePath: '',
     );
 
     YahwehFlowLog.memberPhotoSuccess();

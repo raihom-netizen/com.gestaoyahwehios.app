@@ -1,29 +1,25 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Upload de comprovante — barra global (Controle Total), sem bloquear o ecrã.
+/// Upload de comprovante — padrão Controle Total (silencioso, sem faixa %).
 abstract final class FinanceComprovanteUi {
   FinanceComprovanteUi._();
 
   static Future<T> runWithProgress<T>(
     BuildContext context, {
     required String label,
-    required Future<T> Function(void Function(double progress)) action,
+    required Future<T> Function(void Function(double progress) onProgress)
+        action,
     VoidCallback? closeEditor,
     String? successMessage,
   }) async {
     final messenger = ScaffoldMessenger.maybeOf(context);
     closeEditor?.call();
-    GlobalUploadProgress.instance.start(label);
 
-    void reportProgress(double p) {
-      GlobalUploadProgress.instance.update(p);
-    }
+    void reportProgress(double _) {}
 
     try {
       await ChurchMediaUploadFacade.ensureReady();
@@ -34,15 +30,14 @@ abstract final class FinanceComprovanteUi {
         );
       }
       return result;
-    } finally {
-      GlobalUploadProgress.instance.end();
-    }
+    } finally {}
   }
 
   static void schedule<T>({
     required BuildContext context,
     required String label,
-    required Future<T> Function(void Function(double progress)) action,
+    required Future<T> Function(void Function(double progress) onProgress)
+        action,
     VoidCallback? closeEditor,
     String? successMessage,
   }) {

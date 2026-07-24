@@ -68,8 +68,9 @@
 - Widget: `com.gestaoyahwehios.app.GestaoYahwehWidget`
 - App Group: `group.com.gestaoyahwehios.app.widget`
 - Team: `82RC6YL7KL`
-- Pipeline: ativar App Groups (API) → apagar perfis App Store antigos (incl. `GestaoYahwehBootstrap_*`) → fetch perfil app + widget → `use-profiles` Runner+extension → ExportOptions com **dois** bundles
+- Pipeline: ativar App Groups (API, **grupo confirmado na capability**) → apagar perfis App Store antigos → fetch perfil app + widget (retry se `application-groups: []`) → `use-profiles` Runner+extension → ExportOptions com **dois** bundles
 - `DEVELOPMENT_TEAM` no target Widget; fail-fast se perfil sem App Groups
+- **Fix 2026-07-22:** capability APP_GROUPS vazia gerava perfil Widget com `application-groups: []` — scripts `codemagic_ios_enable_app_groups.py` + `codemagic_ios_ensure_widget_appstore_profile.py` agora reassociam o grupo, apagam perfil mau e recriam até o grupo aparecer.
 - Branch: **`main`** — Start **manual** no Codemagic (so iOS)
 
 ### Herdado da 2120 / 2118 (preservar)
@@ -84,7 +85,7 @@
 
 - [ ] Upload AAB **2122** na Play Console (versionCode > ultimo publicado; API 36)
 - [ ] Codemagic Start manual apos push da correcao Widget/App Groups → TestFlight
-- [ ] Firestore rules: se API ainda 503, repetir `.\scripts\deploy_firebase_rules.ps1 -ForcePublish`
+- [ ] Firestore rules: se API 503/hang, **2 etapas** — primeiro ruleset **simples**, depois o **completo** (memória `firestore-rules-publicar-duas-etapas.mdc`); depois `.\scripts\deploy_firebase_rules.ps1 -ForcePublish` / `deploy_firebase_rules_duas_etapas.ps1`
 
 ---
 

@@ -104,12 +104,9 @@ abstract final class ChurchBirthdayYearLoadService {
       }
 
       if (byId.length < 8) {
-        final snap = await FirestoreWebGuard.runWithWebRecovery(
-          () => ChurchTenantResilientReads.membrosRecent(
-            churchId,
-            limit: scanLimit,
-          ),
-          maxAttempts: 4,
+        final snap = await ChurchTenantResilientReads.membrosRecent(
+          churchId,
+          limit: scanLimit,
         );
         for (final doc in snap.docs) {
           absorb(doc.id, doc.data());

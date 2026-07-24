@@ -63,8 +63,8 @@ class ControleTotalCalendarTheme {
       ),
       weekendTextStyle: GoogleFonts.poppins(
         fontSize: cellFs,
-        fontWeight: FontWeight.w600,
-        color: Colors.grey.shade600,
+        fontWeight: FontWeight.w800,
+        color: const Color(0xFFE53935),
       ),
       outsideTextStyle: GoogleFonts.poppins(
         fontSize: cellFs,

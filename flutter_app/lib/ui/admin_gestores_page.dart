@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 import 'pages/usuarios_permissoes_page.dart';
@@ -262,12 +263,10 @@ class _IgrejaGestoresTileState extends State<_IgrejaGestoresTile> {
   Future<void> _loadStats() async {
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return ChurchUiCollections.churchDoc(op)
-            .collection('users')
-            .limit(60)
-            .get();
-      });
+      final snap = await ChurchUiCollections.churchDoc(op)
+          .collection('users')
+          .limit(60)
+          .get();
       var gestores = 0;
       for (final u in snap.docs) {
         final raw = u.data()['roles'] as List?;
@@ -475,10 +474,7 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
   Future<void> _carregar() async {
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final doc = await FirestoreWebGuard.runWithWebRecovery(() {
-        return ChurchUiCollections.churchDoc(op)
-            .get();
-      });
+      final doc = await ChurchUiCollections.churchDoc(op).get();
       final data = doc.data() ?? {};
       if (mounted) {
         _nomeCtrl.text = (data['gestorNome'] ??
@@ -492,12 +488,12 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
         _emailCtrl.text =
             (data['gestorEmail'] ?? data['gestor_email'] ?? data['email'] ?? '')
                 .toString();
-        _telefoneCtrl.text = (data['gestorTelefone'] ??
+        _telefoneCtrl.text = brPhoneMaskLive((data['gestorTelefone'] ??
                 data['gestor_telefone'] ??
                 data['phone'] ??
                 data['telefone'] ??
                 '')
-            .toString();
+            .toString());
         if (data['gestorDataNascimento'] is Timestamp) {
           _dataNascimento = (data['gestorDataNascimento'] as Timestamp).toDate();
         } else if (data['gestor_data_nascimento'] is Timestamp) {
@@ -646,9 +642,10 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
             TextField(
               controller: _telefoneCtrl,
               keyboardType: TextInputType.phone,
+              inputFormatters: const [BrPhoneInputFormatter()],
               decoration: InputDecoration(
                 labelText: 'Telefone',
-                hintText: '(11) 99999-9999',
+                hintText: '62 9.9170-5247',
                 border: OutlineInputBorder(
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusSm)),

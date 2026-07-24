@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Exibida quando o membro entra no app com mustCompleteRegistration = true.
@@ -113,7 +114,9 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         final d = doc.data() ?? {};
         _nameCtrl.text = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString();
         _emailCtrl.text = (d['EMAIL'] ?? d['email'] ?? '').toString();
-        _phoneCtrl.text = (d['TELEFONES'] ?? d['telefones'] ?? '').toString();
+        _phoneCtrl.text = brPhoneMaskLive(
+          (d['TELEFONES'] ?? d['telefones'] ?? '').toString(),
+        );
         _cepCtrl.text = (d['CEP'] ?? d['cep'] ?? '').toString();
         _cityCtrl.text = (d['CIDADE'] ?? d['cidade'] ?? '').toString();
         _bairroCtrl.text = (d['BAIRRO'] ?? d['bairro'] ?? '').toString();
@@ -455,10 +458,12 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
                           TextFormField(
                             controller: _phoneCtrl,
                             decoration: const InputDecoration(
-                              labelText: 'Telefones',
+                              labelText: 'Telefone',
+                              hintText: '62 9.9170-5247',
                               border: OutlineInputBorder(),
                             ),
                             keyboardType: TextInputType.phone,
+                            inputFormatters: const [BrPhoneInputFormatter()],
                           ),
                           const SizedBox(height: 12),
                           InkWell(

@@ -198,13 +198,10 @@ abstract final class ChurchCargoMembersLoadService {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
-    final loaded = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchMembersLoadService.load(
-        seedTenantId: churchId,
-        limit: _kLimit,
-        forceRefresh: forceRefresh,
-      ),
-      maxAttempts: 4,
+    final loaded = await ChurchMembersLoadService.load(
+      seedTenantId: churchId,
+      limit: _kLimit,
+      forceRefresh: forceRefresh,
     ).timeout(_queryCap);
 
     if (loaded.docs.isNotEmpty) return loaded.docs;
@@ -255,18 +252,12 @@ abstract final class ChurchCargoMembersLoadService {
     }
 
     await mergeQuery(
-      FirestoreWebGuard.runWithWebRecovery(
-        () => _queryArrayContains(churchId: churchId, token: cargoKey),
-        maxAttempts: 3,
-      ),
+      _queryArrayContains(churchId: churchId, token: cargoKey),
     );
     final nameTrim = cargoName.trim();
     if (nameTrim.isNotEmpty && _asciiLower(nameTrim) != _asciiLower(cargoKey)) {
       await mergeQuery(
-        FirestoreWebGuard.runWithWebRecovery(
-          () => _queryArrayContains(churchId: churchId, token: nameTrim),
-          maxAttempts: 3,
-        ),
+        _queryArrayContains(churchId: churchId, token: nameTrim),
       );
     }
 

@@ -63,7 +63,7 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
         throw 'CPF inválido (11 números).';
       }
 
-      final callable = FirebaseFunctions.instance.httpsCallable('resolveCpfToEmail');
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('resolveCpfToEmail');
       final res = await callable.call({'cpf': clean});
       final data = Map<String, dynamic>.from(res.data as Map);
       final tenantId = (data['tenantId'] ?? '').toString().trim();

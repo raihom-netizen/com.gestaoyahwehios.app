@@ -1192,7 +1192,7 @@ class _MasterPanelModulesSection extends StatelessWidget {
     _MasterModDef(AdminMenuItem.sistemaLegalDocumentos, Icons.policy_rounded, 'Termos e Privacidade'),
     _MasterModDef(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded, 'Forçar atualização'),
     _MasterModDef(AdminMenuItem.sistemaMigrarMembros, Icons.people_alt_rounded, 'Migrar membros'),
-    _MasterModDef(AdminMenuItem.sistemaHome, Icons.home_rounded, 'Voltar ao Início'),
+    _MasterModDef(AdminMenuItem.sistemaHome, Icons.home_rounded, 'Voltar ao aplicativo'),
   ];
 
   static const _pastelBg = [

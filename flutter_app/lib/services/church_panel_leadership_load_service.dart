@@ -5,11 +5,12 @@ import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap, sanitizeImageUrl;
+    show sanitizeImageUrl;
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -188,12 +189,9 @@ abstract final class ChurchPanelLeadershipLoadService {
     String churchId, {
     MembersDirectorySnapshot? directoryHint,
   }) async {
-    final deptSnap = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchTenantResilientReads.departamentos(
-        churchId,
-        limit: 120,
-      ),
-      maxAttempts: 4,
+    final deptSnap = await ChurchTenantResilientReads.departamentos(
+      churchId,
+      limit: 120,
     );
     if (deptSnap.docs.isEmpty) return const [];
 
@@ -224,9 +222,9 @@ abstract final class ChurchPanelLeadershipLoadService {
     }
 
     if (membersByCpf.isEmpty) {
-      final memSnap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.membrosRecent(churchId, limit: 400),
-        maxAttempts: 4,
+      final memSnap = await ChurchTenantResilientReads.membrosRecent(
+        churchId,
+        limit: 400,
       );
       for (final doc in memSnap.docs) {
         final data = doc.data();
@@ -235,7 +233,9 @@ abstract final class ChurchPanelLeadershipLoadService {
                 .toString();
         final cpf =
             (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-        final url = sanitizeImageUrl(imageUrlFromMap(data));
+        final url = sanitizeImageUrl(
+          MemberProfilePhotoResolver.displayRef(data, preferThumb: true) ?? '',
+        );
         absorbMember(
           MemberDirectoryEntry(
             memberDocId: doc.id,
@@ -341,9 +341,9 @@ abstract final class ChurchPanelLeadershipLoadService {
         tryMember(e.memberDocId, e.toMemberDataMap());
       }
     } else {
-      final memSnap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.membrosRecent(churchId, limit: 400),
-        maxAttempts: 4,
+      final memSnap = await ChurchTenantResilientReads.membrosRecent(
+        churchId,
+        limit: 400,
       );
       for (final doc in memSnap.docs) {
         tryMember(doc.id, doc.data());

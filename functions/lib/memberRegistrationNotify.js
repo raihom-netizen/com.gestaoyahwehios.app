@@ -46,8 +46,11 @@ function getDb() {
     return admin.firestore();
 }
 function isPublicMemberSignup(data) {
-    if (data.PUBLIC_SIGNUP === true || data.public_signup === true)
+    if (data.PUBLIC_SIGNUP === true ||
+        data.publicSignup === true ||
+        data.public_signup === true) {
         return true;
+    }
     const status = String(data.STATUS || data.status || "")
         .trim()
         .toLowerCase();

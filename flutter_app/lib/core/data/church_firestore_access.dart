@@ -78,18 +78,15 @@ abstract final class ChurchFirestoreAccess {
         churchId: id,
         path: path,
         run: () => FirestoreSessionGuard.runWithAuthRetry(
-          () => FirestoreWebGuard.runWithWebRecovery(
-            () => FirestoreReadResilience.getQuery(
-              ChurchFirestoreAccess
-                  .collectionRef(id, subcollectionName)
-                  .limit(capped),
-              cacheKey: key,
-              maxAttempts: kIsWeb ? 2 : 3,
-              attemptTimeout: ChurchPanelReadTimeouts.attempt,
-            ),
-            maxAttempts: kIsWeb ? 2 : 2,
+          () => FirestoreReadResilience.getQuery(
+            ChurchFirestoreAccess
+                .collectionRef(id, subcollectionName)
+                .limit(capped),
+            cacheKey: key,
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
           ),
-          maxAttempts: kIsWeb ? 3 : 2,
+          maxAttempts: kIsWeb ? 2 : 2,
         ),
       ).timeout(ChurchPanelReadTimeouts.queryCap);
       final source = snap.metadata.isFromCache ? 'firestore_cache' : 'server';
@@ -112,6 +109,11 @@ abstract final class ChurchFirestoreAccess {
         limit: capped,
         error: '$e',
       );
+      if (FirestoreWebGuard.isTransientPanelReadError(e)) {
+        final mem = FirestoreReadResilience.peekLastGoodQuery(key);
+        if (mem != null) return mem;
+        return const MergedFirestoreQuerySnapshot([]);
+      }
       rethrow;
     }
   }
@@ -131,16 +133,13 @@ abstract final class ChurchFirestoreAccess {
       churchId: id,
       path: path,
       run: () => FirestoreSessionGuard.runWithAuthRetry(
-        () => FirestoreWebGuard.runWithWebRecovery(
-          () async {
-            final snap = await collectionRef(id, subcollectionName)
-                .count()
-                .get();
-            return snap.count ?? 0;
-          },
-          maxAttempts: kIsWeb ? 3 : 2,
-        ),
-        maxAttempts: kIsWeb ? 3 : 2,
+        () async {
+          final snap = await collectionRef(id, subcollectionName)
+              .count()
+              .get();
+          return snap.count ?? 0;
+        },
+        maxAttempts: kIsWeb ? 2 : 2,
       ),
     );
   }
@@ -161,14 +160,11 @@ abstract final class ChurchFirestoreAccess {
       churchId: id,
       path: path,
       run: () => FirestoreSessionGuard.runWithAuthRetry(
-        () => FirestoreWebGuard.runWithWebRecovery(
-          () => FirestoreReadResilience.getDocument(
-            collectionRef(id, subcollectionName).doc(docId),
-            cacheKey: cacheKey ?? 'data_doc_${id}_${subcollectionName}_$docId',
-          ),
-          maxAttempts: kIsWeb ? 4 : 2,
+        () => FirestoreReadResilience.getDocument(
+          collectionRef(id, subcollectionName).doc(docId),
+          cacheKey: cacheKey ?? 'data_doc_${id}_${subcollectionName}_$docId',
         ),
-        maxAttempts: kIsWeb ? 3 : 2,
+        maxAttempts: kIsWeb ? 2 : 2,
       ),
     );
   }
@@ -184,11 +180,8 @@ abstract final class ChurchFirestoreAccess {
       churchId: id,
       path: ChurchDataPaths.churchRoot(id),
       run: () => FirestoreSessionGuard.runWithAuthRetry(
-        () => FirestoreWebGuard.runWithWebRecovery(
-          () => firestoreDocumentGetReliable(churchDoc(id)),
-          maxAttempts: kIsWeb ? 4 : 2,
-        ),
-        maxAttempts: kIsWeb ? 3 : 2,
+        () => firestoreDocumentGetReliable(churchDoc(id)),
+        maxAttempts: kIsWeb ? 2 : 2,
       ),
     );
   }

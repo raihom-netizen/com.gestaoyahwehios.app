@@ -349,6 +349,12 @@ async function processarCertificadosLoteHandler(data, context) {
     const tcfg = templates[idAssinatura] || {};
     let textoModelo = String(tcfg.textoModelo || "").trim();
     let titulo = String(tcfg.titulo || "").trim();
+    const tituloOverride = String(data?.titulo || "").trim();
+    const textoOverride = String(data?.textoModelo || "").trim();
+    if (tituloOverride)
+        titulo = tituloOverride;
+    if (textoOverride)
+        textoModelo = textoOverride;
     if (!textoModelo)
         textoModelo = TEXTO_MODELO_PADRAO[idAssinatura] || TEXTO_MODELO_PADRAO.batismo;
     if (!titulo)

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb, debugPrint;
 import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
@@ -248,7 +249,7 @@ abstract final class AppSessionStability {
     rememberUser(user);
 
     final email = (user.email ?? '').toString().toLowerCase();
-    if (email == 'raihom@gmail.com') {
+    if (AppConstants.isProductMasterAccount(email: email)) {
       cacheMasterAccessLevel(2, user.uid);
       return 2;
     }
@@ -294,7 +295,7 @@ abstract final class AppSessionStability {
       return 1;
     } on TimeoutException {
       try {
-        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp).httpsCallable('getAdminCheck');
+        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1').httpsCallable('getAdminCheck');
         final res = await fn
             .call<Map<String, dynamic>>()
             .timeout(const Duration(seconds: 10));
@@ -320,7 +321,7 @@ abstract final class AppSessionStability {
         }
       } catch (_) {}
       try {
-        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp).httpsCallable('getAdminCheck');
+        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1').httpsCallable('getAdminCheck');
         final res = await fn
             .call<Map<String, dynamic>>()
             .timeout(const Duration(seconds: 10));

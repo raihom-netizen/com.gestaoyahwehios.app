@@ -79,15 +79,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
         YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
-import 'package:gestao_yahweh/core/noticia_share_links.dart';
-import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage;
-import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
-    show showChurchNoticiaShareSheet, shareRectFromContext;
-import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart'
-    show churchPostPlainText;
 import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
-import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
@@ -104,6 +96,7 @@ import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_home_welcome_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
@@ -145,7 +138,6 @@ import 'package:gestao_yahweh/ui/widgets/church_wisdom_birthday_ui.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
-import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_leadership_cards.dart';
@@ -315,6 +307,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     _financeMutationListener = () {
       if (!mounted) return;
       setState(() => _financeDashTick++);
+      // Saldos por conta no painel — refresh imediato (padrão CT).
+      unawaited(_ministryHealthKey.currentState?.reloadFinanceFresh());
     };
     ChurchFinanceRealtimeService.mutationEpoch
         .addListener(_financeMutationListener!);
@@ -1207,6 +1201,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                   churchIdHint: _effectiveTenantId.isNotEmpty
                                       ? _effectiveTenantId
                                       : widget.tenantId,
+                                  churchSlug: _churchSlug,
+                                  churchName: _churchNome,
                                   onManageTap: ChurchAvisosService.canManage(
                                     widget.role,
                                     permissions: widget.permissions ?? const [],
@@ -1330,6 +1326,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 ? _dashFinancePreset
                                 : ChurchDashboardFinancePreset.currentMonth,
                             financeStream: null,
+                            financeRefreshTick: _financeDashTick,
                             deferFinanceBlock: _dashCanFinance,
                             onDeferredFinanceReady: () {
                               if (mounted) setState(() {});
@@ -5634,7 +5631,7 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
 }
 
 /// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
-const double _kPainelDestaqueThumbSide = 160;
+const double _kPainelDestaqueThumbSide = 288;
 
 /// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
 /// Reduzido para ativar mais cedo no dashboard com sidebar.
@@ -8239,13 +8236,16 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                   ),
                 ),
               ),
-            _PainelDestaqueSocialBar(
-              doc: widget.doc,
+            YahwehSocialPostBar(
               tenantId: widget.tenantId,
-              role: widget.role,
-              churchSlug: widget.churchSlug,
-              nomeIgreja: widget.nomeIgreja,
+              postId: widget.doc.id,
               isEvento: isEvento,
+              churchSlug: widget.churchSlug,
+              churchName: widget.nomeIgreja,
+              postsParentCollection:
+                  ChurchTenantPostsCollections.segmentFromPostRef(
+                widget.doc.reference,
+              ),
             ),
           ],
         ),
@@ -8255,517 +8255,4 @@ class _DestaqueCardState extends State<_DestaqueCard> {
   }
 }
 
-/// Curtir, comentar, compartilhar (e RSVP em eventos) — mesmo fluxo do feed/mural.
-class _PainelDestaqueSocialBar extends StatefulWidget {
-  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
-  final String tenantId;
-  final String role;
-  final String churchSlug;
-  final String nomeIgreja;
-  final bool isEvento;
-
-  const _PainelDestaqueSocialBar({
-    required this.doc,
-    required this.tenantId,
-    required this.role,
-    required this.churchSlug,
-    required this.nomeIgreja,
-    required this.isEvento,
-  });
-
-  @override
-  State<_PainelDestaqueSocialBar> createState() =>
-      _PainelDestaqueSocialBarState();
-}
-
-class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
-  late Map<String, dynamic> _data;
-  List<MuralCommentItem> _commentPreview = const [];
-  bool _likeBusy = false;
-
-  String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
-
-  @override
-  void initState() {
-    super.initState();
-    _data = Map<String, dynamic>.from(widget.doc.data());
-    unawaited(_loadCommentPreview());
-  }
-
-  Future<void> _loadCommentPreview() async {
-    try {
-      final list = await NoticiaSocialService.fetchComments(
-        widget.doc.reference,
-        limit: 3,
-      );
-      if (!mounted) return;
-      setState(() => _commentPreview = list);
-    } catch (e, st) {
-      debugPrint('Dashboard social bar comment preview: $e\n$st');
-    }
-  }
-
-  Map<String, dynamic> _patchLikeOptimistic(
-    Map<String, dynamic> data,
-    String uid,
-    bool nowLiked,
-  ) {
-    final d = Map<String, dynamic>.from(data);
-    final likes = NoticiaSocialService.mergedLikeUids(d);
-    if (nowLiked) {
-      if (!likes.contains(uid)) likes.add(uid);
-    } else {
-      likes.remove(uid);
-    }
-    d['likes'] = likes;
-    d['likedBy'] = likes;
-    final prev = d['likesCount'];
-    var count = prev is num ? prev.toInt() : likes.length;
-    if (nowLiked) {
-      count = count + 1;
-    } else if (count > 0) {
-      count = count - 1;
-    }
-    d['likesCount'] = count;
-    return d;
-  }
-
-  Map<String, dynamic> _patchRsvpOptimistic(
-    Map<String, dynamic> data,
-    String uid,
-    bool nowConfirmed,
-  ) {
-    final d = Map<String, dynamic>.from(data);
-    final rsvp = List<String>.from(
-      ((d['rsvp'] as List?) ?? []).map((e) => e.toString()),
-    );
-    if (nowConfirmed) {
-      if (!rsvp.contains(uid)) rsvp.add(uid);
-    } else {
-      rsvp.remove(uid);
-    }
-    d['rsvp'] = rsvp;
-    final prev = d['rsvpCount'];
-    var count = prev is num ? prev.toInt() : rsvp.length;
-    if (nowConfirmed) {
-      count = count + 1;
-    } else if (count > 0) {
-      count = count - 1;
-    }
-    d['rsvpCount'] = count;
-    return d;
-  }
-
-  Future<({String name, String photo})> _memberDisplay() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return (name: 'Membro', photo: '');
-    var name = user.displayName?.trim() ?? '';
-    var photo = user.photoURL?.trim() ?? '';
-    if (name.isEmpty) {
-      try {
-        if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
-            debugPrint(
-              'Dashboard _PainelDestaqueSocialBar._memberDisplay ensurePanelReadReady: $e\n$st',
-            );
-          });
-        }
-        Future<DocumentSnapshot<Map<String, dynamic>>> readUser() =>
-            firebaseDefaultFirestore.collection('users').doc(user.uid).get();
-        final uDoc = kIsWeb
-            ? await FirestoreWebGuard.runWithWebRecovery(
-                readUser,
-                maxAttempts: 4,
-              ).timeout(PanelResilientLoad.queryCap)
-            : await readUser().timeout(PanelResilientLoad.queryCap);
-        final d = uDoc.data() ?? {};
-        name = (d['nome'] ?? d['name'] ?? 'Membro').toString();
-        photo = (d['fotoUrl'] ?? d['photoUrl'] ?? photo).toString();
-      } catch (e, st) {
-        debugPrint('Dashboard _PainelDestaqueSocialBar._memberDisplay: $e\n$st');
-        name = 'Membro';
-      }
-    }
-    return (name: name.isEmpty ? 'Membro' : name, photo: photo);
-  }
-
-  Future<void> _toggleLike() async {
-    if (_myUid == null || _likeBusy) return;
-    final merged = NoticiaSocialService.mergedLikeUids(_data);
-    final liked = merged.contains(_myUid!);
-    final snapshot = Map<String, dynamic>.from(_data);
-    setState(() {
-      _likeBusy = true;
-      _data = _patchLikeOptimistic(_data, _myUid!, !liked);
-    });
-    try {
-      final m = await _memberDisplay();
-      await NoticiaSocialService.toggleCurtidaOnPost(
-        postRef: widget.doc.reference,
-        uid: _myUid!,
-        memberName: m.name,
-        photoUrl: m.photo,
-        currentlyLiked: liked,
-      );
-    } catch (e, st) {
-      debugPrint('Dashboard _PainelDestaqueSocialBar._toggleLike: $e\n$st');
-      if (mounted) {
-        setState(() => _data = snapshot);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _likeBusy = false);
-    }
-  }
-
-  Future<void> _toggleRsvp() async {
-    if (_myUid == null) return;
-    final rsvpList = List<String>.from(
-      ((_data['rsvp'] as List?) ?? []).map((e) => e.toString()),
-    );
-    final rsvp = rsvpList.contains(_myUid!);
-    final snapshot = Map<String, dynamic>.from(_data);
-    setState(() => _data = _patchRsvpOptimistic(_data, _myUid!, !rsvp));
-    try {
-      final m = await _memberDisplay();
-      await NoticiaSocialService.toggleConfirmacaoPresenca(
-        tenantId: widget.tenantId,
-        postId: widget.doc.id,
-        uid: _myUid!,
-        memberName: m.name,
-        photoUrl: m.photo,
-        currentlyConfirmed: rsvp,
-        parentCollection:
-            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
-      );
-    } catch (e, st) {
-      debugPrint('Dashboard _PainelDestaqueSocialBar._toggleRsvp: $e\n$st');
-      if (mounted) {
-        setState(() => _data = snapshot);
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Não foi possível atualizar a confirmação.',
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _openComments() async {
-    final canDelete = !AppPermissions.isRestrictedMember(widget.role);
-    await showNoticiaCommentsBottomSheet(
-      context,
-      commentsRef: widget.doc.reference.collection('comentarios'),
-      tenantId: widget.tenantId,
-      canDelete: canDelete,
-    );
-    if (!mounted) return;
-    await _loadCommentPreview();
-    try {
-      final snap = await widget.doc.reference.get();
-      if (mounted && snap.exists && snap.data() != null) {
-        setState(() => _data = Map<String, dynamic>.from(snap.data()!));
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _openShareSheet(
-    BuildContext context,
-    Map<String, dynamic> data,
-  ) async {
-    final title = (data['title'] ?? '').toString();
-    final text = churchPostPlainText(Map<String, dynamic>.from(data));
-    final loc = (data['location'] ?? '').toString();
-    final tsStartAt = data['startAt'];
-    final DateTime? dt = tsStartAt is Timestamp ? tsStartAt.toDate() : null;
-    final churchName = widget.nomeIgreja.trim().isNotEmpty
-        ? widget.nomeIgreja.trim()
-        : 'Nossa igreja';
-    final links = resolveNoticiaShareLinks(
-      tenantId: widget.tenantId.trim(),
-      noticiaId: widget.doc.id,
-      churchSlug: widget.churchSlug,
-    );
-    final lat = data['locationLat'];
-    final lng = data['locationLng'];
-    final msg = buildNoticiaInviteShareMessage(
-      churchName: churchName,
-      noticiaKind: widget.isEvento ? 'evento' : 'aviso',
-      title: title,
-      bodyText: text,
-      startAt: dt,
-      location: loc.isNotEmpty ? loc : null,
-      locationLat: lat is num
-          ? lat.toDouble()
-          : (lat != null ? double.tryParse(lat.toString()) : null),
-      locationLng: lng is num
-          ? lng.toDouble()
-          : (lng != null ? double.tryParse(lng.toString()) : null),
-      publicSiteUrl: links.publicSiteUrl,
-      inviteCardUrl: links.eventPageUrl,
-      tenantId: widget.tenantId.trim(),
-      noticiaId: widget.doc.id,
-      churchSlug: links.resolvedSlug,
-    );
-    if (!context.mounted) return;
-    await showChurchNoticiaShareSheet(
-      context,
-      shareLink: links.eventPageUrl,
-      shareMessage: msg,
-      shareSubject: churchName,
-      previewImageUrl: null,
-      videoPlayUrl: null,
-      noticiaDataForLazyMedia: data,
-      sharePositionOrigin: shareRectFromContext(context),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final minTouch = ThemeCleanPremium.isMobile(context)
-        ? ThemeCleanPremium.minTouchTarget
-        : 44.0;
-    final data = _data;
-    final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
-    final liked = _myUid != null && mergedLikes.contains(_myUid!);
-    final likeCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
-    final rsvpUids = List<String>.from(
-      ((data['rsvp'] as List?) ?? []).map((e) => e.toString()),
-    );
-    final rsvp = _myUid != null && rsvpUids.contains(_myUid!);
-    final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
-    final tsStartAt = data['startAt'];
-    final DateTime? eventDt =
-        tsStartAt is Timestamp ? tsStartAt.toDate() : null;
-    final isFuture =
-        widget.isEvento && eventDt != null && eventDt.isAfter(DateTime.now());
-    final nField = (data['commentsCount'] is num)
-        ? (data['commentsCount'] as num).toInt()
-        : 0;
-    final commentTotal =
-        nField > 0 ? nField : _commentPreview.length;
-    final previews = _commentPreview.take(2).toList();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Divider(height: 1, color: Colors.grey.shade200),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Wrap(
-                  spacing: 2,
-                  runSpacing: 0,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    IconButton(
-                      onPressed: _likeBusy ? null : () => unawaited(_toggleLike()),
-                      icon: Icon(
-                        liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                        color: liked
-                            ? const Color(0xFFE11D48)
-                            : Colors.grey.shade800,
-                        size: 24,
-                      ),
-                      style: IconButton.styleFrom(
-                        minimumSize: Size(minTouch, minTouch),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => unawaited(_openComments()),
-                      icon: Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        color: Colors.grey.shade800,
-                        size: 22,
-                      ),
-                      style: IconButton.styleFrom(
-                        minimumSize: Size(minTouch, minTouch),
-                      ),
-                    ),
-                    if (kIsWeb && !ThemeCleanPremium.isMobile(context))
-                      TextButton.icon(
-                        onPressed: () => _openShareSheet(context, data),
-                        icon: Icon(
-                          Icons.share_rounded,
-                          color: ThemeCleanPremium.primary,
-                          size: 22,
-                        ),
-                        label: const Text(
-                          'Compartilhar',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        style: TextButton.styleFrom(
-                          foregroundColor: ThemeCleanPremium.primary,
-                          minimumSize: Size(minTouch, minTouch),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                        ),
-                      )
-                    else
-                      IconButton(
-                        onPressed: () => _openShareSheet(context, data),
-                        tooltip: 'Compartilhar',
-                        icon: Icon(
-                          Icons.share_rounded,
-                          color: ThemeCleanPremium.primary,
-                          size: 22,
-                        ),
-                        style: IconButton.styleFrom(
-                          minimumSize: Size(minTouch, minTouch),
-                        ),
-                      ),
-                    YahwehNoticiaWhatsAppOneTapButton(
-                      churchName: widget.nomeIgreja,
-                      churchSlug: widget.churchSlug,
-                      tenantId: widget.tenantId,
-                      noticiaId: widget.doc.id,
-                      postData: data,
-                      noticiaKindOverride:
-                          widget.isEvento ? 'evento' : 'aviso',
-                    ),
-                  ],
-                ),
-              ),
-              if (isFuture)
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => unawaited(_toggleRsvp()),
-                    borderRadius: BorderRadius.circular(20),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: rsvp
-                            ? ThemeCleanPremium.success
-                            : ThemeCleanPremium.success.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: ThemeCleanPremium.success.withOpacity(0.3),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            rsvp
-                                ? Icons.check_circle_rounded
-                                : Icons.add_circle_outline_rounded,
-                            size: 16,
-                            color: rsvp
-                                ? Colors.white
-                                : ThemeCleanPremium.success,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            rsvp ? 'Confirmado' : 'Participar',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: rsvp
-                                  ? Colors.white
-                                  : ThemeCleanPremium.success,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (likeCount > 0)
-                Text(
-                  '$likeCount curtida${likeCount > 1 ? 's' : ''}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-              if (rsvpCount > 0 && isFuture)
-                Text(
-                  '$rsvpCount pessoa${rsvpCount > 1 ? 's' : ''} confirmou presença',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: ThemeCleanPremium.success,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              if (commentTotal > 0 || previews.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$commentTotal comentário${commentTotal > 1 ? 's' : ''}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      ...previews.map((c) {
-                        final line = c.text.length > 120
-                            ? '${c.text.substring(0, 117)}…'
-                            : c.text;
-                        if (line.isEmpty) return const SizedBox.shrink();
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text.rich(
-                            TextSpan(
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.35,
-                                color: Colors.grey.shade800,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: '${c.authorName} ',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                TextSpan(text: line),
-                              ],
-                            ),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }),
-                      if (commentTotal > previews.length)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            'Toque no ícone de comentários para ver todos',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
 

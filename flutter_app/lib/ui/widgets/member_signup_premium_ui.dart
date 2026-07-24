@@ -327,24 +327,8 @@ String memberSignupFormatCpfMask(String raw) {
   return b.toString();
 }
 
-String memberSignupFormatPhoneMask(String raw) {
-  final d = memberSignupOnlyDigits(raw);
-  if (d.isEmpty) return '';
-  final ddd = d.length >= 2 ? d.substring(0, 2) : d;
-  final rest = d.length > 2 ? d.substring(2) : '';
-  final b = StringBuffer()
-    ..write('(')
-    ..write(ddd);
-  if (d.length >= 2) b.write(')');
-  if (rest.isEmpty) return b.toString();
-  if (rest.length <= 4) return '${b.toString()} $rest';
-  if (rest.length <= 8) {
-    return '${b.toString()} ${rest.substring(0, rest.length - 4)}-${rest.substring(rest.length - 4)}';
-  }
-  final prefix = rest.substring(0, 5);
-  final suffix = rest.substring(5, rest.length > 9 ? 9 : rest.length);
-  return '${b.toString()} $prefix-$suffix';
-}
+/// Máscara de telefone no cadastro — formato único do sistema: `62 9.9170-5247`.
+String memberSignupFormatPhoneMask(String raw) => brPhoneMaskLive(raw);
 
 InputDecoration memberSignupInputDecoration({
   required String label,

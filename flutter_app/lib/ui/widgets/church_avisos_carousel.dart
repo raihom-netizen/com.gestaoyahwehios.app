@@ -14,6 +14,9 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
 import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
     show showYahwehOriginalMedia;
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 
 /// Carrossel premium de avisos — painel e site público (proporção Instagram).
 class ChurchAvisosCarousel extends StatefulWidget {
@@ -23,12 +26,16 @@ class ChurchAvisosCarousel extends StatefulWidget {
     this.onManageTap,
     this.compact = false,
     this.forPublicSite = false,
+    this.churchSlug = '',
+    this.churchName = '',
   });
 
   final String churchIdHint;
   final VoidCallback? onManageTap;
   final bool compact;
   final bool forPublicSite;
+  final String churchSlug;
+  final String churchName;
 
   @override
   State<ChurchAvisosCarousel> createState() => _ChurchAvisosCarouselState();
@@ -60,10 +67,11 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
       nPhotos > 0 ? nPhotos : 1,
     );
     final ideal = churchMuralCarouselClipHeight(context, cardW, ar);
-    if (widget.forPublicSite) return ideal.clamp(110.0, 200.0);
-    if (widget.compact) return ideal.clamp(140.0, 220.0);
-    if (kIsWeb) return ideal.clamp(160.0, 280.0);
-    return ideal.clamp(180.0, 280.0);
+    // +80% adicional nos clamps do carrossel (painel / avisos / site).
+    if (widget.forPublicSite) return ideal.clamp(356.0, 680.0);
+    if (widget.compact) return ideal.clamp(454.0, 760.0);
+    if (kIsWeb) return ideal.clamp(520.0, 860.0);
+    return ideal.clamp(580.0, 900.0);
   }
 
   @override
@@ -74,7 +82,7 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
       ),
       builder: (context, snap) {
         final items = (snap.data ?? const <ChurchAvisoItem>[])
-            .where((a) => a.hasImages)
+            .where((a) => a.hasImages || a.mediaRefs().isNotEmpty)
             .toList();
         if (items.isEmpty) return const SizedBox.shrink();
 
@@ -258,6 +266,43 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
                   ),
                 ),
               ],
+              Builder(
+                builder: (context) {
+                  final current =
+                      items[_page.clamp(0, items.length - 1)];
+                  final ctxData =
+                      ChurchContextService.currentChurchData ?? const {};
+                  final slug = widget.churchSlug.trim().isNotEmpty
+                      ? widget.churchSlug.trim()
+                      : (ctxData['slug'] ??
+                              ctxData['publicSlug'] ??
+                              '')
+                          .toString()
+                          .trim();
+                  final name = widget.churchName.trim().isNotEmpty
+                      ? widget.churchName.trim()
+                      : (ctxData['nome'] ??
+                              ctxData['name'] ??
+                              ctxData['nomeIgreja'] ??
+                              '')
+                          .toString()
+                          .trim();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: YahwehSocialPostBar(
+                      key: ValueKey('aviso_engage_${current.id}'),
+                      tenantId: widget.churchIdHint,
+                      postId: current.id,
+                      isEvento: false,
+                      churchSlug: slug,
+                      churchName: name,
+                      postsParentCollection:
+                          ChurchTenantPostsCollections.avisos,
+                      allowGuestCommentView: widget.forPublicSite,
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         );

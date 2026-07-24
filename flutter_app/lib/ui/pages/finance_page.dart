@@ -138,11 +138,11 @@ Future<void> _excluirLancamentoComAuditoria(
     );
   } catch (_) {}
   if (kIsWeb) {
-    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
   }
   await FirestoreWebGuard.runWithWebRecovery(
     () => doc.reference.delete(),
-    maxAttempts: 4,
+    maxAttempts: 2,
   );
   ChurchCanonicalMediaDeleteService.scheduleComprovanteArtifactsDeleted(
     tenantId: tenantId,
@@ -2305,7 +2305,7 @@ class _ResumoTabState extends State<_ResumoTab> {
   void _startResumoWebCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+    _webLoadCap = Timer(const Duration(seconds: 12), () {
       if (!mounted || !_fetching) return;
       final hadLocal =
           _resumoHasLocalData(const PanelFinanceAccountsSnapshot());
@@ -2359,22 +2359,29 @@ class _ResumoTabState extends State<_ResumoTab> {
   }) async {
     final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      try {
+        await FirestoreWebGuard.ensurePanelReadReady().timeout(
+          ChurchPanelReadTimeouts.readReadyCap,
+        );
+      } catch (_) {}
     }
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
+    final queryCap = kIsWeb
+        ? const Duration(seconds: 12)
+        : PanelResilientLoad.queryCap;
     final results = await Future.wait<Object>([
       ChurchFinanceLoadService.loadLancamentos(
         seedTenantId: tid,
         limit: limit,
         forceRefresh: forceFresh,
         forceServer: forceServer,
-      ),
+      ).timeout(queryCap),
       ChurchFinanceLoadService.loadContas(
         seedTenantId: tid,
         forceRefresh: forceFresh,
         forceServer: forceServer,
-      ),
-      FinanceTenantSettings.load(tid),
+      ).timeout(queryCap),
+      FinanceTenantSettings.load(tid).timeout(queryCap),
     ]);
     final l = results[0] as ChurchFinanceLoadResult;
     final c = results[1] as ChurchFinanceLoadResult;
@@ -3552,15 +3559,21 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
     );
 
     unawaited(
-      ChurchTenantResilientReads.financeRecentPage(
-        widget.tenantId,
+      ChurchFinanceLoadService.loadLancamentos(
+        seedTenantId: widget.tenantId,
         limit: initialLimit,
-      ).timeout(PanelResilientLoad.queryCap).then((snap) {
+      )
+          .timeout(
+            kIsWeb
+                ? const Duration(seconds: 12)
+                : PanelResilientLoad.queryCap,
+          )
+          .then((result) {
         if (!mounted) return;
         setState(() {
-          if (snap.docs.isNotEmpty) {
-            _seedDocs = snap.docs;
-            _movHasMore = snap.docs.length >= initialLimit;
+          if (result.docs.isNotEmpty) {
+            _seedDocs = result.docs;
+            _movHasMore = result.docs.length >= initialLimit;
           } else if (_seedDocs == null || _seedDocs!.isEmpty) {
             _movHasMore = false;
           }
@@ -4159,36 +4172,62 @@ class _ListaLancamentosPorTipoPageState
     _seedDocs = ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
         ChurchFinanceLoadService.peekLancamentosRam(
           churchId,
-          limit: 500,
+          limit: YahwehPerformanceV4.financeChartsSampleLimit,
         ) ??
         const [];
   }
 
-  void _reloadFuture() {
-    _fetching = true;
-    _future = ChurchTenantResilientReads.financeRecentNetwork(
-      widget.tenantId,
-      limit: 500,
-    ).timeout(PanelResilientLoad.queryCap).then((snap) {
-      if (mounted && snap.docs.isNotEmpty) {
+  void _reloadFuture({bool forceFresh = false}) {
+    if (!forceFresh) {
+      _seedFromRam();
+    }
+    final hadLocal = _seedDocs?.isNotEmpty ?? false;
+    // Só "sincronizando" quando não há dados locais para pintar.
+    _fetching = !hadLocal;
+    _future = Future.value(MergedFirestoreQuerySnapshot(_seedDocs ?? const []));
+
+    unawaited(() async {
+      try {
+        if (kIsWeb) {
+          try {
+            await FirestoreWebGuard.ensurePanelReadReady().timeout(
+              ChurchPanelReadTimeouts.readReadyCap,
+            );
+          } catch (_) {}
+        }
+        final queryCap = kIsWeb
+            ? const Duration(seconds: 12)
+            : PanelResilientLoad.queryCap;
+        final result = await ChurchFinanceLoadService.loadLancamentos(
+          seedTenantId: ChurchRepository.churchId(widget.tenantId),
+          limit: YahwehPerformanceV4.financeChartsSampleLimit * 2,
+          forceRefresh: forceFresh,
+          forceServer: forceFresh,
+        ).timeout(queryCap);
+        if (!mounted) return;
         setState(() {
-          _seedDocs = snap.docs;
+          if (result.docs.isNotEmpty) {
+            _seedDocs = result.docs;
+          }
           _fetching = false;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
+          );
         });
-      } else if (mounted) {
-        setState(() => _fetching = false);
-      }
-      return snap;
-    }).catchError((e) {
-      if (mounted) {
+      } catch (e) {
+        if (!mounted) return;
         final ui = PanelResilientLoad.afterError(
           hadLocalData: (_seedDocs?.isNotEmpty ?? false),
           error: e,
         );
-        setState(() => _fetching = ui.fetching);
+        setState(() {
+          _fetching = ui.fetching;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
+          );
+        });
       }
-      throw e;
-    });
+    }());
   }
 
   @override
@@ -4199,7 +4238,7 @@ class _ListaLancamentosPorTipoPageState
   }
 
   void _refresh() {
-    setState(_reloadFuture);
+    setState(() => _reloadFuture(forceFresh: true));
   }
 
   @override
@@ -4516,12 +4555,12 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   void _startLancamentosWebCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+    _webLoadCap = Timer(const Duration(seconds: 12), () {
       if (!mounted || !_fetching) return;
       setState(() {
         _fetching = false;
         if (_lancamentosHasLocalData) {
-          _showingStaleCache = true;
+          _showingStaleCache = !AppConnectivityService.instance.isOnline;
           _loadHint = null;
         } else {
           _loadHint ??=
@@ -4552,19 +4591,30 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   }) async {
     final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      try {
+        await FirestoreWebGuard.ensurePanelReadReady().timeout(
+          ChurchPanelReadTimeouts.readReadyCap,
+        );
+      } catch (_) {}
     }
-    final l = await ChurchFinanceLoadService.loadLancamentos(
-      seedTenantId: tid,
-      limit: _financePageSize,
-      forceRefresh: forceFresh,
-      forceServer: forceServer,
-    );
-    final c = await ChurchFinanceLoadService.loadContas(
-      seedTenantId: tid,
-      forceRefresh: forceFresh,
-      forceServer: forceServer,
-    );
+    final queryCap = kIsWeb
+        ? const Duration(seconds: 12)
+        : PanelResilientLoad.queryCap;
+    final results = await Future.wait([
+      ChurchFinanceLoadService.loadLancamentos(
+        seedTenantId: tid,
+        limit: _financePageSize,
+        forceRefresh: forceFresh,
+        forceServer: forceServer,
+      ).timeout(queryCap),
+      ChurchFinanceLoadService.loadContas(
+        seedTenantId: tid,
+        forceRefresh: forceFresh,
+        forceServer: forceServer,
+      ).timeout(queryCap),
+    ]);
+    final l = results[0];
+    final c = results[1];
     if (mounted) {
       final hadLocal = _lancamentosHasLocalData;
       if (l.docs.isNotEmpty) {
@@ -4573,12 +4623,13 @@ class _LancamentosTabState extends State<_LancamentosTab> {
         final ui = PanelResilientLoad.afterFetch(
           hadLocalData: hadLocal,
           newItems: l.docs,
-          fromCache: false,
+          fromCache: l.fromCache,
           softError: l.softError,
           forceFresh: forceFresh,
         );
         if (!hadLocal) _loadHint = ui.loadError;
-        _showingStaleCache = ui.showingStaleCache;
+        _showingStaleCache =
+            ui.showingStaleCache && !AppConnectivityService.instance.isOnline;
       }
     }
     return [l.snapshot, c.snapshot];
@@ -4608,8 +4659,13 @@ class _LancamentosTabState extends State<_LancamentosTab> {
 
     final hadLocal = _lancamentosHasLocalData;
     _fetching = !hadLocal;
-    if (!forceFresh && hadLocal) _showingStaleCache = true;
-    if (forceFresh) _loadHint = null;
+    // Banner "stale" só offline — online o refresh em background é silencioso.
+    if (!forceFresh && hadLocal) {
+      _showingStaleCache = !AppConnectivityService.instance.isOnline;
+    } else if (forceFresh) {
+      _showingStaleCache = false;
+      _loadHint = null;
+    }
     _startLancamentosWebCap();
 
     final instantBundle = <dynamic>[
@@ -5581,8 +5637,7 @@ class _LancamentoCard extends StatelessWidget {
         '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
     final hasComprovanteAnexo =
         FinanceComprovanteAttachService.hasComprovanteReady(data);
-    final comprovanteEnviando =
-        FinanceComprovanteAttachService.isComprovanteUploading(data);
+    // Upload CT = silencioso (sem spinner/faixa «A trocar comprovante…»).
     final pendenteRecorrencia = data['pendenteConciliacaoRecorrencia'] == true;
     final pendenteAprovacao = data['aprovacaoPendente'] == true;
     final conciliadoOk = data['conciliado'] == true;
@@ -5866,16 +5921,7 @@ class _LancamentoCard extends StatelessWidget {
                           ),
                           tooltip: 'Remover comprovante',
                         ),
-                      ] else if (comprovanteEnviando)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 6),
-                          child: SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      else
+                      ] else
                         FinancePremiumIconAction(
                           icon: Icons.visibility_rounded,
                           color: Colors.grey.shade400,
@@ -5891,28 +5937,18 @@ class _LancamentoCard extends StatelessWidget {
                           tooltip: 'Sem comprovante',
                         ),
                       FinancePremiumIconAction(
-                        icon: hasComprovanteAnexo || comprovanteEnviando
+                        icon: hasComprovanteAnexo
                             ? Icons.sync_rounded
                             : Icons.photo_camera_rounded,
                         color: const Color(0xFF7C3AED),
-                        tooltip: hasComprovanteAnexo || comprovanteEnviando
+                        tooltip: hasComprovanteAnexo
                             ? 'Trocar comprovante'
                             : 'Anexar comprovante',
-                        onTap: comprovanteEnviando
-                            ? () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Comprovante ainda sincronizando…',
-                                    ),
-                                  ),
-                                );
-                              }
-                            : () => uploadFinanceComprovanteForLancamento(
-                                  context,
-                                  tenantId: tenantId,
-                                  doc: doc,
-                                ),
+                        onTap: () => uploadFinanceComprovanteForLancamento(
+                          context,
+                          tenantId: tenantId,
+                          doc: doc,
+                        ),
                       ),
                     ],
                   ),
@@ -5954,27 +5990,41 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   bool _fetching = false;
 
   void _reloadFuture() {
-    _fetching = true;
-    _future = ChurchTenantResilientReads.despesasFixas(widget.tenantId)
-        .timeout(PanelResilientLoad.queryCap)
-        .then((snap) {
-      if (mounted) {
+    final hadLocal = _cachedDocs?.isNotEmpty ?? false;
+    _fetching = !hadLocal;
+    _future = Future.value(
+      MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
+    );
+    unawaited(
+      ChurchTenantResilientReads.despesasFixas(widget.tenantId)
+          .timeout(
+            kIsWeb
+                ? const Duration(seconds: 12)
+                : PanelResilientLoad.queryCap,
+          )
+          .then((snap) {
+        if (!mounted) return;
         setState(() {
           if (snap.docs.isNotEmpty) _cachedDocs = snap.docs;
           _fetching = false;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
+          );
         });
-      }
-      return snap;
-    }).catchError((e) {
-      if (mounted) {
+      }).catchError((e) {
+        if (!mounted) return;
         final ui = PanelResilientLoad.afterError(
           hadLocalData: (_cachedDocs?.isNotEmpty ?? false),
           error: e,
         );
-        setState(() => _fetching = ui.fetching);
-      }
-      throw e;
-    });
+        setState(() {
+          _fetching = ui.fetching;
+          _future = Future.value(
+            MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
+          );
+        });
+      }),
+    );
   }
 
   @override
@@ -7275,12 +7325,12 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   void _startContasWebCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+    _webLoadCap = Timer(const Duration(seconds: 12), () {
       if (!mounted || !_fetching) return;
       setState(() {
         _fetching = false;
         if (_contasHasLocalData) {
-          _showingStaleCache = true;
+          _showingStaleCache = !AppConnectivityService.instance.isOnline;
           _loadHint = null;
         } else {
           _loadHint ??= 'Tempo esgotado ao carregar contas na Web.';
@@ -7346,9 +7396,13 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
     }
 
     final hadLocal = _contasHasLocalData;
-    _fetching = true;
-    if (!forceFresh && hadLocal) _showingStaleCache = true;
-    if (forceFresh) _loadHint = null;
+    _fetching = !hadLocal;
+    if (!forceFresh && hadLocal) {
+      _showingStaleCache = !AppConnectivityService.instance.isOnline;
+    } else if (forceFresh) {
+      _showingStaleCache = false;
+      _loadHint = null;
+    }
     _startContasWebCap();
 
     _future = Future.value(MergedFirestoreQuerySnapshot(_seedContasDocs!));

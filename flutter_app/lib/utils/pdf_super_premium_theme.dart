@@ -334,21 +334,19 @@ class PdfSuperPremiumTheme {
     );
   }
 
-  /// Cabeçalho estilo ofício — logo, nome completo, endereço, CEP e telefone.
+  /// Cabeçalho estilo ofício — logo à esquerda; nome completo + endereço completo à direita.
   static pw.Widget oficioLetterHeader({
     required ReportPdfBranding branding,
     required Map<String, dynamic> churchData,
     required String documentTitle,
   }) {
     final accent = branding.accent;
-    final churchName = pdfSafeText(
-      (churchData['nome'] ??
-              churchData['name'] ??
-              branding.churchName ??
-              '')
-          .toString()
-          .trim(),
-    );
+    // Nome: ignora string vazia (?? não basta) e cobre razaoSocial/nomeIgreja.
+    var churchName = churchTaxIdChurchNameFromMap(churchData).trim();
+    if (churchName.isEmpty) {
+      churchName = branding.churchName.trim();
+    }
+    churchName = pdfSafeText(churchName);
     final safeTitle = pdfSafeText(documentTitle);
 
     pw.ImageProvider? logoProv;
@@ -357,32 +355,39 @@ class PdfSuperPremiumTheme {
       logoProv = pw.MemoryImage(lb);
     }
 
-    final rua = (churchData['rua'] ?? churchData['address'] ?? '')
-        .toString()
-        .trim();
-    final qd = (churchData['quadraLoteNumero'] ?? '').toString().trim();
-    final ruaLine = rua.isEmpty
-        ? qd
-        : (qd.isEmpty ? rua : '$rua, $qd');
-    final bairro = (churchData['bairro'] ?? '').toString().trim();
-    final cidade = (churchData['cidade'] ??
-            churchData['CIDADE'] ??
-            churchData['localidade'] ??
-            '')
-        .toString()
-        .trim();
-    final uf = (churchData['estado'] ?? churchData['UF'] ?? churchData['uf'] ?? '')
-        .toString()
-        .trim();
-    final cepRaw = (churchData['cep'] ?? churchData['CEP'] ?? '').toString().trim();
+    String s(dynamic v) => (v ?? '').toString().trim();
+    final rua = s(churchData['rua'] ??
+        churchData['address'] ??
+        churchData['logradouro'] ??
+        churchData['LOGRADOURO']);
+    final qd = s(churchData['quadraLoteNumero'] ??
+        churchData['quadra_lote_numero']);
+    final ruaLine =
+        rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
+    final bairro = s(churchData['bairro'] ?? churchData['BAIRRO']);
+    final cidade = s(churchData['cidade'] ??
+        churchData['CIDADE'] ??
+        churchData['localidade'] ??
+        churchData['LOCALIDADE']);
+    final uf = s(churchData['estado'] ??
+        churchData['ESTADO'] ??
+        churchData['UF'] ??
+        churchData['uf']);
+    final cepRaw = s(churchData['cep'] ?? churchData['CEP']);
     final cep = _formatCepPdf(cepRaw);
-    final tel = (churchData['telefoneIgreja'] ??
-            churchData['telefone'] ??
-            churchData['whatsappIgreja'] ??
-            churchData['whatsapp'] ??
-            '')
-        .toString()
-        .trim();
+    final tel = s(churchData['telefoneIgreja'] ??
+        churchData['telefone_igreja'] ??
+        churchData['telefone'] ??
+        churchData['whatsappIgreja'] ??
+        churchData['whatsapp_igreja'] ??
+        churchData['whatsapp'] ??
+        churchData['phone'] ??
+        churchData['gestorTelefone'] ??
+        churchData['gestor_telefone']);
+    final legacyEndereco = s(churchData['endereco'] ??
+        churchData['ENDERECO'] ??
+        churchData['enderecoCompleto'] ??
+        churchData['endereco_completo']);
 
     String cityLine = '';
     if (cidade.isNotEmpty && uf.isNotEmpty) {
@@ -400,6 +405,9 @@ class PdfSuperPremiumTheme {
       if (ruaLine.isNotEmpty) ruaLine,
       if (bairro.isNotEmpty) bairro,
     ];
+    // Cadastro legado: só campo «endereco» completo.
+    final useLegacyAlone =
+        addrParts.isEmpty && cityLine.isEmpty && legacyEndereco.isNotEmpty;
 
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -429,17 +437,32 @@ class PdfSuperPremiumTheme {
                       ),
                     ),
                   if (churchName.isNotEmpty) pw.SizedBox(height: 6),
-                  if (addrParts.isNotEmpty)
+                  if (useLegacyAlone)
                     pw.Text(
-                      pdfSafeText(addrParts.join(' — ')),
+                      pdfSafeText(legacyEndereco),
                       style: pw.TextStyle(fontSize: 9.2, color: _muted),
-                    ),
-                  if (cityLine.isNotEmpty) ...[
-                    pw.SizedBox(height: 2),
-                    pw.Text(
-                      pdfSafeText(cityLine),
-                      style: pw.TextStyle(fontSize: 9.2, color: _muted),
-                    ),
+                    )
+                  else ...[
+                    if (addrParts.isNotEmpty)
+                      pw.Text(
+                        pdfSafeText(addrParts.join(' — ')),
+                        style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                      ),
+                    if (cityLine.isNotEmpty) ...[
+                      pw.SizedBox(height: 2),
+                      pw.Text(
+                        pdfSafeText(cityLine),
+                        style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                      ),
+                    ],
+                    // Se partes vazias mas há legado parcial, mostra legado.
+                    if (addrParts.isEmpty &&
+                        cityLine.isEmpty &&
+                        legacyEndereco.isNotEmpty)
+                      pw.Text(
+                        pdfSafeText(legacyEndereco),
+                        style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                      ),
                   ],
                   if (tel.isNotEmpty) ...[
                     pw.SizedBox(height: 2),

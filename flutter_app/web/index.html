@@ -94,6 +94,23 @@
             regs.forEach(function (r) { r.unregister(); });
           });
         }
+        // Anti-loop: URL com ?_r= / ?gyhUpd= a mudar → limpar query e ficar estável.
+        try {
+          var u = new URL(window.location.href);
+          if (u.searchParams.has('_r') || u.searchParams.has('gyhUpd')) {
+            var n = parseInt(sessionStorage.getItem('gyh_boot_r_hits') || '0', 10) + 1;
+            sessionStorage.setItem('gyh_boot_r_hits', String(n));
+            u.searchParams.delete('_r');
+            u.searchParams.delete('gyhUpd');
+            var clean = u.pathname + (u.search ? u.search : '') + (u.hash || '');
+            if (n >= 1) {
+              history.replaceState(null, '', clean || u.pathname);
+            }
+            if (n >= 3) {
+              sessionStorage.setItem('gyh_boot_r_hits', '0');
+            }
+          }
+        } catch (e) {}
         var GYH_STORAGE_KEY = 'gyh_server_version';
         function checkVersionAndStore() {
           fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (res) { return res.json(); }).then(function (data) {
@@ -208,7 +225,29 @@
       window.addEventListener('flutter-first-frame', function () {
         var el = document.getElementById('gyh-boot-loader');
         if (el) el.remove();
+        try { sessionStorage.setItem('gyh_boot_r_hits', '0'); } catch (e) {}
       });
+      // Se o splash ficar preso > 45s, mostrar ação (não auto-recarregar em loop).
+      setTimeout(function () {
+        var el = document.getElementById('gyh-boot-loader');
+        if (!el) return;
+        var p = el.querySelector('p');
+        if (p) {
+          p.innerHTML = 'A carregar está a demorar…<br><button type="button" id="gyh-boot-retry" style="margin-top:12px;padding:10px 16px;border:0;border-radius:10px;background:#0c3b8a;color:#fff;font-weight:600;cursor:pointer">Tentar novamente</button>';
+          var btn = document.getElementById('gyh-boot-retry');
+          if (btn) {
+            btn.onclick = function () {
+              try {
+                var path = (location.pathname || '/');
+                if (path.slice(-1) !== '/') path += '/';
+                location.replace(location.origin + path);
+              } catch (e) {
+                location.reload();
+              }
+            };
+          }
+        }
+      }, 45000);
     </script>
     <script src="flutter_bootstrap.js" async></script>
   </body>

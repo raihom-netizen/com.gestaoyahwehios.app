@@ -289,22 +289,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
     _removePendenteLocal(id);
     try {
-      final linkage = await _getTenantLinkage();
-      await runFirestorePublishWithRecovery(
-        () => FirestoreWebGuard.runWithWebRecovery(
-          () => _membersCol.doc(id).update({
-            'alias': linkage['alias'],
-            'slug': linkage['slug'],
-            'tenantId': _churchId,
-            'status': 'ativo',
-            'STATUS': 'ativo',
-            'aprovadoEm': FieldValue.serverTimestamp(),
-          }),
-        ),
-        criticalWrite: true,
-      );
-      unawaited(_invokeSetMemberApproved(id));
-      unawaited(_afterApprovalMutation(skipReload: true));
+      // Fonte da verdade = CF (Auth + migração docId→uid). Evita ativo+pendente duplicado.
+      await _invokeSetMemberApproved(id);
+      await _afterApprovalMutation(skipReload: false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
@@ -429,36 +416,41 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       _selecionados.clear();
     });
     ChurchAprovacoesLoadService.removePendentesFromRam(_churchId, ids);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('$count membro(s) aprovado(s).'),
-      );
-    }
     try {
-      final linkage = await _getTenantLinkage();
-      await runFirestorePublishWithRecovery(
-        () async {
-          final batch = firebaseDefaultFirestore.batch();
-          for (final id in ids) {
-            batch.update(_membersCol.doc(id), {
-              'alias': linkage['alias'],
-              'slug': linkage['slug'],
-              'tenantId': _churchId,
-              'status': newStatus,
-              'STATUS': newStatus,
-              if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
-            });
-          }
-          await batch.commit();
-        },
-        criticalWrite: true,
-      );
       if (newStatus == 'ativo') {
+        // Só CF — evita duplicar (update local + migração Auth).
         for (final id in ids) {
-          unawaited(_invokeSetMemberApproved(id));
+          await _invokeSetMemberApproved(id);
         }
+      } else {
+        final linkage = await _getTenantLinkage();
+        await runFirestorePublishWithRecovery(
+          () async {
+            final batch = firebaseDefaultFirestore.batch();
+            for (final id in ids) {
+              batch.update(_membersCol.doc(id), {
+                'alias': linkage['alias'],
+                'slug': linkage['slug'],
+                'tenantId': _churchId,
+                'status': newStatus,
+                'STATUS': newStatus,
+              });
+            }
+            await batch.commit();
+          },
+          criticalWrite: true,
+        );
       }
-      unawaited(_afterApprovalMutation(skipReload: true));
+      await _afterApprovalMutation(skipReload: false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            newStatus == 'ativo'
+                ? '$count membro(s) aprovado(s).'
+                : '$count cadastro(s) atualizado(s).',
+          ),
+        );
+      }
     } catch (e) {
       _restorePendentesLocal(previous);
       setState(() => _selecionados.addAll(ids));

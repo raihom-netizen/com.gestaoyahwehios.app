@@ -23,9 +23,11 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_donation_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 
@@ -187,6 +189,21 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final result = await ChurchDonationLoadService.load(
       seedTenantId: widget.tenantId.trim(),
       forceRefresh: _contas.isEmpty,
+    ).timeout(
+      kIsWeb
+          ? PanelResilientLoad.webLoadingCap
+          : const Duration(seconds: 40),
+      onTimeout: () => ChurchDonationLoadResult(
+        churchId: churchId,
+        contas: ChurchDonationLoadService.peekContasRam(churchId) ?? const [],
+        mercadoPagoReady:
+            ChurchDonationLoadService.peekConfigReadyRam(churchId) ?? false,
+        mercadoPagoConfig:
+            ChurchDonationLoadService.peekConfigDocRam(churchId) ?? const {},
+        readSource: 'timeout',
+        softError:
+            'A conexão demorou demais. Toque em recarregar ou abra Financeiro → Contas.',
+      ),
     );
     _applyDonationLoadResult(result);
 
@@ -1380,6 +1397,76 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   String? _kindFilter;
   int _periodDays = 152;
 
+  QuerySnapshot<Map<String, dynamic>>? _snap;
+  Object? _loadError;
+  bool _loading = true;
+  int _reloadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadHistory());
+  }
+
+  @override
+  void didUpdateWidget(covariant _DonationHistoryTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId ||
+        oldWidget.seeAll != widget.seeAll ||
+        oldWidget.cpf != widget.cpf) {
+      unawaited(_loadHistory());
+    }
+  }
+
+  Query<Map<String, dynamic>> get _historyQuery =>
+      ChurchUiCollections.churchDoc(widget.tenantId)
+          .collection('contribuicoes_dizimo_historico')
+          .orderBy('approvedAt', descending: true)
+          .limit(400);
+
+  Future<void> _loadHistory() async {
+    final token = ++_reloadToken;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      Future<QuerySnapshot<Map<String, dynamic>>> read() async {
+        try {
+          final cache = await _historyQuery
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 3));
+          if (cache.docs.isNotEmpty) return cache;
+        } catch (_) {}
+        return FirestoreWebGuard.webGetLimited(
+          () => _historyQuery.get().timeout(ChurchPanelReadTimeouts.queryCap),
+        );
+      }
+
+      final snap = await (kIsWeb
+              ? FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 2)
+              : read())
+          .timeout(PanelResilientLoad.webLoadingCap);
+      if (!mounted || token != _reloadToken) return;
+      setState(() {
+        _snap = snap;
+        _loading = false;
+        _loadError = null;
+      });
+    } catch (e) {
+      if (!mounted || token != _reloadToken) return;
+      setState(() {
+        _loading = false;
+        _loadError = e;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _searchDebounce.dispose();
@@ -1411,29 +1498,35 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   @override
   Widget build(BuildContext context) {
     final primary = ThemeCleanPremium.primary;
-    final q =         ChurchUiCollections.churchDoc(widget.tenantId)
-        .collection('contribuicoes_dizimo_historico')
-        .orderBy('approvedAt', descending: true)
-        .limit(400);
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: q.watchSafe(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snap.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'Não foi possível carregar o histórico.\n${snap.error}',
+    if (_loading && _snap == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null && _snap == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Não foi possível carregar o histórico.\n'
+                '${formatFirebaseErrorForUser(_loadError!, logToCrashlytics: false)}',
                 textAlign: TextAlign.center,
               ),
-            ),
-          );
-        }
-        final docs = snap.data?.docs ?? [];
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => unawaited(_loadHistory()),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Tentar de novo'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final docs = _snap?.docs ?? [];
         final now = DateTime.now();
         final cutoff = now.subtract(Duration(days: _periodDays));
         final needle = _searchCtrl.text.trim().toLowerCase();
@@ -1461,6 +1554,28 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
         return ListView(
           padding: ThemeCleanPremium.pagePadding(context),
           children: [
+            if (_loadError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Material(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(12),
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.wifi_tethering_error_rounded,
+                        color: Color(0xFFEA580C)),
+                    title: const Text(
+                      'Histórico pode estar desatualizado',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                    ),
+                    trailing: TextButton(
+                      onPressed: () => unawaited(_loadHistory()),
+                      child: const Text('Atualizar'),
+                    ),
+                  ),
+                ),
+              ),
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -1492,6 +1607,20 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
                             color: Colors.grey.shade900,
                           ),
                         ),
+                      ),
+                      IconButton(
+                        tooltip: 'Atualizar',
+                        onPressed: _loading
+                            ? null
+                            : () => unawaited(_loadHistory()),
+                        icon: _loading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Icon(Icons.refresh_rounded, color: primary),
                       ),
                     ],
                   ),
@@ -1811,8 +1940,6 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
             const SizedBox(height: 64),
           ],
         );
-      },
-    );
   }
 
   Widget _periodChip(String label, int days, Color primary) {

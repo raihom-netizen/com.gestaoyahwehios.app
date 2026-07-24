@@ -81,14 +81,11 @@ abstract final class ChurchCalendarLoadService {
 
     List<QueryDocumentSnapshot<Map<String, dynamic>>> agendaDocs = const [];
     try {
-      final agenda = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchAgendaLoadService.loadByStartTimeRange(
-          seedTenantId: churchId,
-          start: start,
-          end: end,
-          forceRefresh: forceRefresh,
-        ),
-        maxAttempts: 4,
+      final agenda = await ChurchAgendaLoadService.loadByStartTimeRange(
+        seedTenantId: churchId,
+        start: start,
+        end: end,
+        forceRefresh: forceRefresh,
       ).timeout(_queryCap);
       agendaDocs = agenda.docs;
       softError ??= agenda.softError;

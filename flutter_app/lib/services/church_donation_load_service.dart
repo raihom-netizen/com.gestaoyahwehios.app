@@ -192,7 +192,7 @@ abstract final class ChurchDonationLoadService {
       final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
         id,
         'mercado_pago',
-      ).timeout(Duration(seconds: kIsWeb ? 45 : 20));
+      ).timeout(Duration(seconds: kIsWeb ? 22 : 20));
       final data = hit?.data ?? const <String, dynamic>{};
       putConfigDocRam(id, data);
       return data;
@@ -232,12 +232,9 @@ abstract final class ChurchDonationLoadService {
               : const Duration(seconds: 16),
         );
 
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 100))
-        : await readServer().timeout(const Duration(seconds: 50));
+    final snap = await readServer().timeout(
+      kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 50),
+    );
 
     return contasFromSnapshot(snap);
   }

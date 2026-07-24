@@ -505,19 +505,14 @@ abstract final class ChurchAgendaLoadService {
       Query<Map<String, dynamic>> query,
       String suffix,
     ) async {
-      return FirestoreWebGuard.runWithWebRecovery(() async {
-        final snap = await FirestoreReadResilience.getQuery(
-          query,
-          cacheKey: '${cacheKey}_$suffix',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 12)
-              : ChurchPanelReadTimeouts.queryCap,
-        );
-        return _sortByStartTime(
-          filterActiveDocs(snap.docs),
-        );
-      }, maxAttempts: 4);
+      return FirestoreReadResilience.getQuery(
+        query,
+        cacheKey: '${cacheKey}_$suffix',
+        maxAttempts: kIsWeb ? 4 : 3,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 12)
+            : ChurchPanelReadTimeouts.queryCap,
+      ).then((snap) => _sortByStartTime(filterActiveDocs(snap.docs)));
     }
 
     try {
@@ -722,13 +717,10 @@ abstract final class ChurchAgendaLoadService {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    final snap = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchUiCollections.agenda(cid)
-          .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
-          .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
-          .get(),
-      maxAttempts: 4,
-    );
+    final snap = await ChurchUiCollections.agenda(cid)
+        .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
     if (snap.docs.isEmpty) return 0;
     const chunk = 450;
     for (var i = 0; i < snap.docs.length; i += chunk) {

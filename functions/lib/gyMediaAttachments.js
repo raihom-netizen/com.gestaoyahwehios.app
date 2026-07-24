@@ -42,6 +42,7 @@ const functions = __importStar(require("firebase-functions/v1"));
 const adminDb_1 = require("./adminDb");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const panelPublicSiteCache_1 = require("./panelPublicSiteCache");
+const memberRegistrationNotify_1 = require("./memberRegistrationNotify");
 const CF_DELETE = "__DELETE__";
 const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_FEED_COLLECTIONS = new Set([
@@ -400,11 +401,61 @@ exports.gyPublicMemberSignup = functions
         !photoPath.endsWith(`/membros/thumbs/${docId}.webp`)) {
         throw new functions.https.HttpsError("invalid-argument", "A foto não pertence a este cadastro.");
     }
+    // Se o cliente enviou path sem URL (timeout getDownloadURL), resolve via Admin.
+    if (photoPath) {
+        decoded.photoStoragePath = photoPath;
+        decoded.fotoPath = photoPath;
+        const existingUrl = String(decoded.fotoUrl || decoded.photoUrl || decoded.photoURL || "").trim();
+        if (!existingUrl.startsWith("http")) {
+            try {
+                const file = (0, adminDb_1.storageBucket)().file(photoPath);
+                const [exists] = await file.exists();
+                if (exists) {
+                    const [meta] = await file.getMetadata();
+                    const token = String(meta.metadata
+                        ?.firebaseStorageDownloadTokens || "").trim();
+                    const bucketName = (0, adminDb_1.storageBucket)().name;
+                    let url = "";
+                    if (token) {
+                        url =
+                            `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
+                                `${encodeURIComponent(photoPath)}?alt=media&token=${token}`;
+                    }
+                    else {
+                        const [signed] = await file.getSignedUrl({
+                            action: "read",
+                            expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000,
+                        });
+                        url = signed;
+                    }
+                    if (url) {
+                        decoded.fotoUrl = url;
+                        decoded.foto_url = url;
+                        decoded.FOTO_URL_OU_ID = url;
+                        decoded.photoURL = url;
+                        decoded.photoUrl = url;
+                        decoded.avatarUrl = url;
+                        decoded.fotoUrlCacheRevision = Date.now();
+                    }
+                }
+            }
+            catch (photoErr) {
+                functions.logger.warn("gyPublicMemberSignup photo URL", photoErr);
+            }
+        }
+    }
     const membros = (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(churchId)
         .collection("membros");
     const docRef = membros.doc(docId);
+    const locks = (0, adminDb_1.fs)()
+        .collection("igrejas")
+        .doc(churchId)
+        .collection("signup_locks");
+    const cpfLockRef = locks.doc(`cpf_${cpf}`);
+    const emailLockKey = email.replace(/[^a-z0-9]/gi, "_").slice(0, 120);
+    const emailLockRef = locks.doc(`email_${emailLockKey}`);
     const existing = await docRef.get();
     if (existing.exists) {
         const old = (existing.data() || {});
@@ -421,16 +472,45 @@ exports.gyPublicMemberSignup = functions
         }
     }
     else {
+        // Query primeiro (legado), depois lock atômico (double-tap).
         const [cpfHit, emailHit] = await Promise.all([
             membros.where("CPF", "==", cpf).limit(1).get(),
             membros.where("EMAIL", "==", email).limit(1).get(),
         ]);
-        if (!cpfHit.empty) {
+        if (!cpfHit.empty && cpfHit.docs[0].id !== docId) {
             throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este CPF nesta igreja.");
         }
-        if (!emailHit.empty) {
+        if (!emailHit.empty && emailHit.docs[0].id !== docId) {
             throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este e-mail nesta igreja.");
         }
+        await (0, adminDb_1.fs)().runTransaction(async (tx) => {
+            const cpfLock = await tx.get(cpfLockRef);
+            const emailLock = await tx.get(emailLockRef);
+            const lockCpfId = String(cpfLock.data()?.memberId || "").trim();
+            const lockEmailId = String(emailLock.data()?.memberId || "").trim();
+            if (lockCpfId && lockCpfId !== docId) {
+                const other = await tx.get(membros.doc(lockCpfId));
+                if (other.exists) {
+                    throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este CPF nesta igreja.");
+                }
+            }
+            if (lockEmailId && lockEmailId !== docId) {
+                const other = await tx.get(membros.doc(lockEmailId));
+                if (other.exists) {
+                    throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este e-mail nesta igreja.");
+                }
+            }
+            tx.set(cpfLockRef, {
+                memberId: docId,
+                email,
+                updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+            tx.set(emailLockRef, {
+                memberId: docId,
+                cpf,
+                updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        });
     }
     // O visitante nunca escolhe privilégios, estado ou vínculo de login.
     for (const key of [
@@ -468,8 +548,24 @@ exports.gyPublicMemberSignup = functions
     decoded.updatedAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
     if (!existing.exists) {
         decoded.createdAt = adminDb_1.admin.firestore.FieldValue.serverTimestamp();
+        // onNewMember ignora push quando este flag está true (evita double).
+        decoded.gestoresNotifyFromCallable = true;
     }
     await docRef.set(decoded, { merge: true });
+    // Push imediato aos gestores (onCreate pula se gestoresNotifyFromCallable).
+    if (!existing.exists) {
+        try {
+            await (0, memberRegistrationNotify_1.notifyGestoresNewMember)({
+                tenantId: churchId,
+                membroId: docId,
+                nome,
+                data: decoded,
+            });
+        }
+        catch (nErr) {
+            functions.logger.warn("gyPublicMemberSignup notify", nErr);
+        }
+    }
     return { ok: true, docId, path: docRef.path };
 });
 function pickPublicString(data, keys) {

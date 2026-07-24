@@ -406,16 +406,23 @@ Future<void> shareChurchNoticiaForOgPreview({
         ? lng.toDouble()
         : (lng != null ? double.tryParse(lng.toString()) : null),
     publicSiteUrl: links.publicSiteUrl,
-    inviteCardUrl: links.eventPageUrl,
+    inviteCardUrl: links.socialPreviewUrl,
     tenantId: tenantId.trim(),
     noticiaId: noticiaId.trim(),
     churchSlug: links.resolvedSlug,
     churchData: data.isNotEmpty ? data : null,
   );
 
-  if (postFirestore != null && !kIsWeb) {
+  if (postFirestore != null) {
     try {
-      final media = await fetchNoticiaShareMediaBundle(postFirestore);
+      final mediaData = Map<String, dynamic>.from(postFirestore)
+        ..['tenantId'] = tenantId.trim()
+        ..['churchId'] = tenantId.trim()
+        ..['id'] = noticiaId.trim()
+        ..['postId'] = noticiaId.trim()
+        ..['type'] = kind
+        ..['collection'] = kind == 'evento' ? 'eventos' : 'avisos';
+      final media = await fetchNoticiaShareMediaBundle(mediaData);
       if (media.isNotEmpty) {
         await YahwehShareService.shareMediaBundle(
           files: media,
@@ -424,7 +431,7 @@ Future<void> shareChurchNoticiaForOgPreview({
         );
         return;
       }
-      final bytes = await fetchNoticiaCoverImageBytes(postFirestore);
+      final bytes = await fetchNoticiaCoverImageBytes(mediaData);
       if (bytes != null) {
         final d = noticiaShareImageDescriptorFromBytes(bytes);
         await Share.shareXFiles(

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Completer, unawaited;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -15,13 +15,15 @@ import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
     show showYahwehOriginalImageZoom;
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show
@@ -243,7 +245,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 
   Future<void> _openCreateSheet() async {
-    final created = await showModalBottomSheet<bool>(
+    final created = await showModalBottomSheet<dynamic>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -254,23 +256,21 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       ),
     );
     if (created == true) {
-      // Aguardar barra global terminar antes de refrescar (evita timeout Web).
-      if (GlobalUploadProgress.instance.state.value != null) {
-        late final VoidCallback listener;
-        listener = () {
-          if (GlobalUploadProgress.instance.state.value != null) return;
-          GlobalUploadProgress.instance.state.removeListener(listener);
-          unawaited(_reload(forceRefresh: true));
-        };
-        GlobalUploadProgress.instance.state.addListener(listener);
-      } else {
-        await _reload(forceRefresh: true);
+      await _reload(forceRefresh: true);
+    } else if (created is Map &&
+        (created['ok'] == true || created['ok'] == 'true')) {
+      final pending = created['awaitPublish'];
+      if (pending is Future) {
+        try {
+          await pending;
+        } catch (_) {}
       }
+      await _reload(forceRefresh: true);
     }
   }
 
   Future<void> _openEditSheet(ChurchAvisoItem item) async {
-    final updated = await showModalBottomSheet<bool>(
+    final updated = await showModalBottomSheet<dynamic>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -281,7 +281,18 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
         initialItem: item,
       ),
     );
-    if (updated == true) await _reload();
+    if (updated == true) {
+      await _reload(forceRefresh: true);
+    } else if (updated is Map &&
+        (updated['ok'] == true || updated['ok'] == 'true')) {
+      final pending = updated['awaitPublish'];
+      if (pending is Future) {
+        try {
+          await pending;
+        } catch (_) {}
+      }
+      await _reload(forceRefresh: true);
+    }
   }
 
   Future<void> _confirmDeleteOne(ChurchAvisoItem item) async {
@@ -574,6 +585,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _AvisoViewerSheet(
         item: item,
+        tenantId: widget.tenantId,
         dateLabel: _formatDate(item.createdAt),
       ),
     );
@@ -614,6 +626,23 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                       ChurchAvisosCarousel(
                         churchIdHint: widget.tenantId,
                         compact: true,
+                        churchSlug: () {
+                          final d = ChurchContextService.currentChurchData ??
+                              const {};
+                          return (d['slug'] ?? d['publicSlug'] ?? '')
+                              .toString()
+                              .trim();
+                        }(),
+                        churchName: () {
+                          final d = ChurchContextService.currentChurchData ??
+                              const {};
+                          return (d['nome'] ??
+                                  d['name'] ??
+                                  d['nomeIgreja'] ??
+                                  '')
+                              .toString()
+                              .trim();
+                        }(),
                       ),
                       const SizedBox(height: ThemeCleanPremium.spaceMd),
                       _AvisosHeroHeader(
@@ -785,6 +814,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                       final item = visible[index];
                       final card = _AvisoListCard(
                         item: item,
+                        tenantId: widget.tenantId,
                         dateLabel: _formatDate(item.createdAt),
                         canManage: _canManage,
                         canDelete: _canDeleteAviso(item),
@@ -1106,10 +1136,17 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                       fit: StackFit.expand,
                       children: [
                         if (widget.item.hasImages)
-                          SafeNetworkImage(
-                            imageUrl: widget.item.imageUrls.first,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 240,
+                          ColoredBox(
+                            color: tone.soft,
+                            child: SafeNetworkImage(
+                              imageUrl: (widget.item.mediaRefs().isNotEmpty
+                                      ? widget.item.mediaRefs().first
+                                      : widget.item.imageUrls.first),
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                              height: double.infinity,
+                              memCacheWidth: 720,
+                            ),
                           )
                         else
                           Container(
@@ -1228,7 +1265,7 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '${widget.item.imageUrls.length} foto(s)',
+                                '${(widget.item.mediaRefs().isNotEmpty ? widget.item.mediaRefs().length : widget.item.imageUrls.length)} foto(s)',
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: tone.secondary,
@@ -1267,6 +1304,7 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
 class _AvisoListCard extends StatefulWidget {
   const _AvisoListCard({
     required this.item,
+    required this.tenantId,
     required this.dateLabel,
     required this.canManage,
     required this.canDelete,
@@ -1279,6 +1317,7 @@ class _AvisoListCard extends StatefulWidget {
   });
 
   final ChurchAvisoItem item;
+  final String tenantId;
   final String dateLabel;
   final bool canManage;
   final bool canDelete;
@@ -1309,7 +1348,7 @@ class _AvisoListCardState extends State<_AvisoListCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             gradient: LinearGradient(
               colors: [
                 tone.secondary.withValues(alpha: 0.13),
@@ -1335,133 +1374,189 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                 : ThemeCleanPremium.softUiCardShadow,
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
             onTap: widget.selectionMode ? widget.onToggleSelect : widget.onView,
             child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  width: 86,
-                  height: 86,
-                  child: widget.item.hasImages
-                      ? SafeNetworkImage(
-                          imageUrl: widget.item.imageUrls.first,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          color: tone.soft,
-                          child: Icon(
-                            Icons.campaign_rounded,
-                            color: tone.primary,
-                            size: 32,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.item.title.isEmpty ? 'Aviso' : widget.item.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                        height: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.item.body.isEmpty
-                          ? 'Sem descrição.'
-                        : widget.item.body,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.grey.shade700,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: [
-                        _miniTag(
-                          icon: Icons.calendar_month_rounded,
-                          text: widget.dateLabel,
-                          color: tone.primary,
-                        ),
-                        _miniTag(
-                          icon: Icons.photo_library_outlined,
-                          text: '${widget.item.imageUrls.length} foto(s)',
-                          color: tone.secondary,
-                        ),
-                        _miniTag(
-                          icon: widget.item.permanent
-                              ? Icons.all_inclusive_rounded
-                              : Icons.timer_outlined,
-                          text: widget.item.permanent ? 'Permanente' : 'Com validade',
-                          color: tone.primary,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 6),
-              Column(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (widget.selectionMode)
-                    Checkbox(
-                      value: widget.selected,
-                      onChanged: (_) => widget.onToggleSelect(),
-                    )
-                  else ...[
-                    IconButton.filledTonal(
-                      tooltip: 'Ver completo',
-                      style: IconButton.styleFrom(
-                        backgroundColor: tone.soft,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 10,
+                      child: ColoredBox(
+                        color: tone.soft,
+                        child: widget.item.hasImages
+                            ? SafeNetworkImage(
+                                imageUrl: (widget.item.mediaRefs().isNotEmpty
+                                        ? widget.item.mediaRefs().first
+                                        : widget.item.imageUrls.first),
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                                height: double.infinity,
+                                memCacheWidth: 900,
+                              )
+                            : Center(
+                                child: Icon(
+                                  Icons.campaign_rounded,
+                                  color: tone.primary,
+                                  size: 44,
+                                ),
+                              ),
                       ),
-                      onPressed: widget.onView,
-                      icon: Icon(Icons.visibility_rounded, color: tone.primary),
                     ),
-                    if (widget.canManage)
-                      IconButton.filledTonal(
-                        tooltip: 'Editar',
-                        style: IconButton.styleFrom(
-                          backgroundColor:
-                              tone.secondary.withValues(alpha: 0.18),
-                        ),
-                        onPressed: widget.onEdit,
-                        icon: Icon(
-                          Icons.edit_rounded,
-                          color: tone.secondary,
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.item.title.isEmpty
+                                  ? 'Aviso'
+                                  : widget.item.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                                height: 1.25,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            if (widget.item.body.trim().isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                widget.item.body,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontSize: 13,
+                                  height: 1.3,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: [
+                                _miniTag(
+                                  icon: Icons.calendar_month_rounded,
+                                  text: widget.dateLabel,
+                                  color: tone.primary,
+                                ),
+                                _miniTag(
+                                  icon: Icons.photo_library_outlined,
+                                  text:
+                                      '${(widget.item.mediaRefs().isNotEmpty ? widget.item.mediaRefs().length : widget.item.imageUrls.length)} foto(s)',
+                                  color: tone.secondary,
+                                ),
+                                _miniTag(
+                                  icon: widget.item.permanent
+                                      ? Icons.all_inclusive_rounded
+                                      : Icons.timer_outlined,
+                                  text: widget.item.permanent
+                                      ? 'Permanente'
+                                      : 'Com validade',
+                                  color: tone.primary,
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
-                    if (widget.canDelete)
-                      IconButton.filledTonal(
-                        tooltip: 'Excluir',
-                        style: IconButton.styleFrom(
-                          backgroundColor: const Color(0xFFFEE2E2),
-                        ),
-                        onPressed: widget.onDelete,
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          color: Color(0xFFDC2626),
-                        ),
+                      const SizedBox(width: 6),
+                      Column(
+                        children: [
+                          if (widget.selectionMode)
+                            Checkbox(
+                              value: widget.selected,
+                              onChanged: (_) => widget.onToggleSelect(),
+                            )
+                          else ...[
+                            IconButton.filledTonal(
+                              tooltip: 'Ver completo',
+                              style: IconButton.styleFrom(
+                                backgroundColor: tone.soft,
+                                minimumSize: const Size(44, 44),
+                              ),
+                              onPressed: widget.onView,
+                              icon: Icon(
+                                Icons.visibility_rounded,
+                                color: tone.primary,
+                              ),
+                            ),
+                            if (widget.canManage)
+                              IconButton.filledTonal(
+                                tooltip: 'Editar',
+                                style: IconButton.styleFrom(
+                                  backgroundColor:
+                                      tone.secondary.withValues(alpha: 0.18),
+                                  minimumSize: const Size(44, 44),
+                                ),
+                                onPressed: widget.onEdit,
+                                icon: Icon(
+                                  Icons.edit_rounded,
+                                  color: tone.secondary,
+                                ),
+                              ),
+                            if (widget.canDelete)
+                              IconButton.filledTonal(
+                                tooltip: 'Excluir',
+                                style: IconButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFEE2E2),
+                                  minimumSize: const Size(44, 44),
+                                ),
+                                onPressed: widget.onDelete,
+                                icon: const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Color(0xFFDC2626),
+                                ),
+                              ),
+                          ],
+                        ],
                       ),
-                  ],
+                    ],
+                  ),
+                  if (!widget.selectionMode)
+                    Builder(
+                      builder: (context) {
+                        final d = ChurchContextService.currentChurchData ??
+                            const {};
+                        final slug = (d['slug'] ?? d['publicSlug'] ?? '')
+                            .toString()
+                            .trim();
+                        final name = (d['nome'] ??
+                                d['name'] ??
+                                d['nomeIgreja'] ??
+                                '')
+                            .toString()
+                            .trim();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: GestureDetector(
+                            onTap: () {},
+                            behavior: HitTestBehavior.opaque,
+                            child: YahwehSocialPostBar(
+                              tenantId: widget.tenantId,
+                              postId: widget.item.id,
+                              isEvento: false,
+                              churchSlug: slug,
+                              churchName: name,
+                              postsParentCollection:
+                                  ChurchTenantPostsCollections.avisos,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                 ],
-              ),
-            ],
               ),
             ),
           ),
@@ -1503,10 +1598,12 @@ class _AvisoListCardState extends State<_AvisoListCard> {
 class _AvisoViewerSheet extends StatefulWidget {
   const _AvisoViewerSheet({
     required this.item,
+    required this.tenantId,
     required this.dateLabel,
   });
 
   final ChurchAvisoItem item;
+  final String tenantId;
   final String dateLabel;
 
   @override
@@ -1618,8 +1715,8 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                       children: [
                         // Foto inteira (sem corte) + toque para ampliar em ecrã cheio.
                         SizedBox(
-                          height: (MediaQuery.sizeOf(context).height * 0.52)
-                              .clamp(240.0, 520.0),
+                          height: (MediaQuery.sizeOf(context).height * 0.72)
+                              .clamp(430.0, 900.0),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(16),
                             child: PageView.builder(
@@ -1720,6 +1817,33 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                       ),
                     ),
                   ],
+                  Builder(
+                    builder: (context) {
+                      final d =
+                          ChurchContextService.currentChurchData ?? const {};
+                      final slug = (d['slug'] ?? d['publicSlug'] ?? '')
+                          .toString()
+                          .trim();
+                      final name = (d['nome'] ??
+                              d['name'] ??
+                              d['nomeIgreja'] ??
+                              '')
+                          .toString()
+                          .trim();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: YahwehSocialPostBar(
+                          tenantId: widget.tenantId,
+                          postId: item.id,
+                          isEvento: false,
+                          churchSlug: slug,
+                          churchName: name,
+                          postsParentCollection:
+                              ChurchTenantPostsCollections.avisos,
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
             ),
@@ -1860,7 +1984,13 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   void _openAvisoPhotoZoom({String? url, Uint8List? bytes}) {
     if (!mounted) return;
     final Widget? image = bytes != null
-        ? Image.memory(bytes, fit: BoxFit.contain)
+        ? Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            cacheWidth: 1280,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.medium,
+          )
         : url != null
             ? SafeNetworkImage(imageUrl: url, fit: BoxFit.contain)
             : null;
@@ -1966,18 +2096,24 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
     try {
       setState(() => _publishing = true);
-      await EcofirePublishProgressUi.runInBackgroundNonBlocking<void>(
+      final publishDone = Completer<bool>();
+      await EcofirePublishProgressUi.runSilentControleTotal<void>(
         context: context,
-        uploadLabel: 'Enviando foto…',
-        saveLabel: 'A gravar aviso…',
-        distributeLabel: 'A publicar no mural e no site…',
         successMessage: isEdit
             ? 'Aviso atualizado com sucesso.'
             : 'Aviso publicado com sucesso.',
         closeEditor: () {
-          if (mounted) Navigator.pop(context, true);
+          if (mounted) {
+            Navigator.pop(context, <String, dynamic>{
+              'ok': true,
+              'awaitPublish': publishDone.future,
+            });
+          }
         },
         formatError: formatUploadErrorForUser,
+        onPublishSucceeded: () {
+          if (!publishDone.isCompleted) publishDone.complete(true);
+        },
         action: (reportProgress) async {
           if (isEdit) {
             await ChurchAvisosService.update(
@@ -2008,6 +2144,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           }
         },
       );
+      if (!publishDone.isCompleted) publishDone.complete(true);
     } catch (e, st) {
       if (EcoFireResilientPublish.isQueuedSuccess(e)) {
         if (mounted) {
@@ -2171,7 +2308,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                                     imageUrl: _existingImageUrls[i],
                                     width: 200,
                                     height: 200,
-                                    fit: BoxFit.cover,
+                                    fit: BoxFit.contain,
                                   ),
                                 ),
                               ),
@@ -2197,7 +2334,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                                     _photos[i],
                                     width: 200,
                                     height: 200,
-                                    fit: BoxFit.cover,
+                                    fit: BoxFit.contain,
+                                    cacheWidth: 400,
+                                    cacheHeight: 400,
+                                    gaplessPlayback: true,
+                                    filterQuality: FilterQuality.low,
                                   ),
                                 ),
                               ),

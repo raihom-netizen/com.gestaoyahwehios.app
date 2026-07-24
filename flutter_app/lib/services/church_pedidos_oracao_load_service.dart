@@ -82,8 +82,23 @@ abstract final class ChurchPedidosOracaoLoadService {
     String seedTenantId, {
     bool? respondidaFilter,
     int limit = kDefaultLimit,
-  }) =>
-      _peekRam(cacheKey(_resolve(seedTenantId), respondidaFilter, limit));
+  }) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    final hit = _peekRam(cacheKey(churchId, respondidaFilter, limit));
+    if (hit != null) return hit;
+    // Compat: 1.ª pintura usa limite menor — não perder seed do hub.
+    if (limit != kPanelFirstPaintLimit) {
+      final paint = _peekRam(
+        cacheKey(churchId, respondidaFilter, kPanelFirstPaintLimit),
+      );
+      if (paint != null) return paint;
+    }
+    if (limit != kDefaultLimit) {
+      return _peekRam(cacheKey(churchId, respondidaFilter, kDefaultLimit));
+    }
+    return null;
+  }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
     String key,
@@ -420,14 +435,53 @@ abstract final class ChurchPedidosOracaoLoadService {
     required int limit,
   }) async {
     final col = ChurchUiCollections.pedidosOracao(churchId);
-    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
-      reference: col,
-      cacheKey: cacheKey,
-      limit: limit,
-      forceServer: forceServer,
-      sortDocs: _sortByCreatedAt,
-    );
-    return _filterRespondida(docs, respondidaFilter);
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainGet({
+      required bool serverOnly,
+    }) async {
+      final snap = await col.limit(limit).get(
+            GetOptions(source: serverOnly ? Source.server : Source.serverAndCache),
+          );
+      return _filterRespondida(_sortByCreatedAt(snap.docs), respondidaFilter);
+    }
+
+    try {
+      return await ChurchModuleFirestoreListRead.queryPlainFirst(
+        reference: col,
+        cacheKey: cacheKey,
+        limit: limit,
+        forceServer: forceServer,
+        sortDocs: _sortByCreatedAt,
+      ).then((docs) => _filterRespondida(docs, respondidaFilter));
+    } catch (e) {
+      // Web: INTERNAL ASSERTION / client terminated — não derrubar o módulo.
+      if (kIsWeb &&
+          (FirestoreWebGuard.isInternalAssertionError(e) ||
+              FirestoreWebGuard.isClientTerminated(e))) {
+        try {
+          await FirestoreWebGuard.softRecoverWebSession();
+        } catch (_) {}
+        try {
+          return await plainGet(serverOnly: false)
+              .timeout(const Duration(seconds: 6));
+        } catch (_) {
+          try {
+            return await plainGet(serverOnly: true)
+                .timeout(const Duration(seconds: 5));
+          } catch (_) {
+            // Lista vazia estável — utilizador pode criar pedido; sync em background.
+            return const [];
+          }
+        }
+      }
+      // Timeout / unavailable: tenta um get directo antes de falhar.
+      try {
+        return await plainGet(serverOnly: false)
+            .timeout(const Duration(seconds: 8));
+      } catch (_) {
+        rethrow;
+      }
+    }
   }
 
   /// Atualiza RAM após gravação — evita `invalidate` + reload completo.

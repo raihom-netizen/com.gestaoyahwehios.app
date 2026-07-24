@@ -3,7 +3,7 @@ description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart; marketing fixo 11.2.305 — só .\scripts\bump_build.ps1 (+N).
 # App Store: cada IPA precisa de build (+N) unico; se der 409, incrementar +N.
-version: 11.2.305+2124
+version: 11.2.305+2134
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -66,6 +66,8 @@ dependencies:
   geocoding: ^4.0.0
   google_fonts: ^8.1.0
   webview_flutter: ^4.10.0
+  webview_flutter_android: ^4.10.0
+  webview_flutter_wkwebview: ^3.23.0
   window_manager: ^0.5.1
   chewie: ^1.13.0
   crop_your_image: ^2.0.0
@@ -104,12 +106,16 @@ dependencies:
   just_audio: ^0.10.5
   audio_waveforms: ^2.0.2
   package_info_plus: ^9.0.1
+  # TDLib (Telegram) — JSON FFI; binários via .\scripts\download_tdlib.ps1
+  libtdjson: 0.3.0
+  flutter_dotenv: ^6.0.1
 flutter:
   # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.
   config:
     enable-swift-package-manager: false
   uses-material-design: true
   assets:
+    - .env
     - assets/icon/app_icon.png
     - assets/icon/icon_avisos.png
     - assets/icon/icon_eventos.png

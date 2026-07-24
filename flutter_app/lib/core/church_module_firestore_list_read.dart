@@ -169,12 +169,11 @@ abstract final class ChurchModuleFirestoreListRead {
         }
       }
 
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              readServer,
-              maxAttempts: 3,
-            ).timeout(ChurchPanelReadTimeouts.queryCap)
-          : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
+      final snap = await readServer().timeout(
+        kIsWeb
+            ? ChurchPanelReadTimeouts.queryCap
+            : ChurchPanelReadTimeouts.warmCap,
+      );
       return _finalize(snap.docs, sortDocs);
     }
 

@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -180,7 +181,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       text: (ref?['gestor'] ?? '').toString(),
     );
     final whatsCtrl = TextEditingController(
-      text: (ref?['whatsapp'] ?? '').toString(),
+      text: brPhoneMaskLive((ref?['whatsapp'] ?? '').toString()),
     );
     final siteCtrl = TextEditingController(
       text: (ref?['sitePublico'] ?? '').toString(),
@@ -297,10 +298,11 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                       controller: whatsCtrl,
                       decoration: const InputDecoration(
                         labelText: 'WhatsApp',
-                        hintText: 'DDD + número',
+                        hintText: '62 9.9170-5247',
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.phone,
+                      inputFormatters: const [BrPhoneInputFormatter()],
                     ),
                     const SizedBox(height: 10),
                     TextField(

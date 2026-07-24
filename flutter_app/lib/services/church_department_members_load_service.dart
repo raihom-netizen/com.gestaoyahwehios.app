@@ -181,6 +181,18 @@ abstract final class ChurchDepartmentMembersLoadService {
     );
   }
 
+  /// Prefill do hub a partir da grelha / picker (evita "Carregando…" na abertura).
+  static void seedLinkedFromRows({
+    required String seedTenantId,
+    required String departmentId,
+    required List<ChurchDepartmentMemberRow> rows,
+  }) {
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
+    final deptId = departmentId.trim();
+    if (churchId.isEmpty || deptId.isEmpty || rows.isEmpty) return;
+    _putLinkedRam(churchId, deptId, rows);
+  }
+
   /// Abertura instantânea do hub (RAM).
   static ChurchDepartmentMembersLoadResult? peekLinkedInstant(
     String seedTenantId,
@@ -216,30 +228,47 @@ abstract final class ChurchDepartmentMembersLoadService {
   }) async {
     final col = _linkedCol(churchId, departmentId);
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady()
+          .timeout(ChurchPanelReadTimeouts.readReadyCap)
+          .catchError((_) {});
     }
 
+    // Cache local primeiro (cap curto — não segurar o hub).
     try {
-      final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
-        () => col
-            .limit(_kLinkedLimit)
-            .get(const GetOptions(source: Source.cache)),
-        maxAttempts: 2,
-      ).timeout(const Duration(seconds: 3));
+      final cacheSnap = await col
+          .limit(_kLinkedLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(milliseconds: 1200));
       if (cacheSnap.docs.isNotEmpty) {
         return {for (final d in cacheSnap.docs) d.id: d.data()};
       }
     } catch (_) {}
 
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => col.limit(_kLinkedLimit).get(),
-        maxAttempts: 3,
-      ).timeout(_queryCap);
+      final snap = await col.limit(_kLinkedLimit).get().timeout(
+        kIsWeb ? const Duration(seconds: 5) : _queryCap,
+      );
       return {for (final d in snap.docs) d.id: d.data()};
     } catch (_) {
       return const {};
     }
+  }
+
+  /// Filtra membros já em RAM (sem rede) — abertura instantânea do hub.
+  static List<ChurchDepartmentMemberRow> _rowsFromMembersRam(
+    String churchId,
+    String departmentId,
+  ) {
+    final ram = ChurchMembersLoadService.peekRamAny(churchId);
+    if (ram == null || ram.isEmpty) return const [];
+    final rows = <ChurchDepartmentMemberRow>[];
+    for (final d in ram) {
+      final data = d.data();
+      if (!ChurchModuleFirestoreListRead.isActiveRecord(data)) continue;
+      if (!memberInDepartment(data, departmentId)) continue;
+      rows.add(_rowFromDoc(d));
+    }
+    return _sortRows(rows);
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -247,6 +276,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     required String churchId,
     required String departmentId,
     required String cacheKeyBase,
+    bool bothFields = false,
   }) async {
     final col = ChurchUiCollections.membros(churchId);
     final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -256,35 +286,37 @@ abstract final class ChurchDepartmentMembersLoadService {
       String subKey,
     ) async {
       try {
-        final snap = await FirestoreWebGuard.runWithWebRecovery(
-          () => FirestoreReadResilience.getQuery(
-            q,
-            cacheKey: '${cacheKeyBase}_$subKey',
-            maxAttempts: kIsWeb ? 3 : 2,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          ),
-          maxAttempts: 3,
-        ).timeout(const Duration(seconds: 10));
+        final snap = await FirestoreReadResilience.getQuery(
+          q,
+          cacheKey: '${cacheKeyBase}_$subKey',
+          maxAttempts: 2,
+          attemptTimeout: kIsWeb
+              ? const Duration(seconds: 5)
+              : ChurchPanelReadTimeouts.attempt,
+        ).timeout(kIsWeb ? const Duration(seconds: 6) : const Duration(seconds: 10));
         for (final d in snap.docs) {
           byId[d.id] = d;
         }
       } catch (_) {}
     }
 
-    await Future.wait([
-      mergeQuery(
-        col
-            .where('departamentosIds', arrayContains: departmentId)
-            .limit(_kLinkedLimit),
-        'dept_ids_lc',
-      ),
-      mergeQuery(
+    // Path rápido: só `departamentosIds` (campo canónico).
+    await mergeQuery(
+      col
+          .where('departamentosIds', arrayContains: departmentId)
+          .limit(_kLinkedLimit),
+      'dept_ids_lc',
+    );
+
+    // Compat legado só se ainda vazio ou pedido explícito.
+    if (bothFields || byId.isEmpty) {
+      await mergeQuery(
         col
             .where('DEPARTAMENTOS', arrayContains: departmentId)
             .limit(_kLinkedLimit),
         'dept_ids_uc',
-      ),
-    ]);
+      );
+    }
 
     return byId.values.toList();
   }
@@ -294,6 +326,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     required String churchId,
     required Set<String> memberIds,
     Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> prefilled = const {},
+    bool serverFetch = true,
   }) async {
     if (memberIds.isEmpty) return const {};
 
@@ -317,7 +350,7 @@ abstract final class ChurchDepartmentMembersLoadService {
       final hive = await TenantModuleHiveCache.readDocs(
         churchId,
         TenantModuleKeys.membros,
-      ).timeout(const Duration(seconds: 2));
+      ).timeout(const Duration(milliseconds: 800));
       if (hive.isNotEmpty) {
         for (final d in TenantModuleHiveCache.toQueryDocuments(hive)) {
           if (memberIds.contains(d.id) && !found.containsKey(d.id)) {
@@ -331,17 +364,14 @@ abstract final class ChurchDepartmentMembersLoadService {
     if (missing.isEmpty) return found;
 
     final col = ChurchUiCollections.membros(churchId);
-    const chunkSize = 12;
+    const chunkSize = 20;
 
     Future<void> fetchChunk(Iterable<String> ids, {required bool cacheOnly}) async {
-      final cap = Duration(seconds: cacheOnly ? 3 : 8);
+      final cap = Duration(milliseconds: cacheOnly ? 900 : 3500);
       await Future.wait(ids.map((id) async {
         try {
-          final snap = await FirestoreWebGuard.runWithWebRecovery(
-            () => col.doc(id).get(
-              GetOptions(source: cacheOnly ? Source.cache : Source.server),
-            ),
-            maxAttempts: 2,
+          final snap = await col.doc(id).get(
+            GetOptions(source: cacheOnly ? Source.cache : Source.server),
           ).timeout(cap);
           if (snap.exists) found[id] = snap;
         } catch (_) {}
@@ -356,6 +386,8 @@ abstract final class ChurchDepartmentMembersLoadService {
       );
       await fetchChunk(slice, cacheOnly: true);
     }
+
+    if (!serverFetch) return found;
 
     missing = memberIds.difference(found.keys.toSet());
     if (missing.isEmpty) return found;
@@ -457,7 +489,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     } catch (_) {}
   }
 
-  /// Membros vinculados a um departamento (hub) — **sem scan completo de membros**.
+  /// Membros vinculados a um departamento (hub) — **cache/RAM primeiro**, rede em background.
   static Future<ChurchDepartmentMembersLoadResult> loadLinked({
     required String seedTenantId,
     required String departmentId,
@@ -481,6 +513,20 @@ abstract final class ChurchDepartmentMembersLoadService {
         unawaited(_refreshLinkedInBackground(churchId, deptId));
         return instant;
       }
+
+      // Abertura instantânea: membros já em RAM filtrados pelo dept.
+      final fromRam = _rowsFromMembersRam(churchId, deptId);
+      if (fromRam.isNotEmpty) {
+        _putLinkedRam(churchId, deptId, fromRam);
+        unawaited(_refreshLinkedInBackground(churchId, deptId));
+        return ChurchDepartmentMembersLoadResult(
+          churchId: churchId,
+          departmentId: deptId,
+          members: fromRam,
+          readSource: 'members_ram',
+          fromCache: true,
+        );
+      }
     }
 
     String? softError;
@@ -496,13 +542,46 @@ abstract final class ChurchDepartmentMembersLoadService {
       softError ??= _humanize(e);
     }
 
+    // Subcoleção com stubs (nome/foto) — pintar UI sem esperar N gets de membro.
+    if (linked.isNotEmpty && !forceRefresh) {
+      final memberIds = linked.keys.toSet();
+      Map<String, DocumentSnapshot<Map<String, dynamic>>> memberDocs = const {};
+      try {
+        memberDocs = await _resolveMemberDocsByIds(
+          churchId: churchId,
+          memberIds: memberIds,
+          serverFetch: false,
+        );
+      } catch (_) {}
+      final rows = _buildLinkedRows(
+        churchId: churchId,
+        deptId: deptId,
+        linked: linked,
+        memberDocs: memberDocs,
+      );
+      if (rows.isNotEmpty) {
+        _putLinkedRam(churchId, deptId, rows);
+        unawaited(_refreshLinkedInBackground(churchId, deptId));
+        return ChurchDepartmentMembersLoadResult(
+          churchId: churchId,
+          departmentId: deptId,
+          members: rows,
+          readSource: 'linked_stubs_fast',
+          fromCache: true,
+        );
+      }
+    }
+
     final memberIds = linked.keys.toSet();
-    final fromQuery = await _queryMembersWithDeptId(
-      churchId: churchId,
-      departmentId: deptId,
-      cacheKeyBase: cacheKey,
-    );
-    memberIds.addAll(fromQuery.map((d) => d.id));
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> fromQuery = const [];
+    if (memberIds.isEmpty || forceRefresh) {
+      fromQuery = await _queryMembersWithDeptId(
+        churchId: churchId,
+        departmentId: deptId,
+        cacheKeyBase: cacheKey,
+      );
+      memberIds.addAll(fromQuery.map((d) => d.id));
+    }
 
     if (memberIds.isEmpty) {
       final ram = ChurchMembersLoadService.peekRamAny(churchId);
@@ -522,6 +601,7 @@ abstract final class ChurchDepartmentMembersLoadService {
         churchId: churchId,
         memberIds: memberIds,
         prefilled: prefilled,
+        serverFetch: true,
       );
     } catch (e) {
       softError ??= _humanize(e);
@@ -627,6 +707,27 @@ abstract final class ChurchDepartmentMembersLoadService {
       );
     }
 
+    if (!forceRefresh) {
+      final ram = ChurchMembersLoadService.peekRamAny(churchId);
+      if (ram != null && ram.isNotEmpty) {
+        final rows = <ChurchDepartmentMemberRow>[];
+        for (final doc in ram) {
+          if (!ChurchModuleFirestoreListRead.isActiveRecord(doc.data())) continue;
+          rows.add(_rowFromDoc(doc));
+        }
+        if (rows.isNotEmpty) {
+          unawaited(_refreshPickerMembersInBackground(churchId));
+          return ChurchDepartmentMembersLoadResult(
+            churchId: churchId,
+            departmentId: '',
+            members: _sortRows(rows),
+            readSource: 'picker_ram',
+            fromCache: true,
+          );
+        }
+      }
+    }
+
     String? softError;
     List<QueryDocumentSnapshot<Map<String, dynamic>>> memberDocs = const [];
     try {
@@ -652,6 +753,12 @@ abstract final class ChurchDepartmentMembersLoadService {
       softError: rows.isEmpty ? softError : null,
       fromCache: !forceRefresh,
     );
+  }
+
+  static Future<void> _refreshPickerMembersInBackground(String churchId) async {
+    try {
+      await _loadMemberDocsCacheFirst(churchId: churchId, forceRefresh: true);
+    } catch (_) {}
   }
 
   static String? _humanize(Object e) {

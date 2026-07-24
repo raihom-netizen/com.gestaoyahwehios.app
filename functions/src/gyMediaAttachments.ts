@@ -6,6 +6,7 @@ import * as functions from "firebase-functions/v1";
 import { admin, fs, storageBucket } from "./adminDb";
 import { resolveTenantIdForCallable, userCanAccessTenant } from "./tenantCallableResolve";
 import { resolvePublicChurchIdFromInput } from "./panelPublicSiteCache";
+import { notifyGestoresNewMember } from "./memberRegistrationNotify";
 
 const CF_DELETE = "__DELETE__";
 const MAX_FINANCE_BYTES = 15 * 1024 * 1024;
@@ -438,11 +439,65 @@ export const gyPublicMemberSignup = functions
       );
     }
 
+    // Se o cliente enviou path sem URL (timeout getDownloadURL), resolve via Admin.
+    if (photoPath) {
+      decoded.photoStoragePath = photoPath;
+      decoded.fotoPath = photoPath;
+      const existingUrl = String(
+        decoded.fotoUrl || decoded.photoUrl || decoded.photoURL || "",
+      ).trim();
+      if (!existingUrl.startsWith("http")) {
+        try {
+          const file = storageBucket().file(photoPath);
+          const [exists] = await file.exists();
+          if (exists) {
+            const [meta] = await file.getMetadata();
+            const token = String(
+              (meta.metadata as Record<string, string> | undefined)
+                ?.firebaseStorageDownloadTokens || "",
+            ).trim();
+            const bucketName = storageBucket().name;
+            let url = "";
+            if (token) {
+              url =
+                `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
+                `${encodeURIComponent(photoPath)}?alt=media&token=${token}`;
+            } else {
+              const [signed] = await file.getSignedUrl({
+                action: "read",
+                expires: Date.now() + 10 * 365 * 24 * 60 * 60 * 1000,
+              });
+              url = signed;
+            }
+            if (url) {
+              decoded.fotoUrl = url;
+              decoded.foto_url = url;
+              decoded.FOTO_URL_OU_ID = url;
+              decoded.photoURL = url;
+              decoded.photoUrl = url;
+              decoded.avatarUrl = url;
+              decoded.fotoUrlCacheRevision = Date.now();
+            }
+          }
+        } catch (photoErr) {
+          functions.logger.warn("gyPublicMemberSignup photo URL", photoErr);
+        }
+      }
+    }
+
     const membros = fs()
       .collection("igrejas")
       .doc(churchId)
       .collection("membros");
     const docRef = membros.doc(docId);
+    const locks = fs()
+      .collection("igrejas")
+      .doc(churchId)
+      .collection("signup_locks");
+    const cpfLockRef = locks.doc(`cpf_${cpf}`);
+    const emailLockKey = email.replace(/[^a-z0-9]/gi, "_").slice(0, 120);
+    const emailLockRef = locks.doc(`email_${emailLockKey}`);
+
     const existing = await docRef.get();
     if (existing.exists) {
       const old = (existing.data() || {}) as Record<string, unknown>;
@@ -461,22 +516,65 @@ export const gyPublicMemberSignup = functions
         );
       }
     } else {
+      // Query primeiro (legado), depois lock atômico (double-tap).
       const [cpfHit, emailHit] = await Promise.all([
         membros.where("CPF", "==", cpf).limit(1).get(),
         membros.where("EMAIL", "==", email).limit(1).get(),
       ]);
-      if (!cpfHit.empty) {
+      if (!cpfHit.empty && cpfHit.docs[0].id !== docId) {
         throw new functions.https.HttpsError(
           "already-exists",
           "Já existe um cadastro com este CPF nesta igreja.",
         );
       }
-      if (!emailHit.empty) {
+      if (!emailHit.empty && emailHit.docs[0].id !== docId) {
         throw new functions.https.HttpsError(
           "already-exists",
           "Já existe um cadastro com este e-mail nesta igreja.",
         );
       }
+      await fs().runTransaction(async (tx) => {
+        const cpfLock = await tx.get(cpfLockRef);
+        const emailLock = await tx.get(emailLockRef);
+        const lockCpfId = String(cpfLock.data()?.memberId || "").trim();
+        const lockEmailId = String(emailLock.data()?.memberId || "").trim();
+        if (lockCpfId && lockCpfId !== docId) {
+          const other = await tx.get(membros.doc(lockCpfId));
+          if (other.exists) {
+            throw new functions.https.HttpsError(
+              "already-exists",
+              "Já existe um cadastro com este CPF nesta igreja.",
+            );
+          }
+        }
+        if (lockEmailId && lockEmailId !== docId) {
+          const other = await tx.get(membros.doc(lockEmailId));
+          if (other.exists) {
+            throw new functions.https.HttpsError(
+              "already-exists",
+              "Já existe um cadastro com este e-mail nesta igreja.",
+            );
+          }
+        }
+        tx.set(
+          cpfLockRef,
+          {
+            memberId: docId,
+            email,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+        tx.set(
+          emailLockRef,
+          {
+            memberId: docId,
+            cpf,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      });
     }
 
     // O visitante nunca escolhe privilégios, estado ou vínculo de login.
@@ -514,9 +612,26 @@ export const gyPublicMemberSignup = functions
     decoded.updatedAt = admin.firestore.FieldValue.serverTimestamp();
     if (!existing.exists) {
       decoded.createdAt = admin.firestore.FieldValue.serverTimestamp();
+      // onNewMember ignora push quando este flag está true (evita double).
+      decoded.gestoresNotifyFromCallable = true;
     }
 
     await docRef.set(decoded, { merge: true });
+
+    // Push imediato aos gestores (onCreate pula se gestoresNotifyFromCallable).
+    if (!existing.exists) {
+      try {
+        await notifyGestoresNewMember({
+          tenantId: churchId,
+          membroId: docId,
+          nome,
+          data: decoded,
+        });
+      } catch (nErr) {
+        functions.logger.warn("gyPublicMemberSignup notify", nErr);
+      }
+    }
+
     return { ok: true, docId, path: docRef.path };
   });
 

@@ -75,14 +75,14 @@ abstract final class ChurchLogoUpdateService {
     onProgress?.call(0.15);
 
     final identityPath = ChurchStorageLayout.churchIdentityLogoPath(cid);
-    // putData: 15% → 92% (nunca “grudar” em 90% no fim do bytes).
+    // Auth + Storage prontos — evita permission-denied / travar em 94% no Firestore.
     final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
       churchId: cid,
       pngBytes: png,
       onProgress: (p) => onProgress?.call(0.15 + p.clamp(0.0, 1.0) * 0.77),
-      skipEnsureReady: true,
+      skipEnsureReady: false,
     );
-    onProgress?.call(0.94);
+    onProgress?.call(0.92);
 
     final cacheRevision = YahwehMediaCacheBust.freshRevisionMs();
     await ChurchBrandService.persistLogoPath(

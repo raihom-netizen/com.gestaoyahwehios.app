@@ -12,11 +12,19 @@ Widget feedEditorLocalPhotoThumb({
   required double size,
 }) {
   if (webBytes != null) {
+    final dpr = WidgetsBinding.instance.platformDispatcher.views.isNotEmpty
+        ? WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio
+        : 2.0;
+    final cache = (size * dpr).round().clamp(64, 720);
     return Image.memory(
       webBytes,
       width: size,
       height: size,
-      fit: BoxFit.cover,
+      fit: BoxFit.contain,
+      cacheWidth: cache,
+      cacheHeight: cache,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.low,
     );
   }
   return buildFeedEditorLocalPhotoThumbFromPath(

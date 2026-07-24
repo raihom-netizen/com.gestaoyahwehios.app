@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/legal_document_models.dart';
 import 'package:gestao_yahweh/services/legal_documents_defaults.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
 import 'package:gestao_yahweh/ui/pages/legal_pages.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -115,7 +116,7 @@ class _AdminLegalDocumentsPageState extends State<AdminLegalDocumentsPage>
     _clearSectionLists();
     _lastUpdated.text = bundle.lastUpdatedLabel;
     _supportEmail.text = bundle.supportEmail;
-    _supportWhatsApp.text = bundle.supportWhatsAppDisplay;
+    _supportWhatsApp.text = brPhoneMaskLive(bundle.supportWhatsAppDisplay);
     _termsIntro.text = bundle.terms.intro;
     _privacyIntro.text = bundle.privacy.intro;
     _revision = bundle.revision;
@@ -303,7 +304,12 @@ class _AdminLegalDocumentsPageState extends State<AdminLegalDocumentsPage>
                   const SizedBox(height: 12),
                   TextField(
                     controller: _supportWhatsApp,
-                    decoration: _fieldDecoration(label: 'WhatsApp exibição'),
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: const [BrPhoneInputFormatter()],
+                    decoration: _fieldDecoration(
+                      label: 'WhatsApp exibição',
+                      hint: '62 9.9170-5247',
+                    ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton(

@@ -11,7 +11,13 @@ function getDb(): admin.firestore.Firestore {
 }
 
 export function isPublicMemberSignup(data: Record<string, unknown>): boolean {
-  if (data.PUBLIC_SIGNUP === true || data.public_signup === true) return true;
+  if (
+    data.PUBLIC_SIGNUP === true ||
+    data.publicSignup === true ||
+    data.public_signup === true
+  ) {
+    return true;
+  }
   const status = String(data.STATUS || data.status || "")
     .trim()
     .toLowerCase();

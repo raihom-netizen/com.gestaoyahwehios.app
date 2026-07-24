@@ -1,4 +1,5 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -21,7 +22,9 @@ class MuralCommentItem {
   final Timestamp? createdAt;
   final bool pending;
 
-  factory MuralCommentItem.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  factory MuralCommentItem.fromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final d = doc.data();
     final text = (d['text'] ?? d['texto'] ?? '').toString().trim();
     final name =
@@ -32,7 +35,8 @@ class MuralCommentItem {
       id: doc.id,
       authorName: name.isEmpty ? 'Membro' : name,
       text: text,
-      createdAt: d['createdAt'] is Timestamp ? d['createdAt'] as Timestamp : null,
+      createdAt:
+          d['createdAt'] is Timestamp ? d['createdAt'] as Timestamp : null,
     );
   }
 }
@@ -42,6 +46,21 @@ class MuralCommentItem {
 /// — campos legados no pai: `likes`, `rsvp`, contadores
 class NoticiaSocialService {
   NoticiaSocialService._();
+
+  /// Auth leve para curtir/comentar/participar (não exige bootstrap de chat).
+  static Future<User> ensureSignedInForSocial() async {
+    await ensureFirebaseCore(requireAuth: false);
+    final user = firebaseDefaultAuth.currentUser;
+    if (user == null || user.isAnonymous) {
+      throw StateError(
+        'Entre na área do membro para curtir, comentar ou participar.',
+      );
+    }
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+    return user;
+  }
 
   static CollectionReference<Map<String, dynamic>> _commentsRef(
     DocumentReference<Map<String, dynamic>> postRef,
@@ -123,7 +142,7 @@ class NoticiaSocialService {
     if (uid.isEmpty || trimmed.isEmpty) {
       throw ArgumentError('uid ou texto vazio.');
     }
-    await ensureFirebaseReadyForChatSend();
+    await ensureSignedInForSocial();
 
     Future<void> write() async {
       final batch = firebaseDefaultFirestore.batch();
@@ -160,7 +179,7 @@ class NoticiaSocialService {
     required bool currentlyLiked,
   }) async {
     if (uid.isEmpty) throw ArgumentError('uid vazio.');
-    await ensureFirebaseReadyForChatSend();
+    await ensureSignedInForSocial();
 
     final likeRef = postRef.collection('curtidas').doc(uid);
     final batch = firebaseDefaultFirestore.batch();
@@ -232,7 +251,7 @@ class NoticiaSocialService {
   }) async {
     final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final confRef = postRef.collection('confirmacoes').doc(uid);
-    await ensureFirebaseReadyForChatSend();
+    await ensureSignedInForSocial();
     final batch = firebaseDefaultFirestore.batch();
     if (currentlyConfirmed) {
       batch.delete(confRef);

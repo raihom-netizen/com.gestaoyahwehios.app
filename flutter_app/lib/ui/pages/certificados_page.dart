@@ -72,7 +72,6 @@ import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
-import 'package:gestao_yahweh/ui/widgets/member_department_multi_filter_field.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/services/member_nameless_purge_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -107,6 +106,19 @@ class _CertTemplate {
     required this.cor,
     required this.textoModelo,
     this.subtituloPadrao = '',
+  });
+}
+
+/// Textos editados na prévia do lote (aplicados a todos os membros).
+class _CertBatchTextOverrides {
+  final String titulo;
+  final String subtitulo;
+  final String textoModelo;
+
+  const _CertBatchTextOverrides({
+    required this.titulo,
+    required this.subtitulo,
+    required this.textoModelo,
   });
 }
 
@@ -370,7 +382,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
   /// Preferência ao gerar lote local: um PDF vs ZIP (lembrada entre sessões no mesmo ecrã).
   bool _batchPreferSinglePdf = true;
   final Set<String> _batchMemberIds = {};
-  /// Modelo de certificado por membro no modo lote (id do template em [_templates]).
+  /// Modelo único do lote (nuvem exige 1 tipo) — aplicado a todos automaticamente.
+  String _batchSharedTemplateId = 'membro';
+  /// Modelo de certificado por membro no modo lote (espelha [_batchSharedTemplateId]).
   final Map<String, String> _batchTemplateIdByMember = {};
   Map<String, dynamic>? _tenantData;
   Map<String, dynamic>? _certConfig;
@@ -495,6 +509,488 @@ class _CertificadosPageState extends State<CertificadosPage> {
         color: sel ? color : Colors.grey.shade700,
       ),
       side: BorderSide(color: color.withValues(alpha: sel ? 0.6 : 0.25)),
+    );
+  }
+
+  static const _kDeptChipColors = <Color>[
+    Color(0xFF6366F1),
+    Color(0xFF0EA5E9),
+    Color(0xFF10B981),
+    Color(0xFFF59E0B),
+    Color(0xFFEC4899),
+    Color(0xFF8B5CF6),
+    Color(0xFF14B8A6),
+    Color(0xFFF97316),
+    Color(0xFF3B82F6),
+    Color(0xFF84CC16),
+  ];
+
+  Color _deptChipColor(int index) =>
+      _kDeptChipColors[index % _kDeptChipColors.length];
+
+  /// Chips coloridos: Todos · um · vários departamentos.
+  Widget _buildModernDepartmentFilterChips() {
+    final allSelected = _selectedDeptIds.isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Departamentos',
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            color: Colors.grey.shade700,
+            letterSpacing: -0.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilterChip(
+              avatar: Icon(
+                Icons.groups_rounded,
+                size: 16,
+                color: allSelected ? const Color(0xFF6366F1) : Colors.grey.shade600,
+              ),
+              label: const Text('Todos'),
+              selected: allSelected,
+              onSelected: (_) => setState(() => _selectedDeptIds.clear()),
+              selectedColor: const Color(0xFF6366F1).withValues(alpha: 0.18),
+              checkmarkColor: const Color(0xFF6366F1),
+              labelStyle: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: allSelected
+                    ? const Color(0xFF6366F1)
+                    : Colors.grey.shade700,
+              ),
+              side: BorderSide(
+                color: const Color(0xFF6366F1)
+                    .withValues(alpha: allSelected ? 0.65 : 0.25),
+              ),
+            ),
+            for (var i = 0; i < _departments.length; i++) ...[
+              Builder(
+                builder: (context) {
+                  final d = _departments[i];
+                  final color = _deptChipColor(i);
+                  final sel = _selectedDeptIds.contains(d.id);
+                  return FilterChip(
+                    avatar: Icon(
+                      Icons.apartment_rounded,
+                      size: 15,
+                      color: sel ? color : Colors.grey.shade600,
+                    ),
+                    label: Text(d.name),
+                    selected: sel,
+                    onSelected: (on) {
+                      setState(() {
+                        if (on) {
+                          _selectedDeptIds.add(d.id);
+                        } else {
+                          _selectedDeptIds.remove(d.id);
+                        }
+                      });
+                    },
+                    selectedColor: color.withValues(alpha: 0.18),
+                    checkmarkColor: color,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: sel ? color : Colors.grey.shade700,
+                    ),
+                    side: BorderSide(
+                      color: color.withValues(alpha: sel ? 0.65 : 0.28),
+                    ),
+                  );
+                },
+              ),
+            ],
+            if (_departments.isEmpty)
+              Text(
+                'Nenhum departamento cadastrado',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _syncBatchTemplatesToShared() {
+    for (final id in _batchMemberIds) {
+      _batchTemplateIdByMember[id] = _batchSharedTemplateId;
+    }
+  }
+
+  void _setBatchSharedTemplate(String templateId) {
+    _batchSharedTemplateId = templateId;
+    _syncBatchTemplatesToShared();
+  }
+
+  void _toggleBatchMember(String docId) {
+    if (_batchMemberIds.contains(docId)) {
+      _batchMemberIds.remove(docId);
+      _batchTemplateIdByMember.remove(docId);
+    } else {
+      _batchMemberIds.add(docId);
+      _batchTemplateIdByMember[docId] = _batchSharedTemplateId;
+    }
+  }
+
+  /// Tela moderna colorida — escolha 1 tipo para o lote + prévia.
+  Future<_CertTemplate?> _showModernBatchTemplatePicker(
+    BuildContext context,
+  ) async {
+    var selectedId = _batchSharedTemplateId;
+    return showModalBottomSheet<_CertTemplate>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: const Color(0xFFF8FAFC),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModal) {
+            final selected = _templateFromId(selectedId);
+            final cor = _corForTemplate(selected);
+            final maxH = MediaQuery.sizeOf(ctx).height * 0.88;
+            return SizedBox(
+              height: maxH,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 10),
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Tipo do lote',
+                            style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Um único modelo para todos os selecionados — '
+                      'escolha agora; a lista aplica automaticamente.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Prévia do tipo escolhido
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 220),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            cor.withValues(alpha: 0.18),
+                            cor.withValues(alpha: 0.05),
+                            Colors.white,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: cor.withValues(alpha: 0.45)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: cor.withValues(alpha: 0.2),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: cor,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(selected.icon,
+                                color: Colors.white, size: 28),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Prévia',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: cor,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _tituloForTemplate(selected),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                if (selected.subtituloPadrao.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    selected.subtituloPadrao,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      height: 1.35,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: GridView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1.35,
+                      ),
+                      itemCount: _templates.length,
+                      itemBuilder: (_, i) {
+                        final t = _templates[i];
+                        final c = _corForTemplate(t);
+                        final on = t.id == selectedId;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () => setModal(() => selectedId = t.id),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                color: on
+                                    ? c.withValues(alpha: 0.14)
+                                    : Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: on
+                                      ? c
+                                      : c.withValues(alpha: 0.22),
+                                  width: on ? 2 : 1,
+                                ),
+                                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: c.withValues(alpha: 0.15),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                          child: Icon(t.icon, color: c, size: 20),
+                                        ),
+                                        const Spacer(),
+                                        if (on)
+                                          Icon(Icons.check_circle_rounded,
+                                              color: c, size: 22),
+                                      ],
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      _tituloForTemplate(t),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 13,
+                                        color: Colors.grey.shade900,
+                                        height: 1.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      0,
+                      16,
+                      12 + MediaQuery.paddingOf(ctx).bottom,
+                    ),
+                    child: SizedBox(
+                      height: 52,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: cor,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.pop(ctx, _templateFromId(selectedId)),
+                        icon: const Icon(Icons.done_all_rounded),
+                        label: Text(
+                          'Usar «${_tituloForTemplate(selected)}» no lote',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Barra do lote: tipo único + trocar (moderna).
+  Widget _buildBatchSharedTemplateBar() {
+    final t = _templateFromId(_batchSharedTemplateId);
+    final cor = _corForTemplate(t);
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            cor.withValues(alpha: 0.16),
+            cor.withValues(alpha: 0.05),
+            Colors.white,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cor.withValues(alpha: 0.4)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: cor,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(t.icon, color: Colors.white, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Modelo do lote (único)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: cor,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _tituloForTemplate(t),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14.5,
+                  ),
+                ),
+                Text(
+                  'Aplicado automaticamente a todos',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(
+              foregroundColor: cor,
+              backgroundColor: cor.withValues(alpha: 0.12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () async {
+              final chosen = await _showModernBatchTemplatePicker(context);
+              if (chosen == null || !mounted) return;
+              setState(() => _setBatchSharedTemplate(chosen.id));
+            },
+            child: const Text(
+              'Trocar',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1488,16 +1984,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      MemberDepartmentMultiFilterField(
-                        departments: _departments,
-                        selectedIds: _selectedDeptIds,
-                        borderRadius: ThemeCleanPremium.radiusSm,
-                        onChanged: (picked) => setState(() {
-                          _selectedDeptIds
-                            ..clear()
-                            ..addAll(picked);
-                        }),
-                      ),
+                      _buildModernDepartmentFilterChips(),
                     ],
                   ),
                 ),
@@ -1551,14 +2038,31 @@ class _CertificadosPageState extends State<CertificadosPage> {
                             selectedColor:
                                 ThemeCleanPremium.primary.withOpacity(0.18),
                             checkmarkColor: ThemeCleanPremium.primary,
-                            onSelected: (v) {
-                              setState(() {
-                                _batchMode = v;
-                                if (!v) {
+                            onSelected: (v) async {
+                              if (v) {
+                                final chosen =
+                                    await _showModernBatchTemplatePicker(
+                                        context);
+                                if (chosen == null || !mounted) return;
+                                setState(() {
+                                  _batchMode = true;
+                                  _batchSharedTemplateId = chosen.id;
                                   _batchMemberIds.clear();
                                   _batchTemplateIdByMember.clear();
-                                }
-                              });
+                                });
+                                warmCertificatePdfFontAssets();
+                                _scheduleWarmCertificatePdfAssets(
+                                  signatories: _buildSignatoryOptions(
+                                    _seedMemberDocs,
+                                  ),
+                                );
+                              } else {
+                                setState(() {
+                                  _batchMode = false;
+                                  _batchMemberIds.clear();
+                                  _batchTemplateIdByMember.clear();
+                                });
+                              }
                             },
                             visualDensity: VisualDensity.compact,
                             materialTapTargetSize:
@@ -1569,7 +2073,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                             flex: 2,
                             child: Text(
                               _batchMode
-                                  ? 'Marque na lista ou use os atalhos abaixo'
+                                  ? 'Um modelo para todos · marque quem entra no lote'
                                   : 'Toque no nome para emitir certificado',
                               textAlign: TextAlign.end,
                               style: TextStyle(
@@ -1581,6 +2085,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         ],
                       ),
                       if (_batchMode && docs.isNotEmpty) ...[
+                        _buildBatchSharedTemplateBar(),
                         const SizedBox(height: 10),
                         Wrap(
                           spacing: 6,
@@ -1600,6 +2105,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                 _batchMemberIds
                                   ..clear()
                                   ..addAll(docs.map((d) => d.id));
+                                _syncBatchTemplatesToShared();
                               }),
                             ),
                             ActionChip(
@@ -1615,10 +2121,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                 _batchMemberIds
                                   ..clear()
                                   ..addAll(allDocs.map((d) => d.id));
-                                for (final id in _batchMemberIds) {
-                                  _batchTemplateIdByMember.putIfAbsent(
-                                      id, () => 'membro');
-                                }
+                                _syncBatchTemplatesToShared();
                               }),
                             ),
                             ActionChip(
@@ -1704,16 +2207,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                               borderRadius: BorderRadius.circular(16),
                               onTap: () {
                                 if (_batchMode) {
-                                  setState(() {
-                                    if (batchSel) {
-                                      _batchMemberIds.remove(docId);
-                                      _batchTemplateIdByMember.remove(docId);
-                                    } else {
-                                      _batchMemberIds.add(docId);
-                                      _batchTemplateIdByMember.putIfAbsent(
-                                          docId, () => 'membro');
-                                    }
-                                  });
+                                  setState(() => _toggleBatchMember(docId));
                                 } else {
                                   _showTemplateSelector(
                                       context, docs[i], allDocs);
@@ -1773,123 +2267,68 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                       if (batchSel)
                                         Padding(
                                           padding:
-                                              const EdgeInsets.only(right: 6),
-                                          child: PopupMenuButton<String>(
-                                            tooltip: 'Modelo para este membro',
-                                            onSelected: (tid) => setState(() =>
-                                                _batchTemplateIdByMember[docId] =
-                                                    tid),
-                                            itemBuilder: (ctx) => [
-                                              for (final ct in _templates)
-                                                PopupMenuItem(
-                                                  value: ct.id,
-                                                  child: ConstrainedBox(
-                                                    constraints:
-                                                        const BoxConstraints(
-                                                            maxWidth: 280),
-                                                    child: Row(
-                                                      children: [
-                                                        Icon(ct.icon,
-                                                            size: 18,
-                                                            color: _corForTemplate(
-                                                                ct)),
-                                                        const SizedBox(
-                                                            width: 8),
-                                                        Expanded(
-                                                          child: Text(
-                                                            _tituloForTemplate(
-                                                                ct),
-                                                            overflow:
-                                                                TextOverflow
-                                                                    .ellipsis,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
+                                              const EdgeInsets.only(right: 8),
+                                          child: Builder(
+                                            builder: (_) {
+                                              final shared = _templateFromId(
+                                                  _batchSharedTemplateId);
+                                              final c =
+                                                  _corForTemplate(shared);
+                                              return Container(
+                                                constraints:
+                                                    const BoxConstraints(
+                                                        maxWidth: 132),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 6,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  color: c.withValues(
+                                                      alpha: 0.12),
+                                                  border: Border.all(
+                                                    color: c.withValues(
+                                                        alpha: 0.45),
                                                   ),
                                                 ),
-                                            ],
-                                            child: Container(
-                                              constraints: const BoxConstraints(
-                                                  maxWidth: 148),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 6,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                borderRadius:
-                                                    BorderRadius.circular(10),
-                                                border: Border.all(
-                                                  color: ThemeCleanPremium
-                                                      .primary
-                                                      .withValues(alpha: 0.35),
-                                                ),
-                                                color: ThemeCleanPremium.primary
-                                                    .withValues(alpha: 0.04),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    Icons
-                                                        .workspace_premium_rounded,
-                                                    size: 15,
-                                                    color: _corForTemplate(
-                                                      _templateFromId(
-                                                        _batchTemplateIdByMember[
-                                                                docId] ??
-                                                            'membro',
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 4),
-                                                  Flexible(
-                                                    child: Text(
-                                                      _tituloForTemplate(
-                                                        _templateFromId(
-                                                          _batchTemplateIdByMember[
-                                                                  docId] ??
-                                                              'membro',
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(shared.icon,
+                                                        size: 14, color: c),
+                                                    const SizedBox(width: 4),
+                                                    Flexible(
+                                                      child: Text(
+                                                        _tituloForTemplate(
+                                                            shared),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: c,
                                                         ),
                                                       ),
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        fontSize: 11,
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                      ),
                                                     ),
-                                                  ),
-                                                  Icon(
-                                                    Icons.arrow_drop_down,
-                                                    size: 18,
-                                                    color: Colors.grey.shade700,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
                                           ),
                                         ),
                                       Checkbox(
                                         value: batchSel,
-                                        onChanged: (_) {
-                                          setState(() {
-                                            if (batchSel) {
-                                              _batchMemberIds.remove(docId);
-                                              _batchTemplateIdByMember
-                                                  .remove(docId);
-                                            } else {
-                                              _batchMemberIds.add(docId);
-                                              _batchTemplateIdByMember
-                                                  .putIfAbsent(
-                                                docId,
-                                                () => 'membro',
-                                              );
-                                            }
-                                          });
-                                        },
+                                        activeColor: _corForTemplate(
+                                          _templateFromId(
+                                              _batchSharedTemplateId),
+                                        ),
+                                        onChanged: (_) => setState(
+                                          () => _toggleBatchMember(docId),
+                                        ),
                                       ),
                                     ]
                                     else
@@ -1940,7 +2379,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                 child: SafeArea(
                   child: Tooltip(
                     message:
-                        'Escolher o modelo por pessoa na lista; depois PDF único ou ZIP',
+                        'Gera com o modelo único do lote (barra acima) + prévia',
                     child: Material(
                     elevation: 6,
                     borderRadius:
@@ -2294,34 +2733,338 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
     if (selectedDocs.isEmpty) return;
 
-    final templateByMember = <String, _CertTemplate>{
-      for (final id in _batchMemberIds)
-        id: _templateFromId(_batchTemplateIdByMember[id] ?? 'membro'),
-    };
-    final distinctIds = templateByMember.values.map((e) => e.id).toSet();
-
-    if (distinctIds.length > 1) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Lotes na nuvem usam um único modelo por vez. '
-            'Escolha o mesmo tipo para todos na lista ou divida o lote.',
-          ),
-          duration: Duration(seconds: 6),
-        ),
-      );
-      return;
+    // Lote = 1 modelo só (nuvem). Garante sincronização automática.
+    if (_batchSharedTemplateId.trim().isEmpty) {
+      final chosen = await _showModernBatchTemplatePicker(context);
+      if (chosen == null || !mounted) return;
+      setState(() => _setBatchSharedTemplate(chosen.id));
+    } else {
+      setState(_syncBatchTemplatesToShared);
     }
+
+    final template = _templateFromId(_batchSharedTemplateId);
+    final templateByMember = <String, _CertTemplate>{
+      for (final id in _batchMemberIds) id: template,
+    };
+    // Prévia editável (título/versículo/texto) antes de gerar — igual 1 certificado.
+    final overrides = await _showBatchTextPreviewSheet(
+      context,
+      template: template,
+      sampleMember: selectedDocs.first,
+      selectedCount: selectedDocs.length,
+    );
+    if (overrides == null || !mounted || !context.mounted) return;
 
     await _runCloudCertBatch(
       context,
-      templateByMember.values.first,
+      template,
       selectedDocs,
       templateByMember: templateByMember,
       allDocs: allDocs,
       signatoryOptionsAll: signatoryOptionsAll,
+      textOverrides: overrides,
     );
+  }
+
+  /// Prévia + campos editáveis para lote (mesma ideia do editor individual).
+  Future<_CertBatchTextOverrides?> _showBatchTextPreviewSheet(
+    BuildContext context, {
+    required _CertTemplate template,
+    required QueryDocumentSnapshot<Map<String, dynamic>> sampleMember,
+    required int selectedCount,
+  }) {
+    final sample = sampleMember.data();
+    final sampleNome =
+        (sample['NOME_COMPLETO'] ?? sample['nome'] ?? '').toString().trim();
+    final sampleCpf =
+        _formatCpf((sample['CPF'] ?? sample['cpf'] ?? '').toString());
+    final dataHoje = _formatDateBr(DateTime.now());
+    final modeloBase = _textoModeloForTemplate(template);
+    final tituloCtrl =
+        TextEditingController(text: _tituloForTemplate(template));
+    final subtituloCtrl =
+        TextEditingController(text: _subtituloForTemplate(template));
+    final textoModeloCtrl = TextEditingController(text: modeloBase);
+    final cor = _corForTemplate(template);
+
+    String fillPreview(String modelo) {
+      if (template.id == 'casamento') {
+        return modelo
+            .replaceAll('{NOIVO}', sampleNome)
+            .replaceAll('{NOIVA}', '—')
+            .replaceAll('{NOME}', sampleNome)
+            .replaceAll('{DATA_CERTIFICADO}', dataHoje);
+      }
+      return modelo
+          .replaceAll('{NOME}', sampleNome)
+          .replaceAll('{CPF}', sampleCpf)
+          .replaceAll('{DATA_CERTIFICADO}', dataHoje);
+    }
+
+    return showDialog<_CertBatchTextOverrides>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: MediaQuery.sizeOf(ctx).width > 720 ? 72 : 16,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 640,
+              maxHeight: MediaQuery.sizeOf(ctx).height * 0.92,
+            ),
+            child: StatefulBuilder(
+              builder: (ctx2, setLocal) {
+                final previewTexto = fillPreview(textoModeloCtrl.text);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Material(
+                      color: cor,
+                      child: SafeArea(
+                        bottom: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                icon: const Icon(Icons.close_rounded,
+                                    color: Colors.white),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  '${_tituloForTemplate(template)} · $selectedCount',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.poppins(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () {
+                                  Navigator.pop(
+                                    ctx,
+                                    _CertBatchTextOverrides(
+                                      titulo: tituloCtrl.text.trim(),
+                                      subtitulo: subtituloCtrl.text.trim(),
+                                      textoModelo:
+                                          textoModeloCtrl.text.trim().isEmpty
+                                              ? modeloBase
+                                              : textoModeloCtrl.text.trim(),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.picture_as_pdf_rounded,
+                                    color: Colors.white),
+                                label: Text(
+                                  'Gerar $selectedCount',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                        children: [
+                          Text(
+                            'Pré-visualização (exemplo: $sampleNome). '
+                            'Ajuste os textos — valem para todos do lote. '
+                            'Use {NOME}, {CPF} e {DATA_CERTIFICADO} no texto.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade700,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: const Color(0xFFD4AF37),
+                                width: 1.4,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.06),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  _nomeIgreja.toUpperCase(),
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  tituloCtrl.text.toUpperCase(),
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                    color: const Color(0xFF1A3366),
+                                  ),
+                                ),
+                                if (subtituloCtrl.text.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    subtituloCtrl.text.trim(),
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      fontStyle: FontStyle.italic,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
+                                Text(
+                                  sampleNome,
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.pinyonScript(
+                                    fontSize: 28,
+                                    color: const Color(0xFF5C3D1E),
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  previewTexto,
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12.5,
+                                    height: 1.45,
+                                    color: const Color(0xFF1E1E1E),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            'Título do Certificado',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: tituloCtrl,
+                            onChanged: (_) => setLocal(() {}),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Versículo ou frase curta (sob o título no PDF: opcional)',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: subtituloCtrl,
+                            onChanged: (_) => setLocal(() {}),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Texto do certificado (modelo do lote)',
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          TextField(
+                            controller: textoModeloCtrl,
+                            onChanged: (_) => setLocal(() {}),
+                            minLines: 4,
+                            maxLines: 8,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              alignLabelWithHint: true,
+                              hintText:
+                                  'Use {NOME}, {CPF} e {DATA_CERTIFICADO}',
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          FilledButton.icon(
+                            onPressed: () {
+                              Navigator.pop(
+                                ctx,
+                                _CertBatchTextOverrides(
+                                  titulo: tituloCtrl.text.trim(),
+                                  subtitulo: subtituloCtrl.text.trim(),
+                                  textoModelo:
+                                      textoModeloCtrl.text.trim().isEmpty
+                                          ? modeloBase
+                                          : textoModeloCtrl.text.trim(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.bolt_rounded),
+                            label: Text(
+                              'Gerar $selectedCount certificado(s) agora',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              backgroundColor: cor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      tituloCtrl.dispose();
+      subtituloCtrl.dispose();
+      textoModeloCtrl.dispose();
+    });
   }
 
   /// Lote local quando modelos distintos por membro (nuvem exige template único).
@@ -2570,6 +3313,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     Map<String, _CertTemplate>? templateByMember,
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? allDocs,
     List<_SignatoryOption>? signatoryOptionsAll,
+    _CertBatchTextOverrides? textOverrides,
   }) async {
     final nav = Navigator.of(context, rootNavigator: true);
     final phase = ValueNotifier<String>('Enviando pedido à nuvem…');
@@ -2656,6 +3400,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
         'listaMembrosId': selectedDocs.map((e) => e.id).toList(),
         'idAssinatura': template.id,
         'templateId': template.id,
+        if (textOverrides != null && textOverrides.titulo.isNotEmpty)
+          'titulo': textOverrides.titulo,
+        if (textOverrides != null && textOverrides.subtitulo.isNotEmpty)
+          'subtitulo': textOverrides.subtitulo,
+        if (textOverrides != null && textOverrides.textoModelo.isNotEmpty)
+          'textoModelo': textOverrides.textoModelo,
       });
       final data = res.data;
       final url = (data['downloadUrl'] ?? '').toString().trim();
@@ -2702,6 +3452,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           allDocs,
           signatoryOptionsAll,
           singlePdf: true,
+          textOverrides: textOverrides,
         );
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2721,13 +3472,15 @@ class _CertificadosPageState extends State<CertificadosPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
     List<_SignatoryOption> signatoryOptionsAll, {
     bool singlePdf = true,
+    _CertBatchTextOverrides? textOverrides,
   }) async {
     _CertTemplate tpl(String docId) =>
         templateByMember[docId] ?? _templateFromId('membro');
+    // Não bloqueia se já houver config; só carrega se ainda vazia.
     if (_certConfig == null) {
-      await _loadCertConfig();
+      unawaited(_loadCertConfig());
     }
-    await warmCertificatePdfFontAssets();
+    unawaited(warmCertificatePdfFontAssets());
     if (!mounted) return;
     if (!context.mounted) return;
     final signatoryOptions = signatoryOptionsAll;
@@ -2804,7 +3557,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
           final nome =
               (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
           final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-          final textoModelo = _textoModeloForTemplate(t);
+          final textoModelo =
+              (textOverrides != null && textOverrides.textoModelo.isNotEmpty)
+                  ? textOverrides.textoModelo
+                  : _textoModeloForTemplate(t);
           final textoComPlaceholders = t.id == 'casamento'
               ? textoModelo
                   .replaceAll('{NOIVO}', nome)
@@ -2862,8 +3618,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
               texto: sliceRows[i].texto,
               qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
                   protocolIds[i]),
-              titulo: _tituloForTemplate(tpl(selectedDocs[i].id)),
-              subtitulo: _subtituloForTemplate(tpl(selectedDocs[i].id)),
+              titulo: (textOverrides != null && textOverrides.titulo.isNotEmpty)
+                  ? textOverrides.titulo
+                  : _tituloForTemplate(tpl(selectedDocs[i].id)),
+              subtitulo: (textOverrides != null &&
+                      textOverrides.subtitulo.isNotEmpty)
+                  ? textOverrides.subtitulo
+                  : _subtituloForTemplate(tpl(selectedDocs[i].id)),
               colorPrimaryArgb: _corForTemplate(tpl(selectedDocs[i].id))
                   .toARGB32(),
               colorTextArgb:
@@ -2896,8 +3657,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
           tenantId: widget.tenantId,
           logoFetchCandidates: _logoCertCandidateUrls,
           logoUrlFallback: _logoCert,
-          titulo: _tituloForTemplate(firstT),
-          subtitulo: _subtituloForTemplate(firstT),
+          titulo: (textOverrides != null && textOverrides.titulo.isNotEmpty)
+              ? textOverrides.titulo
+              : _tituloForTemplate(firstT),
+          subtitulo:
+              (textOverrides != null && textOverrides.subtitulo.isNotEmpty)
+                  ? textOverrides.subtitulo
+                  : _subtituloForTemplate(firstT),
           texto: slices.first.texto,
           textoAdicional: '',
           visualTemplateId: visualLote,
@@ -3002,7 +3768,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
         final nome =
             (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
         final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString();
-        final textoModelo = _textoModeloForTemplate(tZip);
+        final textoModelo =
+            (textOverrides != null && textOverrides.textoModelo.isNotEmpty)
+                ? textOverrides.textoModelo
+                : _textoModeloForTemplate(tZip);
         final textoComPlaceholders = tZip.id == 'casamento'
             ? textoModelo
                 .replaceAll('{NOIVO}', nome)
@@ -3082,8 +3851,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
           tenantId: widget.tenantId,
           logoFetchCandidates: _logoCertCandidateUrls,
           logoUrlFallback: _logoCert,
-          titulo: _tituloForTemplate(firstTplZip),
-          subtitulo: _subtituloForTemplate(firstTplZip),
+          titulo: (textOverrides != null && textOverrides.titulo.isNotEmpty)
+              ? textOverrides.titulo
+              : _tituloForTemplate(firstTplZip),
+          subtitulo:
+              (textOverrides != null && textOverrides.subtitulo.isNotEmpty)
+                  ? textOverrides.subtitulo
+                  : _subtituloForTemplate(firstTplZip),
           texto: firstRow.textoFinal,
           textoAdicional: '',
           visualTemplateId: visualLoteZip,
@@ -3143,8 +3917,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
             tenantId: widget.tenantId,
             logoFetchCandidates: _logoCertCandidateUrls,
             logoUrlFallback: _logoCert,
-            titulo: _tituloForTemplate(tRow),
-            subtitulo: _subtituloForTemplate(tRow),
+            titulo: (textOverrides != null && textOverrides.titulo.isNotEmpty)
+                ? textOverrides.titulo
+                : _tituloForTemplate(tRow),
+            subtitulo:
+                (textOverrides != null && textOverrides.subtitulo.isNotEmpty)
+                    ? textOverrides.subtitulo
+                    : _subtituloForTemplate(tRow),
             texto: row.textoFinal,
             textoAdicional: '',
             visualTemplateId: visualLoteZip,
@@ -3475,29 +4254,26 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(
                               ThemeCleanPremium.radiusMd),
-                          onTap: () async {
+                          onTap: () {
                             final host = pageContext;
+                            final chosen = t;
+                            final chosenVisual = visualId;
                             close();
-                            try {
-                              await _openEditor(
-                                host,
-                                t,
-                                memberDoc,
-                                signatoryOptions,
-                                allMemberDocs: allMembers,
-                                initialVisualTemplateId: visualId,
+                            // Fecha o seletor e abre a prévia no próximo frame —
+                            // sem await de rede (padrão Android/iOS, sensação instantânea).
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!host.mounted) return;
+                              unawaited(
+                                _openEditor(
+                                  host,
+                                  chosen,
+                                  memberDoc,
+                                  signatoryOptions,
+                                  allMemberDocs: allMembers,
+                                  initialVisualTemplateId: chosenVisual,
+                                ),
                               );
-                            } catch (e) {
-                              if (host.mounted) {
-                                ScaffoldMessenger.of(host).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Não foi possível abrir o editor: $e',
-                                    ),
-                                  ),
-                                );
-                              }
-                            }
+                            });
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -3619,7 +4395,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
       List<_SignatoryOption> signatoryOptions,
       {required List<QueryDocumentSnapshot<Map<String, dynamic>>> allMemberDocs,
       String initialVisualTemplateId = 'classico_dourado'}) async {
-    await _loadCertConfig();
+    // Instantâneo: NÃO awaita Firestore aqui. A prévia abre com a config já em
+    // memória (initState) e defaults do template; refresh segue em background.
+    unawaited(_loadCertConfig());
     if (!mounted) return;
     if (!pageContext.mounted) return;
     final data = memberDoc.data();
@@ -3680,42 +4458,48 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final cargoCtrl = TextEditingController(text: fallbackCargo);
     final textoAdicionalCtrl = TextEditingController();
 
-    Navigator.push(
-      pageContext,
-      MaterialPageRoute(
-        builder: (_) => _CertEditorPage(
-          tenantId: _effectiveTenantId,
-          onReemitir: (cid) =>
-              _reemitirCertificadoPorProtocolo(pageContext, cid),
-          memberFirestoreDocId: memberDoc.id,
-          template: template,
-          corOverride: _corForTemplate(template),
-          corTextoOverride: _corTextoForTemplate(template),
-          nomeIgreja: _nomeIgreja,
-          logoUrl: _logoCert,
-          logoFetchCandidates: _logoCertCandidateUrls,
-          tenantData: _tenantData,
-          nomeMembro: nome,
-          cpfFormatado: _formatCpf(cpf),
-          tituloCtrl: tituloCtrl,
-          subtituloCtrl: subtituloCtrl,
-          textoCtrl: textoCtrl,
-          textoAdicionalCtrl: textoAdicionalCtrl,
-          localCtrl: localCtrl,
-          dataCertCtrl: dataCertCtrl,
-          pastorCtrl: pastorCtrl,
-          cargoCtrl: cargoCtrl,
-          signatoryOptions: signatoryOptions,
-          initialSelectedSignatoryIds: initialSelectedIds,
-          signatoryCargoOverrides: _signatoryCargoOverridesFromConfig(),
-          initialLayoutId: _layoutForTemplate(template),
-          initialFontStyleId: _fontStyleForTemplate(template),
-          initialSignatureMode: initialSignatureMode,
-          initialVisualTemplateId: initialVisualTemplateId,
-          casamentoMembrosOpcoes: casamentoOpcoes,
-        ),
-      ),
+    final editor = _CertEditorPage(
+      tenantId: _effectiveTenantId,
+      onReemitir: (cid) =>
+          _reemitirCertificadoPorProtocolo(pageContext, cid),
+      memberFirestoreDocId: memberDoc.id,
+      template: template,
+      corOverride: _corForTemplate(template),
+      corTextoOverride: _corTextoForTemplate(template),
+      nomeIgreja: _nomeIgreja,
+      logoUrl: _logoCert,
+      logoFetchCandidates: _logoCertCandidateUrls,
+      tenantData: _tenantData,
+      nomeMembro: nome,
+      cpfFormatado: _formatCpf(cpf),
+      tituloCtrl: tituloCtrl,
+      subtituloCtrl: subtituloCtrl,
+      textoCtrl: textoCtrl,
+      textoAdicionalCtrl: textoAdicionalCtrl,
+      localCtrl: localCtrl,
+      dataCertCtrl: dataCertCtrl,
+      pastorCtrl: pastorCtrl,
+      cargoCtrl: cargoCtrl,
+      signatoryOptions: signatoryOptions,
+      initialSelectedSignatoryIds: initialSelectedIds,
+      signatoryCargoOverrides: _signatoryCargoOverridesFromConfig(),
+      initialLayoutId: _layoutForTemplate(template),
+      initialFontStyleId: _fontStyleForTemplate(template),
+      initialSignatureMode: initialSignatureMode,
+      initialVisualTemplateId: initialVisualTemplateId,
+      casamentoMembrosOpcoes: casamentoOpcoes,
     );
+
+    // Transição zero na web = abertura instantânea da prévia (igual app).
+    final Route<void> route = kIsWeb
+        ? PageRouteBuilder<void>(
+            pageBuilder: (ctx, a, b) => editor,
+            transitionDuration: Duration.zero,
+            reverseTransitionDuration: const Duration(milliseconds: 180),
+          )
+        : MaterialPageRoute<void>(builder: (_) => editor);
+
+    await Navigator.push(pageContext, route);
   }
 }
 

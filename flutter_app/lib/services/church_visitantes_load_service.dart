@@ -104,10 +104,39 @@ abstract final class ChurchVisitantesLoadService {
   }
 
   static DateTime? _createdAt(Map<String, dynamic> data) {
-    final raw = data['createdAt'];
+    return parseVisitorInstant(data['createdAt']) ??
+        parseVisitorInstant(data['updatedAt']);
+  }
+
+  /// Aceita Timestamp, DateTime, ISO, mapa `{seconds}` / `{_seconds}` (Hive/cache).
+  static DateTime? parseVisitorInstant(dynamic raw) {
+    if (raw == null) return null;
     if (raw is Timestamp) return raw.toDate();
     if (raw is DateTime) return raw;
-    return DateTime.tryParse(raw?.toString() ?? '');
+    if (raw is int) {
+      final ms = raw > 9999999999 ? raw : raw * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    if (raw is double) {
+      final n = raw.round();
+      final ms = n > 9999999999 ? n : n * 1000;
+      return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    if (raw is Map) {
+      final seconds = raw['seconds'] ?? raw['_seconds'] ?? raw['secondsSinceEpoch'];
+      final nanos = raw['nanoseconds'] ?? raw['_nanoseconds'] ?? 0;
+      if (seconds is int) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          seconds * 1000 + ((nanos is int ? nanos : 0) ~/ 1000000),
+        );
+      }
+      if (seconds is num) {
+        return DateTime.fromMillisecondsSinceEpoch((seconds * 1000).round());
+      }
+    }
+    final s = raw.toString().trim();
+    if (s.isEmpty || s.toLowerCase().contains('servertimestamp')) return null;
+    return DateTime.tryParse(s);
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByCreatedAt(
@@ -440,10 +469,13 @@ abstract final class ChurchVisitantesLoadService {
     }
 
     final docRef = col.doc();
+    // Timestamp local imediato — evita lista vazia enquanto serverTimestamp não resolve.
+    final nowTs = Timestamp.fromDate(DateTime.now());
     final create = Map<String, dynamic>.from(data)
       ..putIfAbsent('status', () => 'Novo')
       ..putIfAbsent('followupCount', () => 0)
-      ..['createdAt'] = FieldValue.serverTimestamp();
+      ..['createdAt'] = nowTs
+      ..['updatedAt'] = nowTs;
 
     await OptimisticFirestoreWrite.set(
       ref: docRef,
@@ -451,6 +483,27 @@ abstract final class ChurchVisitantesLoadService {
       module: OfflineModules.visitantes,
       tenantId: cid,
     );
+
+    // Lista imediata na UI (web não espelha cache; não esperar o servidor).
+    final localData = Map<String, dynamic>.from(create)
+      ..['createdAt'] = nowTs
+      ..['updatedAt'] = nowTs;
+    final synthetic = TenantModuleHiveCache.toQueryDocuments([
+      {
+        'id': docRef.id,
+        'path': docRef.path,
+        'data': localData,
+      },
+    ]);
+    if (synthetic.isNotEmpty) {
+      final prev = peekRam(cid) ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[
+        synthetic.first,
+        ...prev.where((d) => d.id != docRef.id),
+      ];
+      putRam(cid, _sortByCreatedAt(merged));
+    }
 
     unawaited(ensureProvisioned(cid));
     unawaited(refreshRamFromCache(cid));
@@ -511,10 +564,7 @@ abstract final class ChurchVisitantesLoadService {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final existing = await FirestoreWebGuard.runWithWebRecovery(
-        () => schemaRef.get(),
-        maxAttempts: 3,
-      ).timeout(const Duration(seconds: 12));
+      final existing = await schemaRef.get().timeout(const Duration(seconds: 12));
       if (existing.exists) return;
 
       await FirestoreWebGuard.runWithWebRecovery(

@@ -30,8 +30,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
   bool get _isSuper {
     final email = firebaseDefaultAuth.currentUser?.email?.toLowerCase() ?? '';
-    // ✅ seu e-mail master
-    return email == 'raihom@gmail.com';
+    return AppConstants.isProductMasterAccount(email: email);
   }
 
   @override

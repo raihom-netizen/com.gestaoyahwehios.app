@@ -116,11 +116,11 @@ class _IgrejaNaoVinculadaPageState extends State<_IgrejaNaoVinculadaPage> {
     try {
       // Primeiro tenta só sincronizar claims + users (rápido). Se falhar, tenta o seed completo.
       try {
-        final syncFn = FirebaseFunctions.instance.httpsCallable('syncGestorBrasilParaCristo');
+        final syncFn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('syncGestorBrasilParaCristo');
         await syncFn.call(<String, dynamic>{});
       } on FirebaseFunctionsException catch (e) {
         if (e.code == 'permission-denied' || e.code == 'unauthenticated') rethrow;
-        final fullFn = FirebaseFunctions.instance.httpsCallable('ensureBrasilParaCristoAccess');
+        final fullFn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('ensureBrasilParaCristoAccess');
         await fullFn.call(<String, dynamic>{});
       }
       await FirebaseAuth.instance.currentUser?.getIdToken(true);

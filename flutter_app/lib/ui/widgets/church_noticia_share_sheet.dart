@@ -1,6 +1,5 @@
 import 'dart:async' show TimeoutException, unawaited;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -49,9 +48,7 @@ Future<void> noticiaShareNativeRich({
   String? videoPlayUrl,
   Rect? sharePositionOrigin,
 }) async {
-  if (!kIsWeb &&
-      videoPlayUrl != null &&
-      videoPlayUrl.trim().isNotEmpty) {
+  if (videoPlayUrl != null && videoPlayUrl.trim().isNotEmpty) {
     var vu = sanitizeImageUrl(videoPlayUrl.trim());
     if (!isValidImageUrl(vu) && firebaseStorageMediaUrlLooksLike(vu)) {
       vu = (await AppStorageImageService.instance.resolveImageUrl(
@@ -68,11 +65,6 @@ Future<void> noticiaShareNativeRich({
           maxBytes: 16 * 1024 * 1024,
         );
         if (bytes != null && bytes.length > 512) {
-          final xFile = XFile.fromData(
-            bytes,
-            name: 'publicacao.mp4',
-            mimeType: 'video/mp4',
-          );
           await YahwehShareService.shareBytes(
             bytes: bytes,
             fileName: 'publicacao.mp4',
@@ -147,7 +139,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
   Rect? sharePositionOrigin,
   Map<String, dynamic>? noticiaDataForLazyMedia,
 }) async {
-  if (noticiaDataForLazyMedia != null && !kIsWeb) {
+  if (noticiaDataForLazyMedia != null) {
     if (rootContext.mounted) {
       showDialog<void>(
         context: rootContext,
@@ -189,7 +181,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         collection: (noticiaDataForLazyMedia['collection'] ??
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 12));
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
       if (media.isNotEmpty) {
@@ -271,7 +263,7 @@ Future<void> showChurchNoticiaShareSheet(
       : <String>[];
   final rootContext = context;
 
-  // Há mídia (fotos/vídeos) para enviar junto no WhatsApp? (nativo, não-web)
+  // Há mídia (fotos/vídeos) para enviar junto no WhatsApp? (web + Android + iOS)
   final bool hasVideoForShare = (() {
     if ((videoPlayUrl ?? '').trim().isNotEmpty) return true;
     if (noticiaDataForLazyMedia == null) return false;
@@ -282,8 +274,7 @@ Future<void> showChurchNoticiaShareSheet(
     }
     return eventNoticiaVideosFromDoc(noticiaDataForLazyMedia).isNotEmpty;
   })();
-  final bool canShareWhatsAppMedia = !kIsWeb &&
-      noticiaDataForLazyMedia != null &&
+  final bool canShareWhatsAppMedia = noticiaDataForLazyMedia != null &&
       (galleryUrls.isNotEmpty || hasVideoForShare);
   final int photoCount = galleryUrls.length;
   final String whatsAppSubtitle = canShareWhatsAppMedia
@@ -308,8 +299,10 @@ Future<void> showChurchNoticiaShareSheet(
         .trim();
     final colRaw =
         (noticiaDataForLazyMedia['collection'] ?? noticiaDataForLazyMedia['type'] ?? 'eventos')
-            .toString();
-    final col = colRaw == 'avisos' ? 'avisos' : 'eventos';
+            .toString()
+            .trim()
+            .toLowerCase();
+    final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
     if (tid.isNotEmpty && pid.isNotEmpty) {
       unawaited(NoticiaSharePrefetchService.warm(
         tenantId: tid,

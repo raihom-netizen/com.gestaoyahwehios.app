@@ -172,7 +172,7 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ),
   ChurchShellNavEntry(
     Icons.forum_rounded,
-    'YahwehChat',
+    'Yahweh Chat',
     Color(0xFF0D9488),
     subtitle: 'Mensagens e grupos por departamento',
   ),

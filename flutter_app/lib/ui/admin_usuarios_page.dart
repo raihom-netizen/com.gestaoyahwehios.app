@@ -30,16 +30,12 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
   Future<void> _load({bool force = false}) async {
     setState(() => _loading = true);
     try {
-      final list = await FirestoreWebGuard.runWithWebRecovery(
-        () => MasterChurchesListService.loadFast(force: force)
-            .timeout(const Duration(seconds: 22)),
-      );
+      final list = await MasterChurchesListService.loadFast(force: force)
+          .timeout(const Duration(seconds: 22));
       var tenants = list;
       if (tenants.isEmpty && !force) {
-        tenants = await FirestoreWebGuard.runWithWebRecovery(
-          () => MasterChurchesListService.loadFast(force: true)
-              .timeout(const Duration(seconds: 25)),
-        );
+        tenants = await MasterChurchesListService.loadFast(force: true)
+            .timeout(const Duration(seconds: 25));
       }
       if (!mounted) return;
       setState(() {

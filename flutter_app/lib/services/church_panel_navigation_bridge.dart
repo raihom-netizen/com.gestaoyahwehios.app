@@ -1,6 +1,7 @@
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
-/// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho «Chat igreja»).
+/// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho «Yahweh Chat»).
+/// O hub nativo consome [threadId] / [peerUid] (DM Firestore `dm_…`).
 class PendingChatThreadOpen {
   final String threadId;
   final String? tenantId;
@@ -8,6 +9,8 @@ class PendingChatThreadOpen {
   final String? peerUid;
   final String? displayName;
   final String? initialDraftText;
+  /// Telefone do membro (≥10 dígitos) — opcional (atalhos externos).
+  final String? phoneDigits;
 
   const PendingChatThreadOpen({
     required this.threadId,
@@ -15,6 +18,7 @@ class PendingChatThreadOpen {
     this.peerUid,
     this.displayName,
     this.initialDraftText,
+    this.phoneDigits,
   });
 }
 
@@ -29,13 +33,14 @@ class ChurchPanelNavigationBridge {
   PendingChatThreadOpen? _pendingChatOpen;
   final List<void Function()> _chatOpenListeners = <void Function()>[];
 
-  /// Abre o módulo Chat e deixa [threadId] pendente para [ChurchChatHubPage] consumir.
+  /// Abre o módulo Yahweh Chat e deixa [threadId] pendente para o hub consumir.
   void requestNavigateToChatThread({
     required String threadId,
     String? tenantId,
     String? peerUid,
     String? displayName,
     String? initialDraftText,
+    String? phoneDigits,
   }) {
     final tid = threadId.trim();
     if (tid.isEmpty) return;
@@ -43,12 +48,14 @@ class ChurchPanelNavigationBridge {
     final peer = peerUid?.trim() ?? '';
     final name = displayName?.trim() ?? '';
     final draft = initialDraftText?.trim() ?? '';
+    final phone = (phoneDigits ?? '').replaceAll(RegExp(r'\D'), '');
     _pendingChatOpen = PendingChatThreadOpen(
       threadId: tid,
       tenantId: tRaw.isEmpty ? null : tRaw,
       peerUid: peer.isEmpty ? null : peer,
       displayName: name.isEmpty ? null : name,
       initialDraftText: draft.isEmpty ? null : draft,
+      phoneDigits: phone.length >= 10 ? phone : null,
     );
     requestNavigateToShellIndex(kChurchShellIndexChat);
     _notifyChatOpenListeners();

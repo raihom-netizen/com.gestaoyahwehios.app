@@ -19,7 +19,6 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -65,6 +64,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 
 /// Gera slug (link/domínio) a partir do nome da igreja: normaliza, remove acentos e palavras comuns, usa hífens.
@@ -830,8 +830,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             '')
         .toString();
     _cepCtrl.text = (data['cep'] ?? '').toString();
-    _telefoneCtrl.text =
-        (data['phone'] ?? data['telefone'] ?? data['fone'] ?? '').toString();
+    _telefoneCtrl.text = brPhoneMaskLive(
+      (data['phone'] ?? data['telefone'] ?? data['fone'] ?? '').toString(),
+    );
     final lat = data['latitude'];
     final lng = data['longitude'];
     _latitude = lat is num
@@ -880,15 +881,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'linkFacebook',
       'facebook_link',
     ]);
-    _whatsappChatUrlCtrl.text = _whatsappDigitsForCadastro(_firstNonEmptyString(
-        data,
-        const [
-          'whatsappChatUrl',
-          'whatsapp',
-          'socialWhatsappUrl',
-          'whatsappLink',
-          'linkWhatsapp',
-        ]));
+    _whatsappChatUrlCtrl.text = brPhoneMaskLive(_whatsappDigitsForCadastro(
+        _firstNonEmptyString(
+            data,
+            const [
+              'whatsappChatUrl',
+              'whatsapp',
+              'socialWhatsappUrl',
+              'whatsappLink',
+              'linkWhatsapp',
+            ])));
     _hydrateAddressFromCompositeEndereco(data);
     _lastHydratedCpf = null;
     _gestorMemberDocId = null;
@@ -1773,35 +1775,29 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         });
         _logoEditorKey.currentState?.resetAfterSave();
       } else if (_canEdit && _logoSnap.pendingBytes != null) {
-        GlobalUploadProgress.instance.start('Enviando logo…');
-        try {
-          // Gate já feito em prepareForPublishUpload — sem ensureReady duplicado
-          // (padrão Controle Total: putData direto).
-          final published = await ChurchLogoUpdateService.publishLogoStrict(
-            churchIdHint: resolvedId,
-            rawBytes: _logoSnap.pendingBytes!,
-            previousStoragePath: _logoStoragePath,
-            onProgress: (p) => GlobalUploadProgress.instance.update(p),
+        // Upload silencioso (padrão Controle Total) — sem faixa «Enviando logo… — N%».
+        await ChurchMediaUploadFacade.ensureReady();
+        final published = await ChurchLogoUpdateService.publishLogoStrict(
+          churchIdHint: resolvedId,
+          rawBytes: _logoSnap.pendingBytes!,
+          previousStoragePath: _logoStoragePath,
+        );
+        if (!mounted) return;
+        setState(() {
+          _logoUrl = YahwehMediaCacheBust.apply(
+            published.downloadUrl,
+            published.cacheRevision,
           );
-          if (!mounted) return;
-          setState(() {
-            _logoUrl = YahwehMediaCacheBust.apply(
-              published.downloadUrl,
-              published.cacheRevision,
-            );
-            _logoStoragePath = published.storagePath;
-            _tenantLiveData = {
-              ..._tenantLiveData,
-              'logoUrl': published.downloadUrl,
-              'logoPath': published.downloadUrl,
-              'logoStoragePath': published.storagePath,
-              'logoCacheRevision': published.cacheRevision,
-            };
-          });
-          _logoEditorKey.currentState?.resetAfterSave();
-        } finally {
-          GlobalUploadProgress.instance.end();
-        }
+          _logoStoragePath = published.storagePath;
+          _tenantLiveData = {
+            ..._tenantLiveData,
+            'logoUrl': published.downloadUrl,
+            'logoPath': published.downloadUrl,
+            'logoStoragePath': published.storagePath,
+            'logoCacheRevision': published.cacheRevision,
+          };
+        });
+        _logoEditorKey.currentState?.resetAfterSave();
       }
       final slugRaw = _slugCtrl.text
           .trim()
@@ -3073,9 +3069,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   TextFormField(
                                     controller: _telefoneCtrl,
                                     readOnly: !_canEdit,
+                                    keyboardType: TextInputType.phone,
+                                    inputFormatters: const [
+                                      BrPhoneInputFormatter(),
+                                    ],
                                     decoration: const InputDecoration(
                                       labelText: 'Telefone / WhatsApp contato',
-                                      hintText: '(00) 00000-0000',
+                                      hintText: '62 9.9170-5247',
                                       border: OutlineInputBorder(),
                                     ),
                                   ),
@@ -3214,12 +3214,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                     controller: _whatsappChatUrlCtrl,
                                     readOnly: !_canEdit,
                                     keyboardType: TextInputType.phone,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.digitsOnly,
+                                    inputFormatters: const [
+                                      BrPhoneInputFormatter(),
                                     ],
                                     decoration: _premiumInputDeco(
-                                      'WhatsApp — número com DDI (opcional)',
-                                      '5562999999999',
+                                      'WhatsApp — telefone (opcional)',
+                                      '62 9.9170-5247',
                                     ),
                                   ),
                                   if (_slugCtrl.text.trim().isNotEmpty) ...[

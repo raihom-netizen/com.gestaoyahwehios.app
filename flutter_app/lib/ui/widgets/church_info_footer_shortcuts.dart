@@ -29,7 +29,7 @@ class ChurchInfoFooterShortcuts extends StatelessWidget {
     ChurchShellIndices.financeiro: 'Financeiro',
     ChurchShellIndices.muralAvisos: 'Avisos',
     ChurchShellIndices.muralEventos: 'Eventos',
-    ChurchShellIndices.chatIgreja: 'Chat',
+    ChurchShellIndices.chatIgreja: 'Yahweh Chat',
     ChurchShellIndices.agenda: 'Agenda',
     ChurchShellIndices.departamentos: 'Deptos',
     ChurchShellIndices.relatorios: 'Relatórios',

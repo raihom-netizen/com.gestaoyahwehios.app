@@ -281,11 +281,13 @@ abstract final class PatrimonioPublishService {
       }
     }
 
-    // Remove Storage de qualquer slot vazio — paralelo.
+    // Só limpa Storage quando o slot está realmente vazio (sem URL e sem path).
+    // Path-only (getDownloadURL soft-fail) NÃO deve apagar o ficheiro nem zerar path.
     final emptySlotFutures = <Future<void>>[];
     for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
-      if (slotUrls[slot].trim().isEmpty) {
-        slotPaths[slot] = '';
+      final urlEmpty = slotUrls[slot].trim().isEmpty;
+      final pathEmpty = slotPaths[slot].trim().isEmpty;
+      if (urlEmpty && pathEmpty) {
         emptySlotFutures.add(
           FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
             tenantId: igrejaId,
@@ -396,6 +398,10 @@ abstract final class PatrimonioPublishService {
     List<String> existingUrls = const [],
     String? userUid,
   }) async {
+    await ChurchMediaUploadFacade.ensureReady();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
     final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
       seedTenantId: seedTenantId,
       userUid: userUid,
@@ -468,6 +474,10 @@ abstract final class PatrimonioPublishService {
     List<String> indexedSlotPaths = const [],
     String? userUid,
   }) async {
+    await ChurchMediaUploadFacade.ensureReady();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
     final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
       seedTenantId: seedTenantId,
       userUid: userUid,
@@ -514,7 +524,8 @@ abstract final class PatrimonioPublishService {
     }());
   }
 
-  /// Repara doc preso em `uploading` — lê URLs do Storage e grava Firestore.
+  /// Repara doc sem URLs — lê ficheiros canónicos no Storage e grava Firestore.
+  /// Útil após bug path-only que apagava paths ou ficava sem getDownloadURL.
   static Future<void> repairFromStorage({
     required String churchId,
     required String itemId,
@@ -526,12 +537,9 @@ abstract final class PatrimonioPublishService {
 
     await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
 
-    final urls = <String>[];
-    final paths = <String>[];
+    final slotUrls = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
+    final slotPaths = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
     final futures = <Future<void>>[];
-    final results = List<bool>.filled(PatrimonioPhotoFields.maxPhotos, false);
-    final urlResults = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
-    final pathResults = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
     for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
       final path = PatrimonioPublishVerificationService.photoStoragePath(
         igrejaId: cid,
@@ -544,28 +552,36 @@ abstract final class PatrimonioPublishService {
             firebaseDefaultStorage.ref(path),
           );
           if (url != null && url.trim().isNotEmpty) {
-            results[slot] = true;
-            pathResults[slot] = path;
-            urlResults[slot] = sanitizeImageUrl(url);
+            slotPaths[slot] = path;
+            slotUrls[slot] = sanitizeImageUrl(url);
+          } else {
+            // Ficheiro pode existir sem URL imediata — ainda assim guarda path.
+            try {
+              await firebaseDefaultStorage.ref(path).getMetadata().timeout(
+                    const Duration(seconds: 4),
+                  );
+              slotPaths[slot] = path;
+            } catch (_) {}
           }
         } catch (_) {}
       }());
     }
     await Future.wait(futures, eagerError: false);
-    for (var slot = 0; slot < PatrimonioPhotoFields.maxPhotos; slot++) {
-      if (results[slot]) {
-        paths.add(pathResults[slot]);
-        urls.add(urlResults[slot]);
-      }
-    }
-    if (urls.isEmpty) return;
+    final hasAny = slotPaths.any((p) => p.isNotEmpty) ||
+        slotUrls.any((u) => u.isNotEmpty);
+    if (!hasAny) return;
 
     final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
       igrejaId: cid,
       itemId: iid,
     );
     final payload = Map<String, dynamic>.from(corePayload ?? {});
-    PatrimonioPhotoFields.applyToPayload(payload, urls, paths);
+    PatrimonioPhotoFields.applyIndexedSlots(
+      payload,
+      slotUrls,
+      slotPaths,
+      allowDeleteSentinels: true,
+    );
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
     payload['photoUploadError'] = FieldValue.delete();

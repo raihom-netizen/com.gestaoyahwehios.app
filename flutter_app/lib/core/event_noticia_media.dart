@@ -498,7 +498,8 @@ String? eventNoticiaImageStoragePath(Map<String, dynamic>? data) {
   return null;
 }
 
-/// Path canónico `eventos/{postId}/banner_evento.jpg` quando o doc não tem metadados mas a foto existe no Storage.
+/// Path canónico quando o doc não tem metadados mas a foto existe no Storage.
+/// Evento: `eventos/{postId}/banner_evento.jpg` · Aviso: `avisos/{postId}/capa_aviso.jpg`.
 String? eventNoticiaCanonicalPhotoPathFallback(
   Map<String, dynamic>? data, {
   required String docId,
@@ -506,7 +507,6 @@ String? eventNoticiaCanonicalPhotoPathFallback(
   String? churchIdOverride,
 }) {
   if (data == null || docId.trim().isEmpty || index < 0) return null;
-  if ((data['type'] ?? '').toString() != 'evento') return null;
   if (!_eventDocShouldTryCanonicalPhotoPath(data)) return null;
   var churchId = churchIdOverride?.trim() ?? '';
   if (churchId.isEmpty) {
@@ -519,6 +519,17 @@ String? eventNoticiaCanonicalPhotoPathFallback(
     }
   }
   if (churchId.isEmpty) return null;
+  final type = (data['type'] ?? data['kind'] ?? '').toString().trim().toLowerCase();
+  if (type == 'aviso' || type == 'avisos') {
+    return ChurchStorageLayout.avisoPostPhotoPath(churchId, docId.trim(), index);
+  }
+  if (type == 'evento' || type == 'eventos') {
+    return ChurchStorageLayout.eventPostPhotoPath(churchId, docId.trim(), index);
+  }
+  // Sem type: heurística leve (avisos têm permanent / avisoExpiresAt).
+  if (data.containsKey('avisoExpiresAt') || data.containsKey('permanent')) {
+    return ChurchStorageLayout.avisoPostPhotoPath(churchId, docId.trim(), index);
+  }
   return ChurchStorageLayout.eventPostPhotoPath(churchId, docId.trim(), index);
 }
 
@@ -826,6 +837,12 @@ String? eventNoticiaDisplayVideoThumbnailUrl(Map<String, dynamic>? data) {
     final y = youtubeThumbnailUrlForVideoUrl(legacy);
     if (y != null) return y;
   }
+  // Fallback Instagram/YouTube: 1ª foto do post como capa do vídeo.
+  final photos = eventNoticiaPhotoUrls(data);
+  for (final raw in photos) {
+    final s = sanitizeImageUrl(raw);
+    if (isValidImageUrl(s) && !looksLikeHostedVideoFileUrl(s)) return s;
+  }
   return null;
 }
 
@@ -913,7 +930,12 @@ ProgramacaoEventCover resolveProgramacaoEventCover({
     imageUrl = sanitizeImageUrl(photoUrls.first);
   }
   if (imageUrl.isEmpty) {
-    final raw = (data['imageUrl'] ?? '').toString().trim();
+    final raw = (data['defaultImageUrl'] ??
+            data['coverUrl'] ??
+            data['imageUrl'] ??
+            '')
+        .toString()
+        .trim();
     if (raw.isNotEmpty) imageUrl = sanitizeImageUrl(raw);
   }
   if (imageUrl.isEmpty) {
@@ -923,7 +945,13 @@ ProgramacaoEventCover resolveProgramacaoEventCover({
     }
   }
 
-  var photoPath = (data['photoStoragePath'] ?? '').toString().trim();
+  var photoPath = (data['coverStoragePath'] ??
+          data['photoStoragePath'] ??
+          data['defaultImageStoragePath'] ??
+          data['imageStoragePath'] ??
+          '')
+      .toString()
+      .trim();
   if (photoPath.isEmpty) {
     photoPath = eventNoticiaPhotoStoragePathAt(
           data,

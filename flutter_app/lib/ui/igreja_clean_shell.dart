@@ -207,6 +207,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Papel efectivo no menu (upgrade se claims atrasados mas e-mail = gestor).
   String? _roleOverride;
 
+  /// Escudo Painel Master (barra superior) — raihom / isabelle / CPF master.
+  bool _showMasterPanelShield = false;
+
   String get _panelRole {
     final override = (_roleOverride ?? '').trim().toLowerCase();
     if (override.isNotEmpty) return override;
@@ -218,6 +221,37 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Android/Web: botão «Alterar plano». iOS Reader: oculto (Apple 3.1.1).
   bool get _showUpgradePlanUi => _canPurchaseLicense;
+
+  void _refreshMasterPanelShieldVisibility() {
+    final user = firebaseDefaultAuth.currentUser;
+    final byAccount = AppConstants.isProductMasterAccount(
+      email: user?.email,
+      cpfDigitsOrRaw: widget.cpf,
+    );
+    final peek = AppSessionStability.peekCachedMasterAccessLevel();
+    final show = byAccount || (peek != null && peek >= 2);
+    if (show == _showMasterPanelShield) return;
+    if (mounted) {
+      setState(() => _showMasterPanelShield = show);
+    } else {
+      _showMasterPanelShield = show;
+    }
+  }
+
+  Future<void> _resolveMasterPanelShield() async {
+    _refreshMasterPanelShieldVisibility();
+    try {
+      final ok = await AppSessionStability.resolveIsMasterAdmin();
+      if (!mounted) return;
+      if (ok != _showMasterPanelShield) {
+        setState(() => _showMasterPanelShield = ok);
+      }
+    } catch (_) {}
+  }
+
+  void _openMasterAdminPanel() {
+    Navigator.of(context).pushNamed('/admin');
+  }
 
   void _syncPanelRoleFromChurch(Map<String, dynamic>? churchData) {
     final user = firebaseDefaultAuth.currentUser;
@@ -390,12 +424,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.chatIgreja,
-        shortLabel: 'YahwehChat',
+        shortLabel: 'Chat',
         accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
       ),
     ];
 
-    // Depois do YahwehChat — atalhos extras na MESMA linha (rolável).
+    // Depois do Telegram — atalhos extras na MESMA linha (rolável).
     final extras = <_ChurchShellFooterShortcut>[
       for (final s in [
         (
@@ -703,6 +737,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     unawaited(_warmTenantDocFromLocalCacheFirst());
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
+    unawaited(_resolveMasterPanelShield());
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
@@ -714,8 +749,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!mounted) return;
       if (!_canAccessItem(idx)) {
         _showPanelSnack(
-          idx == ChurchShellIndices.chatIgreja
-              ? 'Sem acesso ao YahwehChat nesta conta.'
+              idx == ChurchShellIndices.chatIgreja
+              ? 'Sem acesso ao Yahweh Chat nesta conta.'
               : 'Sem acesso a este módulo.',
           isError: true,
         );
@@ -740,11 +775,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         await _prepareAuthAndChurchBindingBeforeModules(forceRepair: kIsWeb);
         try {
           await _resolveOperationalTenant(forceRefresh: false).timeout(
-            const Duration(seconds: 4),
+            const Duration(seconds: 8),
             onTimeout: () {},
           );
           await _bootstrapShellTenantDoc(forceRefresh: false).timeout(
-            const Duration(seconds: 6),
+            const Duration(seconds: 12),
             onTimeout: () {},
           );
         } catch (_) {}
@@ -1049,12 +1084,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!mounted) return;
       if (ChurchShellTenantLoadService.isUsable(result)) {
         _shellTenantLastError = result.softError;
-        _storeTenantDocSnapshot(
-          result.churchId,
-          ChurchCadastroLoadService.sliceCadastroFormFields(result.data).isNotEmpty
-              ? ChurchCadastroLoadService.sliceCadastroFormFields(result.data)
-              : result.data,
-        );
+        // Doc completo no contexto (licença/billing/nome) — não só fatia do cadastro.
+        _storeTenantDocSnapshot(result.churchId, result.data);
         await ChurchShellTenantLoadService.persistAfterLoad(result);
       } else {
         _shellTenantLastError = result.softError ??
@@ -1062,7 +1093,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         if (result.data.isNotEmpty) {
           _storeTenantDocSnapshot(
             result.churchId.isNotEmpty ? result.churchId : tid,
-            ChurchCadastroLoadService.sliceCadastroFormFields(result.data),
+            result.data,
           );
         } else {
           await _hydrateTenantDocFromFallbacks(tid);
@@ -1541,7 +1572,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     try {
-      final fn = FirebaseFunctions.instance
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('ensureMigrateMembersToMembros');
       final res = await fn.call({'tenantId': widget.tenantId});
       final data = Map<String, dynamic>.from(res.data as Map);
@@ -2207,6 +2238,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ],
                 ),
               ),
+              if (_showMasterPanelShield)
+                IconButton(
+                  tooltip: 'Painel Master',
+                  onPressed: _openMasterAdminPanel,
+                  icon: const Icon(
+                    Icons.admin_panel_settings_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                ),
               ChurchNotificationBell(
                 tenantId: _moduleTenantId,
                 cpf: widget.cpf,
@@ -2953,6 +2995,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
+        // Yahweh Chat — visual nativo (Conversas/Grupos/Contatos).
+        // Motor TDLib/Telegram permanece no projeto para uso nativo futuro;
+        // a UI principal volta a ser o hub Firestore (estilo que o usuário pediu).
         return ChurchChatHubPage(
           key: _shellPageKey(23),
           tenantId: _moduleTenantId,
@@ -2960,6 +3005,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           role: _panelRole,
           embeddedInShell: true,
           permissions: widget.permissions,
+          onShellBack: () => setState(() => _selectedIndex = 0),
         );
       case 24:
         return UtilitariosScreen(
@@ -3191,10 +3237,16 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textColor = light ? Colors.white70 : const Color(0xFF64748B);
-    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
-    final data = ctxId == tenantId.trim()
-        ? ChurchContextService.currentChurchData
-        : null;
+    final want = ChurchPanelTenant.resolve(tenantId.trim());
+    final ctxId = ChurchPanelTenant.resolve(
+      ChurchContextService.currentChurchId?.trim() ?? '',
+    );
+    Map<String, dynamic>? data;
+    if (want.isNotEmpty && (ctxId == want || ctxId.isEmpty)) {
+      data = ChurchContextService.currentChurchData;
+    }
+    // Fallback: último doc do shell mesmo se o id do contexto ainda não bater.
+    data ??= ChurchContextService.currentChurchData;
     if (data == null || data.isEmpty) {
       return Text('Vencimento: —',
           style: TextStyle(fontSize: 11, color: textColor));
@@ -3209,19 +3261,13 @@ class _HeaderVencimento extends StatelessWidget {
         ),
       );
     }
-    final billing = data['billing'] as Map<String, dynamic>?;
-    final next = billing?['nextChargeAt'];
-    if (next == null) {
-      return Text('Vencimento: —',
-          style: TextStyle(fontSize: 11, color: textColor));
-    }
-    final dt = next is Timestamp ? next.toDate() : null;
-    if (dt == null) {
+    final end = LicenseAccessPolicy.churchAccessEnd(data);
+    if (end == null) {
       return Text('Vencimento: —',
           style: TextStyle(fontSize: 11, color: textColor));
     }
     final s =
-        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+        '${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
     return Text('Vencimento: $s',
         style: TextStyle(
             fontSize: 11,

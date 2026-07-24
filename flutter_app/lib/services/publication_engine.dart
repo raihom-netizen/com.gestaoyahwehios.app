@@ -304,6 +304,13 @@ abstract final class PublicationEngine {
     patch['publishState'] = ChurchPublishState.published;
     patch['publishedAt'] = FieldValue.serverTimestamp();
     patch['updatedAt'] = FieldValue.serverTimestamp();
+    // Site público: query Firestore exige bool true (string "true" não entra).
+    if (patch.containsKey('publicSite')) {
+      final v = patch['publicSite'];
+      patch['publicSite'] = v == true ||
+          v == 1 ||
+          (v is String && v.trim().toLowerCase() == 'true');
+    }
     if (!isNewDoc) {
       patch['pendingImageCount'] = FieldValue.delete();
       patch['publishError'] = FieldValue.delete();

@@ -426,6 +426,63 @@ class MembersDirectorySnapshotService {
     );
   }
 
+  /// Propaga foto nova no directory RAM — painel, chat e cartão sem esperar CF.
+  static void patchMemberPhotoInMemory({
+    required String tenantId,
+    required String memberDocId,
+    String? authUid,
+    String? photoUrl,
+    String? photoThumbUrl,
+    String? photoStoragePath,
+    String? photoThumbStoragePath,
+    required int cacheRevision,
+  }) {
+    final tid = tenantId.trim();
+    final mid = memberDocId.trim();
+    if (tid.isEmpty || mid.isEmpty) return;
+    final snap = peekMemory(tid);
+    if (snap == null || !snap.hasEntries) return;
+    final au = (authUid ?? '').trim();
+    final fields = <String, dynamic>{
+      'fotoUrlCacheRevision': cacheRevision,
+      if ((photoUrl ?? '').trim().isNotEmpty) ...{
+        'fotoUrl': photoUrl!.trim(),
+        'photoUrl': photoUrl.trim(),
+        'FOTO_URL_OU_ID': photoUrl.trim(),
+      },
+      if ((photoThumbUrl ?? '').trim().isNotEmpty) ...{
+        'fotoThumbUrl': photoThumbUrl!.trim(),
+        'photoThumbUrl': photoThumbUrl.trim(),
+        'photoThumb': photoThumbUrl.trim(),
+      },
+      if ((photoStoragePath ?? '').trim().isNotEmpty) ...{
+        'photoStoragePath': photoStoragePath!.trim(),
+        'fotoPath': photoStoragePath.trim(),
+      },
+      if ((photoThumbStoragePath ?? '').trim().isNotEmpty) ...{
+        'photoThumbStoragePath': photoThumbStoragePath!.trim(),
+        'fotoThumbPath': photoThumbStoragePath.trim(),
+      },
+    };
+    var touched = false;
+    final entries = snap.entries.map((e) {
+      final hit = e.memberDocId == mid ||
+          (au.isNotEmpty && (e.authUid ?? '').trim() == au);
+      if (!hit) return e;
+      touched = true;
+      return e.mergeFirestoreFields(fields);
+    }).toList();
+    if (!touched) return;
+    rememberInMemory(
+      tid,
+      MembersDirectorySnapshot(
+        totalCount: snap.totalCount,
+        entries: entries,
+        summary: snap.summary,
+      ),
+    );
+  }
+
   static void invalidateMemory(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;

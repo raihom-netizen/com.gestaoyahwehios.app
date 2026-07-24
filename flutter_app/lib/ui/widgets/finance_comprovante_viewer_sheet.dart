@@ -37,15 +37,21 @@ abstract final class FinanceComprovanteViewerSheet {
     var url =
         await FinanceComprovantePublishService.resolveComprovanteUrl(data);
     if (!context.mounted) return;
-    // Path no Firestore sem ficheiro no Storage (órfão / upload incompleto).
+    // Path-only / getDownloadURL falhou: carregar bytes direto do Storage.
     if (url.isEmpty) {
+      if (storagePath.isNotEmpty) {
+        final isPdf = mime.toLowerCase().contains('pdf') ||
+            fileName.toLowerCase().endsWith('.pdf');
+        if (isPdf) {
+          await _showPdfFromStorage(context, data, fileName);
+        } else {
+          await _showImageFromStorage(context, data, fileName, mime);
+        }
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            storagePath.isNotEmpty
-                ? 'Comprovante não encontrado no Storage. Use «Trocar» para anexar de novo.'
-                : 'Não foi possível abrir o comprovante.',
-          ),
+        const SnackBar(
+          content: Text('Não foi possível abrir o comprovante.'),
         ),
       );
       return;

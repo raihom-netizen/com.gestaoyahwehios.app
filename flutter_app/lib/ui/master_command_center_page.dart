@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/admin_dashboard_page.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -381,15 +380,11 @@ class _ClientsTabState extends State<_ClientsTab> {
       _loadError = null;
     });
     try {
-      var list = await FirestoreWebGuard.runWithWebRecovery(
-        () => MasterChurchesListService.loadFast(force: force)
-            .timeout(const Duration(seconds: 22)),
-      );
+      var list = await MasterChurchesListService.loadFast(force: force)
+          .timeout(const Duration(seconds: 22));
       if (list.isEmpty && !force) {
-        list = await FirestoreWebGuard.runWithWebRecovery(
-          () => MasterChurchesListService.loadFast(force: true)
-              .timeout(const Duration(seconds: 25)),
-        );
+        list = await MasterChurchesListService.loadFast(force: true)
+            .timeout(const Duration(seconds: 25));
       }
       if (!mounted) return;
       setState(() {

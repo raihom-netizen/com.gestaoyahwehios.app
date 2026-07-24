@@ -626,6 +626,20 @@ abstract final class ChurchSchedulesLoadService {
     if (!forceRefresh && !forceServer) {
       final ramHit = _peekRam(ramMap, ramKey);
       if (ramHit != null && ramHit.isNotEmpty) {
+        unawaited(
+          _loadFirestore(
+            churchId: churchId,
+            collection: collection,
+            cacheKey: ramKey,
+            limit: capped,
+            forceServer: false,
+            orderedQuery: orderedQuery,
+            plainQuery: plainQuery,
+            sortDocs: sortDocs,
+          ).then((fresh) {
+            if (fresh.isNotEmpty) _putRam(ramMap, ramKey, fresh);
+          }).catchError((_) {}),
+        );
         return ChurchSchedulesLoadResult(
           churchId: churchId,
           docs: ramHit,

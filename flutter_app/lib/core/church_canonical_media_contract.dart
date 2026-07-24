@@ -379,20 +379,24 @@ abstract final class ChurchCanonicalMediaContract {
     final path = _normalizePath(storagePath);
     final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
     // Path Storage é fixo (overwrite) — bust na URL para Web/viewer verem o ficheiro novo.
-    final displayUrl = YahwehMediaCacheBust.apply(safeUrl, rev);
-    return {
-      'comprovanteUrl': displayUrl,
-      'comprovanteLink': displayUrl,
+    final patch = <String, dynamic>{
       'comprovanteStoragePath': path,
       'comprovanteMimeType': mimeType,
       'comprovanteFileName': fileName,
       'comprovanteCacheRevision': rev,
-      'hasComprovante': true,
+      'hasComprovante': path.isNotEmpty || safeUrl.isNotEmpty,
       'comprovanteUploadState': EntityPublishStatus.published,
       'comprovanteUploadError': FieldValue.delete(),
       'comprovanteUpdatedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
+    if (safeUrl.isNotEmpty) {
+      final displayUrl = YahwehMediaCacheBust.apply(safeUrl, rev);
+      patch['comprovanteUrl'] = displayUrl;
+      patch['comprovanteLink'] = displayUrl;
+    }
+    // Path-only (getDownloadURL soft-fail): não gravar URL vazia — viewer resolve via path.
+    return patch;
   }
 
   // ─── Escrita — Patrimônio (foto01…foto04 + paths) ───────────────────────
@@ -450,6 +454,12 @@ abstract final class ChurchCanonicalMediaContract {
           payload[patrimonioPathSlotKeys[i]] = p;
         } else if (allowDeleteSentinels) {
           payload[patrimonioPathSlotKeys[i]] = FieldValue.delete();
+        }
+      } else if (p.isNotEmpty) {
+        // Path-only (getDownloadURL soft-fail): preservar path; limpar URL legada.
+        payload[patrimonioPathSlotKeys[i]] = p;
+        if (allowDeleteSentinels) {
+          payload[patrimonioUrlSlotKeys[i]] = FieldValue.delete();
         }
       } else if (allowDeleteSentinels) {
         payload[patrimonioUrlSlotKeys[i]] = FieldValue.delete();

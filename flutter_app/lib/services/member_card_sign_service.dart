@@ -14,22 +14,23 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class MemberCardSignService {
   MemberCardSignService._();
 
-  static const int _kBatchChunkSize = kIsWeb ? 25 : 40;
-  static const int _kParallelFallback = kIsWeb ? 12 : 16;
+  /// Web: chunks menores evitam INTERNAL ASSERTION no WatchChangeAggregator.
+  static const int _kBatchChunkSize = kIsWeb ? 15 : 50;
   static const Duration _kChunkTimeout =
-      Duration(seconds: kIsWeb ? 22 : 18);
+      Duration(seconds: kIsWeb ? 32 : 22);
 
   static Duration batchCapFor(int count) {
     if (count <= 0) return const Duration(seconds: 30);
     if (kIsWeb) {
       return Duration(
-        seconds: (40 + (count * 1.4).ceil()).clamp(75, 240),
+        seconds: (40 + (count * 1.4).ceil()).clamp(70, 240),
       );
     }
-    return Duration(seconds: (50 + count).clamp(90, 300));
+    return Duration(seconds: (40 + (count * 0.8).ceil()).clamp(70, 240));
   }
 
-  static Future<({int ok, int fail, String? lastError})> signBatch({
+  static Future<({int ok, int fail, String? lastError, List<String> signedIds})>
+      signBatch({
     required String tenantId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
@@ -37,11 +38,19 @@ abstract final class MemberCardSignService {
   }) async {
     final ids =
         memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-    if (ids.isEmpty) return (ok: 0, fail: 0, lastError: null);
+    if (ids.isEmpty) {
+      return (ok: 0, fail: 0, lastError: null, signedIds: const <String>[]);
+    }
 
-    final churchId = MemberCardDirectoryService.resolveChurchId(tenantId.trim());
+    final churchId =
+        MemberCardDirectoryService.resolveChurchId(tenantId.trim());
     if (churchId.isEmpty) {
-      return (ok: 0, fail: ids.length, lastError: 'Igreja não identificada.');
+      return (
+        ok: 0,
+        fail: ids.length,
+        lastError: 'Igreja não identificada.',
+        signedIds: const <String>[],
+      );
     }
 
     return _signBatchImpl(
@@ -58,7 +67,8 @@ abstract final class MemberCardSignService {
     );
   }
 
-  static Future<({int ok, int fail, String? lastError})> _signBatchImpl({
+  static Future<({int ok, int fail, String? lastError, List<String> signedIds})>
+      _signBatchImpl({
     required String churchId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
@@ -72,33 +82,34 @@ abstract final class MemberCardSignService {
     }
 
     final col = ChurchUiCollections.membros(churchId);
+    // Timestamp concreto (não serverTimestamp): grava já no doc e aparece
+    // na carteirinha sem null no cache local — data/hora corretas Web/Android/iOS.
+    final signedAt = Timestamp.now();
     final payload = <String, dynamic>{
-      'carteirinhaAssinadaEm': FieldValue.serverTimestamp(),
+      'carteirinhaAssinadaEm': signedAt,
       'carteirinhaAssinadaPor': signatory.memberId,
       'carteirinhaAssinadaPorNome': signatory.nome,
       'carteirinhaAssinadaPorCargo': signatory.cargo,
       if (signatory.assinaturaUrl != null &&
           signatory.assinaturaUrl!.trim().isNotEmpty)
-        'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim()
-      else
-        'carteirinhaAssinaturaUrl': FieldValue.delete(),
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
+      'ATUALIZADO_EM': signedAt,
     };
 
     var ok = 0;
     var fail = 0;
     String? lastError;
     final total = memberIds.length;
+    final signedIds = <String>[];
 
     void report() => onProgress?.call(ok + fail, total);
 
-    Future<void> writeOne(String id) async {
-      final docRef = col.doc(id);
-      await runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: true)),
-        maxAttempts: kIsWeb ? 2 : 2,
-        criticalWrite: true,
-      ).timeout(const Duration(seconds: kIsWeb ? 12 : 10));
+    /// Escrita leve — sem hard recover por documento (evita ca9/b815 na web).
+    Future<void> writeOneLight(String id) async {
+      await col
+          .doc(id)
+          .set(payload, SetOptions(merge: true))
+          .timeout(const Duration(seconds: kIsWeb ? 14 : 10));
     }
 
     Future<void> writeChunkBatch(List<String> chunk) async {
@@ -108,26 +119,33 @@ abstract final class MemberCardSignService {
       }
       await runFirestorePublishWithRecovery(
         () => batch.commit(),
-        maxAttempts: kIsWeb ? 2 : 2,
+        maxAttempts: 2,
         criticalWrite: true,
       ).timeout(_kChunkTimeout);
     }
 
-    Future<void> writeChunkParallel(List<String> chunk) async {
-      await Future.wait(
-        chunk.map((id) async {
+    /// Fallback web: sequencial (nunca 16 writes + recover em paralelo).
+    Future<void> writeChunkSequential(List<String> chunk) async {
+      for (final id in chunk) {
+        try {
+          await writeOneLight(id);
+          ok++;
+          signedIds.add(id);
+        } catch (e1) {
           try {
-            await writeOne(id);
+            await Future<void>.delayed(const Duration(milliseconds: 350));
+            await writeOneLight(id);
             ok++;
-          } catch (e, st) {
+            signedIds.add(id);
+          } catch (e2, st) {
             fail++;
-            lastError = e.toString();
-            debugPrint('MemberCardSignService write $id: $e\n$st');
-          } finally {
-            report();
+            lastError = e2.toString();
+            debugPrint('MemberCardSignService write $id: $e2\n$st');
           }
-        }),
-      );
+        } finally {
+          report();
+        }
+      }
     }
 
     for (var i = 0; i < memberIds.length; i += _kBatchChunkSize) {
@@ -138,27 +156,35 @@ abstract final class MemberCardSignService {
       try {
         await writeChunkBatch(chunk);
         ok += chunk.length;
+        signedIds.addAll(chunk);
         report();
       } catch (batchError, batchSt) {
         debugPrint(
           'MemberCardSignService batch chunk fallback ($i): $batchError\n$batchSt',
         );
-        for (var j = 0; j < chunk.length; j += _kParallelFallback) {
-          final sub = chunk.sublist(
-            j,
-            min(j + _kParallelFallback, chunk.length),
-          );
-          await writeChunkParallel(sub);
+        // Um único soft recover por chunk — depois sequencial.
+        if (kIsWeb &&
+            (FirestoreWebGuard.isInternalAssertionError(batchError) ||
+                FirestoreWebGuard.isClientTerminated(batchError))) {
+          await FirestoreWebGuard.softRecoverWebSession().catchError((_) {});
+          try {
+            await writeChunkBatch(chunk);
+            ok += chunk.length;
+            signedIds.addAll(chunk);
+            report();
+            continue;
+          } catch (_) {}
         }
+        await writeChunkSequential(chunk);
       }
     }
 
-    if (ok > 0) {
+    if (signedIds.isNotEmpty) {
       MembersDirectorySnapshotService.patchMembersSignatureInMemory(
         tenantId: churchId,
-        memberIds: memberIds.take(ok).toList(),
+        memberIds: signedIds,
         signatureFields: {
-          'carteirinhaAssinadaEm': Timestamp.now(),
+          'carteirinhaAssinadaEm': signedAt,
           'carteirinhaAssinadaPor': signatory.memberId,
           'carteirinhaAssinadaPorNome': signatory.nome,
           'carteirinhaAssinadaPorCargo': signatory.cargo,
@@ -169,6 +195,11 @@ abstract final class MemberCardSignService {
       );
     }
 
-    return (ok: ok, fail: fail, lastError: lastError);
+    return (
+      ok: ok,
+      fail: fail,
+      lastError: lastError,
+      signedIds: List<String>.unmodifiable(signedIds),
+    );
   }
 }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 
 class UsersPage extends StatefulWidget {
   final String tenantId;
@@ -73,7 +74,7 @@ class _UsersPageState extends State<UsersPage> {
     if (ok != true) return;
 
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('setUserRole');
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable('setUserRole');
       await callable.call({
         'tenantId': widget.tenantId,
         'cpf': cpf,
@@ -135,7 +136,8 @@ class _UsersPageState extends State<UsersPage> {
                   final name = (m['name'] ?? m['nome'] ?? '').toString().toLowerCase();
                   final cpf = d.id.toLowerCase();
                   // Oculta o cadastro do master para outros usuários
-                  final isMaster = (m['role'] ?? '').toString().toLowerCase() == 'master' || email == 'raihom@gmail.com';
+                  final isMaster = (m['role'] ?? '').toString().toLowerCase() == 'master' ||
+                      AppConstants.isProductMasterAccount(email: email);
                   if (isMaster && widget.role.toLowerCase() != 'master') return false;
                   if (query.isEmpty) return true;
                   return email.contains(query) ||

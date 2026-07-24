@@ -1,8 +1,10 @@
 import 'dart:async' show Timer, unawaited;
 
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -22,6 +24,7 @@ import 'package:gestao_yahweh/services/member_card_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
 import 'package:gestao_yahweh/services/member_card_sign_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
@@ -187,7 +190,9 @@ class _MemberCardPageState extends State<MemberCardPage>
     final n = MemberProfilePhotoSyncNotifier.instance;
     final tid = (n.lastTenantId ?? '').trim();
     final uid = (n.lastAuthUid ?? '').trim();
-    if (!mounted || tid.isEmpty || uid.isEmpty) return;
+    final docId = (n.lastMemberDocId ?? '').trim();
+    if (!mounted || tid.isEmpty) return;
+    if (uid.isEmpty && docId.isEmpty) return;
     final church = _churchIdResolved.trim();
     if (church.isNotEmpty && tid != church && tid != widget.tenantId.trim()) {
       return;
@@ -200,16 +205,55 @@ class _MemberCardPageState extends State<MemberCardPage>
             '')
         .toString()
         .trim();
-    final matches = targetId == uid ||
-        payload?.memberId == uid ||
-        payloadAuth == uid ||
-        (preview != null &&
-            ((preview.data['authUid'] ?? '').toString().trim() == uid));
+    final matches = (uid.isNotEmpty &&
+            (targetId == uid ||
+                payload?.memberId == uid ||
+                payloadAuth == uid ||
+                (preview != null &&
+                    ((preview.data['authUid'] ?? '').toString().trim() ==
+                        uid)))) ||
+        (docId.isNotEmpty &&
+            (targetId == docId || payload?.memberId == docId));
     if (!matches && targetId.isNotEmpty) return;
+    // Atualiza payload em memória (directory já foi patchado no upload).
+    final payloadNow = _cardPayload;
+    if (payloadNow != null) {
+      final dir = MembersDirectorySnapshotService.peekMemory(tid) ??
+          MembersDirectorySnapshotService.peekMemory(church);
+      MemberDirectoryEntry? hit;
+      if (dir != null) {
+        for (final e in dir.entries) {
+          if (e.memberDocId == targetId ||
+              e.memberDocId == docId ||
+              e.memberDocId == payloadNow.memberId ||
+              (uid.isNotEmpty && (e.authUid ?? '').trim() == uid)) {
+            hit = e;
+            break;
+          }
+        }
+      }
+      if (hit != null) {
+        final merged = Map<String, dynamic>.from(payloadNow.member)
+          ..addAll(hit.toMemberDataMap());
+        if (n.lastCacheRevision > 0) {
+          merged['fotoUrlCacheRevision'] = n.lastCacheRevision;
+        }
+        setState(() {
+          _cardPayload = MemberCardLoadPayload(
+            igrejaDocId: payloadNow.igrejaDocId,
+            memberId: payloadNow.memberId,
+            member: merged,
+            tenant: payloadNow.tenant,
+          );
+        });
+      }
+    }
     if (widget.cnhFullscreenOnly || _isRestricted || preview != null) {
       unawaited(_loadSingleCard(
         memberId: preview?.id ?? widget.memberId,
-        seed: preview?.data ?? widget.memberSeedData,
+        seed: _cardPayload?.member ??
+            preview?.data ??
+            widget.memberSeedData,
         restricted: _isRestricted,
       ));
     } else {
@@ -348,7 +392,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   void _applySignLocally(List<String> ids, MemberCardSignatory signatory) {
     if (ids.isEmpty) return;
     final idSet = ids.map((e) => e.trim()).toSet();
-    final signedAt = DateTime.now().toIso8601String();
+    final signedAt = Timestamp.now();
     final signaturePatch = <String, dynamic>{
       'carteirinhaAssinadaEm': signedAt,
       'carteirinhaAssinadaPor': signatory.memberId,
@@ -943,39 +987,45 @@ class _MemberCardPageState extends State<MemberCardPage>
     setState(() => _signingBusy = true);
     final progress = ValueNotifier<int>(0);
     final totalSign = ids.length;
+    BuildContext? progressDialogContext;
     if (context.mounted) {
       unawaited(
         showDialog<void>(
           context: context,
           barrierDismissible: false,
-          builder: (ctx) => PopScope(
-            canPop: false,
-            child: AlertDialog(
-              title: const Text('Assinando carteirinhas…'),
-              content: ValueListenableBuilder<int>(
-                valueListenable: progress,
-                builder: (_, done, __) {
-                  final pct = totalSign > 0 ? (done / totalSign * 100).round() : 0;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      LinearProgressIndicator(
-                        value: totalSign > 0 ? done / totalSign : null,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '$done de $totalSign ($pct%)',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
+          useRootNavigator: true,
+          builder: (ctx) {
+            progressDialogContext = ctx;
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                title: const Text('Assinando carteirinhas…'),
+                content: ValueListenableBuilder<int>(
+                  valueListenable: progress,
+                  builder: (_, done, __) {
+                    final pct =
+                        totalSign > 0 ? (done / totalSign * 100).round() : 0;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LinearProgressIndicator(
+                          value: totalSign > 0 ? done / totalSign : null,
                         ),
-                      ),
-                    ],
-                  );
-                },
+                        const SizedBox(height: 12),
+                        Text(
+                          '$done de $totalSign ($pct%)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       );
     }
@@ -994,37 +1044,74 @@ class _MemberCardPageState extends State<MemberCardPage>
       if (!mounted) return;
       if (r.ok > 0 && r.fail == 0) {
         _applySignLocally(ids, signatory);
+      } else if (r.ok > 0 && r.signedIds.isNotEmpty) {
+        _applySignLocally(r.signedIds, signatory);
       }
       if (!context.mounted) return;
+      String friendlyErr(String? raw) {
+        final s = (raw ?? '').trim();
+        if (s.isEmpty) return '';
+        if (FirestoreWebGuard.isInternalAssertionError(s) ||
+            s.contains('INTERNAL ASSERTION') ||
+            s.contains('Unexpected state')) {
+          return 'Conexão com o banco instável na web. '
+              'Aguarde alguns segundos e tente novamente.';
+        }
+        return s.length > 160 ? '${s.substring(0, 160)}…' : s;
+      }
+
       final msg = r.fail == 0
           ? '${r.ok} carteirinha(s) assinada(s).'
           : r.ok > 0
               ? 'Assinadas: ${r.ok}. Falhas: ${r.fail}.'
               : (r.lastError != null && r.lastError!.trim().isNotEmpty
-                  ? 'Não foi possível assinar: ${r.lastError!.trim()}'
+                  ? 'Não foi possível assinar: ${friendlyErr(r.lastError)}'
                   : 'Não foi possível assinar. Verifique permissão e conexão.');
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(msg),
       );
       if (r.ok > 0) {
-        unawaited(_reloadMembers(forceRefresh: true));
-        if (_previewMember != null) {
-          unawaited(_loadSingleCard(
-            memberId: _previewMember!.id,
-            seed: _previewMember!.data,
-          ));
-        }
+        // UI já atualizada localmente — adia reload Firestore (evita assert web).
+        unawaited(() async {
+          await Future<void>.delayed(
+            Duration(milliseconds: kIsWeb ? 1500 : 400),
+          );
+          if (!mounted) return;
+          // Só forceRefresh se houve falhas parciais.
+          await _reloadMembers(forceRefresh: r.fail > 0);
+          if (_previewMember != null && mounted) {
+            await _loadSingleCard(
+              memberId: _previewMember!.id,
+              seed: _previewMember!.data,
+            );
+          }
+        }());
       }
     } catch (e) {
       if (!mounted) return;
+      final raw = e.toString();
+      final friendly =
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+                  raw.contains('INTERNAL ASSERTION') ||
+                  raw.contains('Unexpected state')
+              ? 'Conexão com o banco instável na web. '
+                  'Aguarde alguns segundos e tente novamente.'
+              : raw;
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro ao assinar: $e'),
+        ThemeCleanPremium.feedbackSnackBar('Erro ao assinar: $friendly'),
       );
     } finally {
-      if (context.mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
+      // PopScope(canPop: false) bloqueia maybePop — fechar com o context do diálogo.
+      final dctx = progressDialogContext;
+      if (dctx != null && dctx.mounted) {
+        Navigator.of(dctx).pop();
+      } else if (context.mounted) {
+        final nav = Navigator.of(context, rootNavigator: true);
+        if (nav.canPop()) nav.pop();
       }
-      progress.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        progress.dispose();
+      });
       if (mounted) setState(() => _signingBusy = false);
     }
   }
@@ -1677,6 +1764,16 @@ class _MemberCardPageState extends State<MemberCardPage>
       return const Center(child: Text('Dados incompletos para o cartão.'));
     }
     final logoUrl = sanitizeImageUrl(churchTenantLogoUrl(payload.tenant));
+    final memberPhotoRef = MemberProfilePhotoResolver.displayRef(
+      payload.member,
+      preferThumb: false,
+    );
+    final memberPhotoUrl = (memberPhotoRef ?? '').trim().isEmpty
+        ? null
+        : YahwehMediaCacheBust.applyFromDocRevision(
+            memberPhotoRef!,
+            payload.member,
+          );
     return SingleChildScrollView(
       padding: ThemeCleanPremium.pagePadding(context),
       child: Column(
@@ -1693,8 +1790,20 @@ class _MemberCardPageState extends State<MemberCardPage>
                 height: 56,
               ),
               photoSlot: SafeMemberProfilePhoto(
+                imageUrl: memberPhotoUrl,
                 tenantId: payload.igrejaDocId,
                 memberId: payload.memberId,
+                authUid: (payload.member['authUid'] ??
+                        payload.member['firebaseUid'] ??
+                        '')
+                    .toString()
+                    .trim()
+                    .isEmpty
+                    ? null
+                    : (payload.member['authUid'] ??
+                            payload.member['firebaseUid'])
+                        .toString()
+                        .trim(),
                 memberFirestoreHint: payload.member,
                 width: 88,
                 height: 88,

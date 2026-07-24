@@ -39,9 +39,7 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => firebaseDefaultFirestore.doc(_docPath).get(),
-      );
+      final snap = await firebaseDefaultFirestore.doc(_docPath).get();
       final data = snap.data();
       if (data != null) {
         for (final k in _flags.keys.toList()) {

@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap, isValidImageUrl, sanitizeImageUrl;
+    show isValidImageUrl, sanitizeImageUrl;
 
 /// Referência a um membro da igreja para avatares no chat (foto com revisão de cache).
 class ChurchChatMemberRef {
@@ -66,11 +67,17 @@ ChurchChatMemberRef? churchChatMemberRefFromMemberDoc(
     au = memberId;
   }
   if (au.isEmpty) return null;
-  final url = sanitizeImageUrl(imageUrlFromMap(d));
+  final resolved = MemberProfilePhotoResolver.displayRef(d, preferThumb: true);
+  final url = sanitizeImageUrl(resolved ?? '');
   return ChurchChatMemberRef(
     memberId: memberId,
     data: d,
     authUid: au,
-    photoUrl: isValidImageUrl(url) ? url : null,
+    photoUrl: (url.isNotEmpty &&
+            (isValidImageUrl(url) ||
+                url.contains('membros/') ||
+                url.toLowerCase().startsWith('gs://')))
+        ? url
+        : null,
   );
 }

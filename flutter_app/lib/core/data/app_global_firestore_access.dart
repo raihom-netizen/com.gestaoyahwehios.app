@@ -30,20 +30,39 @@ abstract final class AppGlobalFirestoreAccess {
   static Future<DocumentSnapshot<Map<String, dynamic>>> getConfig(
     String docId, {
     Source source = Source.serverAndCache,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(
-        () => configDoc(docId).get(GetOptions(source: source)),
-      );
+  }) async {
+    try {
+      return await configDoc(docId).get(GetOptions(source: source));
+    } catch (e) {
+      if (FirestoreWebGuard.isTransientPanelReadError(e)) {
+        return FirestoreReadResilience.getDocument(
+          configDoc(docId),
+          cacheKey: 'global_config_${docId.trim()}',
+        );
+      }
+      rethrow;
+    }
+  }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> watchConfig(
     String docId,
   ) =>
       FirestoreStreamUtils.documentWatchBootstrap(configDoc(docId));
 
-  static Future<DocumentSnapshot<Map<String, dynamic>>> getUser(String uid) =>
-      FirestoreWebGuard.runWithWebRecovery(
-        () => userDoc(uid).get(const GetOptions(source: Source.serverAndCache)),
-      );
+  static Future<DocumentSnapshot<Map<String, dynamic>>> getUser(String uid) async {
+    try {
+      return await userDoc(uid)
+          .get(const GetOptions(source: Source.serverAndCache));
+    } catch (e) {
+      if (FirestoreWebGuard.isTransientPanelReadError(e)) {
+        return FirestoreReadResilience.getDocument(
+          userDoc(uid),
+          cacheKey: 'global_user_${uid.trim()}',
+        );
+      }
+      rethrow;
+    }
+  }
 
   static Future<void> mergeUser(String uid, Map<String, dynamic> data) =>
       runFirestorePublishWithRecovery(

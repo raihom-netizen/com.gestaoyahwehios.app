@@ -13,6 +13,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:ui' show ImageByteFormat;
 
+import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -75,6 +76,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
@@ -307,6 +309,18 @@ class _MembersPageState extends State<MembersPage> {
       tenantId: _effectiveTenantId,
       memberDocId: memberDocId,
       authUid: (memberData['authUid'] ?? '').toString().trim(),
+    );
+    MemberProfilePhotoUpdateService.propagatePhotoToLocalModules(
+      tenantId: _effectiveTenantId,
+      memberDocId: memberDocId,
+      memberData: merged,
+      photoUrl: displayUrl,
+      photoThumbUrl: sanitizeImageUrl(
+        (result.thumbDownloadUrl ?? result.downloadUrl).toString(),
+      ),
+      cacheRevision: result.cacheRevision,
+      photoStoragePath: result.storagePath,
+      photoThumbStoragePath: result.thumbStoragePath,
     );
     Future.delayed(const Duration(seconds: 90), () {
       if (!mounted) return;
@@ -2388,33 +2402,36 @@ class _MembersPageState extends State<MembersPage> {
   Future<void> _aprovarMembrosPorIds(Set<String> ids) async {
     if (ids.isEmpty || !mounted) return;
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-    final linkage = await _getTenantLinkage();
-    final col =         ChurchUiCollections.membros(_effectiveTenantId);
-    final batch = ChurchRepository.batch();
-    for (final id in ids) {
-      batch.update(col.doc(id), {
-        'alias': linkage['alias'],
-        'slug': linkage['slug'],
-        'tenantId': _effectiveTenantId,
-        'status': 'ativo',
-        'STATUS': 'ativo',
-        'aprovadoEm': FieldValue.serverTimestamp(),
-      });
-    }
-    await batch.commit();
     final fn = FirebaseFunctions.instanceFor(region: 'us-central1');
+    var okCount = 0;
+    Object? lastErr;
     for (final id in ids) {
       try {
-        await fn
-            .httpsCallable('setMemberApproved')
-            .call({'tenantId': _effectiveTenantId, 'memberId': id});
-      } catch (_) {}
+        // Só CF — evita update local + migração criar pendente+ativo duplicado.
+        await fn.httpsCallable('setMemberApproved').call({
+          'tenantId': _effectiveTenantId,
+          'memberId': id,
+        });
+        okCount++;
+      } catch (e) {
+        lastErr = e;
+      }
     }
+    MembersDirectorySnapshotService.invalidateMemory(_effectiveTenantId);
+    unawaited(ChurchAprovacoesLoadService.invalidate(_effectiveTenantId));
     if (mounted) {
       setState(() => _selectedPendingIds.removeWhere(ids.contains));
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (okCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-              '${ids.length} membro(s) aprovado(s).'));
+            '$okCount membro(s) aprovado(s).',
+          ),
+        );
+      } else if (lastErr != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Falha ao aprovar: $lastErr')),
+        );
+      }
       _refreshMembers();
     }
   }
@@ -3124,7 +3141,7 @@ class _MembersPageState extends State<MembersPage> {
                   _DetailRow(
                       icon: Icons.phone_rounded,
                       label: 'Telefone',
-                      value: phone),
+                      value: brPhoneMaskLive(phone)),
                 if (email.isNotEmpty)
                   _DetailRow(
                       icon: Icons.email_rounded, label: 'E-mail', value: email),
@@ -3244,8 +3261,9 @@ class _MembersPageState extends State<MembersPage> {
     final nameCtrl =
         TextEditingController(text: _str(d, 'NOME_COMPLETO', 'nome', 'name'));
     final emailCtrl = TextEditingController(text: _str(d, 'EMAIL', 'email'));
-    final phoneCtrl =
-        TextEditingController(text: _str(d, 'TELEFONES', 'telefone'));
+    final phoneCtrl = TextEditingController(
+      text: brPhoneMaskLive(_str(d, 'TELEFONES', 'telefone')),
+    );
     final cpfCtrl = TextEditingController(text: _str(d, 'CPF', 'cpf'));
     final codigoMembroInicial = MemberCodigoService.readFromMember(d);
     final enderecoCtrl =
@@ -3673,7 +3691,9 @@ class _MembersPageState extends State<MembersPage> {
                               controller: phoneCtrl,
                               label: 'Telefone',
                               icon: Icons.phone_rounded,
-                              type: TextInputType.phone),
+                              type: TextInputType.phone,
+                              inputFormatters: const [BrPhoneInputFormatter()],
+                              hint: '62 9.9170-5247'),
                           _EditField(
                               controller: emailCtrl,
                               label: 'E-mail',
@@ -9707,12 +9727,16 @@ class _EditField extends StatelessWidget {
   final String label;
   final IconData icon;
   final TextInputType type;
+  final List<TextInputFormatter>? inputFormatters;
+  final String? hint;
 
   const _EditField(
       {required this.controller,
       required this.label,
       required this.icon,
-      this.type = TextInputType.text});
+      this.type = TextInputType.text,
+      this.inputFormatters,
+      this.hint});
 
   @override
   Widget build(BuildContext context) {
@@ -9721,8 +9745,10 @@ class _EditField extends StatelessWidget {
       child: TextField(
         controller: controller,
         keyboardType: type,
+        inputFormatters: inputFormatters,
         decoration: InputDecoration(
           labelText: label,
+          hintText: hint,
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
           prefixIcon: Icon(icon),

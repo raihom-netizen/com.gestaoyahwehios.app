@@ -33,7 +33,7 @@ abstract final class PanelResilientLoad {
   PanelResilientLoad._();
 
   static const Duration webQueryCap = Duration(seconds: 14);
-  static const Duration webLoadingCap = Duration(seconds: 14);
+  static const Duration webLoadingCap = Duration(seconds: 22);
 
   static Duration get queryCap => kIsWeb ? webQueryCap : const Duration(seconds: 90);
 

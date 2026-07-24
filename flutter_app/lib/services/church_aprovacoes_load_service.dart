@@ -72,7 +72,10 @@ abstract final class ChurchAprovacoesLoadService {
         DateTime at,
       })> _pendentesRam = {};
 
-  static const Duration _ramTtl = Duration(minutes: 20);
+  /// Lista com itens: TTL mais longo (UX offline).
+  static const Duration _ramTtl = Duration(minutes: 5);
+  /// Lista vazia: TTL curto — senão cadastro público novo demora a aparecer.
+  static const Duration _ramEmptyTtl = Duration(seconds: 12);
 
   static String _resolve(String hint) =>
       ChurchPanelTenant.forFirestore(hint.trim());
@@ -102,6 +105,11 @@ abstract final class ChurchAprovacoesLoadService {
     return DateTime.tryParse(raw?.toString() ?? '');
   }
 
+  static Duration _ttlForPendentesRam(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      docs.isEmpty ? _ramEmptyTtl : _ramTtl;
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekPendentesRam(
     String seedTenantId,
   ) {
@@ -109,7 +117,7 @@ abstract final class ChurchAprovacoesLoadService {
     if (key.isEmpty) return null;
     final hit = _pendentesRam[key];
     if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ramTtl) {
+    if (DateTime.now().difference(hit.at) > _ttlForPendentesRam(hit.docs)) {
       _pendentesRam.remove(key);
       return null;
     }
@@ -121,7 +129,7 @@ abstract final class ChurchAprovacoesLoadService {
     if (key.isEmpty) return false;
     final hit = _pendentesRam[key];
     if (hit == null) return false;
-    if (DateTime.now().difference(hit.at) > _ramTtl) {
+    if (DateTime.now().difference(hit.at) > _ttlForPendentesRam(hit.docs)) {
       _pendentesRam.remove(key);
       return false;
     }
@@ -322,12 +330,9 @@ abstract final class ChurchAprovacoesLoadService {
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
 
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readPlain,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 14))
-        : await readPlain().timeout(ChurchPanelReadTimeouts.warmCap);
+    final snap = await readPlain().timeout(
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.warmCap,
+    );
 
     return snap.docs;
   }
@@ -355,12 +360,9 @@ abstract final class ChurchAprovacoesLoadService {
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
       try {
-        final snap = kIsWeb
-            ? await FirestoreWebGuard.runWithWebRecovery(
-                read,
-                maxAttempts: 4,
-              ).timeout(const Duration(seconds: 14))
-            : await read().timeout(ChurchPanelReadTimeouts.queryCap);
+        final snap = await read().timeout(
+          kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+        );
         queriesSucceeded++;
         for (final d in snap.docs) {
           byId[d.id] = d;
@@ -394,12 +396,10 @@ abstract final class ChurchAprovacoesLoadService {
 
     // Cache local antes do scan pesado (800 docs).
     try {
-      final cacheSnap = await FirestoreWebGuard.runWithWebRecovery(
-        () => col
-            .limit(kMembrosScanLimit)
-            .get(const GetOptions(source: Source.cache)),
-        maxAttempts: 2,
-      ).timeout(const Duration(seconds: 4));
+      final cacheSnap = await col
+          .limit(kMembrosScanLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
       if (cacheSnap.docs.isNotEmpty) {
         return _filterPendentes(cacheSnap.docs);
       }
@@ -440,7 +440,8 @@ abstract final class ChurchAprovacoesLoadService {
 
     if (!forceRefresh) {
       final local = await _tryLocalCaches(churchId);
-      if (local != null) {
+      // Cache vazio NÃO adianta rede — cadastro público novo sumia das aprovações.
+      if (local != null && local.docs.isNotEmpty) {
         unawaited(_refreshPendentesInBackground(churchId, cacheKey));
         return local;
       }
@@ -651,30 +652,24 @@ abstract final class ChurchAprovacoesLoadService {
       final t0 = Timestamp.fromDate(start);
       final t1 = Timestamp.fromDate(end);
       try {
-        final aSnap = await FirestoreWebGuard.runWithWebRecovery(
-          () => col
-              .where('status', isEqualTo: 'ativo')
-              .where('aprovadoEm', isGreaterThanOrEqualTo: t0)
-              .where('aprovadoEm', isLessThanOrEqualTo: t1)
-              .orderBy('aprovadoEm', descending: true)
-              .limit(400)
-              .get(),
-          maxAttempts: 3,
-        );
+        final aSnap = await col
+            .where('status', isEqualTo: 'ativo')
+            .where('aprovadoEm', isGreaterThanOrEqualTo: t0)
+            .where('aprovadoEm', isLessThanOrEqualTo: t1)
+            .orderBy('aprovadoEm', descending: true)
+            .limit(400)
+            .get();
         approved = aSnap.docs;
       } catch (_) {}
 
       try {
-        final rSnap = await FirestoreWebGuard.runWithWebRecovery(
-          () => col
-              .where('status', isEqualTo: 'reprovado')
-              .where('reprovadoEm', isGreaterThanOrEqualTo: t0)
-              .where('reprovadoEm', isLessThanOrEqualTo: t1)
-              .orderBy('reprovadoEm', descending: true)
-              .limit(200)
-              .get(),
-          maxAttempts: 3,
-        );
+        final rSnap = await col
+            .where('status', isEqualTo: 'reprovado')
+            .where('reprovadoEm', isGreaterThanOrEqualTo: t0)
+            .where('reprovadoEm', isLessThanOrEqualTo: t1)
+            .orderBy('reprovadoEm', descending: true)
+            .limit(200)
+            .get();
         rejected = rSnap.docs;
       } catch (_) {}
     }

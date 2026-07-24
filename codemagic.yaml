@@ -181,8 +181,12 @@ workflows:
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID APP_GROUP_NAME
           python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
-          echo "Aguardando propagacao App Groups (90s)..."
-          sleep 90
+          echo "Aguardando propagacao App Groups (120s)..."
+          sleep 120
+          # Fail-fast: capability do Widget TEM de listar o group.com… antes de criar perfil.
+          export APP_GROUPS_ONLY_BUNDLE="$WIDGET_BUNDLE_ID"
+          python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
+          unset APP_GROUPS_ONLY_BUNDLE
       - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
         script: |
           set -e
@@ -211,6 +215,8 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export WIDGET_BUNDLE_ID APP_GROUP_ID BUNDLE_ID IOS_BUNDLE_ID
+          export WIDGET_PROFILE_MAX_ATTEMPTS=5
+          export WIDGET_APP_GROUP_PROPAGATE_SEC=45
           # Se o passo anterior (api_only) não deixou /tmp/cm_distribution.p12, o script
           # recria a partir do secret / perfil Runner / PEM — nunca usa fetch-signing-files.
           if [ ! -s /tmp/cm_distribution.p12 ]; then

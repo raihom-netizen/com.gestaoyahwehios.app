@@ -7,7 +7,7 @@ void reloadWeb() {
 }
 
 /// Recarga garantida do bundle novo: remove service workers, limpa o
-/// CacheStorage e navega com query de cache-bust (`gyhUpd`).
+/// CacheStorage e navega para URL **estável** (sem spam de query).
 Future<void> hardReloadWeb() async {
   try {
     final sw = html.window.navigator.serviceWorker;
@@ -33,11 +33,20 @@ Future<void> hardReloadWeb() async {
       }
     }
   } catch (_) {}
+  try {
+    final ss = html.window.sessionStorage;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final last = int.tryParse(ss['gyh_hard_reload_at'] ?? '') ?? 0;
+    if (last > 0 && (now - last) < 180000) {
+      return;
+    }
+    ss['gyh_hard_reload_at'] = '$now';
+  } catch (_) {}
   final loc = html.window.location;
-  final uri = Uri.parse(loc.href);
-  final qp = Map<String, String>.from(uri.queryParameters);
-  qp['gyhUpd'] = DateTime.now().millisecondsSinceEpoch.toString();
-  loc.replace(uri.replace(queryParameters: qp).toString());
+  final path = loc.pathname ?? '/';
+  final pathNorm = path.endsWith('/') ? path : '$path/';
+  final clean = '${loc.origin}$pathNorm';
+  loc.replace(clean);
 }
 
 /// Build publicado no Hosting (`version.json`) — 0 se indisponível.

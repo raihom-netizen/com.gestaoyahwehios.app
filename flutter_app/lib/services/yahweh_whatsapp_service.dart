@@ -125,7 +125,7 @@ abstract final class YahwehWhatsAppService {
           ? lng.toDouble()
           : (lng != null ? double.tryParse(lng.toString()) : null),
       publicSiteUrl: links.publicSiteUrl,
-      inviteCardUrl: links.eventPageUrl,
+      inviteCardUrl: links.socialPreviewUrl,
       tenantId: tenantId,
       noticiaId: noticiaId,
       churchSlug: slug,
@@ -133,30 +133,28 @@ abstract final class YahwehWhatsAppService {
     );
   }
 
-  /// WhatsApp / folha nativa com fotos e vídeo + texto completo.
+  /// WhatsApp / folha nativa com fotos e vídeo + texto completo (web + Android + iOS).
   static Future<bool> sendNoticiaWithMedia({
     required String message,
     required Map<String, dynamic> postData,
     Rect? sharePositionOrigin,
   }) async {
-    if (!kIsWeb) {
-      try {
-        final media = await fetchNoticiaShareMediaBundle(postData);
-        if (media.isNotEmpty) {
-          await YahwehShareService.shareMediaBundle(
-            files: media,
-            message: message,
-            subject: 'Convite',
-            sharePositionOrigin: sharePositionOrigin,
-          );
-          return true;
-        }
-      } catch (_) {}
-    }
+    try {
+      final media = await fetchNoticiaShareMediaBundle(postData);
+      if (media.isNotEmpty) {
+        await YahwehShareService.shareMediaBundle(
+          files: media,
+          message: message,
+          subject: 'Convite',
+          sharePositionOrigin: sharePositionOrigin,
+        );
+        return true;
+      }
+    } catch (_) {}
     return openNoticiaBroadcast(message);
   }
 
-  /// 1 clique: convite premium + mídia (mobile) ou texto (web).
+  /// 1 clique: convite premium + mídia (web + Android + iOS); fallback texto.
   static Future<bool> sendNoticiaOneTap({
     required String churchName,
     required String churchSlug,

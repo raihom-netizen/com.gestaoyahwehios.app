@@ -232,12 +232,7 @@ abstract final class ChurchCertificadosLoadService {
       Future<QuerySnapshot<Map<String, dynamic>>> readServer() => col.get(
             const GetOptions(source: Source.server),
           );
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              readServer,
-              maxAttempts: 4,
-            ).timeout(ChurchPanelReadTimeouts.queryCap)
-          : await readServer().timeout(ChurchPanelReadTimeouts.queryCap);
+      final snap = await readServer().timeout(ChurchPanelReadTimeouts.queryCap);
       if (snap.docs.isNotEmpty) return snap.docs;
     }
 
@@ -251,12 +246,7 @@ abstract final class ChurchCertificadosLoadService {
               : const Duration(seconds: 12),
         );
 
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            read,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await read().timeout(ChurchPanelReadTimeouts.queryCap);
+    final snap = await read().timeout(ChurchPanelReadTimeouts.queryCap);
     if (snap.docs.isNotEmpty) return snap.docs;
 
     Future<QuerySnapshot<Map<String, dynamic>>> readLegacyMembers() =>
@@ -270,12 +260,7 @@ abstract final class ChurchCertificadosLoadService {
               ? const Duration(seconds: 18)
               : const Duration(seconds: 12),
         );
-    final legacySnap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readLegacyMembers,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readLegacyMembers().timeout(ChurchPanelReadTimeouts.queryCap);
+    final legacySnap = await readLegacyMembers().timeout(ChurchPanelReadTimeouts.queryCap);
     return legacySnap.docs;
   }
 

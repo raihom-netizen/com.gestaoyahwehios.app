@@ -16,6 +16,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_credentials.dart';
+import 'package:gestao_yahweh/features/chat/presentation/telegram_login_screen.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/services/auth_service.dart';
@@ -414,6 +416,11 @@ String? _extractChurchSlugFromHost(String host) =>
 void main() async {
   // 1. Bindings Flutter antes de qualquer plugin nativo/async.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 1b. Secrets TDLib (Telegram) — `.env` (gitignore); soft-fail se ausente.
+  try {
+    await loadTdlibDotEnv();
+  } catch (_) {}
 
   // 2. Firebase — init único/canônico (app [DEFAULT] + options da plataforma).
   //    Obrigatório antes de Firestore/Auth/Storage ou runApp (evita core/no-app).
@@ -1437,6 +1444,11 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 case '/politica-de-privacidade':
                 case '/privacidade':
                   pagina = const PoliticaPrivacidadePage();
+                  break;
+                case '/tdlib-login':
+                case '/telegram-tdlib':
+                  // Rota de teste do motor TDLib nativo (Android/iOS).
+                  pagina = const TelegramLoginScreen();
                   break;
                 default:
                   pagina = const SitePublicPage();

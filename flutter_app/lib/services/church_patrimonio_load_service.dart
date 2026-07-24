@@ -639,10 +639,7 @@ abstract final class ChurchPatrimonioLoadService {
 
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        read,
-        maxAttempts: 4,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      final snap = await read().timeout(ChurchPanelReadTimeouts.queryCap);
       return snap.docs;
     }
 

@@ -48,7 +48,9 @@ class PanelHomeMemberLite {
       return v.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
     }
 
-    final photo = (raw['photoUrl'] ?? '').toString().trim();
+    final photo = (raw['photoUrl'] ?? raw['fotoUrl'] ?? raw['fotoThumbUrl'] ?? '')
+        .toString()
+        .trim();
     return PanelHomeMemberLite(
       memberDocId: (raw['memberDocId'] ?? '').toString(),
       displayName: (raw['displayName'] ?? 'Membro').toString(),
