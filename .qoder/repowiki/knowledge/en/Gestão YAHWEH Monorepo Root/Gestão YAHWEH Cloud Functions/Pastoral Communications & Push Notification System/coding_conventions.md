@@ -1,0 +1,6 @@
+- Every HTTPS callable function validates authentication via `context.auth`, normalizes string inputs with `String(...).trim()`, and throws `functions.https.HttpsError` with codes like `invalid-argument`, `permission-denied`, `not-found`, `failed-precondition`, or `internal`.
+- Role checks follow a consistent pattern: call `canSendChurchCommunications(uid, token.role, token.tenantId, tenantId)` (or the narrower `canNotifyScheduleForUser`) before any write, falling back to DB lookups when token fields are missing.
+- FCM messages are always built through `buildGyTopicMessage` or `buildGyTokenMessage` from `notificationBranding.ts`, never constructed inline, ensuring consistent branding, accent colors, and platform-specific payloads.
+- Firestore-triggered functions return `null` on success and log errors via `functions.logger.error` without rethrowing, so failures do not retry indefinitely.
+- Bulk FCM sends are split into batches of 400 via `sendEachInBatches`, and token collection helpers (`collectFcmTokensForCpfs`, `collectFcmTokensForUids`) deduplicate results using a `Set<string>`.
+- Tenant-scoped data is accessed through the `igrejas/{tenantId}/...` path pattern, with field names accepted in multiple casing variants (e.g. `CPF`/`cpf`, `EMAIL`/`email`, `NOME_COMPLETO`/`nome`) normalized via helper functions.

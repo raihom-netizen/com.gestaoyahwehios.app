@@ -755,7 +755,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     });
   }
 
-  Future<void> _deletar(String docId, {Map<String, dynamic>? data}) async {
+  Future<bool> _deletar(String docId, {Map<String, dynamic>? data}) async {
     if (data != null && !_canManage(data)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -764,7 +764,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           ),
         );
       }
-      return;
+      return false;
     }
     if (data == null && !_isLeader) {
       if (mounted) {
@@ -774,7 +774,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
           ),
         );
       }
-      return;
+      return false;
     }
     final ok = await showDialog<bool>(
       context: context,
@@ -807,6 +807,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                   style: TextStyle(color: Colors.white)),
               backgroundColor: Colors.green));
         }
+        return true;
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -816,8 +817,10 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                 ),
               ));
         }
+        return false;
       }
     }
+    return false;
   }
 
   void _exitSelectionMode() {
@@ -828,14 +831,29 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
   }
 
   Widget _buildSelectionBar() {
+    final oneSelected = _selectedIds.length == 1;
+    QueryDocumentSnapshot<Map<String, dynamic>>? editDoc;
+    if (oneSelected) {
+      final id = _selectedIds.first;
+      for (final d in _pedidosDocs) {
+        if (d.id == id) {
+          editDoc = d;
+          break;
+        }
+      }
+    }
     return Material(
       elevation: 12,
       color: Colors.white,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: Row(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: WrapAlignment.spaceBetween,
             children: [
               TextButton(
                 onPressed: _bulkDeleting
@@ -843,27 +861,34 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                     : () => setState(() => _selectedIds.clear()),
                 child: const Text('Limpar'),
               ),
-              Expanded(
-                child: Text(
-                  '${_selectedIds.length} selecionado(s)',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
+              Text(
+                '${_selectedIds.length} selecionado(s)',
+                style: const TextStyle(fontWeight: FontWeight.w700),
               ),
               TextButton(
-                onPressed: _bulkDeleting ? null : () => _selectAllFromSnap(),
+                onPressed: _bulkDeleting ? null : () => _selectAllVisible(),
                 child: const Text('Todos'),
               ),
-              if (_isLeader) ...[
-                const SizedBox(width: 4),
+              if (oneSelected && editDoc != null)
+                OutlinedButton.icon(
+                  onPressed: _bulkDeleting
+                      ? null
+                      : () {
+                          final doc = editDoc!;
+                          _exitSelectionMode();
+                          _abrirFormularioEdicao(doc);
+                        },
+                  icon: const Icon(Icons.edit_rounded, size: 18),
+                  label: const Text('Editar'),
+                ),
+              if (_isLeader)
                 OutlinedButton(
                   onPressed: _bulkDeleting || _selectedIds.isEmpty
                       ? null
-                      : () => _confirmClearOrandoSelected(_selectedIds.toList()),
+                      : () =>
+                          _confirmClearOrandoSelected(_selectedIds.toList()),
                   child: const Text('Limpar orando'),
                 ),
-              ],
-              const SizedBox(width: 4),
               FilledButton.icon(
                 onPressed: _bulkDeleting || _selectedIds.isEmpty
                     ? null
@@ -882,6 +907,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                 style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.error,
                   foregroundColor: Colors.white,
+                  minimumSize: const Size(48, 48),
                 ),
               ),
             ],
@@ -891,13 +917,80 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
     );
   }
 
-  Future<void> _selectAllFromSnap() async {
+  Future<void> _selectAllVisible() async {
     if (!mounted) return;
-    final ids = _pedidosDocs
-        .where((d) => _canSee(d.data()))
-        .map((d) => d.id)
-        .toList();
-    setState(() => _selectedIds.addAll(ids));
+    var visibleDocs =
+        _pedidosDocs.where((d) => _canSee(d.data())).toList();
+    final rf = _respondidaFilterFromStatus();
+    if (rf != null) {
+      visibleDocs = visibleDocs.where((d) {
+        final r = _asBool(d.data()['respondida']);
+        return rf ? r : !r;
+      }).toList();
+    }
+    setState(() {
+      _selectedIds
+        ..clear()
+        ..addAll(visibleDocs.map((d) => d.id));
+    });
+  }
+
+  void _openPrayerKpiPreview({
+    required String title,
+    required _PrayerPreviewFilter filter,
+  }) {
+    final docs = _pedidosDocs.where((d) {
+      if (!_canSee(d.data())) return false;
+      final data = d.data();
+      switch (filter) {
+        case _PrayerPreviewFilter.pendentes:
+          return !_asBool(data['respondida']);
+        case _PrayerPreviewFilter.respondidas:
+          return _asBool(data['respondida']);
+        case _PrayerPreviewFilter.orando:
+          return _asInt(data['orandoCount']) > 0 ||
+              _asStringList(data['orandoUids']).isNotEmpty ||
+              PrayerOrandoMembrosDenorm.parseList(data['orandoMembros'])
+                  .isNotEmpty;
+        case _PrayerPreviewFilter.todos:
+          return true;
+        case _PrayerPreviewFilter.abertos:
+          return !_asBool(data['respondida']);
+        case _PrayerPreviewFilter.intercessoes:
+          return _asInt(data['orandoCount']) > 0 ||
+              _asStringList(data['orandoUids']).isNotEmpty ||
+              PrayerOrandoMembrosDenorm.parseList(data['orandoMembros'])
+                  .isNotEmpty;
+      }
+    }).toList();
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _PrayerFilteredPreviewPage(
+          title: title,
+          docs: docs,
+          currentUid: _currentUser?.uid,
+          canManage: _canManage,
+          mergedData: _mergedPedidoData,
+          onEdit: _abrirFormularioEdicao,
+          onMarkRespondida: (id) => _marcarRespondida(id),
+          onDelete: (doc) =>
+              _deletar(doc.id, data: _mergedPedidoData(doc)),
+          onToggleOrando: (doc, uids, membros) =>
+              _toggleOrando(doc.id, uids, membros),
+          onShowOrando: (doc, membros, uids) => _showOrandoMembersSheet(
+            docId: doc.id,
+            orandoMembros: membros,
+            orandoUids: uids,
+          ),
+          parseDate: _parsePedidoDate,
+          asBool: _asBool,
+          asStringList: _asStringList,
+          asInt: _asInt,
+          timeAgo: _timeAgo,
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmDeleteSelected(int count) async {
@@ -1356,6 +1449,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                     child: const Text('Cancelar'),
                   )
                 else if (_isLeader) ...[
+                  IconButton(
+                    tooltip: 'Selecionar',
+                    icon: const Icon(Icons.checklist_rounded),
+                    onPressed: () => setState(() => _selectionMode = true),
+                  ),
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert_rounded),
                     tooltip: 'Mais opções',
@@ -1488,6 +1586,21 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                             canSee: _canSee,
                             onDataChanged: () =>
                                 unawaited(_fetchPedidos(forceFresh: true)),
+                            onOpenPreview: (title, filterKey) {
+                              final map = {
+                                'total': _PrayerPreviewFilter.todos,
+                                'abertos': _PrayerPreviewFilter.abertos,
+                                'respondidos':
+                                    _PrayerPreviewFilter.respondidas,
+                                'intercessoes':
+                                    _PrayerPreviewFilter.intercessoes,
+                              };
+                              _openPrayerKpiPreview(
+                                title: title,
+                                filter: map[filterKey] ??
+                                    _PrayerPreviewFilter.todos,
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -1522,8 +1635,6 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
       orandoTotal += _asInt(d.data()['orandoCount']);
     }
 
-    final isNarrow = ThemeCleanPremium.isNarrow(context);
-
     return RefreshIndicator(
       onRefresh: () async => _fetchPedidos(forceFresh: true),
       child: CustomScrollView(
@@ -1544,6 +1655,22 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                 pendentes: pendentes,
                 respondidas: respondidas,
                 orandoTotal: orandoTotal,
+                onTapTotal: () => _openPrayerKpiPreview(
+                  title: 'Todos os pedidos',
+                  filter: _PrayerPreviewFilter.todos,
+                ),
+                onTapPendentes: () => _openPrayerKpiPreview(
+                  title: 'Pendentes',
+                  filter: _PrayerPreviewFilter.pendentes,
+                ),
+                onTapRespondidas: () => _openPrayerKpiPreview(
+                  title: 'Respondidas',
+                  filter: _PrayerPreviewFilter.respondidas,
+                ),
+                onTapOrando: () => _openPrayerKpiPreview(
+                  title: 'Orando',
+                  filter: _PrayerPreviewFilter.orando,
+                ),
               ),
             ),
           ),
@@ -1608,58 +1735,55 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
                 right: padding.right,
                 bottom: 96,
               ),
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: isNarrow ? 2 : 3,
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  childAspectRatio: isNarrow ? 0.72 : 0.85,
-                ),
+              sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final doc = visibleDocs[i];
                     final id = doc.id;
-                    return _PrayerGridTile(
-                      data: _mergedPedidoData(doc),
-                      selectionMode: _selectionMode && _isLeader,
-                      selected: _selectedIds.contains(id),
-                      canManage: _canManage(_mergedPedidoData(doc)),
-                      currentUid: _currentUser?.uid,
-                      onSelectionChanged: _selectionMode && _isLeader
-                          ? (v) => setState(() {
-                                if (v) {
-                                  _selectedIds.add(id);
-                                } else {
-                                  _selectedIds.remove(id);
-                                }
-                              })
-                          : null,
-                      onTap: _selectionMode && _isLeader
-                          ? () => setState(() {
-                                if (_selectedIds.contains(id)) {
-                                  _selectedIds.remove(id);
-                                } else {
-                                  _selectedIds.add(id);
-                                }
-                              })
-                          : null,
-                      onEdit: () => _abrirFormularioEdicao(doc),
-                      onMarkRespondida: () => _marcarRespondida(doc.id),
-                      onDelete: () =>
-                          _deletar(doc.id, data: _mergedPedidoData(doc)),
-                      onToggleOrando: (uids, membros) =>
-                          _toggleOrando(doc.id, uids, membros),
-                      onShowOrando: (membros, uids) =>
-                          _showOrandoMembersSheet(
-                        docId: doc.id,
-                        orandoMembros: membros,
-                        orandoUids: uids,
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _PrayerModernRow(
+                        data: _mergedPedidoData(doc),
+                        selectionMode: _selectionMode && _isLeader,
+                        selected: _selectedIds.contains(id),
+                        canManage: _canManage(_mergedPedidoData(doc)),
+                        currentUid: _currentUser?.uid,
+                        onSelectionChanged: _selectionMode && _isLeader
+                            ? (v) => setState(() {
+                                  if (v) {
+                                    _selectedIds.add(id);
+                                  } else {
+                                    _selectedIds.remove(id);
+                                  }
+                                })
+                            : null,
+                        onTap: _selectionMode && _isLeader
+                            ? () => setState(() {
+                                  if (_selectedIds.contains(id)) {
+                                    _selectedIds.remove(id);
+                                  } else {
+                                    _selectedIds.add(id);
+                                  }
+                                })
+                            : null,
+                        onEdit: () => _abrirFormularioEdicao(doc),
+                        onMarkRespondida: () => _marcarRespondida(doc.id),
+                        onDelete: () =>
+                            _deletar(doc.id, data: _mergedPedidoData(doc)),
+                        onToggleOrando: (uids, membros) =>
+                            _toggleOrando(doc.id, uids, membros),
+                        onShowOrando: (membros, uids) =>
+                            _showOrandoMembersSheet(
+                          docId: doc.id,
+                          orandoMembros: membros,
+                          orandoUids: uids,
+                        ),
+                        parseDate: _parsePedidoDate,
+                        asBool: _asBool,
+                        asStringList: _asStringList,
+                        asInt: _asInt,
+                        timeAgo: _timeAgo,
                       ),
-                      parseDate: _parsePedidoDate,
-                      asBool: _asBool,
-                      asStringList: _asStringList,
-                      asInt: _asInt,
-                      timeAgo: _timeAgo,
                     );
                   },
                   childCount: visibleDocs.length,
@@ -1689,8 +1813,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage>
 
 }
 
-class _PrayerGridTile extends StatelessWidget {
-  const _PrayerGridTile({
+class _PrayerModernRow extends StatelessWidget {
+  const _PrayerModernRow({
     required this.data,
     required this.selectionMode,
     required this.selected,
@@ -1753,6 +1877,37 @@ class _PrayerGridTile extends StatelessWidget {
         currentUid != null && orandoUids.contains(currentUid);
     final catFg = _PrayerRequestsPageState.categoriaAccent(categoria);
     final initial = nome.isNotEmpty ? nome[0].toUpperCase() : '?';
+    final narrow = ThemeCleanPremium.isNarrow(context);
+
+    final actions = <Widget>[
+      _OrandoButton(
+        isOrando: isOrando,
+        count: orandoCount,
+        onTap: () => onToggleOrando(orandoUids, orandoMembros),
+      ),
+      if (!selectionMode && canManage) ...[
+        IconButton(
+          tooltip: 'Editar',
+          onPressed: onEdit,
+          icon: const Icon(Icons.edit_outlined, size: 20),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        ),
+        IconButton(
+          tooltip: 'Excluir',
+          onPressed: onDelete,
+          icon: Icon(Icons.delete_outline_rounded,
+              size: 20, color: ThemeCleanPremium.error),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        ),
+        if (!respondida)
+          IconButton(
+            tooltip: 'Marcar respondida',
+            onPressed: onMarkRespondida,
+            icon: const Icon(Icons.check_circle_outline_rounded, size: 20),
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+      ],
+    ];
 
     return Material(
       color: Colors.transparent,
@@ -1762,38 +1917,33 @@ class _PrayerGridTile extends StatelessWidget {
         child: Ink(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            gradient: _PrayerPremiumTheme.cardGradient(categoria),
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                catFg.withValues(alpha: 0.08),
+                Colors.white,
+              ],
+            ),
             border: Border.all(
               color: selected
                   ? _PrayerPremiumTheme.accent
                   : respondida
                       ? const Color(0xFF86EFAC).withValues(alpha: 0.7)
-                      : catFg.withValues(alpha: 0.2),
-              width: selected ? 2 : 1,
+                      : catFg.withValues(alpha: 0.22),
+              width: selected ? 1.8 : 1,
             ),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: catFg.withValues(alpha: 0.18),
-                      child: Text(
-                        initial,
-                        style: TextStyle(
-                          color: catFg,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    if (selectionMode)
+                    if (selectionMode) ...[
                       Checkbox(
                         value: selected,
                         activeColor: _PrayerPremiumTheme.accent,
@@ -1802,156 +1952,146 @@ class _PrayerGridTile extends StatelessWidget {
                         onChanged: onSelectionChanged == null
                             ? null
                             : (v) => onSelectionChanged!(v ?? false),
-                      )
-                    else if (canManage)
-                      PopupMenuButton<String>(
-                        padding: EdgeInsets.zero,
-                        icon: Icon(Icons.more_vert_rounded,
-                            size: 18, color: Colors.grey.shade600),
-                        onSelected: (v) {
-                          if (v == 'editar') onEdit();
-                          if (v == 'respondida') onMarkRespondida();
-                          if (v == 'excluir') onDelete();
-                        },
-                        itemBuilder: (_) => [
-                          const PopupMenuItem(
-                            value: 'editar',
-                            child: Text('Editar'),
+                      ),
+                      const SizedBox(width: 2),
+                    ],
+                    Container(
+                      width: 5,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: catFg,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: catFg.withValues(alpha: 0.18),
+                      child: Text(
+                        initial,
+                        style: TextStyle(
+                          color: catFg,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  nome.isEmpty ? 'Membro' : nome,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                              if (createdAt != null)
+                                Text(
+                                  timeAgo(createdAt),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                            ],
                           ),
-                          if (!respondida)
-                            const PopupMenuItem(
-                              value: 'respondida',
-                              child: Text('Marcar respondida'),
+                          const SizedBox(height: 4),
+                          Text(
+                            texto.isEmpty ? 'Sem texto' : texto,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              height: 1.3,
+                              color: Color(0xFF334155),
+                              fontWeight: FontWeight.w500,
                             ),
-                          const PopupMenuItem(
-                            value: 'excluir',
-                            child: Text(
-                              'Excluir',
-                              style: TextStyle(color: ThemeCleanPremium.error),
-                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: catFg.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  categoria,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: catFg,
+                                  ),
+                                ),
+                              ),
+                              if (respondida)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFDCFCE7),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Text(
+                                    'Respondida',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ),
+                              if (orandoCount > 0)
+                                GestureDetector(
+                                  onTap: () =>
+                                      onShowOrando(orandoMembros, orandoUids),
+                                  child: Text(
+                                    orandoCount == 1
+                                        ? '1 orando'
+                                        : '$orandoCount orando',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ],
                       ),
+                    ),
+                    if (!narrow) ...[
+                      const SizedBox(width: 6),
+                      ...actions,
+                    ],
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  nome.isEmpty ? 'Membro' : nome,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
-                    color: Color(0xFF0F172A),
+                if (narrow) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: actions,
                   ),
-                ),
-                if (createdAt != null)
-                  Text(
-                    timeAgo(createdAt),
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade500,
-                    ),
-                  ),
-                const SizedBox(height: 6),
-                Expanded(
-                  child: Text(
-                    texto.isEmpty ? 'Sem texto' : texto,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      height: 1.35,
-                      color: Color(0xFF334155),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: catFg.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        categoria,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: catFg,
-                        ),
-                      ),
-                    ),
-                    if (respondida)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDCFCE7),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Respondida',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF15803D),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (orandoMembros.isNotEmpty)
-                  GestureDetector(
-                    onTap: () => onShowOrando(orandoMembros, orandoUids),
-                    child: Text(
-                      orandoCount == 1
-                          ? '1 orando'
-                          : '$orandoCount orando',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 6),
-                SizedBox(
-                  width: double.infinity,
-                  height: 40,
-                  child: Material(
-                    color: isOrando
-                        ? _PrayerPremiumTheme.accent
-                        : const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(12),
-                    child: InkWell(
-                      onTap: () => onToggleOrando(orandoUids, orandoMembros),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Center(
-                        child: Text(
-                          isOrando ? 'Orando' : 'Orar',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                            color: isOrando
-                                ? Colors.white
-                                : _PrayerPremiumTheme.accent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                ],
               ],
             ),
           ),
@@ -1967,12 +2107,20 @@ class _PrayerHeroHeader extends StatelessWidget {
     required this.pendentes,
     required this.respondidas,
     required this.orandoTotal,
+    this.onTapPendentes,
+    this.onTapRespondidas,
+    this.onTapOrando,
+    this.onTapTotal,
   });
 
   final int total;
   final int pendentes;
   final int respondidas;
   final int orandoTotal;
+  final VoidCallback? onTapPendentes;
+  final VoidCallback? onTapRespondidas;
+  final VoidCallback? onTapOrando;
+  final VoidCallback? onTapTotal;
 
   @override
   Widget build(BuildContext context) {
@@ -2027,11 +2175,36 @@ class _PrayerHeroHeader extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(
-                '$total',
-                style: tt.titleLarge?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onTapTotal,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '$total',
+                          style: tt.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          'Total',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -2039,11 +2212,23 @@ class _PrayerHeroHeader extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              _PrayerStatPill(label: 'Pendentes', value: pendentes),
+              _PrayerStatPill(
+                label: 'Pendentes',
+                value: pendentes,
+                onTap: onTapPendentes,
+              ),
               const SizedBox(width: 8),
-              _PrayerStatPill(label: 'Respondidas', value: respondidas),
+              _PrayerStatPill(
+                label: 'Respondidas',
+                value: respondidas,
+                onTap: onTapRespondidas,
+              ),
               const SizedBox(width: 8),
-              _PrayerStatPill(label: 'Orando', value: orandoTotal),
+              _PrayerStatPill(
+                label: 'Orando',
+                value: orandoTotal,
+                onTap: onTapOrando,
+              ),
             ],
           ),
         ],
@@ -2053,42 +2238,54 @@ class _PrayerHeroHeader extends StatelessWidget {
 }
 
 class _PrayerStatPill extends StatelessWidget {
-  const _PrayerStatPill({required this.label, required this.value});
+  const _PrayerStatPill({
+    required this.label,
+    required this.value,
+    this.onTap,
+  });
 
   final String label;
   final int value;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.18),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              '$value',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w900,
-                fontSize: 16,
-              ),
+          child: Ink(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
             ),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Column(
+              children: [
+                Text(
+                  '$value',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -2289,69 +2486,244 @@ class _OrandoButtonState extends State<_OrandoButton>
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-      onTap: _onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-            minHeight: ThemeCleanPremium.minTouchTarget),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: ThemeCleanPremium.spaceSm,
-              vertical: ThemeCleanPremium.spaceXs),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ScaleTransition(
-                scale: _scale,
-                child: Icon(
-                  Icons.volunteer_activism_rounded,
-                  size: 20,
-                  color: widget.isOrando
-                      ? _PrayerPremiumTheme.accent
-                      : Colors.grey.shade400,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                widget.isOrando ? 'Orando' : 'Estou orando',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight:
-                      widget.isOrando ? FontWeight.w800 : FontWeight.w600,
-                  color: widget.isOrando
-                      ? _PrayerPremiumTheme.accent
-                      : Colors.grey.shade600,
-                ),
-              ),
-              if (widget.count > 0) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        _PrayerPremiumTheme.accent.withValues(alpha: 0.2),
-                        _PrayerPremiumTheme.accentLight.withValues(alpha: 0.14),
-                      ],
+    final active = widget.isOrando;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: _onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: active ? _PrayerPremiumTheme.heroGradient : null,
+            color: active ? null : const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: active
+                  ? _PrayerPremiumTheme.accent.withValues(alpha: 0.35)
+                  : _PrayerPremiumTheme.accent.withValues(alpha: 0.22),
+            ),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color:
+                          _PrayerPremiumTheme.accent.withValues(alpha: 0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${widget.count}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w900,
-                      color: _PrayerPremiumTheme.accent,
+                  ]
+                : null,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44, minWidth: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ScaleTransition(
+                    scale: _scale,
+                    child: Icon(
+                      Icons.volunteer_activism_rounded,
+                      size: 18,
+                      color: active
+                          ? Colors.white
+                          : _PrayerPremiumTheme.accent,
                     ),
                   ),
-                ),
-              ],
-            ],
+                  const SizedBox(width: 6),
+                  Text(
+                    active ? 'Orando' : 'Estou orando',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: active
+                          ? Colors.white
+                          : _PrayerPremiumTheme.accent,
+                    ),
+                  ),
+                  if (widget.count > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? Colors.white.withValues(alpha: 0.22)
+                            : _PrayerPremiumTheme.accent
+                                .withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '${widget.count}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: active
+                              ? Colors.white
+                              : _PrayerPremiumTheme.accent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+enum _PrayerPreviewFilter {
+  todos,
+  pendentes,
+  respondidas,
+  orando,
+  abertos,
+  intercessoes,
+}
+
+/// Preview moderna (lista esteira) ao tocar KPIs / painel — AppBar com Voltar.
+class _PrayerFilteredPreviewPage extends StatefulWidget {
+  const _PrayerFilteredPreviewPage({
+    required this.title,
+    required this.docs,
+    required this.canManage,
+    required this.mergedData,
+    required this.onEdit,
+    required this.onMarkRespondida,
+    required this.onDelete,
+    required this.onToggleOrando,
+    required this.onShowOrando,
+    required this.parseDate,
+    required this.asBool,
+    required this.asStringList,
+    required this.asInt,
+    required this.timeAgo,
+    this.currentUid,
+  });
+
+  final String title;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+  final String? currentUid;
+  final bool Function(Map<String, dynamic> data) canManage;
+  final Map<String, dynamic> Function(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) mergedData;
+  final void Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) onEdit;
+  final Future<void> Function(String id) onMarkRespondida;
+  final Future<bool> Function(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) onDelete;
+  final Future<void> Function(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    List<String> uids,
+    List<Map<String, dynamic>> membros,
+  ) onToggleOrando;
+  final void Function(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    List<Map<String, dynamic>> membros,
+    List<String> uids,
+  ) onShowOrando;
+  final DateTime? Function(dynamic) parseDate;
+  final bool Function(dynamic, [bool]) asBool;
+  final List<String> Function(dynamic) asStringList;
+  final int Function(dynamic) asInt;
+  final String Function(DateTime?) timeAgo;
+
+  @override
+  State<_PrayerFilteredPreviewPage> createState() =>
+      _PrayerFilteredPreviewPageState();
+}
+
+class _PrayerFilteredPreviewPageState extends State<_PrayerFilteredPreviewPage> {
+  late List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs;
+
+  @override
+  void initState() {
+    super.initState();
+    _docs = List.of(widget.docs);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final padding = ThemeCleanPremium.pagePadding(context);
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.title,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+            ),
+            Text(
+              '${_docs.length} pedido(s)',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: _docs.isEmpty
+          ? Center(
+              child: Text(
+                'Nenhum pedido neste filtro',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            )
+          : ListView.builder(
+              padding: EdgeInsets.fromLTRB(
+                padding.left,
+                12,
+                padding.right,
+                padding.bottom + 24,
+              ),
+              itemCount: _docs.length,
+              itemBuilder: (context, i) {
+                final doc = _docs[i];
+                final data = widget.mergedData(doc);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _PrayerModernRow(
+                    data: data,
+                    selectionMode: false,
+                    selected: false,
+                    canManage: widget.canManage(data),
+                    currentUid: widget.currentUid,
+                    onEdit: () => widget.onEdit(doc),
+                    onMarkRespondida: () => widget.onMarkRespondida(doc.id),
+                    onDelete: () async {
+                      final ok = await widget.onDelete(doc);
+                      if (!mounted || !ok) return;
+                      setState(() => _docs.removeWhere((d) => d.id == doc.id));
+                    },
+                    onToggleOrando: (uids, membros) =>
+                        widget.onToggleOrando(doc, uids, membros),
+                    onShowOrando: (membros, uids) =>
+                        widget.onShowOrando(doc, membros, uids),
+                    parseDate: widget.parseDate,
+                    asBool: widget.asBool,
+                    asStringList: widget.asStringList,
+                    asInt: widget.asInt,
+                    timeAgo: widget.timeAgo,
+                  ),
+                );
+              },
+            ),
     );
   }
 }

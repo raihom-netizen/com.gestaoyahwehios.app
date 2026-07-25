@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/admin_utilities
+title: Admin Data Migration Utilities
+scope:
+    - functions/src/adminDb.ts
+    - functions/src/migrateTenantFirestoreCollections.ts
+    - functions/src/migrateStorageConsolidated.ts
+source_files: []
+depends_on: []
+related_to: []

@@ -59,11 +59,16 @@ abstract final class ChurchChatAlbumUtils {
     if (gid == null) return [docs[anchorIndex]];
     final sender = (m['senderUid'] ?? '').toString();
     final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final seenPath = <String>{};
     for (final d in docs) {
       final data = d.data();
       if (albumGroupIdFrom(data) == gid &&
           (data['senderUid'] ?? '').toString() == sender &&
           isAlbumCapableType((data['type'] ?? '').toString())) {
+        final sp = (data['storagePath'] ?? data['mediaUrl'] ?? d.id)
+            .toString()
+            .trim();
+        if (sp.isNotEmpty && !seenPath.add(sp)) continue;
         out.add(d);
       }
     }

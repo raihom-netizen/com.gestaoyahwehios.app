@@ -11,17 +11,35 @@ import 'package:image/image.dart' as img;
 /// Compactação **100 % Dart** na Web — sem `flutter_image_compress` / platform channels.
 ///
 /// Mobile continua em [MediaService.compressImageBytes] (nativo, mais rápido).
+///
+/// Optimizado para Web:
+/// - Skip precoce para imagens já pequenas (evita decode/encode desnecessário)
+/// - Interpolação `average` (mais rápida que `linear` em JS/WASM)
+/// - WebP skip threshold reduzido para 500 KB
 abstract final class WebImageCompressService {
   WebImageCompressService._();
+
+  /// Target máximo por perfil (KB) — se input já está abaixo, skip.
+  static int _targetBytesFor(MediaImageProfile profile) => switch (profile) {
+        MediaImageProfile.chat => 350000,
+        MediaImageProfile.feed => 500000,
+        MediaImageProfile.thumb => 120000,
+        MediaImageProfile.patrimonio => 500000,
+      };
 
   static Future<Uint8List> compressBytes({
     required Uint8List input,
     MediaImageProfile profile = MediaImageProfile.feed,
   }) async {
     if (input.isEmpty) return input;
+
+    // Fast-path: se já é WebP pequeno, retorna sem decode
     if (profile == MediaImageProfile.feed && bytesLookLikeWebp(input)) {
-      if (input.length <= 900000) return input;
+      if (input.length <= 500000) return input;
     }
+
+    // Fast-path: se input já está abaixo do target do perfil, skip compress
+    if (input.length <= _targetBytesFor(profile)) return input;
 
     final decoded = img.decodeImage(input);
     if (decoded == null) {
@@ -32,6 +50,16 @@ abstract final class WebImageCompressService {
 
     final edge = _edgeFor(profile);
     final quality = _qualityFor(profile);
+
+    // Se a imagem já é pequena o suficiente em dimensões, apenas re-encode
+    if (decoded.width <= edge && decoded.height <= edge) {
+      final jpg = img.encodeJpg(decoded, quality: quality);
+      if (jpg.isEmpty) {
+        throw StateError('Falha ao compactar imagem na Web.');
+      }
+      return Uint8List.fromList(jpg);
+    }
+
     final resized = _resizeMaxEdge(decoded, edge);
 
     // Web: JPEG via pacote `image` (WebP encode nem sempre disponível em todas as versões).
@@ -69,11 +97,12 @@ abstract final class WebImageCompressService {
       w = (w * maxEdge / h).round().clamp(1, 1 << 20);
       h = maxEdge;
     }
+    // `average` é ~2× mais rápido que `linear` no browser (JS/WASM)
     return img.copyResize(
       source,
       width: w,
       height: h,
-      interpolation: img.Interpolation.linear,
+      interpolation: img.Interpolation.average,
     );
   }
 }

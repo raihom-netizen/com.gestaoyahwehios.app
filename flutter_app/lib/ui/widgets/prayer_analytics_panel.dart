@@ -23,6 +23,7 @@ class PrayerAnalyticsPanel extends StatefulWidget {
     required this.pedidosDocs,
     required this.onDataChanged,
     this.canSee,
+    this.onOpenPreview,
   });
 
   final String tenantId;
@@ -30,6 +31,9 @@ class PrayerAnalyticsPanel extends StatefulWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> pedidosDocs;
   final VoidCallback onDataChanged;
   final bool Function(Map<String, dynamic> data)? canSee;
+
+  /// [filterKey]: total | abertos | respondidos | intercessoes
+  final void Function(String title, String filterKey)? onOpenPreview;
 
   @override
   State<PrayerAnalyticsPanel> createState() => _PrayerAnalyticsPanelState();
@@ -666,15 +670,33 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: _sectionTitle('Resumo', icon: Icons.insights_rounded)),
-                TextButton.icon(
+                Expanded(
+                  child: _sectionTitle(
+                    'Resumo',
+                    icon: Icons.insights_rounded,
+                  ),
+                ),
+                FilledButton.tonalIcon(
                   onPressed: _exportPdf,
-                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
                   label: const Text('Exportar PDF'),
+                  style: FilledButton.styleFrom(
+                    foregroundColor: _accent,
+                    minimumSize: const Size(48, 44),
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+            Text(
+              'Toque nos cards ou nas barras para abrir a prévia',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const SizedBox(height: 10),
             _buildKpiGrid(stats, maxW),
             const SizedBox(height: 16),
             if (isWide)
@@ -765,10 +787,31 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
     final gap = 10.0;
     final itemW = (maxW - gap * (cols - 1)) / cols;
     final items = [
-      _kpiCard('Total', stats.total, _accentLight),
-      _kpiCard('Abertos', stats.abertos, _amber),
-      _kpiCard('Respondidos', stats.respondidos, _green),
-      _kpiCard('Intercessões', stats.totalIntercessoes, _accent),
+      _kpiCard(
+        'Total',
+        stats.total,
+        _accentLight,
+        onTap: () => widget.onOpenPreview?.call('Todos os pedidos', 'total'),
+      ),
+      _kpiCard(
+        'Abertos',
+        stats.abertos,
+        _amber,
+        onTap: () => widget.onOpenPreview?.call('Abertos', 'abertos'),
+      ),
+      _kpiCard(
+        'Respondidos',
+        stats.respondidos,
+        _green,
+        onTap: () => widget.onOpenPreview?.call('Respondidos', 'respondidos'),
+      ),
+      _kpiCard(
+        'Intercessões',
+        stats.totalIntercessoes,
+        _accent,
+        onTap: () =>
+            widget.onOpenPreview?.call('Com intercessões', 'intercessoes'),
+      ),
     ];
     return Wrap(
       spacing: gap,
@@ -828,7 +871,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
     final maxY = (maxVal + 1).clamp(2, 999).toDouble();
     return _chartCard(
       title: 'Abertos vs respondidos',
-      subtitle: _selectedStatusChart ?? 'Toque numa barra',
+      subtitle: _selectedStatusChart ?? 'Toque numa barra para abrir a prévia',
       child: SizedBox(
         height: height,
         child: BarChart(
@@ -926,6 +969,7 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
             barTouchData: BarTouchData(
               touchCallback: (event, response) {
                 if (!event.isInterestedForInteractions) return;
+                if (event is! FlTapUpEvent) return;
                 final idx = response?.spot?.touchedBarGroupIndex;
                 if (idx == null) return;
                 setState(() {
@@ -937,6 +981,11 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
                     _filter = _filter.copyWith(respondida: true);
                   }
                 });
+                if (idx == 0) {
+                  widget.onOpenPreview?.call('Abertos', 'abertos');
+                } else {
+                  widget.onOpenPreview?.call('Respondidos', 'respondidos');
+                }
               },
             ),
           ),
@@ -1169,37 +1218,76 @@ class _PrayerAnalyticsPanelState extends State<PrayerAnalyticsPanel> {
     );
   }
 
-  Widget _kpiCard(String label, int value, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey.shade600,
+  Widget _kpiCard(
+    String label,
+    int value,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                color.withValues(alpha: 0.12),
+                Colors.white,
+              ],
             ),
+            border: Border.all(color: color.withValues(alpha: 0.28)),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
-          const SizedBox(height: 8),
-          Text(
-            '$value',
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              color: color,
-              letterSpacing: -0.5,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: color.withValues(alpha: 0.8),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$value',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Toque para ver',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade500,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

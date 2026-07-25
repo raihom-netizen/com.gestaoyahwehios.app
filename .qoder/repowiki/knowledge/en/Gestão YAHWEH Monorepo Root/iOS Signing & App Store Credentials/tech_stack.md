@@ -1,0 +1,1 @@
+Apple Developer ecosystem artifacts: PKCS#8 APNs key (`.p8`), PKCS#12 distribution certificate (`.p12`), Apple Distribution certificate (`.cer`), and `.mobileprovision` provisioning profiles; Codemagic CI using `app-store-connect` CLI and environment variables (`APP_STORE_CONNECT_*`, `CM_CERTIFICATE`, `CM_PROVISIONING_PROFILE`).

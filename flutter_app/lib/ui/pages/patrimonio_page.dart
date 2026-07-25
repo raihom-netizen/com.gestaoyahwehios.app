@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/patrimonio_item_photos_editor.dart';
+import 'package:gestao_yahweh/ui/widgets/patrimonio_wisdom_footer_buttons.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         imageUrlFromMap,
@@ -2333,78 +2334,39 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               showDragHandle: false,
             ),
           ),
-          bottomNavigationBar: SafeArea(
-            child: Material(
-              elevation: 8,
-              color: Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(ctx),
-                        icon: const Icon(Icons.close_rounded),
-                        label: const Text('Cancelar'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 48),
+          bottomNavigationBar: PatrimonioWisdomDetailActionsBar(
+            onCancel: () => Navigator.pop(ctx),
+            onFotos: _canWrite
+                ? () async {
+                    final ok =
+                        await showPatrimonioItemPhotosEditorSheet(
+                      ctx,
+                      churchId: _effectiveTenantId,
+                      itemId: liveDoc.id,
+                      itemData: liveDoc.data() ?? {},
+                      corePayload:
+                          Map<String, dynamic>.from(liveDoc.data() ?? {}),
+                      canChangePhotos: _canWrite,
+                      canRemovePhotos: _canWrite,
+                      docRef: liveDoc.reference,
+                    );
+                    if (ok == true && ctx.mounted) {
+                      Navigator.pop(ctx);
+                      unawaited(
+                        ChurchPatrimonioLoadService.invalidate(
+                          _effectiveTenantId,
                         ),
-                      ),
-                    ),
-                    if (_canWrite) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final ok =
-                                await showPatrimonioItemPhotosEditorSheet(
-                              ctx,
-                              churchId: _effectiveTenantId,
-                              itemId: liveDoc.id,
-                              itemData: liveDoc.data() ?? {},
-                              corePayload:
-                                  Map<String, dynamic>.from(liveDoc.data() ?? {}),
-                              canChangePhotos: _canWrite,
-                              canRemovePhotos: _canWrite,
-                              docRef: liveDoc.reference,
-                            );
-                            if (ok == true && ctx.mounted) {
-                              Navigator.pop(ctx);
-                              unawaited(
-                                ChurchPatrimonioLoadService.invalidate(
-                                  _effectiveTenantId,
-                                ),
-                              );
-                              if (mounted) setState(() {});
-                            }
-                          },
-                          icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('Fotos'),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            unawaited(_openForm(doc: liveDoc));
-                          },
-                          icon: const Icon(Icons.edit_rounded),
-                          label: const Text('Editar'),
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(0, 48),
-                            backgroundColor: ThemeCleanPremium.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+                      );
+                      if (mounted) setState(() {});
+                    }
+                  }
+                : null,
+            onEditar: _canWrite
+                ? () {
+                    Navigator.pop(ctx);
+                    unawaited(_openForm(doc: liveDoc));
+                  }
+                : null,
           ),
         ),
       ),
@@ -9096,66 +9058,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Material(
-          elevation: 10,
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        _saving ? null : () => Navigator.maybePop(context),
-                    icon: const Icon(Icons.close_rounded),
-                    label: const Text('Cancelar'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 52),
-                      foregroundColor: ThemeCleanPremium.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: (_saving ||
-                            _photosEditorKey.currentState?.isBusy == true)
-                        ? null
-                        : _save,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.save_rounded),
-                    label: Text(
-                      _saving
-                          ? 'Salvando…'
-                          : (isEditing
-                              ? 'Salvar'
-                              : 'Salvar'),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 52),
-                      backgroundColor: ThemeCleanPremium.primary,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      bottomNavigationBar: PatrimonioWisdomCancelSaveBar(
+        onCancel: () => Navigator.maybePop(context),
+        onSave: _save,
+        saving: _saving,
+        saveEnabled: _photosEditorKey.currentState?.isBusy != true,
       ),
     );
   }

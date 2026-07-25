@@ -1,11 +1,9 @@
 import 'dart:async' show Completer, TimeoutException, unawaited;
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
@@ -30,8 +28,8 @@ class FirestoreWebGuard {
   static final List<Completer<void>> _webReadWaiters = <Completer<void>>[];
 
   /// Espera máx. na fila; depois a leitura **prossegue mesmo assim**
-  /// (curta para caber no queryCap 14s dos módulos).
-  static const Duration _webReadQueueWait = Duration(milliseconds: 2500);
+  /// (curta para caber no queryCap dos módulos).
+  static const Duration _webReadQueueWait = Duration(milliseconds: 1500);
 
   static Future<T> webGetLimited<T>(Future<T> Function() fn) async {
     if (!kIsWeb) return fn();
@@ -146,7 +144,7 @@ class FirestoreWebGuard {
     try {
       await firebaseDefaultFirestore.enableNetwork();
     } catch (_) {}
-    await Future<void>.delayed(const Duration(milliseconds: 140));
+    await Future<void>.delayed(const Duration(milliseconds: 90));
   }
 
   /// Recuperação **suave** (sem `terminate`) — segura no caminho quente.
@@ -161,7 +159,7 @@ class FirestoreWebGuard {
         await user.getIdToken(false);
       } catch (_) {}
     }
-    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
   }
 
   /// Único recovery seguro após assert interno / terminated.
@@ -202,7 +200,9 @@ class FirestoreWebGuard {
   /// rede). Hard (INTERNAL ASSERTION / cliente terminado): ciclo
   /// `disableNetwork` → `enableNetwork` reinicia os watch/write streams do SDK
   /// JS **sem** `terminate()` (singleton preservado).
-  static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
+  static Future<void> recoverFirestoreWebSession({
+    bool allowHardReconnect = false,
+  }) async {
     if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
     if (WebPanelStability.isSessionExpired) return;
@@ -212,19 +212,21 @@ class FirestoreWebGuard {
     final recovery = () async {
       if (allowHardReconnect) {
         try {
-          await firebaseDefaultFirestore
-              .disableNetwork()
-              .timeout(const Duration(seconds: 3));
+          await firebaseDefaultFirestore.disableNetwork().timeout(
+            const Duration(seconds: 3),
+          );
         } catch (_) {}
         await _reconnectFirestoreAfterTerminated();
         try {
-          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+          await FirebaseBootstrapService.ensureAlwaysOn(
+            refreshAuthToken: false,
+          );
         } catch (_) {}
       }
       applyWebFirestoreSettings();
       await stabilizeAfterWebSignIn();
       await firebaseDefaultFirestore.enableNetwork();
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await Future<void>.delayed(const Duration(milliseconds: 70));
     }();
     _recoveryInFlight = recovery;
     try {
@@ -253,10 +255,10 @@ class FirestoreWebGuard {
 
   static Future<void>? _panelReadReadyOnce;
   static DateTime? _panelReadReadyAt;
-  static const Duration _panelReadReadyTtl = Duration(seconds: 45);
+  static const Duration _panelReadReadyTtl = Duration(seconds: 30);
 
   /// Painel igreja (web/mobile) — leitura rápida sem desligar a rede.
-  /// Memoizado ~45s para não empilhar o mesmo gate em Agenda/Membros/Eventos.
+  /// Memoizado ~30s para não empilhar o mesmo gate em Agenda/Membros/Eventos.
   static Future<void> ensurePanelReadReady() async {
     if (!kIsWeb) return;
     final at = _panelReadReadyAt;
@@ -267,12 +269,15 @@ class FirestoreWebGuard {
     }
     _panelReadReadyOnce = () async {
       applyWebFirestoreSettings();
-      await ensureWebDatabaseConnected(refreshAuth: false).timeout(
-        ChurchPanelReadTimeouts.readReadyCap,
-      );
+      await ensureWebDatabaseConnected(
+        refreshAuth: false,
+      ).timeout(ChurchPanelReadTimeouts.readReadyCap);
       _panelReadReadyAt = DateTime.now();
     }();
-    _panelReadReadyOnce = _panelReadReadyOnce!.catchError((Object e, StackTrace st) {
+    _panelReadReadyOnce = _panelReadReadyOnce!.catchError((
+      Object e,
+      StackTrace st,
+    ) {
       _panelReadReadyAt = null;
       _panelReadReadyOnce = null;
       Error.throwWithStackTrace(e, st);
@@ -284,10 +289,9 @@ class FirestoreWebGuard {
   static Future<void> ensureMasterPanelReady() async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
-    await ensureWebDatabaseConnected(refreshAuth: false).timeout(
-      ChurchPanelReadTimeouts.readReadyCap,
-      onTimeout: () {},
-    );
+    await ensureWebDatabaseConnected(
+      refreshAuth: false,
+    ).timeout(ChurchPanelReadTimeouts.readReadyCap, onTimeout: () {});
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null && !user.isAnonymous) {
@@ -332,7 +336,8 @@ class FirestoreWebGuard {
         if (attempt > 0) {
           debugPrint('FirestoreWebGuard: retry $attempt/$attempts…');
           final err = lastError;
-          final hard = err != null &&
+          final hard =
+              err != null &&
               (isClientTerminated(err) || isInternalAssertionError(err));
           if (kIsWeb && attempt == 1 && !WebPanelStability.isSessionExpired) {
             await ensurePanelReadReady().catchError((_) {});
@@ -340,15 +345,14 @@ class FirestoreWebGuard {
           if (!WebPanelStability.isSessionExpired) {
             await recoverFirestoreWebSession(allowHardReconnect: hard);
           }
-          await Future<void>.delayed(
-            Duration(milliseconds: 40 + attempt * 80),
-          );
+          await Future<void>.delayed(Duration(milliseconds: 30 + attempt * 50));
         }
         return await fn();
       } catch (e, st) {
         lastError = e;
         lastStack = st;
-        final recoverable = kIsWeb &&
+        final recoverable =
+            kIsWeb &&
             !WebPanelStability.isSessionExpired &&
             (isInternalAssertionError(e) ||
                 isClientTerminated(e) ||
@@ -383,7 +387,9 @@ class FirestoreWebGuard {
   }
 
   /// Garante persistência + rede activa (web e mobile) — gravar e manter sessão no Firestore.
-  static Future<void> ensureWebDatabaseConnected({bool refreshAuth = false}) async {
+  static Future<void> ensureWebDatabaseConnected({
+    bool refreshAuth = false,
+  }) async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
     await firebaseDefaultFirestore.enableNetwork();
@@ -454,16 +460,17 @@ class FirestoreWebGuard {
     Object? lastError,
   }) async {
     if (!kIsWeb) return;
-    final hard = lastError != null &&
+    final hard =
+        lastError != null &&
         (isClientTerminated(lastError) || isInternalAssertionError(lastError));
     if (hard) {
       await recoverFirestoreWebSession(allowHardReconnect: true);
       await ensureWebDatabaseConnected(refreshAuth: true);
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
       return;
     }
     await prepareForChatWrite();
-    await Future<void>.delayed(Duration(milliseconds: 70 + attempt * 90));
+    await Future<void>.delayed(Duration(milliseconds: 50 + attempt * 60));
   }
 
   /// Gravação Firestore no chat — retry leve (estilo WhatsApp), rede só em falha grave.
@@ -485,16 +492,14 @@ class FirestoreWebGuard {
           debugPrint(
             'FirestoreWebGuard: chat write retry $attempt/$maxAttempts…',
           );
-          await recoverForChatWrite(
-            attempt: attempt,
-            lastError: lastError,
-          );
+          await recoverForChatWrite(attempt: attempt, lastError: lastError);
         }
         return await fn();
       } catch (e, st) {
         lastError = e;
         lastStack = st;
-        final recoverable = kIsWeb &&
+        final recoverable =
+            kIsWeb &&
             (isInternalAssertionError(e) ||
                 isClientTerminated(e) ||
                 e.toString().toLowerCase().contains('client is offline') ||

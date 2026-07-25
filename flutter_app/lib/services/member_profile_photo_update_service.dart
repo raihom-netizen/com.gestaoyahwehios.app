@@ -222,6 +222,9 @@ class MemberProfilePhotoUpdateService {
       authUid: authUid.isEmpty ? mid : authUid,
       memberDocId: mid,
       cacheRevision: cacheRevision,
+      photoUrl: bustedUrl.isEmpty ? null : bustedUrl,
+      photoThumbUrl: bustedThumb.isEmpty ? null : bustedThumb,
+      storagePath: sp.isEmpty ? null : sp,
     );
   }
 
@@ -683,6 +686,9 @@ class MemberProfilePhotoUpdateService {
       authUid: authUid,
       memberDocId: memberDocId,
       cacheRevision: cacheRevision,
+      photoUrl: bustedUrl.isEmpty ? null : bustedUrl,
+      photoThumbUrl: bustedThumb.isEmpty ? null : bustedThumb,
+      storagePath: sp.isEmpty ? null : sp,
     );
   }
 

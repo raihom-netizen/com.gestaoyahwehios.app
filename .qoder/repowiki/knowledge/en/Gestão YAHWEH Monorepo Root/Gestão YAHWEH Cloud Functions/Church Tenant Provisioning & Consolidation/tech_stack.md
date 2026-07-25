@@ -1,0 +1,1 @@
+Firebase Admin SDK (Firestore + Storage) with firebase-functions v1 HTTP error types; uses raw PNG byte buffer for placeholder images; relies on `admin.firestore.FieldValue.serverTimestamp()` and batch writes for idempotent updates.

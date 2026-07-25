@@ -43,8 +43,10 @@ class ChurchChatAlertNotificationService {
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
     );
-    final androidImpl = boot.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = boot
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidImpl == null) return;
     await _createFcmAndroidChatChannels(androidImpl);
   }
@@ -95,9 +97,10 @@ class ChurchChatAlertNotificationService {
     );
     await _plugin.initialize(settings: initSettings);
 
-    final androidImpl =
-        _plugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+    final androidImpl = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidImpl != null) {
       await androidImpl.createNotificationChannel(
         const AndroidNotificationChannel(
@@ -133,35 +136,42 @@ class ChurchChatAlertNotificationService {
       await _createFcmAndroidChatChannels(androidImpl);
     }
 
-    final iosImpl =
-        _plugin.resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>();
-    await iosImpl?.requestPermissions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    final iosImpl = _plugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    await iosImpl?.requestPermissions(alert: true, badge: true, sound: true);
 
     _initialized = true;
   }
 
   /// `true` se mostrou notificação local (som/vibrar) — o painel pode evitar SnackBar duplicado.
   Future<bool> showForegroundAlertIfNeeded(RemoteMessage msg) async {
-    if (!ChurchChatNotificationPrefs.looksLikeChatNotification(msg)) return false;
+    if (!ChurchChatNotificationPrefs.looksLikeChatNotification(msg)) {
+      return false;
+    }
     if (kIsWeb) return false;
 
-    final mode = await ChurchChatNotificationPrefs.resolveForegroundAlertMode(msg);
+    final mode = await ChurchChatNotificationPrefs.resolveForegroundAlertMode(
+      msg,
+    );
     if (mode == ChurchChatNotificationPrefs.alertModeSilent) return false;
 
     await _ensureInitialized();
 
     final title = (msg.notification?.title ?? 'Nova mensagem').trim();
-    final body = (msg.notification?.body ?? 'Você recebeu nova mensagem').trim();
+    final body = (msg.notification?.body ?? 'Você recebeu nova mensagem')
+        .trim();
+    // Agrupamento por thread — múltiplas mensagens do mesmo chat ficam juntas (Android 14+).
+    final threadId = (msg.data['threadId'] ?? '').toString().trim();
+    final groupKey = threadId.isNotEmpty
+        ? 'gyh_chat_$threadId'
+        : 'gyh_chat_default';
 
     late final AndroidNotificationDetails androidDetails;
     late final DarwinNotificationDetails iosDetails;
     if (mode == ChurchChatNotificationPrefs.alertModeVibrate) {
-      androidDetails = const AndroidNotificationDetails(
+      androidDetails = AndroidNotificationDetails(
         _channelVibrateId,
         'Conversas (vibrar)',
         channelDescription: 'Notificações de chat sem som, apenas vibração.',
@@ -169,28 +179,34 @@ class ChurchChatAlertNotificationService {
         priority: Priority.high,
         playSound: false,
         enableVibration: true,
+        groupKey: groupKey,
+        setAsGroupSummary: false,
       );
       iosDetails = NotificationIosStyle.presentationDetails(
         presentSound: false,
+        threadIdentifier: groupKey,
       );
     } else {
-      androidDetails = const AndroidNotificationDetails(
+      androidDetails = AndroidNotificationDetails(
         _channelSoundId,
         'Conversas (som)',
         channelDescription: 'Notificações de chat com som e vibração.',
         importance: Importance.high,
         priority: Priority.high,
         playSound: true,
-        sound: RawResourceAndroidNotificationSound('chat_whatsapp'),
+        sound: const RawResourceAndroidNotificationSound('chat_whatsapp'),
         enableVibration: true,
+        groupKey: groupKey,
+        setAsGroupSummary: false,
       );
-      iosDetails = const DarwinNotificationDetails(
+      iosDetails = DarwinNotificationDetails(
         presentAlert: true,
         presentBanner: true,
         presentList: true,
         presentBadge: true,
         presentSound: true,
         sound: 'chat_whatsapp.aiff',
+        threadIdentifier: groupKey,
       );
     }
 
@@ -208,4 +224,3 @@ class ChurchChatAlertNotificationService {
     return true;
   }
 }
-

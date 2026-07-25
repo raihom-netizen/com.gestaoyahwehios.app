@@ -1,5 +1,4 @@
-﻿import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/pages/site_public_page.dart';
@@ -16,6 +15,7 @@ import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+
 /// Logout do painel da igreja — web/PWA vai à [SitePublicPage] (`/`) sem sobrepor o shell.
 abstract final class ChurchSignOutNavigation {
   ChurchSignOutNavigation._();
@@ -133,4 +133,3 @@ abstract final class ChurchSignOutNavigation {
     }
   }
 }
-

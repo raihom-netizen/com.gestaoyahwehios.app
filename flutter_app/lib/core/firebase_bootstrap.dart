@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
-import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -18,11 +17,12 @@ export 'firebase/firebase_service.dart' show FirebaseService;
 export 'firebase/firebase_retry.dart' show firebaseRetry;
 export 'firebase_bootstrap_accessor.dart' show FirebaseBootstrapGateway;
 
-export 'firebase_bootstrap_service.dart' show
-    FirebaseBootstrapException,
-    FirebaseBootstrapResult,
-    FirebaseBootstrapService,
-    FirebaseHealthReport;
+export 'firebase_bootstrap_service.dart'
+    show
+        FirebaseBootstrapException,
+        FirebaseBootstrapResult,
+        FirebaseBootstrapService,
+        FirebaseHealthReport;
 
 export 'firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser, isFirebaseNoAppError;
@@ -48,9 +48,7 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
     try {
       if (attempt > 0) {
         FirebaseBootstrapService.resetPublishWarmState();
-        await Future<void>.delayed(
-          Duration(milliseconds: 100 + 100 * attempt),
-        );
+        await Future<void>.delayed(Duration(milliseconds: 100 + 100 * attempt));
       }
 
       // Fast path: só se Storage ainda estiver ligado (Android após background).
@@ -59,7 +57,8 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
         try {
           FirebaseBootstrapService.probeStorageLinked();
           if (!requireAuth) return;
-          final user = await FirebaseBootstrapService.resolveAuthenticatedUser();
+          final user =
+              await FirebaseBootstrapService.resolveAuthenticatedUser();
           if (user == null) {
             throw StateError(
               'Sessão indisponível no momento. Tente novamente em instantes.',
@@ -126,7 +125,7 @@ Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
 Future<void> ensureFirebaseReadyForPanelRead() async {
   try {
     await ensureFirebaseCore(requireAuth: false).timeout(
-      kIsWeb ? const Duration(seconds: 5) : const Duration(seconds: 15),
+      kIsWeb ? const Duration(seconds: 3) : const Duration(seconds: 10),
     );
   } catch (_) {}
 }
@@ -172,12 +171,11 @@ Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
 Future<T> runFirebaseBackgroundTask<T>(
   Future<T> Function() fn, {
   String? debugLabel,
-}) =>
-    FirebaseBootstrapService.runGuarded(
-      fn,
-      debugLabel: debugLabel ?? 'storage_background',
-      requireAuth: true,
-    );
+}) => FirebaseBootstrapService.runGuarded(
+  fn,
+  debugLabel: debugLabel ?? 'storage_background',
+  requireAuth: true,
+);
 
 FirebaseApp get firebaseDefaultApp => FirebaseBootstrapService.defaultApp;
 
@@ -187,8 +185,7 @@ FirebaseFirestore get firebaseDefaultFirestore =>
 
 FirebaseAuth get firebaseDefaultAuth => FirebaseBootstrapService.auth;
 
-FirebaseStorage get firebaseDefaultStorage =>
-    FirebaseBootstrapService.storage;
+FirebaseStorage get firebaseDefaultStorage => FirebaseBootstrapService.storage;
 
 Reference firebaseStorageRef(String path) =>
     FirebaseBootstrapService.storageRef(path);

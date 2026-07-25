@@ -24,7 +24,6 @@ import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
@@ -45,13 +44,10 @@ import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
-import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_cells.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_shell.dart';
-import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_resumo_dia_card.dart';
-import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
@@ -60,7 +56,6 @@ import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Cache RAM — cadastro de fornecedores (reabrir módulo sem skeleton longo).
 abstract final class _FornecedoresRamCache {
@@ -501,7 +496,7 @@ Future<void> showFornecedorCompromissoEditor(
                       Expanded(
                         child: ValueListenableBuilder<DateTime>(
                           valueListenable: dateNotify,
-                          builder: (_, dDay, __) {
+                          builder: (_, dDay, _) {
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -841,7 +836,7 @@ Future<void> showFornecedorCompromissoEditor(
     'dataVencimento': Timestamp.fromDate(dt),
     'valorEstimado': valorParse,
     'status': 'pendente',
-    'cor': pickColor.value,
+    'cor': pickColor.toARGB32(),
     'updatedAt': FieldValue.serverTimestamp(),
   };
 
@@ -2757,7 +2752,7 @@ class _FornecedoresCompromissosListaTabState
                                   fnSnap.docs.isNotEmpty) ...[
                                 const SizedBox(height: 10),
                                 DropdownButtonFormField<String?>(
-                                  value: _fornecedorFiltroId,
+                                  initialValue: _fornecedorFiltroId,
                                   decoration: InputDecoration(
                                     labelText: 'Fornecedor',
                                     filled: true,
@@ -2957,10 +2952,11 @@ class _FornecedoresCompromissosListaTabState
                                                         color: const Color(
                                                           0xFF0D9488,
                                                         ),
-                                                        onPressed: () => widget
-                                                            .onOpenFornecedor!(
-                                                          fid,
-                                                        ),
+                                                        onPressed: () =>
+                                                            widget
+                                                                .onOpenFornecedor!(
+                                                              fid,
+                                                            ),
                                                       ),
                                                     _FornecedorCardAction(
                                                       tooltip: 'Editar',
@@ -3933,132 +3929,139 @@ class _FornecedoresAgendaGeralTabState
                         ),
                       ),
                       TableCalendar<Object?>(
-                    locale: 'pt_BR',
-                    startingDayOfWeek: StartingDayOfWeek.sunday,
-                    firstDay: DateTime.utc(2020, 1, 1),
-                    lastDay: DateTime.utc(2035, 12, 31),
-                    availableGestures: AvailableGestures.horizontalSwipe,
-                    focusedDay: _focused,
-                    sixWeekMonthsEnforced: true,
-                    rowHeight: ThemeCleanPremium.isMobile(context) ? 76 : 64,
-                    daysOfWeekHeight: ThemeCleanPremium.isMobile(context)
-                        ? 34
-                        : 30,
-                    selectedDayPredicate: (d) =>
-                        _selected != null && isSameDay(_selected, d),
-                    eventLoader: (_) => const [],
-                    calendarBuilders: CalendarBuilders(
-                      markerBuilder: (context, day, events) => null,
-                      defaultBuilder: (context, day, focusedDay) =>
-                          FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                            context,
-                            day,
-                            focusedDay,
-                            byDay: byDay,
-                            isToday: isSameDay(day, DateTime.now()),
-                            isSelected:
-                                _selected != null && isSameDay(_selected!, day),
-                            isOutside: false,
+                        locale: 'pt_BR',
+                        startingDayOfWeek: StartingDayOfWeek.sunday,
+                        firstDay: DateTime.utc(2020, 1, 1),
+                        lastDay: DateTime.utc(2035, 12, 31),
+                        availableGestures: AvailableGestures.horizontalSwipe,
+                        focusedDay: _focused,
+                        sixWeekMonthsEnforced: true,
+                        rowHeight: ThemeCleanPremium.isMobile(context)
+                            ? 76
+                            : 64,
+                        daysOfWeekHeight: ThemeCleanPremium.isMobile(context)
+                            ? 34
+                            : 30,
+                        selectedDayPredicate: (d) =>
+                            _selected != null && isSameDay(_selected, d),
+                        eventLoader: (_) => const [],
+                        calendarBuilders: CalendarBuilders(
+                          markerBuilder: (context, day, events) => null,
+                          defaultBuilder: (context, day, focusedDay) =>
+                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
+                                context,
+                                day,
+                                focusedDay,
+                                byDay: byDay,
+                                isToday: isSameDay(day, DateTime.now()),
+                                isSelected:
+                                    _selected != null &&
+                                    isSameDay(_selected!, day),
+                                isOutside: false,
+                              ),
+                          outsideBuilder: (context, day, focusedDay) =>
+                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
+                                context,
+                                day,
+                                focusedDay,
+                                byDay: byDay,
+                                isToday: isSameDay(day, DateTime.now()),
+                                isSelected:
+                                    _selected != null &&
+                                    isSameDay(_selected!, day),
+                                isOutside: true,
+                              ),
+                          todayBuilder: (context, day, focusedDay) =>
+                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
+                                context,
+                                day,
+                                focusedDay,
+                                byDay: byDay,
+                                isToday: true,
+                                isSelected:
+                                    _selected != null &&
+                                    isSameDay(_selected!, day),
+                                isOutside: !_sameVisibleMonth(day, focusedDay),
+                              ),
+                          selectedBuilder: (context, day, focusedDay) =>
+                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
+                                context,
+                                day,
+                                focusedDay,
+                                byDay: byDay,
+                                isToday: isSameDay(day, DateTime.now()),
+                                isSelected: true,
+                                isOutside: !_sameVisibleMonth(day, focusedDay),
+                              ),
+                        ),
+                        onDaySelected: (sel, foc) {
+                          setState(() {
+                            _selected = sel;
+                            _focused = foc;
+                          });
+                        },
+                        onPageChanged: (f) {
+                          if (_focused.year != f.year ||
+                              _focused.month != f.month) {
+                            setState(() => _focused = f);
+                          }
+                        },
+                        daysOfWeekStyle: DaysOfWeekStyle(
+                          weekdayStyle: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: ThemeCleanPremium.isMobile(context)
+                                ? 12
+                                : 11,
+                            color: Colors.grey.shade800,
                           ),
-                      outsideBuilder: (context, day, focusedDay) =>
-                          FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                            context,
-                            day,
-                            focusedDay,
-                            byDay: byDay,
-                            isToday: isSameDay(day, DateTime.now()),
-                            isSelected:
-                                _selected != null && isSameDay(_selected!, day),
-                            isOutside: true,
+                          weekendStyle: const TextStyle(
+                            color: Color(0xFFE53935),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
                           ),
-                      todayBuilder: (context, day, focusedDay) =>
-                          FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                            context,
-                            day,
-                            focusedDay,
-                            byDay: byDay,
-                            isToday: true,
-                            isSelected:
-                                _selected != null && isSameDay(_selected!, day),
-                            isOutside: !_sameVisibleMonth(day, focusedDay),
+                        ),
+                        calendarStyle: CalendarStyle(
+                          outsideDaysVisible: true,
+                          cellMargin: const EdgeInsets.all(1.85),
+                          cellPadding: EdgeInsets.zero,
+                          markersMaxCount: 0,
+                          markerSize: 0,
+                          weekendTextStyle: const TextStyle(
+                            color: Color(0xFFE53935),
+                            fontWeight: FontWeight.w900,
                           ),
-                      selectedBuilder: (context, day, focusedDay) =>
-                          FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                            context,
-                            day,
-                            focusedDay,
-                            byDay: byDay,
-                            isToday: isSameDay(day, DateTime.now()),
-                            isSelected: true,
-                            isOutside: !_sameVisibleMonth(day, focusedDay),
+                        ),
+                        headerStyle: HeaderStyle(
+                          formatButtonVisible: false,
+                          titleCentered: true,
+                          headerPadding: const EdgeInsets.only(bottom: 6),
+                          decoration: const BoxDecoration(),
+                          titleTextStyle: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                            letterSpacing: -0.2,
+                            color: Colors.grey.shade900,
                           ),
-                    ),
-                    onDaySelected: (sel, foc) {
-                      setState(() {
-                        _selected = sel;
-                        _focused = foc;
-                      });
-                    },
-                    onPageChanged: (f) {
-                      if (_focused.year != f.year ||
-                          _focused.month != f.month) {
-                        setState(() => _focused = f);
-                      }
-                    },
-                    daysOfWeekStyle: DaysOfWeekStyle(
-                      weekdayStyle: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: ThemeCleanPremium.isMobile(context) ? 12 : 11,
-                        color: Colors.grey.shade800,
+                          leftChevronIcon: Icon(
+                            Icons.chevron_left_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 28,
+                          ),
+                          rightChevronIcon: Icon(
+                            Icons.chevron_right_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 28,
+                          ),
+                        ),
                       ),
-                      weekendStyle: const TextStyle(
-                        color: Color(0xFFE53935),
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12,
-                      ),
-                    ),
-                    calendarStyle: CalendarStyle(
-                      outsideDaysVisible: true,
-                      cellMargin: const EdgeInsets.all(1.85),
-                      cellPadding: EdgeInsets.zero,
-                      markersMaxCount: 0,
-                      markerSize: 0,
-                      weekendTextStyle: const TextStyle(
-                        color: Color(0xFFE53935),
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    headerStyle: HeaderStyle(
-                      formatButtonVisible: false,
-                      titleCentered: true,
-                      headerPadding: const EdgeInsets.only(bottom: 6),
-                      decoration: const BoxDecoration(),
-                      titleTextStyle: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 17,
-                        letterSpacing: -0.2,
-                        color: Colors.grey.shade900,
-                      ),
-                      leftChevronIcon: Icon(
-                        Icons.chevron_left_rounded,
-                        color: ThemeCleanPremium.primary,
-                        size: 28,
-                      ),
-                      rightChevronIcon: Icon(
-                        Icons.chevron_right_rounded,
-                        color: ThemeCleanPremium.primary,
-                        size: 28,
-                      ),
-                    ),
-                  ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
                         child: _FornecedoresResumoDiaCard(
                           day: _selected ?? DateTime.now(),
                           items: selectedItems,
                           nomeFornecedor: (d) {
-                            final fid =
-                                (d.data()['fornecedorId'] ?? '').toString();
+                            final fid = (d.data()['fornecedorId'] ?? '')
+                                .toString();
                             return nomePorId[fid] ??
                                 (fid.isEmpty
                                     ? 'Fornecedor'
@@ -4725,339 +4728,317 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                          value: 'pj',
-                          label: Text('PJ (CNPJ)'),
-                          icon: Icon(Icons.business_rounded),
-                        ),
-                        ButtonSegment(
-                          value: 'pf',
-                          label: Text('PF (CPF)'),
-                          icon: Icon(Icons.person_rounded),
-                        ),
-                      ],
-                      selected: {_tipo},
-                      onSelectionChanged: (s) =>
-                          setState(() => _tipo = s.first),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _cpfCnpjCtrl,
-                      decoration: InputDecoration(
-                        labelText: _tipo == 'pj' ? 'CNPJ' : 'CPF',
-                        border: const OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white,
-                        suffixIcon: _tipo == 'pj'
-                            ? IconButton(
-                                icon: _loadingCnpj
-                                    ? const SizedBox(
-                                        width: 22,
-                                        height: 22,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Icon(Icons.cloud_download_rounded),
-                                tooltip: 'Buscar dados (BrasilAPI)',
-                                onPressed: _loadingCnpj ? null : _buscarCnpj,
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'pj',
+                  label: Text('PJ (CNPJ)'),
+                  icon: Icon(Icons.business_rounded),
+                ),
+                ButtonSegment(
+                  value: 'pf',
+                  label: Text('PF (CPF)'),
+                  icon: Icon(Icons.person_rounded),
+                ),
+              ],
+              selected: {_tipo},
+              onSelectionChanged: (s) => setState(() => _tipo = s.first),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _cpfCnpjCtrl,
+              decoration: InputDecoration(
+                labelText: _tipo == 'pj' ? 'CNPJ' : 'CPF',
+                border: const OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+                suffixIcon: _tipo == 'pj'
+                    ? IconButton(
+                        icon: _loadingCnpj
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
-                            : null,
-                      ),
+                            : const Icon(Icons.cloud_download_rounded),
+                        tooltip: 'Buscar dados (BrasilAPI)',
+                        onPressed: _loadingCnpj ? null : _buscarCnpj,
+                      )
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _nomeCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Razão social / nome completo',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _cepCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'CEP',
+                      border: OutlineInputBorder(),
+                      filled: true,
+                      fillColor: Colors.white,
                     ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _nomeCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Razão social / nome completo',
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white,
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty)
-                          ? 'Obrigatório'
-                          : null,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cepCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'CEP',
-                              border: OutlineInputBorder(),
-                              filled: true,
-                              fillColor: Colors.white,
-                            ),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            maxLength: 8,
-                            onEditingComplete: _buscarCep,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: FilledButton.tonal(
-                            onPressed: _loadingCep
-                                ? null
-                                : () async {
-                                    setState(() => _loadingCep = true);
-                                    await _buscarCep();
-                                    if (mounted) {
-                                      setState(() => _loadingCep = false);
-                                    }
-                                  },
-                            child: _loadingCep
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text('Buscar CEP'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    TextFormField(
-                      controller: _logCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Logradouro',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _numCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Nº',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            controller: _compCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Complemento',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    TextFormField(
-                      controller: _bairroCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Bairro',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: TextFormField(
-                            controller: _cidadeCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Cidade',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        SizedBox(
-                          width: 72,
-                          child: TextFormField(
-                            controller: _ufCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'UF',
-                              border: OutlineInputBorder(),
-                            ),
-                            maxLength: 2,
-                            textCapitalization: TextCapitalization.characters,
-                          ),
-                        ),
-                      ],
-                    ),
-                    TextFormField(
-                      controller: _telCtrl,
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: const [BrPhoneInputFormatter()],
-                      decoration: const InputDecoration(
-                        labelText: 'Telefone',
-                        hintText: '62 9.9170-5247',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _waCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'WhatsApp',
-                              hintText: '62 9.9170-5247',
-                              border: OutlineInputBorder(),
-                            ),
-                            keyboardType: TextInputType.phone,
-                            inputFormatters: const [BrPhoneInputFormatter()],
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Abrir WhatsApp',
-                          icon: const Icon(
-                            Icons.chat_rounded,
-                            color: Color(0xFF25D366),
-                          ),
-                          onPressed: () async {
-                            final d = _waCtrl.text.replaceAll(
-                              RegExp(r'[^0-9]'),
-                              '',
-                            );
-                            if (d.length < 10) return;
-                            final u = Uri.parse('https://wa.me/55$d');
-                            if (await canLaunchUrl(u))
-                              await launchUrl(
-                                u,
-                                mode: LaunchMode.externalApplication,
-                              );
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    maxLength: 8,
+                    onEditingComplete: _buscarCep,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: FilledButton.tonal(
+                    onPressed: _loadingCep
+                        ? null
+                        : () async {
+                            setState(() => _loadingCep = true);
+                            await _buscarCep();
+                            if (mounted) {
+                              setState(() => _loadingCep = false);
+                            }
                           },
-                        ),
-                      ],
+                    child: _loadingCep
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Buscar CEP'),
+                  ),
+                ),
+              ],
+            ),
+            TextFormField(
+              controller: _logCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Logradouro',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _numCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Nº',
+                      border: OutlineInputBorder(),
                     ),
-                    TextFormField(
-                      controller: _emailCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'E-mail',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _compCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Complemento',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Pagamento (PIX)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: Colors.grey.shade800,
-                      ),
+                  ),
+                ),
+              ],
+            ),
+            TextFormField(
+              controller: _bairroCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Bairro',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    controller: _cidadeCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Cidade',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 6),
-                    DropdownButtonFormField<String>(
-                      value: _pixTipo,
-                      decoration: const InputDecoration(
-                        labelText: 'Tipo de chave PIX',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'cpf', child: Text('CPF')),
-                        DropdownMenuItem(value: 'cnpj', child: Text('CNPJ')),
-                        DropdownMenuItem(value: 'email', child: Text('E-mail')),
-                        DropdownMenuItem(
-                          value: 'telefone',
-                          child: Text('Telefone'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'aleatoria',
-                          child: Text('Chave aleatória'),
-                        ),
-                      ],
-                      onChanged: (v) =>
-                          setState(() => _pixTipo = v ?? 'aleatoria'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 72,
+                  child: TextFormField(
+                    controller: _ufCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'UF',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _pixChaveCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Chave PIX',
-                        border: OutlineInputBorder(),
-                      ),
+                    maxLength: 2,
+                    textCapitalization: TextCapitalization.characters,
+                  ),
+                ),
+              ],
+            ),
+            TextFormField(
+              controller: _telCtrl,
+              keyboardType: TextInputType.phone,
+              inputFormatters: const [BrPhoneInputFormatter()],
+              decoration: const InputDecoration(
+                labelText: 'Telefone',
+                hintText: '62 9.9170-5247',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _waCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'WhatsApp',
+                      hintText: '62 9.9170-5247',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Avaliação interna',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                        color: Colors.grey.shade800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: List.generate(5, (i) {
-                        final n = i + 1;
-                        final on = n <= _avaliacao;
-                        return IconButton(
-                          tooltip: '$n estrela(s)',
-                          onPressed: () => setState(() {
-                            _avaliacao = _avaliacao == n ? 0 : n;
-                          }),
-                          icon: Icon(
-                            on
-                                ? Icons.star_rounded
-                                : Icons.star_outline_rounded,
-                            color: on
-                                ? const Color(0xFFCA8A04)
-                                : Colors.grey.shade400,
-                            size: 32,
-                          ),
-                        );
-                      }),
-                    ),
-                    TextFormField(
-                      controller: _notaInternaCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Notas internas (só equipe)',
-                        border: OutlineInputBorder(),
-                        alignLabelWithHint: true,
-                      ),
-                    ),
-                    DropdownButtonFormField<String>(
-                      value: _status,
-                      decoration: const InputDecoration(
-                        labelText: 'Status',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'ativo', child: Text('Ativo')),
-                        DropdownMenuItem(
-                          value: 'pendente_docs',
-                          child: Text('Pendente de documentação'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'inativo',
-                          child: Text('Inativo'),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _status = v ?? 'ativo'),
-                    ),
-                    TextFormField(
-                      controller: _obsCtrl,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        labelText: 'Observações',
-                        border: OutlineInputBorder(),
-                        filled: true,
-                        fillColor: Colors.white,
-                        alignLabelWithHint: true,
-                      ),
-                    ),
+                    keyboardType: TextInputType.phone,
+                    inputFormatters: const [BrPhoneInputFormatter()],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Abrir WhatsApp',
+                  icon: const Icon(
+                    Icons.chat_rounded,
+                    color: Color(0xFF25D366),
+                  ),
+                  onPressed: () async {
+                    final d = _waCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+                    if (d.length < 10) return;
+                    final u = Uri.parse('https://wa.me/55$d');
+                    if (await canLaunchUrl(u)) {
+                      await launchUrl(u, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                ),
+              ],
+            ),
+            TextFormField(
+              controller: _emailCtrl,
+              decoration: const InputDecoration(
+                labelText: 'E-mail',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Pagamento (PIX)',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String>(
+              initialValue: _pixTipo,
+              decoration: const InputDecoration(
+                labelText: 'Tipo de chave PIX',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'cpf', child: Text('CPF')),
+                DropdownMenuItem(value: 'cnpj', child: Text('CNPJ')),
+                DropdownMenuItem(value: 'email', child: Text('E-mail')),
+                DropdownMenuItem(value: 'telefone', child: Text('Telefone')),
+                DropdownMenuItem(
+                  value: 'aleatoria',
+                  child: Text('Chave aleatória'),
+                ),
+              ],
+              onChanged: (v) => setState(() => _pixTipo = v ?? 'aleatoria'),
+            ),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _pixChaveCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Chave PIX',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Avaliação interna',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: List.generate(5, (i) {
+                final n = i + 1;
+                final on = n <= _avaliacao;
+                return IconButton(
+                  tooltip: '$n estrela(s)',
+                  onPressed: () => setState(() {
+                    _avaliacao = _avaliacao == n ? 0 : n;
+                  }),
+                  icon: Icon(
+                    on ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: on ? const Color(0xFFCA8A04) : Colors.grey.shade400,
+                    size: 32,
+                  ),
+                );
+              }),
+            ),
+            TextFormField(
+              controller: _notaInternaCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Notas internas (só equipe)',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: _status,
+              decoration: const InputDecoration(
+                labelText: 'Status',
+                border: OutlineInputBorder(),
+              ),
+              items: const [
+                DropdownMenuItem(value: 'ativo', child: Text('Ativo')),
+                DropdownMenuItem(
+                  value: 'pendente_docs',
+                  child: Text('Pendente de documentação'),
+                ),
+                DropdownMenuItem(value: 'inativo', child: Text('Inativo')),
+              ],
+              onChanged: (v) => setState(() => _status = v ?? 'ativo'),
+            ),
+            TextFormField(
+              controller: _obsCtrl,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Observações',
+                border: OutlineInputBorder(),
+                filled: true,
+                fillColor: Colors.white,
+                alignLabelWithHint: true,
+              ),
+            ),
           ],
         ),
       ),
@@ -5072,8 +5053,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
               builder: (context, constraints) {
                 final narrow = constraints.maxWidth < 420;
                 final retornar = OutlinedButton.icon(
-                  onPressed:
-                      _saving ? null : () => Navigator.maybePop(context),
+                  onPressed: _saving ? null : () => Navigator.maybePop(context),
                   icon: const Icon(Icons.arrow_back_rounded, size: 18),
                   label: const Text('Retornar'),
                   style: OutlinedButton.styleFrom(
@@ -5086,8 +5066,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                   ),
                 );
                 final cancelar = OutlinedButton.icon(
-                  onPressed:
-                      _saving ? null : () => Navigator.maybePop(context),
+                  onPressed: _saving ? null : () => Navigator.maybePop(context),
                   icon: const Icon(Icons.close_rounded, size: 18),
                   label: const Text('Cancelar'),
                   style: OutlinedButton.styleFrom(
@@ -5328,7 +5307,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage>
       final doc = await _fornecedorRef.get(
         const GetOptions(source: Source.serverAndCache),
       );
-      if (!doc.exists || !mounted) {
+      if (!doc.exists || doc.data() == null || !mounted) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Fornecedor não encontrado.')),
@@ -6228,8 +6207,9 @@ class _AgendaTabState extends State<_AgendaTab> {
                                               Navigator.pop(ctx);
                                               WidgetsBinding.instance
                                                   .addPostFrameCallback((_) {
-                                                    if (!context.mounted)
+                                                    if (!context.mounted) {
                                                       return;
+                                                    }
                                                     _editarCompromissoFornecedor(
                                                       d,
                                                     );

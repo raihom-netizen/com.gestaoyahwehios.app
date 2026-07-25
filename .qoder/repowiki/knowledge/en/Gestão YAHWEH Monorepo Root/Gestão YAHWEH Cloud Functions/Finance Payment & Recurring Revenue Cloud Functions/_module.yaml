@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/finance_payment
+title: Finance Payment & Recurring Revenue Cloud Functions
+scope:
+    - functions/src/financeVencimentoReminders.ts
+    - functions/src/receitasRecorrentesScheduled.ts
+    - functions/src/churchMercadoPago.ts
+source_files: []
+depends_on: []
+related_to: []

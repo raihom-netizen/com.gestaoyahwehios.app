@@ -1,0 +1,1 @@
+Functions are deployed through the standard Firebase Functions workflow; `certificadosLote` requires `timeoutSeconds: 300` and `memory: "1GB"` due to PDF/ZIP generation, while `eventoReminders` uses `memory: "512MB"`. The share page relies on a Hosting rewrite rule mapping `/igreja/{slug}/evento/{id}` to this function so crawlers receive Open Graph markup instead of a redirect.

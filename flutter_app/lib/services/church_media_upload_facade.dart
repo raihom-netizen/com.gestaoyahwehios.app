@@ -191,7 +191,7 @@ abstract final class ChurchMediaUploadFacade {
     if (items.isEmpty) return const [];
     await ensureReady();
 
-    final concurrency = mediaFeedUploadMaxConcurrent.clamp(1, 6);
+    final concurrency = mediaFeedUploadMaxConcurrent.clamp(1, 8);
     final results = List<ChurchMediaUploadBatchResult?>.filled(items.length, null);
     var completed = 0;
     var nextIndex = 0;

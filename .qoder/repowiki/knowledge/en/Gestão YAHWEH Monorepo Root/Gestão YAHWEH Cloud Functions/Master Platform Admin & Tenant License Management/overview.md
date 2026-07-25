@@ -1,0 +1,1 @@
+Firebase Cloud Functions providing SaaS platform-operator authentication, master-admin tenant license management (free/paid/blocked), and a cached churches list index for the Master admin panel.

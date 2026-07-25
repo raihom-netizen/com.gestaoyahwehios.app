@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:math' show min;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -16,34 +17,34 @@ abstract final class MemberCardSignService {
 
   /// Web: chunks menores evitam INTERNAL ASSERTION no WatchChangeAggregator.
   static const int _kBatchChunkSize = kIsWeb ? 15 : 50;
-  static const Duration _kChunkTimeout =
-      Duration(seconds: kIsWeb ? 32 : 22);
+  static const Duration _kChunkTimeout = Duration(seconds: kIsWeb ? 32 : 22);
 
   static Duration batchCapFor(int count) {
     if (count <= 0) return const Duration(seconds: 30);
     if (kIsWeb) {
-      return Duration(
-        seconds: (40 + (count * 1.4).ceil()).clamp(70, 240),
-      );
+      return Duration(seconds: (40 + (count * 1.4).ceil()).clamp(70, 240));
     }
     return Duration(seconds: (40 + (count * 0.8).ceil()).clamp(70, 240));
   }
 
   static Future<({int ok, int fail, String? lastError, List<String> signedIds})>
-      signBatch({
+  signBatch({
     required String tenantId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
     void Function(int done, int total)? onProgress,
   }) async {
-    final ids =
-        memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final ids = memberIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     if (ids.isEmpty) {
       return (ok: 0, fail: 0, lastError: null, signedIds: const <String>[]);
     }
 
-    final churchId =
-        MemberCardDirectoryService.resolveChurchId(tenantId.trim());
+    final churchId = MemberCardDirectoryService.resolveChurchId(
+      tenantId.trim(),
+    );
     if (churchId.isEmpty) {
       return (
         ok: 0,
@@ -68,7 +69,7 @@ abstract final class MemberCardSignService {
   }
 
   static Future<({int ok, int fail, String? lastError, List<String> signedIds})>
-      _signBatchImpl({
+  _signBatchImpl({
     required String churchId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
@@ -193,6 +194,8 @@ abstract final class MemberCardSignService {
             'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
         },
       );
+      // Invalidar cache RAM de membros para que reload devolva dados assinados.
+      unawaited(ChurchMembersLoadService.invalidate(churchId));
     }
 
     return (

@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`) with `firebase-admin` Firestore; region locked to `us-central1`; uses `FieldValue.serverTimestamp()` for audit metadata and batched writes (400 ops per commit) for large collection copies.

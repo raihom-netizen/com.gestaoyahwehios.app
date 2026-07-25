@@ -43,6 +43,35 @@
     <!-- image_cropper (web / Cropper.js) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" defer></script>
+    <!-- Firebase Messaging (web push) — compat SDK para flutter_messaging web -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
+    <script>
+      (function () {
+        // Inicializa Firebase Messaging na web (só se não existir app anterior — evita duplicar com FlutterFire).
+        if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+          firebase.initializeApp({
+            apiKey: 'AIzaSyB74Dm4WiLMHYdSiWPvB2yTzNWsINVBvWo',
+            authDomain: 'gestaoyahweh-21e23.firebaseapp.com',
+            projectId: 'gestaoyahweh-21e23',
+            storageBucket: 'gestaoyahweh-21e23.firebasestorage.app',
+            messagingSenderId: '157235497908',
+            appId: '1:157235497908:web:4f702c7a670d76204ac0e1',
+            measurementId: 'G-9N6YEP8XNW'
+          });
+        }
+        // Regista o service worker para push em background (quando o app está fechado/minimizado).
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('/firebase-messaging-sw.js').then(function (reg) {
+            if (reg.installing) {
+              console.log('[GYH] FCM SW installing');
+            }
+          }).catch(function (err) {
+            console.warn('[GYH] FCM SW register failed', err);
+          });
+        }
+      })();
+    </script>
     <!-- HLS (m3u8) para vídeo adaptativo no feed web — [PremiumHtmlFeedVideo] -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7" defer></script>
     <script>
@@ -88,10 +117,14 @@
 
     <script>
       (function () {
-        // Remove service worker antigo para que o usuário sempre carregue a versão nova após deploy.
+        // Remove service worker antigo (Flutter padrão) mas preserva o Firebase Messaging SW.
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function (regs) {
-            regs.forEach(function (r) { r.unregister(); });
+            regs.forEach(function (r) {
+              var swUrl = (r.active && r.active.scriptURL) || '';
+              if (swUrl.indexOf('firebase-messaging-sw') !== -1) return; // preservar FCM
+              r.unregister();
+            });
           });
         }
         // Anti-loop: URL com ?_r= / ?gyhUpd= a mudar → limpar query e ficar estável.

@@ -1,0 +1,1 @@
+The HTTP endpoints for BPC consolidation and linkage sync require the `CONSOLIDATE_BPC_KEY` environment variable (default fallback `bpc-consolidate-gestaoyahweh-2026`) passed via `x-consolidate-key` header or `key` query parameter. The scheduled upload purger runs automatically every 24 hours via Pub/Sub; the other two are invoked on-demand through their callable/HTTP interfaces.

@@ -7,14 +7,12 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
+import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Igreja leve para o Painel Master (Lista Igrejas).
 class MasterChurchListItem {
-  const MasterChurchListItem({
-    required this.id,
-    required this.data,
-  });
+  const MasterChurchListItem({required this.id, required this.data});
 
   final String id;
   final Map<String, dynamic> data;
@@ -31,8 +29,10 @@ class MasterChurchListItem {
 abstract final class MasterChurchesListService {
   MasterChurchesListService._();
 
-  static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
+  static final _functions = FirebaseFunctions.instanceFor(
+    app: firebaseDefaultApp,
+    region: 'us-central1',
+  );
 
   static const _prefsKey = 'master_churches_index_v1';
 
@@ -68,7 +68,12 @@ abstract final class MasterChurchesListService {
       final prefs = await SharedPreferences.getInstance();
       final payload = items
           .take(200)
-          .map((e) => <String, dynamic>{'id': e.id, 'data': e.data})
+          .map(
+            (e) => <String, dynamic>{
+              'id': e.id,
+              'data': firestoreToJsonSafe(e.data),
+            },
+          )
           .toList();
       await prefs.setString(_prefsKey, jsonEncode(payload));
     } catch (_) {}
@@ -111,9 +116,7 @@ abstract final class MasterChurchesListService {
     return int.tryParse('$t') ?? 0;
   }
 
-  static List<MasterChurchListItem> _parseChurches(
-    Map<String, dynamic>? raw,
-  ) {
+  static List<MasterChurchListItem> _parseChurches(Map<String, dynamic>? raw) {
     if (raw == null) return const [];
     final list = raw['churches'];
     if (list is! List) return const [];
@@ -154,7 +157,9 @@ abstract final class MasterChurchesListService {
     }
 
     try {
-      final snap = await fetch(forceServer ? Source.server : Source.serverAndCache);
+      final snap = await fetch(
+        forceServer ? Source.server : Source.serverAndCache,
+      );
       final parsed = _parseChurches(snap.data());
       if (parsed.isNotEmpty) {
         _storeMem(parsed);
@@ -204,7 +209,9 @@ abstract final class MasterChurchesListService {
   }
 
   /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
-  static Future<List<MasterChurchListItem>> loadFast({bool force = false}) async {
+  static Future<List<MasterChurchListItem>> loadFast({
+    bool force = false,
+  }) async {
     if (force) invalidateMemory();
 
     if (!force &&
@@ -293,4 +300,3 @@ abstract final class MasterChurchesListService {
     return out;
   }
 }
-

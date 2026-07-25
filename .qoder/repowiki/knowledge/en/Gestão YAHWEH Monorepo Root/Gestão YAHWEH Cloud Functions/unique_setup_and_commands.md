@@ -1,0 +1,1 @@
+`npm run build` compiles `src/` → `lib/`; `npm run serve` runs the Firebase Functions emulator; `npm run deploy` deploys all functions; migration scripts are invoked directly via `node scripts/<script>.js` or through npm aliases defined in `package.json`.

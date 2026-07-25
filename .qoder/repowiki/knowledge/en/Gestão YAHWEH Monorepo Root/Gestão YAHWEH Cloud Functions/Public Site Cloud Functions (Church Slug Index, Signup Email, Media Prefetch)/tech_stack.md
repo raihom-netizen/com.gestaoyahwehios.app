@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`) with `firebase-admin` for Firestore and Storage access; SendGrid v3 REST API for email delivery; `firebase-functions/params.defineString` for runtime configuration; native `crypto.randomUUID` for storage download tokens.

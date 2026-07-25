@@ -40,7 +40,10 @@ abstract final class MultiTenantDiagnosticService {
     var seed = (churchSeedId ?? '').trim();
     if (seed.isEmpty) {
       try {
-        final u = await firebaseDefaultFirestore.collection('users').doc(uid).get();
+        final u = await firebaseDefaultFirestore
+            .collection('users')
+            .doc(uid)
+            .get();
         seed = (u.data()?['igrejaId'] ?? u.data()?['tenantId'] ?? '')
             .toString()
             .trim();
@@ -48,12 +51,14 @@ abstract final class MultiTenantDiagnosticService {
     }
 
     if (seed.isEmpty) {
-      results.add(const MultiTenantCheckResult(
-        id: 'church_seed',
-        label: 'Igreja de teste',
-        status: MultiTenantCheckStatus.warn,
-        detail: 'Informe um ID de igreja ou vincule users.igrejaId.',
-      ));
+      results.add(
+        const MultiTenantCheckResult(
+          id: 'church_seed',
+          label: 'Igreja de teste',
+          status: MultiTenantCheckStatus.warn,
+          detail: 'Informe um ID de igreja ou vincule users.igrejaId.',
+        ),
+      );
       return results;
     }
 
@@ -80,7 +85,7 @@ abstract final class MultiTenantDiagnosticService {
       id: 'auth',
       label: 'Firebase Auth',
       status: MultiTenantCheckStatus.ok,
-      detail: '${user.email ?? user.uid}',
+      detail: user.email ?? user.uid,
     );
   }
 
@@ -105,7 +110,9 @@ abstract final class MultiTenantDiagnosticService {
       return MultiTenantCheckResult(
         id: 'users',
         label: 'users/{uid}',
-        status: ig.isNotEmpty ? MultiTenantCheckStatus.ok : MultiTenantCheckStatus.warn,
+        status: ig.isNotEmpty
+            ? MultiTenantCheckStatus.ok
+            : MultiTenantCheckStatus.warn,
         detail: 'igrejaId=$ig · tenantId=$tn · canonical=$canon',
       );
     } catch (e) {
@@ -182,7 +189,8 @@ abstract final class MultiTenantDiagnosticService {
         id: 'canonical',
         label: 'canonicalId',
         status: MultiTenantCheckStatus.ok,
-        detail: '${ctx.seedId} → ${ctx.canonicalId}'
+        detail:
+            '${ctx.seedId} → ${ctx.canonicalId}'
             '${synced ? ' · users sincronizado' : ''}',
       );
     } catch (e) {
@@ -195,10 +203,13 @@ abstract final class MultiTenantDiagnosticService {
     }
   }
 
-  static Future<MultiTenantCheckResult> _checkFirestoreRules(String seed) async {
+  static Future<MultiTenantCheckResult> _checkFirestoreRules(
+    String seed,
+  ) async {
     try {
       await MasterAdminFirestore.ensureReady();
-      final canonical = await TenantResolverService.resolveOperationalChurchDocId(seed);
+      final canonical =
+          await TenantResolverService.resolveOperationalChurchDocId(seed);
       final snap = await FirestoreReadResilience.getDocument(
         firebaseDefaultFirestore.collection('igrejas').doc(canonical),
         cacheKey: 'diag_igreja_$canonical',
@@ -236,7 +247,10 @@ abstract final class MultiTenantDiagnosticService {
   ) async {
     try {
       final profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
-        await TenantResolverService.resolveOperationalChurchDocId(seed, userUid: uid),
+        await TenantResolverService.resolveOperationalChurchDocId(
+          seed,
+          userUid: uid,
+        ),
       );
       final score = TenantResolverService.churchProfileRichnessScore(profile);
       return MultiTenantCheckResult(
@@ -282,7 +296,10 @@ abstract final class MultiTenantDiagnosticService {
     }
   }
 
-  static Future<MultiTenantCheckResult> _checkCargos(String seed, String uid) async {
+  static Future<MultiTenantCheckResult> _checkCargos(
+    String seed,
+    String uid,
+  ) async {
     try {
       final snap = await ChurchTenantResilientReads.cargos(seed);
       final n = snap.docs.length;
@@ -302,4 +319,3 @@ abstract final class MultiTenantDiagnosticService {
     }
   }
 }
-

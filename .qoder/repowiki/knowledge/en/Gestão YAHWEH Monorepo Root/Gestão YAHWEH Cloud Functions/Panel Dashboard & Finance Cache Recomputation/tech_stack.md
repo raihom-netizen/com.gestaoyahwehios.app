@@ -1,0 +1,1 @@
+TypeScript Firebase Cloud Functions v1 (`firebase-functions/v1`) with `firebase-admin` Firestore client. Uses server timestamps (`FieldValue.serverTimestamp()`) for lock/coherence and region-set to `us-central1` for the finance trigger.

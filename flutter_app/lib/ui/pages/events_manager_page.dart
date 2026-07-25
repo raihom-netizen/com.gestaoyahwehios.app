@@ -79,7 +79,7 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show scheduleFeedMediaWarmup;
+    show scheduleFeedMediaWarmup, YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/performance_service.dart';
@@ -95,6 +95,7 @@ import 'package:gestao_yahweh/core/noticia_event_feed.dart'
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDocHasPhotoMedia,
+        eventNoticiaDocHasPlayableVideo,
         eventNoticiaPhotoUrls,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaImageStoragePath,
@@ -857,8 +858,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     // Padrão CT: pick bytes uma vez → Facade (sem double compress).
     final picked = await ChurchCtModuleUpload.pickImage(
       source: ImageSource.gallery,
-      imageQuality: 88,
-      maxWidth: 1920,
+      imageQuality: 78,
+      maxWidth: 1600,
     );
     if (picked == null) return null;
     await EventoMediaUpload.ensureUploadReady();
@@ -927,8 +928,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         // Padrão CT: escolher → preview imediato → upload silencioso.
         final picked = await ChurchCtModuleUpload.pickImage(
           source: ImageSource.gallery,
-          imageQuality: 88,
-          maxWidth: 1920,
+          imageQuality: 78,
+          maxWidth: 1600,
         );
         if (picked == null) return;
         coverClearedByUser = false;
@@ -5202,10 +5203,25 @@ int? _eventPhotoUrlIndexInDoc(Map<String, dynamic> data, String candidateUrl) {
 
 List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
   final raw = noticiaGalleryRefsForShare(data);
+  // Só exclui thumbs de vídeo quando HÁ vídeo. Sem vídeo, displayVideoThumbnail
+  // caía na 1ª foto e o feed ficava branco (Ampliar sem imagem).
+  if (!eventNoticiaDocHasPlayableVideo(data)) {
+    return dedupeImageRefsByStorageIdentity(raw);
+  }
   final thumbUrls = <String>{
-    sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(data) ?? ''),
     sanitizeImageUrl(eventNoticiaVideoThumbUrl(data) ?? ''),
   }..removeWhere((e) => e.isEmpty);
+  // Poster dedicado (não a 1ª foto da galeria, se for a única).
+  final dedicatedPoster = sanitizeImageUrl(
+    (data['posterUrl'] ??
+            data['videoPosterUrl'] ??
+            data['videoThumbUrl'] ??
+            data['video_thumbnail'] ??
+            '')
+        .toString(),
+  );
+  if (dedicatedPoster.isNotEmpty) thumbUrls.add(dedicatedPoster);
+
   final thumbPaths = <String>{};
   for (final u in thumbUrls) {
     final p = firebaseStorageObjectPathFromHttpUrl(u);
@@ -5213,16 +5229,22 @@ List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
       thumbPaths.add(normalizeFirebaseStorageObjectPath(p));
     }
   }
-  return dedupeImageRefsByStorageIdentity(raw.where((u) {
+  final filtered = dedupeImageRefsByStorageIdentity(raw.where((u) {
     final s = sanitizeImageUrl(u);
     if (thumbUrls.contains(s)) return false;
     final p = firebaseStorageObjectPathFromHttpUrl(s);
-    if (p != null && p.isNotEmpty &&
+    if (p != null &&
+        p.isNotEmpty &&
         thumbPaths.contains(normalizeFirebaseStorageObjectPath(p))) {
       return false;
     }
     return true;
   }).toList());
+  // Nunca deixar o card sem foto se a galeria tinha imagem e só sobrou thumb.
+  if (filtered.isEmpty && raw.isNotEmpty) {
+    return dedupeImageRefsByStorageIdentity(raw);
+  }
+  return filtered;
 }
 
 List<Map<String, String>> _eventVideosFromData(Map<String, dynamic> data) =>
@@ -5446,19 +5468,7 @@ class _EventoPostState extends State<_EventoPost>
     final url = sanitizeImageUrl(imageUrl);
     final rev = eventNoticiaMediaCacheRevision(data);
     final displayUrl = cacheBustImageUrl(url, revisionMs: rev);
-    final ph = Container(
-      color: const Color(0xFFF8FAFC),
-      child: Center(
-        child: SizedBox(
-          width: 32,
-          height: 32,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: ThemeCleanPremium.primary.withOpacity(0.6),
-          ),
-        ),
-      ),
-    );
+    final ph = YahwehPremiumFeedShimmer.mediaCover();
     final err = errorWidget();
     final origIdx = _eventPhotoUrlIndexInDoc(data, imageUrl);
     final path = origIdx != null

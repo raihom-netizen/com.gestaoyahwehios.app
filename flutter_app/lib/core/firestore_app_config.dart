@@ -15,9 +15,9 @@ abstract final class FirestoreOfflineConfig {
 
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
 ///
-/// Alinhado ao **Controle Total** (`Controletotalapp_Independente/flutter_app/lib/main.dart`):
-/// - **Web:** `persistenceEnabled: false` + `webExperimentalForceLongPolling: true`
-///   (evita INTERNAL ASSERTION / API Firestore JS a não responder após login).
+/// Alinhado ao **Controle Total** com melhorias Web:
+/// - **Web:** `persistenceEnabled: true` (IndexedDB cache local para leituras rápidas)
+///   + `webExperimentalForceLongPolling: true` (evita INTERNAL ASSERTION).
 /// - **Mobile:** cache ilimitado + persistência nativa.
 /// - Cache de módulos na Web: [ChurchRepository.listCacheFirst] + Hive (não IndexedDB SDK).
 void configureFirestoreForOfflineAndSpeed() {
@@ -33,12 +33,14 @@ void configureFirestoreForOfflineAndSpeed() {
 
   if (kIsWeb) {
     try {
+      // Web: persistência IndexedDB + long polling — leituras rápidas após 1.º load
+      // (cache local evita round-trip ao servidor em reaberturas).
       db.settings = const Settings(
-        persistenceEnabled: false,
+        persistenceEnabled: true,
         ignoreUndefinedProperties: true,
         webExperimentalForceLongPolling: true,
       );
-      FirestoreOfflineConfig.persistenceEnabled = false;
+      FirestoreOfflineConfig.persistenceEnabled = true;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
       FirestoreOfflineConfig.settingsApplied = true;
     } catch (e, st) {
@@ -66,12 +68,13 @@ void configureFirestoreForOfflineAndSpeed() {
 void _applyFallbackSettings(FirebaseFirestore db) {
   try {
     if (kIsWeb) {
+      // Fallback: persistência IndexedDB para leituras rápidas
       db.settings = const Settings(
-        persistenceEnabled: false,
+        persistenceEnabled: true,
         ignoreUndefinedProperties: true,
         webExperimentalForceLongPolling: true,
       );
-      FirestoreOfflineConfig.persistenceEnabled = false;
+      FirestoreOfflineConfig.persistenceEnabled = true;
       FirestoreOfflineConfig.webIndexedDbFallback = true;
       FirestoreOfflineConfig.settingsApplied = true;
     } else {

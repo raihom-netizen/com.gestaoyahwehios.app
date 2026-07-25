@@ -30,7 +30,8 @@ abstract final class AppFinalizeBootstrap {
       return;
     }
     if (kIsWeb) {
-      Future<void>.delayed(const Duration(seconds: 10), () {
+      // Web: delay reduzido (5s) para filas ligarem mais rápido sem bloquear Firebase core.
+      Future<void>.delayed(const Duration(seconds: 5), () {
         unawaited(_bindQueuesAfterFirebaseCore(manualRecovery: false));
       });
     } else {

@@ -1,0 +1,1 @@
+Firebase Cloud Functions that deliver segmented push notifications (FCM topics and direct tokens), schedule reminders, devotional broadcasts, and automated Firestore-triggered alerts for church management.

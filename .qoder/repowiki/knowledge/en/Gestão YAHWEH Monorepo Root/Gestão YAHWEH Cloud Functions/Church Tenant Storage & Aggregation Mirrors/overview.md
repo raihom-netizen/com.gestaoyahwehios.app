@@ -1,0 +1,1 @@
+Cloud Functions helpers that materialize placeholder storage folders per tenant, mirror aggregated counters and dashboard/finance aggregates to the church root document for instant client reads, and expose multi-tenant anchor utilities.

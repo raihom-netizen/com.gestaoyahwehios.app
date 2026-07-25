@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: flutter_app
+title: Gestão Yahweh Flutter Mobile App
+scope:
+    - flutter_app/
+source_files: []
+depends_on: []
+related_to: []

@@ -62,7 +62,7 @@ Future<void> noticiaShareNativeRich({
       try {
         final bytes = await firebaseStorageBytesFromDownloadUrl(
           vu,
-          maxBytes: 16 * 1024 * 1024,
+          maxBytes: 8 * 1024 * 1024,
         );
         if (bytes != null && bytes.length > 512) {
           await YahwehShareService.shareBytes(
@@ -86,7 +86,7 @@ Future<void> noticiaShareNativeRich({
       if (isFirebaseStorageHttpUrl(u)) {
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
-          maxBytes: 4 * 1024 * 1024,
+          maxBytes: 500 * 1024,
         );
       }
       if (bytes == null) {
@@ -95,7 +95,7 @@ Future<void> noticiaShareNativeRich({
               Uri.parse(u),
               headers: const {'Accept': 'image/*,*/*;q=0.8'},
             )
-            .timeout(const Duration(seconds: 20));
+            .timeout(const Duration(seconds: 12));
         if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
           bytes = response.bodyBytes;
         }
@@ -181,7 +181,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         collection: (noticiaDataForLazyMedia['collection'] ??
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
-      ).timeout(const Duration(seconds: 12));
+      ).timeout(const Duration(seconds: 8));
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
       if (media.isNotEmpty) {
@@ -225,7 +225,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
     try {
       final m = await resolveNoticiaShareSheetMedia(
         noticiaDataForLazyMedia,
-        resolveTimeout: const Duration(seconds: 5),
+        resolveTimeout: const Duration(seconds: 4),
       );
       img = m.previewImageUrl;
       vid = m.videoPlayUrl;

@@ -1,0 +1,1 @@
+Batch migration is driven by `migrateAllChurchTenants(source)` which iterates every document in `igrejas/` and calls `provisionChurchTenant` with `allowCreateRoot: false` to avoid resurrecting ghost test churches. The `upsertChurchAliases` function is a no-op stub kept only for import compatibility since aliases were removed.

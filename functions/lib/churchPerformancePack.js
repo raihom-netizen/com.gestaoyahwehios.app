@@ -53,7 +53,8 @@ const WEBP_Q = 70;
 const TIERS = [
     { key: "thumb_200", edge: 200 },
     { key: "medium_800", edge: 800 },
-    { key: "full_1920", edge: 1920 },
+    // Mantém nome full_1920 (compat) mas gera 1600px — alinhado ao cliente CT.
+    { key: "full_1920", edge: 1600 },
 ];
 function isImageContentType(ct) {
     return !!ct && ct.startsWith("image/");

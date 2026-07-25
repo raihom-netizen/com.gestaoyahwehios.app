@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/services/crashlytics_service.dart';
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
-  static const Duration uploadTimeout = Duration(seconds: 60);
+  static const Duration uploadTimeout = Duration(seconds: 90);
 
   static Future<PatrimonioGalleryUploadResult> uploadGalleryPhoto({
     required String churchId,
@@ -86,7 +86,7 @@ abstract final class PatrimonioMediaUpload {
     required String itemDocId,
     required List<Uint8List> images,
     required int startSlot,
-    int maxParallel = 4,
+    int maxParallel = 6,
     void Function(double progress)? onBatchProgress,
     bool alreadyCompressed = true,
   }) async {

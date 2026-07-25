@@ -1,0 +1,1 @@
+Firebase Cloud Functions that bundle church reports into a single admin SDK call and synchronise Firestore collections (general data and Mercado Pago credentials/config) from the richest cluster tenant to the canonical operational tenant.

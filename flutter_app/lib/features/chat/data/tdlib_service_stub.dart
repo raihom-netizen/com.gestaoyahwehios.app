@@ -82,7 +82,49 @@ class TdLibService {
     String localPath, {
     required String kind,
     String caption = '',
+    int? replyToMessageId,
   }) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> sendTextReply(
+    int chatId,
+    String text, {
+    required int replyToMessageId,
+  }) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> deleteMessages(int chatId, List<int> messageIds) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> editMessageText(
+    int chatId,
+    int messageId,
+    String newText,
+  ) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> forwardMessages(
+    int toChatId,
+    int fromChatId,
+    List<int> messageIds,
+  ) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> markAsRead(int chatId, List<int> messageIds) async {}
+
+  Future<void> sendChatAction(
+    int chatId, {
+    bool recordingVoice = false,
+  }) async {}
+
+  Future<void> cancelChatAction(int chatId) async {}
+
+  Future<void> removeChatMember(int chatId, int userId) async {
     throw UnsupportedError('TDLib não disponível na Web');
   }
 

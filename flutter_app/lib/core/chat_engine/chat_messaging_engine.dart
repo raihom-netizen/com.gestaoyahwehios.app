@@ -8,30 +8,35 @@ import 'package:gestao_yahweh/core/chat_engine/chat_message_repository.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_models.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_presence_engine.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_thread_repository.dart';
+import 'package:gestao_yahweh/core/chat_engine/tdlib_chat_adapter.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 
-/// **Motor de Mensagens** — porta única do Chat Igreja (estilo WhatsApp, sem adaptações).
+/// **Motor de Mensagens** — porta única do Chat Igreja.
+///
+/// Quando TDLib está disponível (mobile autenticado): usa Telegram como backend.
+/// Senão (Web / não autenticado): Firestore direto.
 ///
 /// Firestore: `igrejas/{churchId}/chats/{chatId}/messages`
 /// Storage:   `igrejas/{churchId}/chat_media/{images|videos|audio|documents}/`
 abstract final class ChatMessagingEngine {
   ChatMessagingEngine._();
 
+  /// `true` quando o motor Telegram está ativo (mobile + auth pronta).
+  static bool get useTdlib => TdlibChatAdapter.isAvailable;
+
   static int get messagesPageSize => FirebasePerformanceLimits.chatMessagesPage;
   static int get maxOlderPages => ChatMessageRepository.maxOlderPages;
 
-  static String churchId([String? hint]) => ChatEnginePaths.resolveChurchId(hint);
+  static String churchId([String? hint]) =>
+      ChatEnginePaths.resolveChurchId(hint);
 
   // ─── Leitura / realtime ───────────────────────────────────────────────────
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      openConversation({
-    required String churchId,
-    required String chatId,
-  }) async {
+  openConversation({required String churchId, required String chatId}) async {
     final sw = ChatEngineAudit.start('open_conversation');
     final cached = await ChatLocalCacheEngine.loadMessagesPage(
       churchId: churchId,
@@ -58,7 +63,12 @@ abstract final class ChatMessagingEngine {
       ChatEngineAudit.end(sw, docs: fresh.length);
       return fresh;
     } catch (e) {
-      ChatEngineAudit.end(sw, docs: cached.length, fromCache: true, error: '$e');
+      ChatEngineAudit.end(
+        sw,
+        docs: cached.length,
+        fromCache: true,
+        error: '$e',
+      );
       return cached;
     }
   }
@@ -67,68 +77,60 @@ abstract final class ChatMessagingEngine {
     required String churchId,
     required String chatId,
     int? pageSize,
-  }) =>
-      ChatMessageRepository.watchRecentTail(
-        churchId: churchId,
-        chatId: chatId,
-        limit: pageSize,
-      );
+  }) => ChatMessageRepository.watchRecentTail(
+    churchId: churchId,
+    chatId: chatId,
+    limit: pageSize,
+  );
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      fetchRecentMessagesPage({
+  fetchRecentMessagesPage({
     required String churchId,
     required String chatId,
     int? pageSize,
-  }) =>
-      ChatMessageRepository.fetchRecentPage(
-        churchId: churchId,
-        chatId: chatId,
-        limit: pageSize,
-      );
+  }) => ChatMessageRepository.fetchRecentPage(
+    churchId: churchId,
+    chatId: chatId,
+    limit: pageSize,
+  );
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      loadOlderMessagesPage({
+  loadOlderMessagesPage({
     required String churchId,
     required String chatId,
     required DocumentSnapshot<Map<String, dynamic>> startAfterDoc,
     int? pageSize,
-  }) =>
-      ChatMessageRepository.loadOlderPage(
-        churchId: churchId,
-        chatId: chatId,
-        startAfter: startAfterDoc,
-        limit: pageSize,
-      );
+  }) => ChatMessageRepository.loadOlderPage(
+    churchId: churchId,
+    chatId: chatId,
+    startAfter: startAfterDoc,
+    limit: pageSize,
+  );
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> watchThread({
     required String churchId,
     required String chatId,
-  }) =>
-      ChatThreadRepository.watchThread(churchId: churchId, chatId: chatId);
+  }) => ChatThreadRepository.watchThread(churchId: churchId, chatId: chatId);
 
   static Query<Map<String, dynamic>> threadsQueryForUser({
     required String churchId,
     required String uid,
     int? limit,
-  }) =>
-      ChatThreadRepository.threadsForUser(
-        churchId: churchId,
-        uid: uid,
-        limit: limit,
-      );
+  }) => ChatThreadRepository.threadsForUser(
+    churchId: churchId,
+    uid: uid,
+    limit: limit,
+  );
 
   static Future<Map<String, bool>> fetchPresenceOnlineMap({
     required String churchId,
     required Iterable<String> authUids,
   }) =>
-      ChatPresenceEngine.fetchOnlineMap(
-        churchId: churchId,
-        authUids: authUids,
-      );
+      ChatPresenceEngine.fetchOnlineMap(churchId: churchId, authUids: authUids);
 
   // ─── Envio otimista ─────────────────────────────────────────────────────────
 
-  /// Texto: aparece instantâneo → Firestore → upload em background (se houver mídia depois).
+  /// Texto: TDLib (Telegram) ou Firestore instantâneo.
   static void sendText({
     required String churchId,
     required String chatId,
@@ -140,6 +142,22 @@ abstract final class ChatMessagingEngine {
     ChurchChatSendCompleteCallback? onComplete,
     ChurchChatSendErrorCallback? onError,
   }) {
+    // TDLib backend (mobile autenticado)
+    if (useTdlib) {
+      final tdChatId = TdlibChatAdapter.extractTdlibChatId(chatId);
+      if (tdChatId != null) {
+        final replyId = replyTo?['tdlibMessageId'];
+        TdlibChatAdapter.sendText(
+          tdlibChatId: tdChatId,
+          text: text,
+          replyToMessageId: replyId is int ? replyId : null,
+        ).then((_) => onComplete?.call(true)).catchError((e) {
+          onError?.call(e.toString());
+        });
+        return;
+      }
+    }
+    // Firestore fallback (Web / TDLib não autenticado)
     ChurchChatInstantSendService.enqueueText(
       tenantId: churchId,
       threadId: chatId,
@@ -161,36 +179,54 @@ abstract final class ChatMessagingEngine {
     required String uid,
     String preview = '',
     bool recordingAudio = false,
-  }) =>
-      ChatPresenceEngine.setTyping(
-        churchId: churchId,
-        chatId: chatId,
-        uid: uid,
-        preview: preview,
-        recordingAudio: recordingAudio,
-      );
+  }) async {
+    if (useTdlib) {
+      final tdChatId = TdlibChatAdapter.extractTdlibChatId(chatId);
+      if (tdChatId != null) {
+        await TdlibChatAdapter.setTyping(
+          tdChatId,
+          recordingVoice: recordingAudio,
+        );
+        return;
+      }
+    }
+    await ChatPresenceEngine.setTyping(
+      churchId: churchId,
+      chatId: chatId,
+      uid: uid,
+      preview: preview,
+      recordingAudio: recordingAudio,
+    );
+  }
 
   static Future<void> clearTyping({
     required String churchId,
     required String chatId,
     required String uid,
-  }) =>
-      ChatPresenceEngine.clearTyping(
-        churchId: churchId,
-        chatId: chatId,
-        uid: uid,
-      );
+  }) async {
+    if (useTdlib) {
+      final tdChatId = TdlibChatAdapter.extractTdlibChatId(chatId);
+      if (tdChatId != null) {
+        await TdlibChatAdapter.clearTyping(tdChatId);
+        return;
+      }
+    }
+    await ChatPresenceEngine.clearTyping(
+      churchId: churchId,
+      chatId: chatId,
+      uid: uid,
+    );
+  }
 
   static String? typingLabel(
     Map<String, dynamic> threadData,
     String myUid, {
     Map<String, String>? namesByUid,
-  }) =>
-      ChatPresenceEngine.typingLabelFromThreadData(
-        threadData,
-        myUid,
-        namesByUid: namesByUid,
-      );
+  }) => ChatPresenceEngine.typingLabelFromThreadData(
+    threadData,
+    myUid,
+    namesByUid: namesByUid,
+  );
 
   // ─── Moderação / exclusão ─────────────────────────────────────────────────
 
@@ -198,45 +234,52 @@ abstract final class ChatMessagingEngine {
     required String churchId,
     required String chatId,
     required String messageId,
-  }) =>
-      ChatMessageRepository.deleteForEveryone(
-        churchId: churchId,
-        chatId: chatId,
-        messageId: messageId,
-      );
+  }) async {
+    if (useTdlib) {
+      final tdChatId = TdlibChatAdapter.extractTdlibChatId(chatId);
+      if (tdChatId != null) {
+        await TdlibChatAdapter.deleteMessages(tdChatId, [
+          int.tryParse(messageId) ?? 0,
+        ]);
+        return;
+      }
+    }
+    await ChatMessageRepository.deleteForEveryone(
+      churchId: churchId,
+      chatId: chatId,
+      messageId: messageId,
+    );
+  }
 
   static Future<void> hideMessageForMe({
     required String churchId,
     required String chatId,
     required String messageId,
     required String uid,
-  }) =>
-      ChatMessageRepository.hideForMe(
-        churchId: churchId,
-        chatId: chatId,
-        messageId: messageId,
-        uid: uid,
-      );
+  }) => ChatMessageRepository.hideForMe(
+    churchId: churchId,
+    chatId: chatId,
+    messageId: messageId,
+    uid: uid,
+  );
 
   static Future<void> hideThreadForUser({
     required String churchId,
     required String chatId,
     required String uid,
-  }) =>
-      ChatThreadRepository.hideThreadForUser(
-        churchId: churchId,
-        chatId: chatId,
-        uid: uid,
-      );
+  }) => ChatThreadRepository.hideThreadForUser(
+    churchId: churchId,
+    chatId: chatId,
+    uid: uid,
+  );
 
   static Future<void> clearConversationLocal({
     required String churchId,
     required String chatId,
-  }) =>
-      ChatLocalCacheEngine.clearConversationLocal(
-        churchId: churchId,
-        chatId: chatId,
-      );
+  }) => ChatLocalCacheEngine.clearConversationLocal(
+    churchId: churchId,
+    chatId: chatId,
+  );
 
   // ─── Grupos ───────────────────────────────────────────────────────────────
 
@@ -246,14 +289,13 @@ abstract final class ChatMessagingEngine {
     required List<String> participants,
     required List<String> admins,
     String? foto,
-  }) =>
-      ChatThreadRepository.createGroup(
-        churchId: churchId,
-        nome: nome,
-        participants: participants,
-        admins: admins,
-        foto: foto,
-      );
+  }) => ChatThreadRepository.createGroup(
+    churchId: churchId,
+    nome: nome,
+    participants: participants,
+    admins: admins,
+    foto: foto,
+  );
 
   static Future<void> updateGroup({
     required String churchId,
@@ -262,26 +304,24 @@ abstract final class ChatMessagingEngine {
     String? foto,
     List<String>? participants,
     List<String>? admins,
-  }) =>
-      ChatThreadRepository.updateGroup(
-        churchId: churchId,
-        chatId: chatId,
-        nome: nome,
-        foto: foto,
-        participants: participants,
-        admins: admins,
-      );
+  }) => ChatThreadRepository.updateGroup(
+    churchId: churchId,
+    chatId: chatId,
+    nome: nome,
+    foto: foto,
+    participants: participants,
+    admins: admins,
+  );
 
   static Future<void> deleteGroupForEveryone({
     required String churchId,
     required String chatId,
     required String actorUid,
-  }) =>
-      ChatThreadRepository.deleteGroupForEveryone(
-        churchId: churchId,
-        chatId: chatId,
-        actorUid: actorUid,
-      );
+  }) => ChatThreadRepository.deleteGroupForEveryone(
+    churchId: churchId,
+    chatId: chatId,
+    actorUid: actorUid,
+  );
 
   // ─── Storage paths ────────────────────────────────────────────────────────
 
@@ -292,28 +332,26 @@ abstract final class ChatMessagingEngine {
     required String uid,
     required int timestampMs,
     required String fileName,
-  }) =>
-      ChatEnginePaths.buildMediaObjectPath(
-        churchId: churchId,
-        chatId: chatId,
-        type: type,
-        uid: uid,
-        timestampMs: timestampMs,
-        fileName: fileName,
-      );
+  }) => ChatEnginePaths.buildMediaObjectPath(
+    churchId: churchId,
+    chatId: chatId,
+    type: type,
+    uid: uid,
+    timestampMs: timestampMs,
+    fileName: fileName,
+  );
 
   static String thumbnailStoragePath({
     required String churchId,
     required String uid,
     required int timestampMs,
     String suffix = 'thumb',
-  }) =>
-      ChatEnginePaths.buildThumbnailPath(
-        churchId: churchId,
-        uid: uid,
-        timestampMs: timestampMs,
-        suffix: suffix,
-      );
+  }) => ChatEnginePaths.buildThumbnailPath(
+    churchId: churchId,
+    uid: uid,
+    timestampMs: timestampMs,
+    suffix: suffix,
+  );
 
   // ─── Auditoria ────────────────────────────────────────────────────────────
 
@@ -323,6 +361,5 @@ abstract final class ChatMessagingEngine {
     String churchId,
     String chatId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) =>
-      ChatMessageRepository.parseDocs(churchId, chatId, docs);
+  ) => ChatMessageRepository.parseDocs(churchId, chatId, docs);
 }

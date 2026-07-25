@@ -61,6 +61,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoUrls,
         eventNoticiaVideoThumbUrl,
         eventNoticiaDisplayVideoThumbnailUrl,
+        eventNoticiaDocHasPlayableVideo,
         eventNoticiaVideosFromDoc,
         eventNoticiaImageStoragePath,
         eventNoticiaPhotoStoragePathAt,
@@ -6903,16 +6904,26 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
 /// Fotos reais no destaque do painel — não duplica a miniatura do vídeo como "foto" extra.
 List<String> _painelDestaqueGalleryPhotos(Map<String, dynamic> d) {
   final raw = yahwehPostGalleryRefs(d);
-  final t1 = sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(d) ?? '');
+  if (!eventNoticiaDocHasPlayableVideo(d)) {
+    return raw;
+  }
+  // Só exclui thumbs dedicadas de vídeo (não a 1ª foto usada como poster).
   final t2 = sanitizeImageUrl(eventNoticiaVideoThumbUrl(d) ?? '');
+  final dedicated = sanitizeImageUrl(
+    (d['posterUrl'] ?? d['videoPosterUrl'] ?? d['videoThumbUrl'] ?? '')
+        .toString(),
+  );
   bool dup(String s) {
     final x = sanitizeImageUrl(s);
     if (x.isEmpty) return false;
-    if (t1.isNotEmpty && x == t1) return true;
     if (t2.isNotEmpty && x == t2) return true;
+    if (dedicated.isNotEmpty && x == dedicated) return true;
     return false;
   }
-  return raw.where((s) => !dup(s)).toList();
+
+  final filtered = raw.where((s) => !dup(s)).toList();
+  if (filtered.isEmpty && raw.isNotEmpty) return raw;
+  return filtered;
 }
 
 /// Carrossel estilo Instagram no Painel — fotos (paths Storage) + vídeo embutido (web) ou miniatura + play.
@@ -6952,7 +6963,8 @@ Widget _painelDestaqueVideoThumbWidget({
   required bool isEvento,
 }) {
   final t = thumb;
-  final ph = _DestaqueCard._gradientBanner(title, isEvento);
+  final ph = YahwehPremiumFeedShimmer.mediaCover();
+  final err = _DestaqueCard._gradientBanner(title, isEvento);
   final storageLike =
       isFirebaseStorageHttpUrl(t) || firebaseStorageMediaUrlLooksLike(t);
   if (storageLike) {
@@ -6966,7 +6978,7 @@ Widget _painelDestaqueVideoThumbWidget({
         memCacheWidth: 520,
         memCacheHeight: 400,
         placeholder: ph,
-        errorWidget: ph,
+        errorWidget: err,
       ),
     );
   }
@@ -6981,7 +6993,7 @@ Widget _painelDestaqueVideoThumbWidget({
       memCacheHeight: 400,
       skipFreshDisplayUrl: true,
       placeholder: ph,
-      errorWidget: ph,
+      errorWidget: err,
     ),
   );
 }
@@ -7127,13 +7139,7 @@ class _PainelDestaqueMediaCarouselState
                       memCacheWidth: memW,
                       memCacheHeight: memH,
                       skipFreshDisplayUrl: true,
-                      placeholder: Center(
-                        child: Icon(
-                          Icons.photo_outlined,
-                          size: 36,
-                          color: Colors.grey.shade400,
-                        ),
-                      ),
+                      placeholder: YahwehPremiumFeedShimmer.mediaCover(),
                       errorWidget: _DestaqueCard._gradientBanner(
                           widget.title, widget.isEvento),
                     ),
@@ -7431,19 +7437,7 @@ class _DestaqueCard extends StatefulWidget {
       );
     }
     final gradientFallback = _gradientBanner(title, isEvento);
-    final ph = ColoredBox(
-      color: const Color(0xFFF1F5F9),
-      child: Center(
-        child: SizedBox(
-          width: 32,
-          height: 32,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.6),
-          ),
-        ),
-      ),
-    );
+    final ph = YahwehPremiumFeedShimmer.mediaCover();
     final g = gsUrl?.trim();
     final hasStableSource = displayImageUrl.isNotEmpty ||
         (storagePath?.trim().isNotEmpty ?? false) ||

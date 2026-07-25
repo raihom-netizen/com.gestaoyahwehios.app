@@ -22,6 +22,7 @@ class MemberCardLoadRequest {
     this.cpf,
     this.memberSeedData,
     this.restrictedMember = false,
+    this.preferFresh = false,
   });
 
   final String churchIdHint;
@@ -29,6 +30,9 @@ class MemberCardLoadRequest {
   final String? cpf;
   final Map<String, dynamic>? memberSeedData;
   final bool restrictedMember;
+
+  /// Após troca de foto: não reutilizar seed/cache cego — buscar Firestore.
+  final bool preferFresh;
 }
 
 /// Dados mínimos para pintar o cartão CNH (tenant + membro).
@@ -200,7 +204,8 @@ abstract final class MemberCardLoadService {
     MemberCardLoadRequest req,
     String igrejaDocId,
   ) async {
-    if (_canUseSeed(req)) {
+    // Seed só para pintura rápida. Após troca de foto [preferFresh] força rede.
+    if (!req.preferFresh && _canUseSeed(req)) {
       return (
         id: req.memberId!.trim(),
         data: Map<String, dynamic>.from(req.memberSeedData!),
@@ -215,6 +220,13 @@ abstract final class MemberCardLoadService {
     Future<DocumentSnapshot<Map<String, dynamic>>?> docById(String id) async {
       if (id.isEmpty) return null;
       try {
+        if (req.preferFresh) {
+          final snap = await col
+              .doc(id)
+              .get(const GetOptions(source: Source.server))
+              .timeout(_attempt);
+          if (snap.exists) return snap;
+        }
         Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
             FirestoreReadResilience.getDocument(
               col.doc(id),
@@ -240,6 +252,17 @@ abstract final class MemberCardLoadService {
       if (user?.uid != null) {
         final uid = user!.uid;
         try {
+          if (req.preferFresh) {
+            final fresh = await col
+                .where('authUid', isEqualTo: uid)
+                .limit(1)
+                .get(const GetOptions(source: Source.server))
+                .timeout(_attempt);
+            if (fresh.docs.isNotEmpty) {
+              final d = fresh.docs.first;
+              return (id: d.id, data: d.data());
+            }
+          }
           final cached = await col
               .where('authUid', isEqualTo: uid)
               .limit(1)

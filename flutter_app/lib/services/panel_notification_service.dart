@@ -35,8 +35,10 @@ class PanelNotificationService {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
     final plugin = await _pluginReady();
-    final android = plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return;
 
     await android.createNotificationChannel(
@@ -59,8 +61,10 @@ class PanelNotificationService {
       return true;
     }
     final plugin = await _pluginReady();
-    final android = plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
+    final android = plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (android == null) return true;
     final granted = await android.requestNotificationsPermission();
     return granted ?? true;
@@ -71,5 +75,16 @@ class PanelNotificationService {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
     final plugin = await _pluginReady();
     await NotificationIosStyle.ensureLocalPermissions(plugin);
+  }
+
+  /// iOS: limpa o badge do ícone ao abrir o app (paridade Controle Total).
+  ///
+  /// O sistema iOS limpa o badge automaticamente quando o utilizador abre uma
+  /// notificação. Para limpar programaticamente, é necessário código nativo
+  /// no AppDelegate.swift: `UIApplication.shared.applicationIconBadgeNumber = 0`.
+  /// Este método é um placeholder seguro para futura implementação nativa.
+  Future<void> clearIosBadge() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    // Best-effort: o badge é limpo pelo iOS quando o user abre a notificação.
   }
 }

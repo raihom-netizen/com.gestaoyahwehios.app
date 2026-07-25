@@ -1,0 +1,12 @@
+rules_version = '2';
+// Versão mínima temporária — apenas para confirmar que o API recuperou
+// Será substituída pela versão completa logo em seguida
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

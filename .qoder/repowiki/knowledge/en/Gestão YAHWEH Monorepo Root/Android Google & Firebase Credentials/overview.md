@@ -1,0 +1,1 @@
+Stores and documents the Android app's Google/Firebase configuration files, OAuth secrets, service-account credentials, and Play Store upload-key setup for the Gestão YAHWEH Flutter app.

@@ -67,7 +67,7 @@ class TdlibChatPreview {
   final String? lastMessagePreview;
 }
 
-/// Mensagem leve para a thread Yahweh Chat (TDLib).
+/// Mensagem completa para a thread Yahweh Chat (TDLib).
 class TdlibMessageItem {
   const TdlibMessageItem({
     required this.id,
@@ -75,6 +75,20 @@ class TdlibMessageItem {
     required this.isOutgoing,
     required this.preview,
     this.dateEpoch,
+    this.senderId,
+    this.senderName,
+    this.text = '',
+    this.mediaKind,
+    this.mediaLocalPath,
+    this.mediaRemoteId,
+    this.mediaCaption,
+    this.replyToMessageId,
+    this.isRead = false,
+    this.isEdited = false,
+    this.isForwarded = false,
+    this.fileSize,
+    this.mimeType,
+    this.fileName,
   });
 
   final int id;
@@ -82,4 +96,66 @@ class TdlibMessageItem {
   final bool isOutgoing;
   final String preview;
   final int? dateEpoch;
+  final int? senderId;
+  final String? senderName;
+  final String text;
+
+  /// 'photo' | 'video' | 'voice' | 'document' | 'audio' | 'sticker' | null
+  final String? mediaKind;
+  final String? mediaLocalPath;
+  final String? mediaRemoteId;
+  final String? mediaCaption;
+
+  final int? replyToMessageId;
+  final bool isRead;
+  final bool isEdited;
+  final bool isForwarded;
+  final int? fileSize;
+  final String? mimeType;
+  final String? fileName;
+
+  bool get hasMedia => mediaKind != null;
+
+  TdlibMessageItem copyWith({
+    int? id,
+    int? chatId,
+    bool? isOutgoing,
+    String? preview,
+    int? dateEpoch,
+    int? senderId,
+    String? senderName,
+    String? text,
+    String? mediaKind,
+    String? mediaLocalPath,
+    String? mediaRemoteId,
+    String? mediaCaption,
+    int? replyToMessageId,
+    bool? isRead,
+    bool? isEdited,
+    bool? isForwarded,
+    int? fileSize,
+    String? mimeType,
+    String? fileName,
+  }) =>
+      TdlibMessageItem(
+        id: id ?? this.id,
+        chatId: chatId ?? this.chatId,
+        isOutgoing: isOutgoing ?? this.isOutgoing,
+        preview: preview ?? this.preview,
+        dateEpoch: dateEpoch ?? this.dateEpoch,
+        senderId: senderId ?? this.senderId,
+        senderName: senderName ?? this.senderName,
+        text: text ?? this.text,
+        mediaKind: mediaKind ?? this.mediaKind,
+        mediaLocalPath: mediaLocalPath ?? this.mediaLocalPath,
+        mediaRemoteId: mediaRemoteId ?? this.mediaRemoteId,
+        mediaCaption: mediaCaption ?? this.mediaCaption,
+        replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+        isRead: isRead ?? this.isRead,
+        isEdited: isEdited ?? this.isEdited,
+        isForwarded: isForwarded ?? this.isForwarded,
+        fileSize: fileSize ?? this.fileSize,
+        mimeType: mimeType ?? this.mimeType,
+        fileName: fileName ?? this.fileName,
+      );
 }

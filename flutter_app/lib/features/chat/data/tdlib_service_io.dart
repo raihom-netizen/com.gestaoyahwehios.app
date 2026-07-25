@@ -544,6 +544,7 @@ class TdLibService {
     String localPath, {
     required String kind, // photo | video | document | voice
     String caption = '',
+    int? replyToMessageId,
   }) async {
     final svc = _requireService();
     final path = localPath.trim();
@@ -597,6 +598,137 @@ class TdLibService {
       '@type': 'sendMessage',
       'chat_id': chatId,
       'input_message_content': content,
+      if (replyToMessageId != null)
+        'reply_to_message_id': replyToMessageId,
+    });
+  }
+
+  /// Envia texto com reply (resposta a outra mensagem).
+  Future<void> sendTextReply(
+    int chatId,
+    String text, {
+    required int replyToMessageId,
+  }) async {
+    final svc = _requireService();
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    await svc.sendSync({
+      '@type': 'sendMessage',
+      'chat_id': chatId,
+      'reply_to_message_id': replyToMessageId,
+      'input_message_content': {
+        '@type': 'inputMessageText',
+        'text': {
+          '@type': 'formattedText',
+          'text': trimmed,
+        },
+      },
+    });
+  }
+
+  /// Apaga mensagens para todos (revoke = true).
+  Future<void> deleteMessages(int chatId, List<int> messageIds) async {
+    final svc = _requireService();
+    if (messageIds.isEmpty) return;
+    await svc.sendSync({
+      '@type': 'deleteMessages',
+      'chat_id': chatId,
+      'message_ids': messageIds,
+      'revoke': true,
+    });
+  }
+
+  /// Edita texto de mensagem existente.
+  Future<void> editMessageText(
+    int chatId,
+    int messageId,
+    String newText,
+  ) async {
+    final svc = _requireService();
+    await svc.sendSync({
+      '@type': 'editMessageText',
+      'chat_id': chatId,
+      'message_id': messageId,
+      'input_message_content': {
+        '@type': 'inputMessageText',
+        'text': {
+          '@type': 'formattedText',
+          'text': newText.trim(),
+        },
+      },
+    });
+  }
+
+  /// Encaminha mensagens de um chat para outro.
+  Future<void> forwardMessages(
+    int toChatId,
+    int fromChatId,
+    List<int> messageIds,
+  ) async {
+    final svc = _requireService();
+    if (messageIds.isEmpty) return;
+    await svc.sendSync({
+      '@type': 'forwardMessages',
+      'chat_id': toChatId,
+      'from_chat_id': fromChatId,
+      'message_ids': messageIds,
+    });
+  }
+
+  /// Marca mensagens como lidas (viewMessages).
+  Future<void> markAsRead(int chatId, List<int> messageIds) async {
+    final svc = _service;
+    if (svc == null || messageIds.isEmpty) return;
+    try {
+      await svc.sendSync({
+        '@type': 'viewMessages',
+        'chat_id': chatId,
+        'message_ids': messageIds,
+        'force_read': true,
+      });
+    } catch (_) {}
+  }
+
+  /// Envia indicador de digitação / gravação de áudio.
+  Future<void> sendChatAction(
+    int chatId, {
+    bool recordingVoice = false,
+  }) async {
+    final svc = _service;
+    if (svc == null) return;
+    try {
+      await svc.sendSync({
+        '@type': 'sendChatAction',
+        'chat_id': chatId,
+        'action': {
+          '@type': recordingVoice
+              ? 'chatActionRecordingVoiceNote'
+              : 'chatActionTyping',
+        },
+      });
+    } catch (_) {}
+  }
+
+  /// Cancela indicador de digitação.
+  Future<void> cancelChatAction(int chatId) async {
+    final svc = _service;
+    if (svc == null) return;
+    try {
+      await svc.sendSync({
+        '@type': 'sendChatAction',
+        'chat_id': chatId,
+        'action': {'@type': 'chatActionCancel'},
+      });
+    } catch (_) {}
+  }
+
+  /// Remove membro do grupo.
+  Future<void> removeChatMember(int chatId, int userId) async {
+    final svc = _requireService();
+    await svc.sendSync({
+      '@type': 'removeChatMember',
+      'chat_id': chatId,
+      'user_id': userId,
     });
   }
 
@@ -629,13 +761,161 @@ class TdLibService {
     final chatId = _asInt(msg['chat_id']);
     if (id == null || chatId == null) return null;
     final outgoing = msg['is_outgoing'] == true;
+    final senderId = _asInt(msg['sender_id'] is Map
+        ? (msg['sender_id'] as Map)['user_id']
+        : msg['sender_id']);
+    final content = msg['content'];
+    final contentMap = content is Map ? Map<String, dynamic>.from(content) : null;
     final preview = _previewFromMessage(msg) ?? 'Mensagem';
+    final isRead = msg['is_outgoing'] == true
+        ? (msg['interaction_info'] is Map &&
+            (msg['interaction_info'] as Map)['read_date'] != null)
+        : false;
+    final isEdited = contentMap?['@type']?.toString().contains('Edited') == true;
+    final isForwarded = msg['forward_info'] != null;
+    final replyTo = msg['reply_to'];
+    final replyToId = replyTo is Map ? _asInt(replyTo['message_id']) : null;
+
+    // Extract media info
+    String? mediaKind;
+    String? mediaLocalPath;
+    String? mediaRemoteId;
+    String? mediaCaption;
+    String? text;
+    String? mimeType;
+    String? fileName;
+    int? fileSize;
+
+    if (contentMap != null) {
+      final cType = contentMap['@type']?.toString() ?? '';
+      switch (cType) {
+        case 'messageText':
+          final t = contentMap['text'];
+          if (t is Map) text = t['text']?.toString();
+          break;
+        case 'messagePhoto':
+          mediaKind = 'photo';
+          final photo = contentMap['photo'];
+          if (photo is Map) {
+            final sizes = photo['sizes'];
+            if (sizes is List && sizes.isNotEmpty) {
+              final last = sizes.last;
+              if (last is Map) {
+                final p = last['photo'];
+                if (p is Map) {
+                  mediaLocalPath = p['local'] is Map
+                      ? (p['local'] as Map)['path']?.toString()
+                      : null;
+                  mediaRemoteId = p['remote'] is Map
+                      ? (p['remote'] as Map)['id']?.toString()
+                      : null;
+                }
+              }
+            }
+          }
+          final cap = contentMap['caption'];
+          if (cap is Map) mediaCaption = cap['text']?.toString();
+          break;
+        case 'messageVideo':
+          mediaKind = 'video';
+          final video = contentMap['video'];
+          if (video is Map) {
+            mimeType = video['mime_type']?.toString();
+            fileName = video['file_name']?.toString();
+            fileSize = _asInt(video['size']);
+            if (video['video'] is Map) {
+              final v = video['video'] as Map;
+              mediaLocalPath = v['local'] is Map
+                  ? (v['local'] as Map)['path']?.toString()
+                  : null;
+              mediaRemoteId = v['remote'] is Map
+                  ? (v['remote'] as Map)['id']?.toString()
+                  : null;
+            }
+          }
+          final cap = contentMap['caption'];
+          if (cap is Map) mediaCaption = cap['text']?.toString();
+          break;
+        case 'messageVoiceNote':
+          mediaKind = 'voice';
+          final vn = contentMap['voice_note'];
+          if (vn is Map) {
+            mimeType = vn['mime_type']?.toString();
+            fileSize = _asInt(vn['size']);
+            if (vn['voice'] is Map) {
+              final v = vn['voice'] as Map;
+              mediaLocalPath = v['local'] is Map
+                  ? (v['local'] as Map)['path']?.toString()
+                  : null;
+              mediaRemoteId = v['remote'] is Map
+                  ? (v['remote'] as Map)['id']?.toString()
+                  : null;
+            }
+          }
+          break;
+        case 'messageDocument':
+          mediaKind = 'document';
+          final doc = contentMap['document'];
+          if (doc is Map) {
+            mimeType = doc['mime_type']?.toString();
+            fileName = doc['file_name']?.toString();
+            fileSize = _asInt(doc['size']);
+            if (doc['document'] is Map) {
+              final d = doc['document'] as Map;
+              mediaLocalPath = d['local'] is Map
+                  ? (d['local'] as Map)['path']?.toString()
+                  : null;
+              mediaRemoteId = d['remote'] is Map
+                  ? (d['remote'] as Map)['id']?.toString()
+                  : null;
+            }
+          }
+          final cap = contentMap['caption'];
+          if (cap is Map) mediaCaption = cap['text']?.toString();
+          break;
+        case 'messageAudio':
+          mediaKind = 'audio';
+          final audio = contentMap['audio'];
+          if (audio is Map) {
+            mimeType = audio['mime_type']?.toString();
+            fileName = audio['file_name']?.toString();
+            fileSize = _asInt(audio['size']);
+            if (audio['audio'] is Map) {
+              final a = audio['audio'] as Map;
+              mediaLocalPath = a['local'] is Map
+                  ? (a['local'] as Map)['path']?.toString()
+                  : null;
+              mediaRemoteId = a['remote'] is Map
+                  ? (a['remote'] as Map)['id']?.toString()
+                  : null;
+            }
+          }
+          break;
+        case 'messageSticker':
+          mediaKind = 'sticker';
+          break;
+      }
+    }
+
     return TdlibMessageItem(
       id: id,
       chatId: chatId,
       isOutgoing: outgoing,
       preview: preview,
       dateEpoch: _asInt(msg['date']),
+      senderId: senderId,
+      text: text ?? '',
+      mediaKind: mediaKind,
+      mediaLocalPath: mediaLocalPath,
+      mediaRemoteId: mediaRemoteId,
+      mediaCaption: mediaCaption,
+      replyToMessageId: replyToId,
+      isRead: isRead,
+      isEdited: isEdited,
+      isForwarded: isForwarded,
+      fileSize: fileSize,
+      mimeType: mimeType,
+      fileName: fileName,
     );
   }
 

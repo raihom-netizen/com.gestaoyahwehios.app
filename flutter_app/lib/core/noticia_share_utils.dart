@@ -3,10 +3,12 @@ import 'dart:async' show TimeoutException;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/noticia_share_prefetch_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
+import 'package:gestao_yahweh/core/noticia_share_photo_url.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
@@ -20,6 +22,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         feedPostCarouselPhotoUrlsFromRawRefs,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
+import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         firebaseStorageBytesFromDownloadUrl,
@@ -55,6 +58,39 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
   return (mime: 'image/jpeg', filename: 'publicacao.jpg');
 }
 
+/// Reencode leve em isolate se o download vier grande demais.
+/// Optimizado: maxEdge 1024px, interpolação `average` (~2× mais rápido),
+/// quality inicia em 72 (evita iterações desnecessárias).
+Uint8List _shrinkSharePhotoIsolate(Uint8List raw) {
+  if (raw.length <= kNoticiaSharePhotoMaxBytes) return raw;
+  try {
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) return raw;
+    var work = decoded;
+    const maxEdge = 1024;
+    final m = work.width > work.height ? work.width : work.height;
+    if (m > maxEdge) {
+      final scale = maxEdge / m;
+      work = img.copyResize(
+        work,
+        width: (work.width * scale).round(),
+        height: (work.height * scale).round(),
+        interpolation: img.Interpolation.average,
+      );
+    }
+    var best = raw;
+    for (final q in const [72, 65, 58]) {
+      final enc = Uint8List.fromList(img.encodeJpg(work, quality: q));
+      if (enc.isEmpty) continue;
+      best = enc;
+      if (best.length <= kNoticiaSharePhotoMaxBytes) break;
+    }
+    return best;
+  } catch (_) {
+    return raw;
+  }
+}
+
 /// Baixa a mesma capa usada na partilha nativa (até ~4 MB).
 Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async {
   final imgHttps = await resolveNoticiaSharePreviewImageUrl(post);
@@ -64,7 +100,7 @@ Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async 
   try {
     if (isFirebaseStorageHttpUrl(u)) {
       bytes = await firebaseStorageBytesFromDownloadUrl(u,
-          maxBytes: 4 * 1024 * 1024);
+          maxBytes: 2 * 1024 * 1024);
     }
     if (bytes == null) {
       final response = await http
@@ -72,7 +108,7 @@ Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async 
             Uri.parse(u),
             headers: const {'Accept': 'image/*'},
           )
-          .timeout(const Duration(seconds: 22));
+          .timeout(const Duration(seconds: 12));
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         bytes = response.bodyBytes;
       }
@@ -319,24 +355,38 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     httpUrls.addAll(noticiaGalleryRefsForShare(data));
   }
 
+  // Deduplica capa+galeria (mesma foto com tokens/URLs diferentes).
+  final dedupedHttp = feedPostCarouselPhotoUrlsFromRawRefs(httpUrls)
+      .where((u) {
+        final s = sanitizeImageUrl(u);
+        return s.startsWith('http://') || s.startsWith('https://');
+      })
+      .toList();
+  httpUrls
+    ..clear()
+    ..addAll(dedupedHttp);
+
   Future<NoticiaShareMediaFile?> downloadPhoto(String ref, int index) async {
     try {
-      final u = sanitizeImageUrl(ref);
+      final u = preferShareFriendlyPhotoUrl(sanitizeImageUrl(ref));
       if (!isValidImageUrl(u) || looksLikeHostedVideoFileUrl(u)) return null;
       Uint8List? bytes;
       if (isFirebaseStorageHttpUrl(u)) {
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
-          maxBytes: 2 * 1024 * 1024,
-        ).timeout(const Duration(seconds: 5), onTimeout: () => null);
+          maxBytes: kNoticiaSharePhotoMaxBytes,
+        ).timeout(const Duration(seconds: 3), onTimeout: () => null);
       }
       bytes ??= await http
           .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
-          .timeout(const Duration(seconds: 4))
+          .timeout(const Duration(seconds: 2))
           .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
               ? r.bodyBytes
               : null);
       if (bytes == null || bytes.length <= 32) return null;
+      if (bytes.length > kNoticiaSharePhotoMaxBytes) {
+        bytes = await YahwehHeavyWork.run(_shrinkSharePhotoIsolate, bytes);
+      }
       final desc = noticiaShareImageDescriptorFromBytes(bytes);
       return NoticiaShareMediaFile(
         bytes: bytes,
@@ -362,8 +412,8 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       if (vu.isEmpty || !isValidImageUrl(vu)) return null;
       final vBytes = await firebaseStorageBytesFromDownloadUrl(
         vu,
-        maxBytes: 16 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 8), onTimeout: () => null);
+        maxBytes: 10 * 1024 * 1024,
+      ).timeout(const Duration(seconds: 6), onTimeout: () => null);
       if (vBytes == null || vBytes.length <= 512) return null;
       final low = vu.toLowerCase().split('?').first;
       final ext = low.endsWith('.webm')
@@ -398,9 +448,15 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   ]);
 
   final photoCount = photoJobs.length;
+  final seenContent = <String>{};
   for (var i = 0; i < photoCount; i++) {
     final f = results[i];
-    if (f != null) out.add(f);
+    if (f == null) continue;
+    // Mesma imagem baixada por 2 URLs diferentes (bytes iguais) → 1 anexo.
+    final head = f.bytes.length > 64 ? f.bytes.sublist(0, 64) : f.bytes;
+    final fingerprint = '${f.bytes.length}:${head.join(',')}';
+    if (!seenContent.add(fingerprint)) continue;
+    out.add(f);
   }
 
   if (out.isEmpty) {
@@ -467,7 +523,7 @@ Future<String?> resolveNoticiaSharePreviewImageUrl(Map<String, dynamic> p) async
 /// para o painel abrir rápido (link/texto sempre disponíveis; mídia é opcional).
 Future<({String? previewImageUrl, String? videoPlayUrl})> resolveNoticiaShareSheetMedia(
   Map<String, dynamic> data, {
-  Duration resolveTimeout = const Duration(seconds: 10),
+  Duration resolveTimeout = const Duration(seconds: 5),
 }) async {
   try {
     final r = await Future.wait<String?>([

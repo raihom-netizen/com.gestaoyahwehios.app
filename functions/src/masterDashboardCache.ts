@@ -184,42 +184,75 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
   }
 
   const igSnap = await db.collection("igrejas").limit(IGREJAS_SCAN).get();
-  for (const doc of igSnap.docs) {
-    const data = doc.data();
-    if (churchIsBlocked(data)) blocked++;
-    if (churchIsFree(data)) freeCount++;
-    if (licenseActive(data)) licencasAtivas++;
 
-    try {
-      const dirSnap = await doc.ref
-        .collection("_panel_cache")
-        .doc("members_directory")
-        .get();
-      const dirData = dirSnap.data();
-      const tc =
-        dirData?.totalCount ??
-        (dirData?.summary as Record<string, unknown> | undefined)?.totalCount;
-      if (typeof tc === "number" && tc > 0) {
-        membrosTotal += tc;
-      } else {
-        const mc = await doc.ref.collection("membros").count().get();
-        membrosTotal += mc.data().count;
-      }
-    } catch (_) {
+  // Parallel: batch all per-church computations (members count + metadata)
+  const churchResults = await Promise.all(
+    igSnap.docs.map(async (doc) => {
+      const data = doc.data();
+      const result = {
+        blocked: churchIsBlocked(data),
+        free: churchIsFree(data),
+        active: licenseActive(data),
+        membros: 0,
+        vencimento: null as Date | null,
+        createdMonth: null as string | null,
+      };
+
+      if (result.blocked) result.blocked = true;
+
+      // Members count: prefer directory cache, fallback to count query
       try {
-        const mc = await doc.ref.collection("membros").count().get();
-        membrosTotal += mc.data().count;
-      } catch (_) {}
-    }
+        const dirSnap = await doc.ref
+          .collection("_panel_cache")
+          .doc("members_directory")
+          .get();
+        const dirData = dirSnap.data();
+        const tc =
+          dirData?.totalCount ??
+          (dirData?.summary as Record<string, unknown> | undefined)?.totalCount;
+        if (typeof tc === "number" && tc > 0) {
+          result.membros = tc;
+        } else {
+          const mc = await doc.ref.collection("membros").count().get();
+          result.membros = mc.data().count;
+        }
+      } catch (_) {
+        try {
+          const mc = await doc.ref.collection("membros").count().get();
+          result.membros = mc.data().count;
+        } catch (_) {}
+      }
 
-    const dt = vencimentoFromChurch(data);
+      result.vencimento = vencimentoFromChurch(data);
+
+      const created = parseDate(
+        data.createdAt ?? data.created_at ?? data.dataCadastro,
+      );
+      if (created) {
+        result.createdMonth = monthKey(created);
+      }
+
+      return result;
+    })
+  );
+
+  // Aggregate results
+  for (const r of churchResults) {
+    if (r.blocked) blocked++;
+    if (r.free) freeCount++;
+    if (r.active) licencasAtivas++;
+    membrosTotal += r.membros;
+
+    const dt = r.vencimento;
     if (dt && dt >= now) {
       if (dt <= in7) {
         venc7++;
         if (expiringChurches.length < 12) {
+          const docIdx = churchResults.indexOf(r);
+          const doc = igSnap.docs[docIdx];
           expiringChurches.push({
             tenantId: doc.id,
-            nome: pickString(data, ["nome", "name", "slug"]) || doc.id,
+            nome: pickString(doc.data(), ["nome", "name", "slug"]) || doc.id,
             dataVencimento: admin.firestore.Timestamp.fromDate(dt),
           });
         }
@@ -228,14 +261,9 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
       }
     }
 
-    const created = parseDate(
-      data.createdAt ?? data.created_at ?? data.dataCadastro,
-    );
-    if (created) {
-      const key = monthKey(created);
-      if (byMonthIgrejas[key] != null) byMonthIgrejas[key]++;
+    if (r.createdMonth && byMonthIgrejas[r.createdMonth] != null) {
+      byMonthIgrejas[r.createdMonth]++;
     }
-
   }
 
   const panelStaleSample = igSnap.docs.slice(0, 24);

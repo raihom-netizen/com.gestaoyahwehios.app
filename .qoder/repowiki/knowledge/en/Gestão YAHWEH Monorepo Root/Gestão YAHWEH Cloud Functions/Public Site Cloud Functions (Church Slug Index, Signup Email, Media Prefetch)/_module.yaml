@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/public_site
+title: Public Site Cloud Functions (Church Slug Index, Signup Email, Media Prefetch)
+scope:
+    - functions/src/publicChurchSlugIndex.ts
+    - functions/src/publicSignupEmail.ts
+    - functions/src/publicSiteMediaPrefetch.ts
+source_files: []
+depends_on: []
+related_to: []

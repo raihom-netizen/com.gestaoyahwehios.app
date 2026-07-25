@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`), Firebase Admin SDK (Firestore, Storage, Messaging), `pdfkit` for PDF generation, `archiver` for ZIP creation, Node.js `http`/`https` modules for raw URL fetching, and Google Cloud Pub/Sub scheduled triggers with `America/Sao_Paulo` timezone.

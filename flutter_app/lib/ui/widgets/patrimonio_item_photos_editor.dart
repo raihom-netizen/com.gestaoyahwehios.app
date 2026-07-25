@@ -9,11 +9,10 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_photos_update_service.dart';
@@ -22,6 +21,7 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/patrimonio_wisdom_footer_buttons.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -349,15 +349,29 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
 
   Future<void> _showFotoAnexadaSnack(String fileName, Uint8List bytes) async {
     if (!mounted) return;
-    final resolution =
-        await ImmediateMediaAttachFeedback.readResolution(bytes);
-    if (!mounted) return;
     ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
       context,
       fileName: fileName,
       sizeBytes: bytes.length,
-      resolution: resolution,
     );
+  }
+
+  /// Padrão CT: pick JPEG leve (1600/78) sem MediaHandler.
+  Future<Uint8List?> _pickCtJpegBytes({required ImageSource source}) async {
+    final picked = await ChurchCtModuleUpload.pickImage(
+      source: source,
+      imageQuality: 78,
+      maxWidth: 1600,
+    ).timeout(
+      const Duration(seconds: 60),
+      onTimeout: () => throw TimeoutException(
+        'Seleção de foto demorou demais.',
+      ),
+    );
+    if (picked == null || picked.bytes.isEmpty) return null;
+    final bytes = picked.bytes;
+    if (bytes.length <= ImageHelper.kPatrimonioMaxUploadBytes) return bytes;
+    return ImageHelper.compressPatrimonioPhotoForUpload(bytes);
   }
 
   Future<void> pickForSlot(int slot) async {
@@ -369,26 +383,14 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     if (slot < 0 || slot >= PatrimonioItemPhotosEditor.maxPhotos) return;
     setState(() => _mediaPicking = true);
     try {
-      // Padrão CT: pick → bytes (uma compressão) → pending slot.
-      final picked = await ChurchCtModuleUpload.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 88,
-        maxWidth: 1920,
-      ).timeout(
-        const Duration(seconds: 90),
-        onTimeout: () => throw TimeoutException(
-          'Seleção de foto demorou demais.',
-        ),
-      );
-      if (picked == null || !mounted) return;
-      final bytes = picked.bytes;
-      if (bytes.isEmpty || !mounted) return;
+      // Padrão CT: pick → bytes leves → pending slot (sem 2.ª compressão).
+      final bytes = await _pickCtJpegBytes(source: ImageSource.gallery);
+      if (bytes == null || !mounted) return;
       setState(() {
         _slotUrls[slot] = '';
         _slotPaths[slot] = '';
         _slotPending[slot] = bytes;
-        _slotPendingNames[slot] =
-            picked.fileName.isNotEmpty ? picked.fileName : 'foto_${slot + 1}.jpg';
+        _slotPendingNames[slot] = 'foto_${slot + 1}.jpg';
       });
       _notifyChanged();
       if (mounted) {
@@ -426,32 +428,25 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     });
     _notifyChanged();
     try {
+      if (!await YahwehModuleMediaGate.ensureReadyForPick(
+        context: context,
+        module: YahwehMediaModule.patrimonio,
+      )) {
+        return;
+      }
       final List<XFile> list;
       if (vagas == 1) {
-        final single = await MediaHandlerService.instance
-            .pickAndProcessFromGallery(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            )
-            .timeout(
-              const Duration(seconds: 90),
-              onTimeout: () => throw TimeoutException(
-                'Seleção de foto demorou demais.',
-              ),
-            );
-        list = single != null ? [single] : [];
+        final single = await ImagePicker().pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 78,
+          maxWidth: 1600,
+        );
+        list = single != null ? [single] : <XFile>[];
       } else {
-        final picked = await MediaHandlerService.instance
-            .pickAndProcessMultipleImages(
-              module: YahwehMediaModule.patrimonio,
-              context: context,
-            )
-            .timeout(
-              const Duration(seconds: 90),
-              onTimeout: () => throw TimeoutException(
-                'Seleção de fotos demorou demais.',
-              ),
-            );
+        final picked = await ImagePicker().pickMultiImage(
+          imageQuality: 78,
+          maxWidth: 1600,
+        );
         list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
       }
       if (list.isEmpty || !mounted) return;
@@ -461,9 +456,11 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         if (_atingiuLimiteFotos) break;
         if (mounted) setState(() => _preparingPhotoCount = i + 1);
         try {
-          final bytes = await SafeImageBytes.patrimonioFromPicker(list[i])
-              .timeout(const Duration(seconds: 25));
-          if (!mounted) return;
+          final raw = await list[i].readAsBytes();
+          if (raw.isEmpty || !mounted) continue;
+          final bytes = raw.length <= ImageHelper.kPatrimonioMaxUploadBytes
+              ? raw
+              : await ImageHelper.compressPatrimonioPhotoForUpload(raw);
           final slot = _firstEmptyPhotoSlot();
           if (slot == null) break;
           final nome = list[i].name.isNotEmpty
@@ -472,13 +469,12 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
           setState(() {
             _slotPending[slot] = bytes;
             _slotPendingNames[slot] = nome;
+            _slotUrls[slot] = '';
+            _slotPaths[slot] = '';
             _preparingPhotoCount = 0;
           });
           ultimoNome = nome;
           anexadas++;
-          if (kIsWeb) {
-            await Future<void>.delayed(const Duration(milliseconds: 16));
-          }
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -549,24 +545,19 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     }
     setState(() => _mediaPicking = true);
     try {
-      final file = await MediaHandlerService.instance.pickAndProcessFromCamera(
-        module: YahwehMediaModule.patrimonio,
-        context: context,
-      );
-      if (file == null || !mounted) return;
-      final bytes = await SafeImageBytes.patrimonioFromPicker(file)
-          .timeout(const Duration(seconds: 25));
+      final bytes = await _pickCtJpegBytes(source: ImageSource.camera);
+      if (bytes == null || !mounted) return;
       setState(() {
         final slot = _firstEmptyPhotoSlot();
         if (slot != null) {
           _slotPending[slot] = bytes;
-          _slotPendingNames[slot] =
-              file.name.isNotEmpty ? file.name : 'camera.jpg';
+          _slotPendingNames[slot] = 'camera.jpg';
+          _slotUrls[slot] = '';
+          _slotPaths[slot] = '';
         }
       });
       if (mounted) {
-        final name = file.name.isNotEmpty ? file.name : 'camera.webp';
-        unawaited(_showFotoAnexadaSnack(name, bytes));
+        unawaited(_showFotoAnexadaSnack('camera.jpg', bytes));
       }
       widget.onChanged?.call();
     } catch (e) {
@@ -636,28 +627,13 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     if (source == null || !mounted) return;
     setState(() => _mediaPicking = true);
     try {
-      XFile? picked;
-      if (source == ImageSource.camera) {
-        picked = await MediaHandlerService.instance.pickAndProcessFromCamera(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
-      } else {
-        picked = await MediaHandlerService.instance.pickAndProcessFromGallery(
-          module: YahwehMediaModule.patrimonio,
-          context: context,
-        );
-      }
-      if (picked == null || !mounted) return;
-      final bytes = await SafeImageBytes.patrimonioFromPicker(picked)
-          .timeout(const Duration(seconds: 25));
-      if (bytes.isEmpty || !mounted) return;
+      final bytes = await _pickCtJpegBytes(source: source);
+      if (bytes == null || !mounted) return;
       setState(() {
         _slotUrls[slot] = '';
         _slotPaths[slot] = '';
         _slotPending[slot] = bytes;
-        _slotPendingNames[slot] =
-            picked!.name.isNotEmpty ? picked.name : 'foto_${slot + 1}.jpg';
+        _slotPendingNames[slot] = 'foto_${slot + 1}.jpg';
       });
       ImmediateMediaAttachFeedback.showArquivoAnexado(
         context,
@@ -1071,7 +1047,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         const SizedBox(height: 8),
         Text(
           _slotPending.any((b) => b != null && b.isNotEmpty)
-              ? 'Fotos novas sobem ao tocar em Salvar (padrão Controle Total). A miniatura acompanha a foto principal.'
+              ? 'Fotos sobem ao Salvar — upload rápido em segundo plano (padrão Controle Total).'
               : 'Deslize a foto ou toque nas miniaturas — a faixa de baixo acompanha a navegação.',
           style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
         ),
@@ -1242,57 +1218,11 @@ class _PatrimonioItemPhotosEditorPageState
           ],
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        child: Material(
-          elevation: 8,
-          color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed:
-                        busy ? null : () => Navigator.maybePop(context, false),
-                    icon: const Icon(Icons.close_rounded),
-                    label: const Text('Cancelar'),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 48),
-                      foregroundColor: ThemeCleanPremium.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: FilledButton.icon(
-                    onPressed: (busy ||
-                            !(widget.canChangePhotos ||
-                                widget.canRemovePhotos))
-                        ? null
-                        : _save,
-                    icon: busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.check_rounded),
-                    label: Text(_saving ? 'Salvando…' : 'Salvar'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, 48),
-                      backgroundColor: ThemeCleanPremium.primary,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      bottomNavigationBar: PatrimonioWisdomCancelSaveBar(
+        onCancel: () => Navigator.maybePop(context, false),
+        onSave: _save,
+        saving: _saving || busy,
+        saveEnabled: widget.canChangePhotos || widget.canRemovePhotos,
       ),
     );
   }

@@ -69,7 +69,7 @@ function mergeData(
   };
 }
 
-/** Push por tópico — imagem rica + barra de cor (Android) + APNS image. */
+/** Push por tópico — imagem rica + barra de cor (Android) + APNS image + web push. */
 export function buildGyTopicMessage(params: {
   topic: string;
   title: string;
@@ -107,6 +107,19 @@ export function buildGyTopicMessage(params: {
         imageUrl: img,
       },
     },
+    webpush: {
+      notification: {
+        icon: img,
+        badge: img,
+        tag: `gyh_${params.module}_topic`,
+        dir: "auto" as const,
+        vibrate: [200, 100, 200],
+        actions: [
+          { action: "open", title: "Abrir" },
+          { action: "dismiss", title: "Ignorar" },
+        ],
+      },
+    },
   };
 }
 
@@ -139,6 +152,11 @@ export function buildGyTokenMessage(params: {
   const apnsHeaders: Record<string, string> = {
     "apns-priority": "10",
   };
+  // iOS: agrupamento por thread (chat) — badge count + visual grouping.
+  const threadId = data.threadId || data.tenantId || undefined;
+  if (threadId && params.module === "chat") {
+    aps.threadId = `gyh_chat_${threadId}`;
+  }
   if (chat) {
     if (chat.iosSound != null && chat.iosSound.length > 0) {
       aps.sound = chat.iosSound;
@@ -153,6 +171,24 @@ export function buildGyTokenMessage(params: {
     imageUrl: img,
     color,
     ...(chat?.androidChannelId ? { channelId: chat.androidChannelId } : {}),
+  };
+  // Android: agrupamento de notificações de chat por thread (Android 14+).
+  if (params.module === "chat" && threadId) {
+    androidNotif.tag = `chat_${threadId}`;
+  }
+  // Web push config — notificação nativa no browser.
+  const webpush: admin.messaging.WebpushConfig = {
+    notification: {
+      icon: img,
+      badge: img,
+      tag: data.type || `gyh_${params.module}`,
+      dir: "auto" as const,
+      vibrate: [200, 100, 200],
+      actions: [
+        { action: "open", title: "Abrir" },
+        { action: "dismiss", title: "Ignorar" },
+      ],
+    },
   };
   return {
     token: params.token,
@@ -175,6 +211,7 @@ export function buildGyTokenMessage(params: {
         imageUrl: img,
       },
     },
+    webpush,
   };
 }
 

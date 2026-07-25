@@ -172,7 +172,7 @@ abstract final class PublicChurchSlugResolver {
             .collection('public_church_slugs')
             .doc(key)
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 3));
+            .timeout(const Duration(seconds: 2));
         if (!snap.exists || snap.data() == null) continue;
         final d = snap.data()!;
         final cid = (d['churchId'] ?? '').toString().trim();
@@ -208,7 +208,7 @@ abstract final class PublicChurchSlugResolver {
 
     try {
       final panel = await PanelPublicSiteSnapshotService.readOnce(out.churchId)
-          .timeout(const Duration(seconds: 2));
+          .timeout(const Duration(milliseconds: 1500));
       if (panel.hasData) {
         final overlay = <String, dynamic>{
           if (panel.churchName.isNotEmpty) ...{
@@ -277,7 +277,7 @@ abstract final class PublicChurchSlugResolver {
     try {
       final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(
         churchId,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 4));
       if (hit != null && hit.data.isNotEmpty) {
         profile = _mergeProfiles(profile, hit.data);
         churchId = hit.docId;
@@ -287,7 +287,7 @@ abstract final class PublicChurchSlugResolver {
     if (!_profileLooksComplete(profile) && churchId != slug) {
       try {
         final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(slug)
-            .timeout(const Duration(seconds: 6));
+            .timeout(const Duration(seconds: 4));
         if (hit != null && hit.data.isNotEmpty) {
           profile = _mergeProfiles(profile, hit.data);
           churchId = hit.docId;
@@ -302,7 +302,7 @@ abstract final class PublicChurchSlugResolver {
             .where('slug', isEqualTo: slug)
             .limit(1)
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 6));
+            .timeout(const Duration(seconds: 4));
         if (q.docs.isNotEmpty) {
           profile = _mergeProfiles(profile, q.docs.first.data());
           churchId = q.docs.first.id;

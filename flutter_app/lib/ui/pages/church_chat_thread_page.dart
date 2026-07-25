@@ -2145,7 +2145,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     } else if (pending.kind == 'audio') {
       _setPendingProgress(pending.localId, 0.06);
     }
-    Future<void>.delayed(const Duration(seconds: 200), () {
+    Future<void>.delayed(const Duration(seconds: 60), () {
       if (!mounted) return;
       final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
       if (i < 0 || _pendingOutbound[i].failed) return;
@@ -2469,7 +2469,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     // Imagem mobile: comprimir a partir do path no serviço (evita OOM com original 5–10 MB).
     if (pending.kind == 'image') return null;
 
-    // Vídeo/documento/áudio: upload via putFile com path persistente.
+    // Áudio (voz): cachear bytes no outbox — path temporário some e o relógio fica eterno.
+    if (pending.kind == 'audio') {
+      final path = (localPath ?? pending.localPath)?.trim() ?? '';
+      if (path.isEmpty) return null;
+      try {
+        final f = File(path);
+        if (await f.exists()) {
+          final b = await f.readAsBytes();
+          if (b.isNotEmpty) return b;
+        }
+      } catch (e, st) {
+        debugPrint('_bytesForPendingUpload audio: $e\n$st');
+      }
+      return null;
+    }
+
+    // Vídeo/documento: upload via path persistente (bytes grandes).
     return null;
   }
 
@@ -5153,13 +5169,17 @@ class _MessageBody extends StatelessWidget {
       }
       cells.add(ChurchChatAlbumCell(
         url: legacyUrl.isEmpty ? null : legacyUrl,
+        storagePath: sp.isEmpty ? null : sp,
+        messageData: dm,
+        tenantId: tenantId,
+        messageId: d.id,
         type: t == 'video' ? 'video' : 'image',
         onTap: !hasMedia
             ? null
             : () async {
                 final resolved =
                     await ChurchChatMediaResolver.resolveDownloadUrl(
-                  storagePath: sp,
+                  storagePath: sp.isNotEmpty ? sp : legacyUrl,
                   tenantId: tenantId,
                 );
                 final zoomUrl = resolved ?? legacyUrl;

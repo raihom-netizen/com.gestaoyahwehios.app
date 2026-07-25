@@ -756,6 +756,26 @@ String? eventNoticiaVideoThumbUrl(Map<String, dynamic>? data) {
   return null;
 }
 
+/// Há vídeo reproduzível (arquivo Storage, YouTube/Vimeo ou lista `videos`).
+/// Não confundir com post só de foto — evita roubar a 1ª imagem como "thumb de vídeo".
+bool eventNoticiaDocHasPlayableVideo(Map<String, dynamic>? data) {
+  if (data == null) return false;
+  if (eventNoticiaVideosFromDoc(data).isNotEmpty) return true;
+  final hosted = (eventNoticiaHostedVideoPlayUrl(data) ?? '').trim();
+  if (hosted.isNotEmpty) return true;
+  final ext = eventNoticiaExternalVideoUrl(data);
+  if (ext != null && ext.trim().isNotEmpty) return true;
+  final legacy = (data['videoUrl'] ?? data['video_url'] ?? '').toString().trim();
+  if (legacy.isEmpty) return false;
+  final low = legacy.toLowerCase();
+  if (low.contains('youtube.com') ||
+      low.contains('youtu.be') ||
+      low.contains('vimeo.com')) {
+    return true;
+  }
+  return looksLikeHostedVideoFileUrl(legacy) || isValidImageUrl(legacy);
+}
+
 /// Primeira URL de vídeo arquivo (Firebase Storage) para abrir no player/navegador.
 String? eventNoticiaHostedVideoPlayUrl(Map<String, dynamic>? data) {
   for (final m in eventNoticiaVideosFromDoc(data)) {
@@ -837,7 +857,10 @@ String? eventNoticiaDisplayVideoThumbnailUrl(Map<String, dynamic>? data) {
     final y = youtubeThumbnailUrlForVideoUrl(legacy);
     if (y != null) return y;
   }
-  // Fallback Instagram/YouTube: 1ª foto do post como capa do vídeo.
+  // Fallback Instagram/YouTube: 1ª foto como capa do vídeo — SÓ se há vídeo real.
+  // Sem isto, posts só com foto tinham a imagem removida do feed/painel
+  // (_eventFeedCardPhotoUrls / _painelDestaqueGalleryPhotos).
+  if (!eventNoticiaDocHasPlayableVideo(data)) return null;
   final photos = eventNoticiaPhotoUrls(data);
   for (final raw in photos) {
     final s = sanitizeImageUrl(raw);

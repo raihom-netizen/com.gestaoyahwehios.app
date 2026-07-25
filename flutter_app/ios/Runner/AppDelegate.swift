@@ -117,6 +117,12 @@ private let widgetJsonKey = "widget_events_json"
     }
   }
 
+  /// Limpa o badge do ícone quando o app volta ao foreground (paridade Controle Total).
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    application.applicationIconBadgeNumber = 0
+    super.applicationDidBecomeActive(application)
+  }
+
   override func application(
     _ application: UIApplication,
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data

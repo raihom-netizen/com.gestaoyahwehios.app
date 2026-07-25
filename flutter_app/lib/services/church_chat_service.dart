@@ -2378,6 +2378,35 @@ class ChurchChatService {
     return (messageId: msgRef.id, storagePath: storagePath);
   }
 
+  /// Atualiza thumb depois do upload em background (não bloqueia o envio).
+  static Future<void> patchMediaThumbAfterUpload({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required String thumbStoragePath,
+    String? thumbUrl,
+  }) async {
+    final tid = tenantId.trim();
+    final th = threadId.trim();
+    final mid = messageId.trim();
+    final tsp = thumbStoragePath.trim();
+    if (tid.isEmpty || th.isEmpty || mid.isEmpty || tsp.isEmpty) return;
+    try {
+      final patch = <String, dynamic>{
+        'thumbStoragePath': tsp,
+        if ((thumbUrl ?? '').trim().isNotEmpty) 'thumbUrl': thumbUrl!.trim(),
+      };
+      await ChurchOperationalPaths.churchDoc(tid)
+          .collection('chats')
+          .doc(th)
+          .collection('messages')
+          .doc(mid)
+          .set(patch, SetOptions(merge: true));
+    } catch (e, st) {
+      debugPrint('patchMediaThumbAfterUpload: $e\n$st');
+    }
+  }
+
   /// Mídia: **upload Storage concluído** → uma gravação Firestore (`status: sent`).
   /// Inclui `mediaUrl` https para visualização imediata (painel, site, chat).
   static Future<({String messageId, bool allowed})> writeMediaMessageFirestoreOnce({

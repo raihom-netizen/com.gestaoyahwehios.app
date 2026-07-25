@@ -1,0 +1,242 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: main
+nodes_managed: true
+exported_at: "2026-07-25T03:17:27Z"
+modules:
+    "":
+        dir_name: Gestão YAHWEH Monorepo Root
+        title: Gestão YAHWEH Monorepo Root
+        scope:
+            - README.md
+            - CONTRIBUTING.md
+            - .gitignore
+            - .firebaserc
+            - firebase.json
+            - firestore.rules
+            - storage.rules
+            - cors.json
+            - codemagic.yaml
+            - .gitattributes
+        source_files: []
+        children:
+            - android_creds
+            - cloud_functions
+            - deployment_scripts
+            - documentation
+            - flutter_app
+            - ios_signing
+        depends_on: []
+        related_to: []
+    android_creds:
+        dir_name: Android Google & Firebase Credentials
+        title: Android Google & Firebase Credentials
+        scope:
+            - ANDROID/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions:
+        dir_name: Gestão YAHWEH Cloud Functions
+        title: Gestão YAHWEH Cloud Functions
+        scope:
+            - functions/
+        source_files: []
+        children:
+            - cloud_functions/admin_utilities
+            - cloud_functions/certificates_events
+            - cloud_functions/chat_system
+            - cloud_functions/church_operations
+            - cloud_functions/church_tenant
+            - cloud_functions/finance_payment
+            - cloud_functions/maintenance_scripts
+            - cloud_functions/master_platform
+            - cloud_functions/member_management
+            - cloud_functions/notifications_comms
+            - cloud_functions/panel_caching
+            - cloud_functions/public_site
+            - cloud_functions/reports_analytics
+        depends_on: []
+        related_to: []
+    cloud_functions/admin_utilities:
+        dir_name: Admin Data Migration Utilities
+        title: Admin Data Migration Utilities
+        scope:
+            - functions/src/adminDb.ts
+            - functions/src/migrateTenantFirestoreCollections.ts
+            - functions/src/migrateStorageConsolidated.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/certificates_events:
+        dir_name: Certificate Batch Generation, Event Reminders & Social Share Pages
+        title: Certificate Batch Generation, Event Reminders & Social Share Pages
+        scope:
+            - functions/src/certificadosLote.ts
+            - functions/src/eventoReminders.ts
+            - functions/src/shareEvento.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/chat_system:
+        dir_name: Church Chat Cloud Functions (Purge, DM Normalization & Notifications)
+        title: Church Chat Cloud Functions (Purge, DM Normalization & Notifications)
+        scope:
+            - functions/src/churchChatAdminPurge.ts
+            - functions/src/churchChatDmThreadNormalize.ts
+            - functions/src/churchChatNotify.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/church_operations:
+        dir_name: Church Tenant Storage & Aggregation Mirrors
+        title: Church Tenant Storage & Aggregation Mirrors
+        scope:
+            - functions/src/churchStorageStructure.ts
+            - functions/src/churchRootCountersMirror.ts
+            - functions/src/churchClusterAnchors.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/church_tenant:
+        dir_name: Church Tenant Provisioning & Consolidation
+        title: Church Tenant Provisioning & Consolidation
+        scope:
+            - functions/src/churchTenantProvisioning.ts
+            - functions/src/churchTenantFields.ts
+            - functions/src/churchTenantConsolidation.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/finance_payment:
+        dir_name: Finance Payment & Recurring Revenue Cloud Functions
+        title: Finance Payment & Recurring Revenue Cloud Functions
+        scope:
+            - functions/src/financeVencimentoReminders.ts
+            - functions/src/receitasRecorrentesScheduled.ts
+            - functions/src/churchMercadoPago.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/maintenance_scripts:
+        dir_name: Maintenance & Data Migration Cloud Functions
+        title: Maintenance & Data Migration Cloud Functions
+        scope:
+            - functions/src/purgeAnonymousAuthUsers.ts
+            - functions/src/purgeStalePendingUploads.ts
+            - functions/src/consolidateBpcCluster.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/master_platform:
+        dir_name: Master Platform Admin & Tenant License Management
+        title: Master Platform Admin & Tenant License Management
+        scope:
+            - functions/src/masterPlatformAuth.ts
+            - functions/src/masterTenantLicense.ts
+            - functions/src/masterChurchesListCache.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/member_management:
+        dir_name: Member Access Policy & Notification Cloud Functions
+        title: Member Access Policy & Notification Cloud Functions
+        scope:
+            - functions/src/memberAccessPolicy.ts
+            - functions/src/memberNotificationEmail.ts
+            - functions/src/memberRegistrationNotify.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/notifications_comms:
+        dir_name: Pastoral Communications & Push Notification System
+        title: Pastoral Communications & Push Notification System
+        scope:
+            - functions/src/pastoralComms.ts
+            - functions/src/notificationBranding.ts
+            - functions/src/pushNovoConteudo.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/panel_caching:
+        dir_name: Panel Dashboard & Finance Cache Recomputation
+        title: Panel Dashboard & Finance Cache Recomputation
+        scope:
+            - functions/src/panelDashboardCache.ts
+            - functions/src/panelFinanceAccountsCache.ts
+            - functions/src/panelStatisticsCache.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/public_site:
+        dir_name: Public Site Cloud Functions (Church Slug Index, Signup Email, Media Prefetch)
+        title: Public Site Cloud Functions (Church Slug Index, Signup Email, Media Prefetch)
+        scope:
+            - functions/src/publicChurchSlugIndex.ts
+            - functions/src/publicSignupEmail.ts
+            - functions/src/publicSiteMediaPrefetch.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    cloud_functions/reports_analytics:
+        dir_name: Church Cluster Data Sync & Reports Snapshot
+        title: Church Cluster Data Sync & Reports Snapshot
+        scope:
+            - functions/src/reportsSnapshot.ts
+            - functions/src/syncChurchClusterData.ts
+            - functions/src/syncChurchMercadoPagoCluster.ts
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    deployment_scripts:
+        dir_name: Deployment & CI_CD Automation Scripts
+        title: Deployment & CI/CD Automation Scripts
+        scope:
+            - scripts/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    documentation:
+        dir_name: Project Documentation & Migration Guides
+        title: Project Documentation & Migration Guides
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    flutter_app:
+        dir_name: Gestão Yahweh Flutter Mobile App
+        title: Gestão Yahweh Flutter Mobile App
+        scope:
+            - flutter_app/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ios_signing:
+        dir_name: iOS Signing & App Store Credentials
+        title: iOS Signing & App Store Credentials
+        scope:
+            - IOS/
+            - widget/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

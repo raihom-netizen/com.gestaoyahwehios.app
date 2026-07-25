@@ -34,8 +34,8 @@ const int kHighResCropMaxHeight = 2160;
 
 /// Limite na codificação WebP final — padrão **Full HD** no maior lado (retrato/paisagem).
 /// Usado em avisos e eventos do mural após o recorte.
-const int kPremiumFeedFullHdMaxWidth = 1920;
-const int kPremiumFeedFullHdMaxHeight = 1920;
+const int kPremiumFeedFullHdMaxWidth = 1600;
+const int kPremiumFeedFullHdMaxHeight = 1600;
 
 /// Foto de membro (1:1): não usar teto Full HD do feed.
 const int kMemberCropWebpMaxEdgePx = 768;

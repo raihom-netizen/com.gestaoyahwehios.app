@@ -1,0 +1,6 @@
+- Each script exports both a raw async core function (e.g. `purgeAnonymousAuthUsersCore`, `runConsolidateBpcToCanonical`) and a Firebase function wrapper, separating business logic from transport concerns.
+- Long-running operations declare explicit resource limits via `.runWith({ timeoutSeconds: 540, memory: '...' })` and run in a fixed region.
+- Master-only access is enforced at the function boundary by checking `context.auth.uid` and either `isPlatformOperatorToken(token)` or role/email claims before delegating to the core function.
+- Firestore writes are batched in chunks of ~400 operations per batch, with `admin.firestore().batch()` committed incrementally to stay within write limits.
+- All destructive operations support a `dryRun` option that skips actual writes while still counting/scanning, and results include a `dryRun` flag plus operation counters.
+- Heavy optional modules are loaded lazily via `await import('./module')` inside the execution path so they do not impact cold-start time.

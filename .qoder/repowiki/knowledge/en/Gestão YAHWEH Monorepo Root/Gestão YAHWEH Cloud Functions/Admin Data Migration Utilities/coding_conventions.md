@@ -1,0 +1,5 @@
+- Callable functions validate authentication via `context.auth.uid` and enforce role-based access by checking `claims.admin === true`, `claims.role === 'master'`, or a hardcoded admin email (`raihom@gmail.com`).
+- Long-running migrations use `functions.runWith({ timeoutSeconds: 540, memory: '1GB'|'2GB' })` and paginate Firestore queries with a fixed `BATCH_LIMIT` (400 for collections, 500/800 for scans), advancing via `startAfter(last.id)`.
+- Idempotency is ensured by using `{ merge: true }` on all destination writes and checking existence of target files/documents before performing work.
+- Error tracking follows a consistent pattern: a result object accumulates an `errors: string[]` array while continuing to process remaining tenants/documents, and final status is derived from whether the errors array is empty.
+- Per-tenant operation metadata is persisted under `igrejas/{tid}/_meta/<migration_id>` with a `status` field cycling through `running` → `completed`/`error`, augmented with `serverTimestamp()` markers.

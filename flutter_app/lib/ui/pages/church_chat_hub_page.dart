@@ -250,8 +250,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
     });
-    // Streams/grupos só após _bootstrap() resolver o doc canónico (evita legado vazio).
-    _conversasSkeletonTimer = Timer(const Duration(seconds: 2), () {
+    // Skeleton timeout reduzido (1s) — UI mostra conteúdo mais rápido.
+    _conversasSkeletonTimer = Timer(const Duration(seconds: 1), () {
       if (mounted) setState(() => _conversasSkeletonTimedOut = true);
     });
     _localConvListener = () {
@@ -924,7 +924,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _bootstrapAfterTenantBound(String tid, String uid) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady()
-          .timeout(const Duration(seconds: 3), onTimeout: () {})
+          .timeout(const Duration(seconds: 2), onTimeout: () {})
           .catchError((_) {});
     }
 
@@ -932,7 +932,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (uid.isNotEmpty) {
       try {
         cachedList = await ChurchChatThreadsListCache.loadSnapshot(tid, uid: uid)
-            .timeout(const Duration(seconds: 4));
+            .timeout(const Duration(seconds: 2));
       } catch (_) {}
     }
     if (!mounted) return;

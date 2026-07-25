@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
+import 'package:gestao_yahweh/core/chat_engine/tdlib_chat_adapter.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
@@ -8,11 +9,17 @@ import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 
 /// Chat Igreja — **fachada fina** (sem tenant fixo; delega motor existente).
 ///
+/// Quando TDLib está disponível (mobile + auth Telegram pronta), o motor
+/// usa Telegram como backend. Na Web ou sem auth, usa Firestore.
+///
 /// Firestore mensagens: `igrejas/{churchId}/chats/{chatId}/messages`
 /// Preferências grupos: `igrejas/{churchId}/chat_member_prefs/{uid}.departmentGroupOrderIds`
 /// Storage mídia: `igrejas/{churchId}/chat_media/{images|videos|audio|documents}/`
 abstract final class YahwehChatEngineService {
   YahwehChatEngineService._();
+
+  /// `true` quando o motor Telegram está ativo (mobile + auth pronta).
+  static bool get useTelegramEngine => TdlibChatAdapter.isAvailable;
 
   static String resolveChurchId(String? hint) =>
       ChurchRepository.churchId(hint?.trim() ?? '');

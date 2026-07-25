@@ -28,7 +28,11 @@ class BankNotificationParseResult {
     required this.rawSnippet,
   });
 
-  bool get hasMinimumForConfirmation => valor != null && valor! > 0 && descricao != null && descricao!.trim().isNotEmpty;
+  bool get hasMinimumForConfirmation =>
+      valor != null &&
+      valor! > 0 &&
+      descricao != null &&
+      descricao!.trim().isNotEmpty;
 
   BankNotificationParseResult copyWith({
     String? suggestedPresetId,
@@ -51,6 +55,7 @@ class BankNotificationParseResult {
 /// Metadados do lote (limites) — [BankNotificationParser.parseManyForBatchEx].
 class BankNotificationParseManyOutcome {
   final List<BankNotificationParseResult> rows;
+
   /// Contagem de linhas de lançamento antes do teto [BankNotificationParser.kMaxBatchParseRows].
   final int unboundedLineCount;
   final bool rowCapApplied;
@@ -85,7 +90,8 @@ abstract final class BankNotificationParser {
 
   /// Uma passagem de [parseManyForBatch]: primeiro lançamento para o cartão de confirmação + total para massa.
   /// Evita chamar [parse] no texto inteiro e depois [parseManyForBatch] de novo (dobro de trabalho).
-  static (BankNotificationParseResult preview, int batchCount) parseForSmartInputField(String texto) {
+  static (BankNotificationParseResult preview, int batchCount)
+  parseForSmartInputField(String texto) {
     final o = parseManyForBatchEx(texto);
     if (o.rows.isNotEmpty) {
       return (o.rows.first, o.rows.length);
@@ -108,7 +114,10 @@ abstract final class BankNotificationParser {
       text = text.substring(1);
     }
     if (text.isEmpty) {
-      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+      return const BankNotificationCsvParseOutcome(
+        rows: [],
+        rowCapApplied: false,
+      );
     }
 
     final lines = text
@@ -117,19 +126,28 @@ abstract final class BankNotificationParser {
         .where((e) => e.isNotEmpty)
         .toList();
     if (lines.length < 2) {
-      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+      return const BankNotificationCsvParseOutcome(
+        rows: [],
+        rowCapApplied: false,
+      );
     }
 
     final sep = _detectCsvSeparator(lines.first);
     final headerRaw = _splitCsvLine(lines.first, sep);
     final header = headerRaw.map(_normalizeCsvHeaderCell).toList();
     if (header.length < 2) {
-      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+      return const BankNotificationCsvParseOutcome(
+        rows: [],
+        rowCapApplied: false,
+      );
     }
 
     final idx = _resolveCsvColumnIndices(header, lines, sep);
     if (idx == null) {
-      return const BankNotificationCsvParseOutcome(rows: [], rowCapApplied: false);
+      return const BankNotificationCsvParseOutcome(
+        rows: [],
+        rowCapApplied: false,
+      );
     }
 
     final out = <BankNotificationParseResult>[];
@@ -139,13 +157,23 @@ abstract final class BankNotificationParser {
       if (row.isEmpty) continue;
 
       var desc = _normalizeCsvDescription(_csvAt(row, idx.descIdx));
-      desc = _enrichCsvRowDescription(desc, row, idx.memoIdx, idx.merchantIdx, idx.categoryIdx);
+      desc = _enrichCsvRowDescription(
+        desc,
+        row,
+        idx.memoIdx,
+        idx.merchantIdx,
+        idx.categoryIdx,
+      );
       if (desc.length < 2) continue;
 
       double? signedAmt;
       if (idx.debitIdx != null || idx.creditIdx != null) {
-        final rawD = idx.debitIdx != null ? _csvAt(row, idx.debitIdx!).trim() : '';
-        final rawC = idx.creditIdx != null ? _csvAt(row, idx.creditIdx!).trim() : '';
+        final rawD = idx.debitIdx != null
+            ? _csvAt(row, idx.debitIdx!).trim()
+            : '';
+        final rawC = idx.creditIdx != null
+            ? _csvAt(row, idx.creditIdx!).trim()
+            : '';
         final d = rawD.isNotEmpty ? _parseDecimalFlexible(rawD) : null;
         final c = rawC.isNotEmpty ? _parseDecimalFlexible(rawC) : null;
         if (d != null && d.abs() > 0) {
@@ -213,8 +241,12 @@ abstract final class BankNotificationParser {
     if (h == 'data' || h == 'date' || h == 'dt') s += 12;
     if (h.contains('data ') || h.startsWith('data ')) s += 10;
     if (h.contains('date') || h.contains('data')) s += 6;
-    if (h.contains('movimen') || h.contains('transac') || h.contains('transaction')) s += 8;
-    if (h.contains('posting') || h.contains('booked') || h.contains('realiz')) s += 6;
+    if (h.contains('movimen') ||
+        h.contains('transac') ||
+        h.contains('transaction'))
+      s += 8;
+    if (h.contains('posting') || h.contains('booked') || h.contains('realiz'))
+      s += 6;
     if (h.contains('pagamento') && h.contains('data')) s += 5;
     if (h.contains('lançamento') || h.contains('lancamento')) s += 5;
     if (h.contains('venc') || h.contains('due')) s += 3;
@@ -261,25 +293,43 @@ abstract final class BankNotificationParser {
     if (h.contains('valor') && !h.contains('saldo')) s += 10;
     if (h.contains('amount') && !h.contains('document')) s += 8;
     if (h.contains('total') && !h.contains('parcela')) s += 6;
-    if (h.contains('débito') || h.contains('debito') || h == 'debit' || h.contains(' debit')) s += 9;
-    if (h.contains('crédito') || h.contains('credito') || h == 'credit' || h.contains(' credit')) s += 9;
-    if (h.contains('entrada') || h.contains('saidas') || h.contains('saídas')) s += 4;
+    if (h.contains('débito') ||
+        h.contains('debito') ||
+        h == 'debit' ||
+        h.contains(' debit'))
+      s += 9;
+    if (h.contains('crédito') ||
+        h.contains('credito') ||
+        h == 'credit' ||
+        h.contains(' credit'))
+      s += 9;
+    if (h.contains('entrada') || h.contains('saidas') || h.contains('saídas'))
+      s += 4;
     if (h.contains('brl') || h.contains('r\$')) s += 5;
     return s;
   }
 
   static int _csvHeaderScoreDebit(String h) {
     if (h.isEmpty) return 0;
-    if (h.contains('credito') || h.contains('crédito') || h.contains('credit')) return 0;
-    if (h.contains('débito') || h.contains('debito') || (h.contains('debit') && !h.contains('card'))) return 10;
-    if (h.contains('saidas') || h.contains('saídas') || h.contains('saida')) return 8;
+    if (h.contains('credito') || h.contains('crédito') || h.contains('credit'))
+      return 0;
+    if (h.contains('débito') ||
+        h.contains('debito') ||
+        (h.contains('debit') && !h.contains('card')))
+      return 10;
+    if (h.contains('saidas') || h.contains('saídas') || h.contains('saida'))
+      return 8;
     return 0;
   }
 
   static int _csvHeaderScoreCredit(String h) {
     if (h.isEmpty) return 0;
-    if (h.contains('débito') || h.contains('debito') || (h.contains('debit') && !h.contains('card'))) return 0;
-    if (h.contains('crédito') || h.contains('credito') || h.contains('credit')) return 10;
+    if (h.contains('débito') ||
+        h.contains('debito') ||
+        (h.contains('debit') && !h.contains('card')))
+      return 0;
+    if (h.contains('crédito') || h.contains('credito') || h.contains('credit'))
+      return 10;
     if (h.contains('entradas') || h.contains('entrada')) return 7;
     return 0;
   }
@@ -290,9 +340,16 @@ abstract final class BankNotificationParser {
     if (h == 'memo' || h == 'notes' || h == 'nota' || h == 'notas') return 14;
     if (h.contains('memo') && !h.contains('memorando')) return 10;
     if (h.contains('notes') || h.contains('notas')) return 9;
-    if (h.contains('observa') || h.contains('coment') || h.contains('comment')) return 8;
-    if (h.contains('additional') || h.contains('supplement') || h.contains('complemento')) return 7;
-    if (h.contains('reference') || h.contains('referência') || h.contains('referencia')) return 6;
+    if (h.contains('observa') || h.contains('coment') || h.contains('comment'))
+      return 8;
+    if (h.contains('additional') ||
+        h.contains('supplement') ||
+        h.contains('complemento'))
+      return 7;
+    if (h.contains('reference') ||
+        h.contains('referência') ||
+        h.contains('referencia'))
+      return 6;
     return 0;
   }
 
@@ -300,8 +357,12 @@ abstract final class BankNotificationParser {
   static int _csvHeaderScoreMerchant(String h) {
     if (h.isEmpty || _csvHeaderNoise.hasMatch(h)) return 0;
     if (h == 'merchant' || h == 'payee' || h == 'vendor') return 14;
-    if (h.contains('merchant') || h.contains('payee') || h.contains('vendor')) return 12;
-    if (h.contains('estabelec') || h.contains('counterparty') || h.contains('benefici')) return 10;
+    if (h.contains('merchant') || h.contains('payee') || h.contains('vendor'))
+      return 12;
+    if (h.contains('estabelec') ||
+        h.contains('counterparty') ||
+        h.contains('benefici'))
+      return 10;
     if (h.contains('favorecido') && !h.contains('conta')) return 9;
     if (h.contains('store') || h.contains('loja ') || h == 'loja') return 7;
     if (h.contains('nome fantasia') || h.contains('fantasia')) return 8;
@@ -314,7 +375,10 @@ abstract final class BankNotificationParser {
     if (h.contains('classifica') && !h.contains('documento')) return 9;
     if (h.contains('tipo de gasto') || h.contains('tipo gasto')) return 10;
     if (h == 'class' || h.startsWith('class ') || h.contains(' mcc')) return 5;
-    if (h.contains('budget') || h.contains('orçamento') || h.contains('orcamento')) return 6;
+    if (h.contains('budget') ||
+        h.contains('orçamento') ||
+        h.contains('orcamento'))
+      return 6;
     return 0;
   }
 
@@ -330,8 +394,17 @@ abstract final class BankNotificationParser {
     return bestI;
   }
 
-  static ({int dateIdx, int descIdx, int? amountIdx, int? debitIdx, int? creditIdx, int? memoIdx, int? merchantIdx, int? categoryIdx})?
-      _resolveCsvColumnIndices(
+  static ({
+    int dateIdx,
+    int descIdx,
+    int? amountIdx,
+    int? debitIdx,
+    int? creditIdx,
+    int? memoIdx,
+    int? merchantIdx,
+    int? categoryIdx,
+  })?
+  _resolveCsvColumnIndices(
     List<String> header,
     List<String> lines,
     String sep,
@@ -339,14 +412,33 @@ abstract final class BankNotificationParser {
     final n = header.length;
     if (n < 2) return null;
 
-    final dateScores = List<int>.generate(n, (i) => _csvHeaderScoreDate(header[i]));
-    final descScores = List<int>.generate(n, (i) => _csvHeaderScoreDesc(header[i]));
-    final amtScores = List<int>.generate(n, (i) => _csvHeaderScoreAmount(header[i]));
-    final debScores = List<int>.generate(n, (i) => _csvHeaderScoreDebit(header[i]));
-    final credScores = List<int>.generate(n, (i) => _csvHeaderScoreCredit(header[i]));
+    final dateScores = List<int>.generate(
+      n,
+      (i) => _csvHeaderScoreDate(header[i]),
+    );
+    final descScores = List<int>.generate(
+      n,
+      (i) => _csvHeaderScoreDesc(header[i]),
+    );
+    final amtScores = List<int>.generate(
+      n,
+      (i) => _csvHeaderScoreAmount(header[i]),
+    );
+    final debScores = List<int>.generate(
+      n,
+      (i) => _csvHeaderScoreDebit(header[i]),
+    );
+    final credScores = List<int>.generate(
+      n,
+      (i) => _csvHeaderScoreCredit(header[i]),
+    );
 
-    int? debitIdx = debScores.reduce((a, b) => a > b ? a : b) >= 6 ? _argMaxScore(debScores) : null;
-    int? creditIdx = credScores.reduce((a, b) => a > b ? a : b) >= 6 ? _argMaxScore(credScores) : null;
+    int? debitIdx = debScores.reduce((a, b) => a > b ? a : b) >= 6
+        ? _argMaxScore(debScores)
+        : null;
+    int? creditIdx = credScores.reduce((a, b) => a > b ? a : b) >= 6
+        ? _argMaxScore(credScores)
+        : null;
     if (debitIdx != null && creditIdx != null && debitIdx == creditIdx) {
       creditIdx = null;
     }
@@ -366,12 +458,28 @@ abstract final class BankNotificationParser {
 
     var descIdx = _argMaxScore(descScores);
     if (descScores[descIdx] < 4) {
-      descIdx = _inferDescColumnFromSample(header, lines, sep, dateIdx, amountIdx, debitIdx, creditIdx);
+      descIdx = _inferDescColumnFromSample(
+        header,
+        lines,
+        sep,
+        dateIdx,
+        amountIdx,
+        debitIdx,
+        creditIdx,
+      );
     }
 
     if (debitIdx != null || creditIdx != null) {
-      descIdx = _ensureDistinctColumn(descIdx, {dateIdx, if (debitIdx != null) debitIdx, if (creditIdx != null) creditIdx}, n);
-      dateIdx = _ensureDistinctColumn(dateIdx, {descIdx, if (debitIdx != null) debitIdx, if (creditIdx != null) creditIdx}, n);
+      descIdx = _ensureDistinctColumn(descIdx, {
+        dateIdx,
+        ?debitIdx,
+        ?creditIdx,
+      }, n);
+      dateIdx = _ensureDistinctColumn(dateIdx, {
+        descIdx,
+        ?debitIdx,
+        ?creditIdx,
+      }, n);
       final extra = _resolveCsvEnrichmentIndices(
         header,
         n,
@@ -421,7 +529,8 @@ abstract final class BankNotificationParser {
     );
   }
 
-  static ({int? memoIdx, int? merchantIdx, int? categoryIdx}) _resolveCsvEnrichmentIndices(
+  static ({int? memoIdx, int? merchantIdx, int? categoryIdx})
+  _resolveCsvEnrichmentIndices(
     List<String> header,
     int n,
     int dateIdx,
@@ -430,13 +539,7 @@ abstract final class BankNotificationParser {
     required int? debitIdx,
     required int? creditIdx,
   }) {
-    final used = <int>{
-      dateIdx,
-      descIdx,
-      if (amountIdx != null) amountIdx,
-      if (debitIdx != null) debitIdx,
-      if (creditIdx != null) creditIdx,
-    };
+    final used = <int>{dateIdx, descIdx, ?amountIdx, ?debitIdx, ?creditIdx};
 
     int? pick(int Function(String h) score, int minScore) {
       var bestI = -1;
@@ -457,7 +560,11 @@ abstract final class BankNotificationParser {
     final memoIdx = pick(_csvHeaderScoreMemo, 6);
     final merchantIdx = pick(_csvHeaderScoreMerchant, 6);
     final categoryIdx = pick(_csvHeaderScoreCategory, 6);
-    return (memoIdx: memoIdx, merchantIdx: merchantIdx, categoryIdx: categoryIdx);
+    return (
+      memoIdx: memoIdx,
+      merchantIdx: merchantIdx,
+      categoryIdx: categoryIdx,
+    );
   }
 
   /// Concatena memo → merchant → category à descrição principal (ordem pedida), sem duplicar texto idêntico.
@@ -559,7 +666,12 @@ abstract final class BankNotificationParser {
     return best;
   }
 
-  static int? _inferAmountColumnFromSample(List<String> lines, String sep, int dateIdx, int descIdx) {
+  static int? _inferAmountColumnFromSample(
+    List<String> lines,
+    String sep,
+    int dateIdx,
+    int descIdx,
+  ) {
     if (lines.length < 2) return null;
     final sample = lines.skip(1).take(10).toList();
     final first = _splitCsvLine(lines.first, sep);
@@ -585,7 +697,10 @@ abstract final class BankNotificationParser {
 
   /// Chave para detetar linhas repetidas (mesmo dia, valor e descrição normalizada).
   static String duplicateFingerprint(BankNotificationParseResult r) {
-    final d = (r.descricao ?? '').toUpperCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    final d = (r.descricao ?? '')
+        .toUpperCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     final day = r.data == null
         ? 'nd'
         : '${r.data!.year}-${r.data!.month.toString().padLeft(2, '0')}-${r.data!.day.toString().padLeft(2, '0')}';
@@ -606,8 +721,14 @@ abstract final class BankNotificationParser {
     RegExp(r'PIX\s+RECEB', caseSensitive: false), // «pix recebido», bancos
     RegExp(r'PIX\s+.*CREDITAD', caseSensitive: false),
     RegExp(r'CREDITO\s+(?:DE\s+)?PIX', caseSensitive: false),
-    RegExp(r'\bRECEBI\b', caseSensitive: false), // digitação: «recebi pix 400» / «recebi salário»
-    RegExp(r'RECEBID[OA]\b', caseSensitive: false), // salário recebido, bônus recebido
+    RegExp(
+      r'\bRECEBI\b',
+      caseSensitive: false,
+    ), // digitação: «recebi pix 400» / «recebi salário»
+    RegExp(
+      r'RECEBID[OA]\b',
+      caseSensitive: false,
+    ), // salário recebido, bônus recebido
     RegExp(r'CR[ÉE]DITO\s+(?:EM|NA)\s+CONTA', caseSensitive: false),
     RegExp(r'\bSAL[ÁA]RIO\s+RECEB', caseSensitive: false),
     RegExp(r'RECEB[OA]\s+.*SAL[ÁA]RIO', caseSensitive: false),
@@ -624,7 +745,10 @@ abstract final class BankNotificationParser {
 
   /// Palavras que indicam saída.
   static final List<RegExp> _expenseHints = [
-    RegExp(r'\bPAGUEI\b', caseSensitive: false), // «paguei conta X» (não confundir com receita)
+    RegExp(
+      r'\bPAGUEI\b',
+      caseSensitive: false,
+    ), // «paguei conta X» (não confundir com receita)
     RegExp(r'COMPRA\s+APROVAD', caseSensitive: false),
     RegExp(r'COMPRA\s+(?:NO\s+)?DEBITO', caseSensitive: false),
     RegExp(r'COMPRA\s+NO\s+CART', caseSensitive: false),
@@ -647,16 +771,25 @@ abstract final class BankNotificationParser {
   static int _maxParcelasSmart() => AppBusinessRules.maxInstallments;
 
   static int? _detectParcelaCountPt(String lower) {
-    if (RegExp(r'\bcada\s+parcela\b|\bpor\s+parcela\b|\bvalor\s+de\s+cada\b', caseSensitive: false).hasMatch(lower)) {
+    if (RegExp(
+      r'\bcada\s+parcela\b|\bpor\s+parcela\b|\bvalor\s+de\s+cada\b',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
       return null;
     }
     final maxN = _maxParcelasSmart();
-    final mNDe = RegExp(r'\b(\d{1,3})\s+parcelas?\s+de\b', caseSensitive: false).firstMatch(lower);
+    final mNDe = RegExp(
+      r'\b(\d{1,3})\s+parcelas?\s+de\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mNDe != null) {
       final n = int.tryParse(mNDe.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mXDe = RegExp(r'\b(\d{1,3})\s*x\s+de\s+(?:r\$\s*)?[\d.,]+', caseSensitive: false).firstMatch(lower);
+    final mXDe = RegExp(
+      r'\b(\d{1,3})\s*x\s+de\s+(?:r\$\s*)?[\d.,]+',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mXDe != null) {
       final n = int.tryParse(mXDe.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
@@ -669,17 +802,26 @@ abstract final class BankNotificationParser {
       final n = int.tryParse(mTotEm.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mEm = RegExp(r'\bem\s+(\d{1,3})\s+parcelas\b', caseSensitive: false).firstMatch(lower);
+    final mEm = RegExp(
+      r'\bem\s+(\d{1,3})\s+parcelas\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mEm != null) {
       final n = int.tryParse(mEm.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mDiv = RegExp(r'\bdividido\s+em\s+(\d{1,3})\s*(?:parcelas|vezes)?\b', caseSensitive: false).firstMatch(lower);
+    final mDiv = RegExp(
+      r'\bdividido\s+em\s+(\d{1,3})\s*(?:parcelas|vezes)?\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mDiv != null) {
       final n = int.tryParse(mDiv.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mWx = RegExp(r'\b(\d{1,3})\s*x\s*sem\s+juros\b', caseSensitive: false).firstMatch(lower);
+    final mWx = RegExp(
+      r'\b(\d{1,3})\s*x\s*sem\s+juros\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mWx != null) {
       final n = int.tryParse(mWx.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
@@ -709,12 +851,18 @@ abstract final class BankNotificationParser {
       final v0 = map[key];
       if (v0 != null && v0 >= 2 && v0 <= maxN) return v0;
     }
-    final mParcVez = RegExp(r'\bparcelad[oa]?\s+em\s+(\d{1,3})\s+vezes\b', caseSensitive: false).firstMatch(lower);
+    final mParcVez = RegExp(
+      r'\bparcelad[oa]?\s+em\s+(\d{1,3})\s+vezes\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mParcVez != null) {
       final n = int.tryParse(mParcVez.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
     }
-    final mEmVezes = RegExp(r'\bem\s+(\d{1,3})\s+vezes\b', caseSensitive: false).firstMatch(lower);
+    final mEmVezes = RegExp(
+      r'\bem\s+(\d{1,3})\s+vezes\b',
+      caseSensitive: false,
+    ).firstMatch(lower);
     if (mEmVezes != null) {
       final n = int.tryParse(mEmVezes.group(1)!);
       if (n != null && n >= 2 && n <= maxN) return n;
@@ -753,11 +901,18 @@ abstract final class BankNotificationParser {
   }
 
   /// [baseValor] = valor principal inferido (ex. valor de cada parcela se o texto o diz explicitamente).
-  static double? _perParcelaReaisFromTextWithBase(String lower, int n, double? baseValor) {
+  static double? _perParcelaReaisFromTextWithBase(
+    String lower,
+    int n,
+    double? baseValor,
+  ) {
     final a = _perParcelaReaisFromText(lower, n);
     if (a != null) return a;
     if (baseValor == null || baseValor <= 0) return null;
-    if (RegExp(r'\bvalor\s+de\s+cada\s+parcela', caseSensitive: false).hasMatch(lower)) {
+    if (RegExp(
+      r'\bvalor\s+de\s+cada\s+parcela',
+      caseSensitive: false,
+    ).hasMatch(lower)) {
       return baseValor;
     }
     final mm = RegExp(
@@ -765,7 +920,8 @@ abstract final class BankNotificationParser {
       caseSensitive: false,
     ).firstMatch(lower);
     if (mm != null) {
-      final v = _parseBrDecimal(mm.group(1)!) ?? _parseDecimalFlexible(mm.group(1)!);
+      final v =
+          _parseBrDecimal(mm.group(1)!) ?? _parseDecimalFlexible(mm.group(1)!);
       if (v != null && v > 0) return v;
     }
     return null;
@@ -802,28 +958,46 @@ abstract final class BankNotificationParser {
   static String _stripParcelaBoilerplatePt(String desc) {
     var s = desc.trim();
     s = s.replaceAll(
-      RegExp(r'^\d{1,3}\s+parcelas?\s+de\s*(?:r\$\s*)?[\d.,]+\s*', caseSensitive: false),
+      RegExp(
+        r'^\d{1,3}\s+parcelas?\s+de\s*(?:r\$\s*)?[\d.,]+\s*',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(
-      RegExp(r'^\d{1,3}\s*x\s+de\s*(?:r\$\s*)?[\d.,]+\s*', caseSensitive: false),
+      RegExp(
+        r'^\d{1,3}\s*x\s+de\s*(?:r\$\s*)?[\d.,]+\s*',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(
-      RegExp(r'\s*em\s+(?:\d{1,3}|duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas.*$', caseSensitive: false),
+      RegExp(
+        r'\s*em\s+(?:\d{1,3}|duas?|dois|tres|três|quatro|cinco|seis|sete|oito|nove|dez|onze|doze)\s+parcelas.*$',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(
-      RegExp(r'\s*parcelad[oa]?\s+em\s+\d{1,2}\s+vezes.*$', caseSensitive: false),
+      RegExp(
+        r'\s*parcelad[oa]?\s+em\s+\d{1,2}\s+vezes.*$',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(
       RegExp(r'\s*em\s+\d{1,2}\s+vezes.*$', caseSensitive: false),
       '',
     );
-    s = s.replaceAll(RegExp(r'\s*valor\s+total\b.*$', caseSensitive: false), '');
     s = s.replaceAll(
-      RegExp(r'\s*(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$', caseSensitive: false),
+      RegExp(r'\s*valor\s+total\b.*$', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(
+      RegExp(
+        r'\s*(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$',
+        caseSensitive: false,
+      ),
       '',
     );
     s = s.replaceAll(
@@ -841,7 +1015,10 @@ abstract final class BankNotificationParser {
   }
 
   /// Divide um único parse (valor total) em N lançamentos quando o texto menciona parcelas (ex.: «em duas parcelas»).
-  static List<BankNotificationParseResult> _expandInstallmentsFromText(String sourceText, BankNotificationParseResult base) {
+  static List<BankNotificationParseResult> _expandInstallmentsFromText(
+    String sourceText,
+    BankNotificationParseResult base,
+  ) {
     if (!base.hasMinimumForConfirmation) return [base];
     final lower = sourceText.toLowerCase();
     final n = _detectParcelaCountPt(lower);
@@ -858,12 +1035,15 @@ abstract final class BankNotificationParser {
       if (totalCents < n) return [base];
     }
 
-    final firstDue = _parsePrimeiroVencimentoPt(lower) ?? base.data ?? DateTime.now();
+    final firstDue =
+        _parsePrimeiroVencimentoPt(lower) ?? base.data ?? DateTime.now();
     final baseDesc = (base.descricao ?? '').trim();
     final descCore = _stripParcelaBoilerplatePt(baseDesc);
     final labelBase = descCore.isNotEmpty ? descCore : baseDesc;
 
-    final baseSnippet = sourceText.length > 380 ? sourceText.substring(0, 380) : sourceText;
+    final baseSnippet = sourceText.length > 380
+        ? sourceText.substring(0, 380)
+        : sourceText;
     final out = <BankNotificationParseResult>[];
     for (var i = 0; i < n; i++) {
       final double v;
@@ -879,12 +1059,7 @@ abstract final class BankNotificationParser {
       final label = '$labelBase (${i + 1}/$n)';
       final snip = '$baseSnippet · p${i + 1}/$n';
       out.add(
-        base.copyWith(
-          valor: v,
-          data: dt,
-          descricao: label,
-          rawSnippet: snip,
-        ),
+        base.copyWith(valor: v, data: dt, descricao: label, rawSnippet: snip),
       );
     }
     return out;
@@ -938,7 +1113,11 @@ abstract final class BankNotificationParser {
         }
         return;
       }
-      final linesRaw = trimmed.split(RegExp(r'[\r\n]+')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final linesRaw = trimmed
+          .split(RegExp(r'[\r\n]+'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
       final lines = _mergeWrappedFaturaLines(linesRaw);
       if (lines.length > 1) {
         final bankish = lines.where(_looksLikeStandaloneBankLine).length;
@@ -1026,7 +1205,11 @@ abstract final class BankNotificationParser {
         addFromBlock(p);
       }
     } else {
-      final paragraphs = t.split(RegExp(r'\n\s*\n')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final paragraphs = t
+          .split(RegExp(r'\n\s*\n'))
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
       if (paragraphs.isEmpty) {
         addFromBlock(t);
       } else {
@@ -1063,7 +1246,8 @@ abstract final class BankNotificationParser {
     var i = 0;
     while (i < lines.length) {
       final cur = lines[i].trim();
-      if (_reFaturaDateStart.hasMatch(cur) && !_reMoneyTokenNearEnd.hasMatch(cur)) {
+      if (_reFaturaDateStart.hasMatch(cur) &&
+          !_reMoneyTokenNearEnd.hasMatch(cur)) {
         var merged = cur;
         var j = i + 1;
         var hops = 0;
@@ -1073,7 +1257,8 @@ abstract final class BankNotificationParser {
             j++;
             continue;
           }
-          if (_reFaturaDateStart.hasMatch(nxt) && _reMoneyTokenNearEnd.hasMatch(nxt)) {
+          if (_reFaturaDateStart.hasMatch(nxt) &&
+              _reMoneyTokenNearEnd.hasMatch(nxt)) {
             break;
           }
           merged = '$merged $nxt';
@@ -1091,7 +1276,9 @@ abstract final class BankNotificationParser {
     return out;
   }
 
-  static BankNotificationParseResult _sanitizeDescInResult(BankNotificationParseResult r) {
+  static BankNotificationParseResult _sanitizeDescInResult(
+    BankNotificationParseResult r,
+  ) {
     final d = r.descricao;
     if (d == null || d.trim().isEmpty) return r;
     final s = OcrDescriptionSanity.sanitize(d);
@@ -1176,7 +1363,12 @@ abstract final class BankNotificationParser {
     var t = line.trim();
     if (t.length < 8) return null;
     final u = t.toUpperCase();
-    if (u == 'DATA' || u == 'R\$' || u.startsWith('US\$') || u == 'COTAÇÃO' || u == 'COTACAO') return null;
+    if (u == 'DATA' ||
+        u == 'R\$' ||
+        u.startsWith('US\$') ||
+        u == 'COTAÇÃO' ||
+        u == 'COTACAO')
+      return null;
     if (u.contains('HISTÓRICO') && u.contains('LANÇAMENT')) return null;
     if (u.contains('HISTORICO') && u.contains('LANCAMENT')) return null;
 
@@ -1200,9 +1392,13 @@ abstract final class BankNotificationParser {
       if (tok.endsWith('-') && tok.length > 1) {
         tok = tok.substring(0, tok.length - 1).trim();
       }
-      if (RegExp(r'^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d+\.\d{2}|\d{1,3}(?:\.\d{3})*|\d+)$').hasMatch(tok)) {
+      if (RegExp(
+        r'^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d{1,3},\d{2}|\d+\.\d{2}|\d{1,3}(?:\.\d{3})*|\d+)$',
+      ).hasMatch(tok)) {
         if (tok.contains('.') && !tok.contains(',')) {
-          final onlyDotsAsThousands = RegExp(r'^\d{1,3}(?:\.\d{3})+$').hasMatch(tok);
+          final onlyDotsAsThousands = RegExp(
+            r'^\d{1,3}(?:\.\d{3})+$',
+          ).hasMatch(tok);
           if (onlyDotsAsThousands) {
             tok = tok.replaceAll('.', '');
           } else {
@@ -1255,7 +1451,9 @@ abstract final class BankNotificationParser {
   }
 
   /// Texto extraído de fatura PDF: limita à zona **Lançamentos** e devolve linhas como [BankNotificationParseResult].
-  static List<BankNotificationParseResult> parseFromFaturaPdfPlainText(String fullText) {
+  static List<BankNotificationParseResult> parseFromFaturaPdfPlainText(
+    String fullText,
+  ) {
     final slice = sliceToFaturaLancamentosSection(fullText);
     if (slice.trim().isEmpty) return const [];
 
@@ -1305,22 +1503,40 @@ abstract final class BankNotificationParser {
   }
 
   static List<String> _splitMultipleBankMessages(String s) {
-    final re = RegExp(r'(?=\n\s*(?:BRADESCO\s+CARTOES?:|BRADESCO\s+CARTÕES?:|ITAU\b|ITAÚ\b|NUBANK\b|CAIXA\b|SANTANDER\b))', caseSensitive: false);
-    var parts = s.split(re).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final re = RegExp(
+      r'(?=\n\s*(?:BRADESCO\s+CARTOES?:|BRADESCO\s+CARTÕES?:|ITAU\b|ITAÚ\b|NUBANK\b|CAIXA\b|SANTANDER\b))',
+      caseSensitive: false,
+    );
+    var parts = s
+        .split(re)
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     if (parts.length > 1) return parts;
-    final re2 = RegExp(r'(?=BRADESCO\s+CARTOES?:|BRADESCO\s+CARTÕES?:)', caseSensitive: false);
-    parts = s.split(re2).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final re2 = RegExp(
+      r'(?=BRADESCO\s+CARTOES?:|BRADESCO\s+CARTÕES?:)',
+      caseSensitive: false,
+    );
+    parts = s
+        .split(re2)
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
     return parts;
   }
 
   /// Corrige colagem «R$ R$»; não mexe em «8, 750» (código especial a jusante).
   static String _normalizeListLikePastedLine(String t) {
-    return t.replaceAll(RegExp(r'R\$\s*R\$\s*', caseSensitive: false), r'R$ ').trim();
+    return t
+        .replaceAll(RegExp(r'R\$\s*R\$\s*', caseSensitive: false), r'R$ ')
+        .trim();
   }
 
   /// Vários lançamentos livres na mesma linha, separados por **|** (preferido), vírgula ou `;`, sem partir valores `1.234,56`.
   /// Ex.: `100 mercado | 157,80 farmacia` ou `100 mercado, 157,80 farmacia`.
-  static List<BankNotificationParseResult>? _tryFreeformCompositeLine(String line) {
+  static List<BankNotificationParseResult>? _tryFreeformCompositeLine(
+    String line,
+  ) {
     final t = line.trim();
     if (t.length < 5) return null;
     if (_tryFaturaCardStatementLine(t) != null) return null;
@@ -1361,13 +1577,12 @@ abstract final class BankNotificationParser {
       (m) => '${m[1]},${m[2]}',
     );
     final amounts = <String>[];
-    var masked = pre.replaceAllMapped(
-      RegExp(r'\d{1,3}(?:\.\d{3})*,\d{2}\b'),
-      (m) {
-        amounts.add(m.group(0)!);
-        return '$_kBrAmountPh${amounts.length - 1}$_kBrAmountPhEnd';
-      },
-    );
+    var masked = pre.replaceAllMapped(RegExp(r'\d{1,3}(?:\.\d{3})*,\d{2}\b'), (
+      m,
+    ) {
+      amounts.add(m.group(0)!);
+      return '$_kBrAmountPh${amounts.length - 1}$_kBrAmountPhEnd';
+    });
     return masked
         .split(RegExp(r'\s*[,;|]\s*'))
         .map((e) => e.trim())
@@ -1482,7 +1697,8 @@ abstract final class BankNotificationParser {
     ).firstMatch(t);
     if (m != null) {
       final desc0 = m.group(1)!.trim();
-      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      final val =
+          _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
       if (val != null && val > 0 && desc0.length >= 2) {
         return BankNotificationParseResult(
           valor: val,
@@ -1502,7 +1718,8 @@ abstract final class BankNotificationParser {
     ).firstMatch(t);
     if (m != null) {
       final desc0 = m.group(1)!.trim();
-      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      final val =
+          _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
       if (val != null && val > 0 && desc0.length >= 2) {
         if (!RegExp(r'^(r\$|reais?)$', caseSensitive: false).hasMatch(desc0)) {
           return BankNotificationParseResult(
@@ -1524,7 +1741,8 @@ abstract final class BankNotificationParser {
     ).firstMatch(t);
     if (m != null) {
       final desc0 = m.group(1)!.trim();
-      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      final val =
+          _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
       if (val != null && val > 0 && desc0.length >= 2) {
         return BankNotificationParseResult(
           valor: val,
@@ -1544,7 +1762,8 @@ abstract final class BankNotificationParser {
     ).firstMatch(t);
     if (m != null) {
       final desc0 = m.group(1)!.trim();
-      final val = _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
+      final val =
+          _parseBrDecimal(m.group(2)!) ?? _parseDecimalFlexible(m.group(2)!);
       if (val != null && val > 0 && desc0.length >= 2) {
         if (!RegExp(r'^(r\$|reais?)$', caseSensitive: false).hasMatch(desc0)) {
           return BankNotificationParseResult(
@@ -1647,7 +1866,10 @@ abstract final class BankNotificationParser {
     }
 
     // Descrição … milhar BR com pontos no fim, sem decimais: `recebi pix 1.200` → 1200,00 reais
-    m = RegExp(r'^(.+?)\s+(\d{1,3}(?:\.\d{3})+)$', caseSensitive: false).firstMatch(t);
+    m = RegExp(
+      r'^(.+?)\s+(\d{1,3}(?:\.\d{3})+)$',
+      caseSensitive: false,
+    ).firstMatch(t);
     if (m != null) {
       final brThousands = m.group(2)!;
       final val = _reaisFromBrThousandsDotsOnly(brThousands);
@@ -1682,11 +1904,17 @@ abstract final class BankNotificationParser {
       var treatAsCentsFromMerge = false;
       // Evita `farmácia … R$ 8,` + `750` → 750,00: recompõe dígitos quando a descrição termina em `R$ …,`.
       if (n != null && tailDigits.length >= 3) {
-        final frac = RegExp(r'R\$\s*(\d+),\s*$', caseSensitive: false).firstMatch(desc);
+        final frac = RegExp(
+          r'R\$\s*(\d+),\s*$',
+          caseSensitive: false,
+        ).firstMatch(desc);
         if (frac != null) {
           final tailY = int.tryParse(tailDigits);
           final looksLikeYear =
-              tailDigits.length == 4 && tailY != null && tailY >= 1900 && tailY <= 2099;
+              tailDigits.length == 4 &&
+              tailY != null &&
+              tailY >= 1900 &&
+              tailY <= 2099;
           if (!looksLikeYear) {
             final merged = int.tryParse('${frac.group(1)!}$tailDigits');
             if (merged != null && merged >= 1 && merged < 100000000) {
@@ -1722,14 +1950,17 @@ abstract final class BankNotificationParser {
     return null;
   }
 
-  static BankNotificationParseResult? _tryFreeformLine(String line) => _tryFreeformSegment(line);
+  static BankNotificationParseResult? _tryFreeformLine(String line) =>
+      _tryFreeformSegment(line);
 
   /// Remove sufixos de valor (`r$ 50`) e frases de parcelas do texto livre para categoria / estabelecimento.
   static String? polishSmartPasteDescription(String? desc) {
     if (desc == null) return null;
     var s = desc.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (s.isEmpty) return null;
-    s = s.replaceAll(RegExp(r'\s*r\$\s*[\d.,\s]+$', caseSensitive: false), '').trim();
+    s = s
+        .replaceAll(RegExp(r'\s*r\$\s*[\d.,\s]+$', caseSensitive: false), '')
+        .trim();
     s = _stripParcelaBoilerplatePt(s);
     return s.isEmpty ? desc.trim() : s;
   }
@@ -1928,19 +2159,29 @@ abstract final class BankNotificationParser {
   /// Heurística para nome do estabelecimento / descrição curta.
   static String? _extractDescricao(String t, String type) {
     // Bradesco cartões: «… VALOR DE R$ 9,00 SORVETERIA …»
-    final valorDe = RegExp(r'VALOR\s+DE\s+R\$\s*[\d.,]+\s+(.+)$', caseSensitive: false).firstMatch(t.replaceAll('\n', ' '));
+    final valorDe = RegExp(
+      r'VALOR\s+DE\s+R\$\s*[\d.,]+\s+(.+)$',
+      caseSensitive: false,
+    ).firstMatch(t.replaceAll('\n', ' '));
     if (valorDe != null) {
       final rest = valorDe.group(1)?.trim();
       if (rest != null && rest.length >= 3) return rest;
     }
 
-    final lines = t.split(RegExp(r'[\r\n]+')).map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final lines = t
+        .split(RegExp(r'[\r\n]+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
 
     // Padrão " ... EM NOME_DO_LOCAL" ou "LOCAL: X"
     final em = RegExp(r'\bEM\s+(.{3,80})$', caseSensitive: false).firstMatch(t);
     if (em != null) return em.group(1)?.trim();
 
-    final estab = RegExp(r'(?:ESTABELECIMENTO|LOCAL|COMERCIO)\s*[:\-]\s*(.+)', caseSensitive: false).firstMatch(t);
+    final estab = RegExp(
+      r'(?:ESTABELECIMENTO|LOCAL|COMERCIO)\s*[:\-]\s*(.+)',
+      caseSensitive: false,
+    ).firstMatch(t);
     if (estab != null) return estab.group(1)?.trim();
 
     // Linha que não parece só número/data/banco

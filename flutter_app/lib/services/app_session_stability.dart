@@ -1,6 +1,5 @@
 ﻿import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb, debugPrint;
@@ -8,7 +7,6 @@ import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -132,7 +130,8 @@ abstract final class AppSessionStability {
     }
     final now = DateTime.now();
     final lastListeners = _lastResumeListenersAt;
-    final skipListeners = kIsWeb &&
+    final skipListeners =
+        kIsWeb &&
         !force &&
         lastListeners != null &&
         now.difference(lastListeners) < _webResumeListenersMinGap;
@@ -201,9 +200,8 @@ abstract final class AppSessionStability {
 
   /// 0 = sem login, 1 = logado sem ADM, 2 = ADM/master.
   static int? peekCachedMasterAccessLevel() {
-    final uid =
-        (firebaseDefaultAuth.currentUser?.uid ?? _stickyUser?.uid ?? '')
-            .trim();
+    final uid = (firebaseDefaultAuth.currentUser?.uid ?? _stickyUser?.uid ?? '')
+        .trim();
     if (uid.isEmpty) return null;
     if (_cachedMasterUid == uid &&
         _cachedMasterLevel != null &&
@@ -235,7 +233,9 @@ abstract final class AppSessionStability {
   static void markAdminPanelVerified() => _adminPanelVerified = true;
 
   /// Verificação de acesso master — cache + claims + Firestore resiliente.
-  static Future<int> resolveMasterAccessLevel({bool forceRefresh = false}) async {
+  static Future<int> resolveMasterAccessLevel({
+    bool forceRefresh = false,
+  }) async {
     if (!forceRefresh) {
       final peek = peekCachedMasterAccessLevel();
       if (peek != null) return peek;
@@ -256,17 +256,17 @@ abstract final class AppSessionStability {
 
     try {
       await FirebaseAuthTokenGuard.refreshIfStale();
-      var token = await user.getIdTokenResult(false).timeout(
-            const Duration(seconds: 8),
-          );
+      var token = await user
+          .getIdTokenResult(false)
+          .timeout(const Duration(seconds: 8));
       if (_tokenIsMaster(token)) {
         cacheMasterAccessLevel(2, user.uid);
         return 2;
       }
       if (!forceRefresh && !FirebaseAuthTokenGuard.isInQuotaBackoff) {
-        token = await user.getIdTokenResult(true).timeout(
-              const Duration(seconds: 12),
-            );
+        token = await user
+            .getIdTokenResult(true)
+            .timeout(const Duration(seconds: 12));
         if (_tokenIsMaster(token)) {
           cacheMasterAccessLevel(2, user.uid);
           return 2;
@@ -281,8 +281,9 @@ abstract final class AppSessionStability {
         maxAttempts: 3,
       );
       final data = snap.data() ?? {};
-      final role =
-          (data['role'] ?? data['nivel'] ?? '').toString().toUpperCase();
+      final role = (data['role'] ?? data['nivel'] ?? '')
+          .toString()
+          .toUpperCase();
       final nivel = (data['nivel'] ?? '').toString().toLowerCase();
       if (role == 'ADM' ||
           role == 'ADMIN' ||
@@ -295,10 +296,13 @@ abstract final class AppSessionStability {
       return 1;
     } on TimeoutException {
       try {
-        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1').httpsCallable('getAdminCheck');
-        final res = await fn
-            .call<Map<String, dynamic>>()
-            .timeout(const Duration(seconds: 10));
+        final fn = FirebaseFunctions.instanceFor(
+          app: firebaseDefaultApp,
+          region: 'us-central1',
+        ).httpsCallable('getAdminCheck');
+        final res = await fn.call<Map<String, dynamic>>().timeout(
+          const Duration(seconds: 10),
+        );
         if (res.data['allowed'] == true) {
           cacheMasterAccessLevel(2, user.uid);
           return 2;
@@ -321,10 +325,13 @@ abstract final class AppSessionStability {
         }
       } catch (_) {}
       try {
-        final fn = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1').httpsCallable('getAdminCheck');
-        final res = await fn
-            .call<Map<String, dynamic>>()
-            .timeout(const Duration(seconds: 10));
+        final fn = FirebaseFunctions.instanceFor(
+          app: firebaseDefaultApp,
+          region: 'us-central1',
+        ).httpsCallable('getAdminCheck');
+        final res = await fn.call<Map<String, dynamic>>().timeout(
+          const Duration(seconds: 10),
+        );
         if (res.data['allowed'] == true) {
           cacheMasterAccessLevel(2, user.uid);
           return 2;
@@ -357,4 +364,3 @@ abstract final class AppSessionStability {
     return level >= 2;
   }
 }
-

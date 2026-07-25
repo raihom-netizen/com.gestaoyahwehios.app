@@ -1,6 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+﻿import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -47,11 +45,12 @@ class FirebaseStorageService {
     String tenantId,
     Map<String, dynamic>? tenantData,
   ) async {
-    var name = (tenantData != null
-            ? (tenantData['name'] ?? tenantData['nome'] ?? '')
-            : '')
-        .toString()
-        .trim();
+    var name =
+        (tenantData != null
+                ? (tenantData['name'] ?? tenantData['nome'] ?? '')
+                : '')
+            .toString()
+            .trim();
     if (name.isNotEmpty) return name;
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
@@ -77,7 +76,10 @@ class FirebaseStorageService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const [];
     final churchName = await _churchDisplayNameForLogoPath(tid, tenantData);
-    final base = ChurchStorageLayout.churchLogoObjectPathsToTry(tid, churchName);
+    final base = ChurchStorageLayout.churchLogoObjectPathsToTry(
+      tid,
+      churchName,
+    );
     final custom = ChurchImageFields.logoStoragePath(tenantData);
     if (custom == null || custom.isEmpty) return base;
     final norm = custom.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
@@ -115,7 +117,10 @@ class FirebaseStorageService {
         await firebaseDefaultAuth.currentUser?.getIdToken();
       } catch (_) {}
     }
-    final paths = await getChurchLogoCandidateStoragePaths(tid, tenantData: tenantData);
+    final paths = await getChurchLogoCandidateStoragePaths(
+      tid,
+      tenantData: tenantData,
+    );
     const timeout = Duration(seconds: 10);
     for (final p in paths) {
       try {
@@ -124,12 +129,18 @@ class FirebaseStorageService {
         final sz = meta.size ?? 0;
         // Ignora placeholder 1×1 / ficheiros corrompidos (~67 B) — URL válida mas imagem invisível no site.
         if (sz > 0 &&
-            sz < ChurchStorageLayout.kChurchIdentityLogoMinBytesForFirestoreSync) {
+            sz <
+                ChurchStorageLayout
+                    .kChurchIdentityLogoMinBytesForFirestoreSync) {
           debugPrint(
-              'FirebaseStorageService.getChurchLogoDownloadUrl: skip $p (${sz}B < min)');
+            'FirebaseStorageService.getChurchLogoDownloadUrl: skip $p (${sz}B < min)',
+          );
           continue;
         }
-        final url = await ref.getDownloadURL().timeout(timeout, onTimeout: () => '');
+        final url = await ref.getDownloadURL().timeout(
+          timeout,
+          onTimeout: () => '',
+        );
         if (url.isNotEmpty) {
           while (_churchLogoUrlCache.length >= _churchLogoCacheMax) {
             _churchLogoUrlCache.remove(_churchLogoUrlCache.keys.first);
@@ -198,7 +209,8 @@ class FirebaseStorageService {
   /// existir PNG nem JPG canónicos. O upload pelo cadastro substitui o mesmo path (overwrite).
   /// Não grava Firestore — o painel só fica OK após URL/`logoPath` no doc ou logo real (> [kChurchIdentityLogoMinBytesForFirestoreSync]).
   static Future<void> ensureChurchConfigFolderPlaceholderIfAbsent(
-      String tenantId) async {
+    String tenantId,
+  ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     final pngPath = ChurchStorageLayout.churchIdentityLogoPath(tid);
@@ -216,20 +228,24 @@ class FirebaseStorageService {
       } catch (_) {}
     }
     try {
-      await firebaseDefaultStorage.ref(pngPath).putData(
+      await firebaseDefaultStorage
+          .ref(pngPath)
+          .putData(
             ChurchStorageLayout.kMinimalTransparentIdentityPng,
             SettableMetadata(contentType: 'image/png'),
           );
       invalidateChurchLogoCache(tid);
     } catch (e) {
       debugPrint(
-          'FirebaseStorageService.ensureChurchConfigFolderPlaceholderIfAbsent: $e');
+        'FirebaseStorageService.ensureChurchConfigFolderPlaceholderIfAbsent: $e',
+      );
     }
   }
 
   /// Materializa `igrejas/{id}/financeiro/` no bucket (comprovantes — Controle Total).
   static Future<void> ensureFinanceiroFolderPlaceholderIfAbsent(
-      String tenantId) async {
+    String tenantId,
+  ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     final path = ChurchStorageLayout.financeiroFolderPlaceholderPath(tid);
@@ -246,13 +262,16 @@ class FirebaseStorageService {
       } catch (_) {}
     }
     try {
-      await firebaseDefaultStorage.ref(path).putData(
+      await firebaseDefaultStorage
+          .ref(path)
+          .putData(
             ChurchStorageLayout.kMinimalTransparentIdentityPng,
             SettableMetadata(contentType: 'image/png'),
           );
     } catch (e) {
       debugPrint(
-          'FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent: $e');
+        'FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent: $e',
+      );
     }
   }
 
@@ -260,7 +279,8 @@ class FirebaseStorageService {
 
   /// Assinatura do pastor em `igrejas/{id}/configuracoes/assinatura.png` (ou `.jpg`).
   static Future<String?> getPastorSignatureConfigDownloadUrl(
-      String tenantId) async {
+    String tenantId,
+  ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
     if (_pastorSigConfigUrlCache.containsKey(tid)) {
@@ -276,13 +296,18 @@ class FirebaseStorageService {
     for (final p in ChurchStorageLayout.pastorSignatureConfigPaths(tid)) {
       try {
         final ref = firebaseDefaultStorage.ref(p);
-        final url = await ref.getDownloadURL().timeout(timeout, onTimeout: () => '');
+        final url = await ref.getDownloadURL().timeout(
+          timeout,
+          onTimeout: () => '',
+        );
         if (url.isNotEmpty) {
           _pastorSigConfigUrlCache[tid] = url;
           return url;
         }
       } catch (e) {
-        debugPrint('FirebaseStorageService.getPastorSignatureConfigDownloadUrl ($p): $e');
+        debugPrint(
+          'FirebaseStorageService.getPastorSignatureConfigDownloadUrl ($p): $e',
+        );
       }
     }
     _pastorSigConfigUrlCache[tid] = null;
@@ -301,8 +326,9 @@ class FirebaseStorageService {
     String memberDocId,
     String? authUid,
   ) {
-    final docId =
-        ChurchStorageLayout.sanitizeMemberStorageFolderId(memberDocId.trim());
+    final docId = ChurchStorageLayout.sanitizeMemberStorageFolderId(
+      memberDocId.trim(),
+    );
     final au = ChurchStorageLayout.sanitizeMemberStorageFolderId(
       (authUid ?? '').trim(),
     );
@@ -320,7 +346,9 @@ class FirebaseStorageService {
   }) {
     final folder = memberProfileStorageFolderId(memberDocId, authUid);
     return ChurchStorageLayout.memberCanonicalProfilePhotoPath(
-        tenantId, folder);
+      tenantId,
+      folder,
+    );
   }
 
   /// URL com token para a foto padrão do membro em Storage (`igrejas/{tenant}/membros/{id}.jpg` legado
@@ -348,7 +376,8 @@ class FirebaseStorageService {
     );
     final hintStems = memberFirestoreHint != null
         ? StorageMediaService.memberProfileFolderStemsFromFirestoreMap(
-            memberFirestoreHint)
+            memberFirestoreHint,
+          )
         : const <String>[];
     final hintKey = hintStems.isEmpty
         ? '-'
@@ -382,12 +411,16 @@ class FirebaseStorageService {
     required String tenantId,
     required String memberId,
     String? cpfDigits,
+
     /// Quando o doc em `membros` usa outro id (ex.: CPF) mas a foto foi salva com `authUid`.
     String? authUid,
+
     /// [NOME_COMPLETO] para pasta `PrimeiroNome_uid` (padrão atual).
     String? nomeCompleto,
+
     /// Qualquer campo do doc com URL/path `.../membros/{id}/foto_perfil...` — prioriza essa pasta.
     Map<String, dynamic>? memberFirestoreHint,
+
     /// Listas/galerias: tenta miniaturas `thumb_foto_perfil.jpg` antes do full HD.
     bool preferListThumbnail = false,
   }) async {
@@ -397,7 +430,8 @@ class FirebaseStorageService {
     final cpfNorm = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     var authNorm = (authUid ?? '').trim();
     if (authNorm.isEmpty && memberFirestoreHint != null) {
-      authNorm = MemberProfilePhotoResolver.authUidFromData(
+      authNorm =
+          MemberProfilePhotoResolver.authUidFromData(
             memberFirestoreHint,
             memberDocId: mid,
           ) ??
@@ -411,7 +445,8 @@ class FirebaseStorageService {
     );
     final hintStems = memberFirestoreHint != null
         ? StorageMediaService.memberProfileFolderStemsFromFirestoreMap(
-            memberFirestoreHint)
+            memberFirestoreHint,
+          )
         : const <String>[];
     final cacheKey = _memberProfilePhotoUrlCacheKey(
       tenantId: tid,
@@ -427,11 +462,11 @@ class FirebaseStorageService {
     }
     // Web: sem URL/path no Firestore — não sondar dezenas de caminhos legados (404 em massa).
     if (kIsWeb && memberFirestoreHint != null) {
-      final hasHttps = MemberImageFields.photoDownloadUrl(memberFirestoreHint) !=
-              null ||
+      final hasHttps =
+          MemberImageFields.photoDownloadUrl(memberFirestoreHint) != null ||
           MemberImageFields.photoThumbDownloadUrl(memberFirestoreHint) != null;
-      final hasPath = MemberImageFields.photoStoragePath(memberFirestoreHint) !=
-              null ||
+      final hasPath =
+          MemberImageFields.photoStoragePath(memberFirestoreHint) != null ||
           MemberImageFields.photoThumbStoragePath(memberFirestoreHint) != null;
       if (!hasHttps && !hasPath) {
         return null;
@@ -462,8 +497,9 @@ class FirebaseStorageService {
         addPath(firebaseStorageObjectPathFromHttpUrl(httpsFull));
       }
       if (preferListThumbnail) {
-        final thumbHttps =
-            MemberImageFields.photoThumbDownloadUrl(memberFirestoreHint);
+        final thumbHttps = MemberImageFields.photoThumbDownloadUrl(
+          memberFirestoreHint,
+        );
         if (thumbHttps != null) {
           addPath(firebaseStorageObjectPathFromHttpUrl(thumbHttps));
         }
@@ -524,12 +560,9 @@ class FirebaseStorageService {
             ChurchStorageLayout.memberCanonicalProfilePhotoPathLegacy(tid, s);
         paths.add(legacy);
         final base = legacy.substring(0, legacy.length - 4);
-        paths.addAll([
-          '$base.jpeg',
-          '$base.png',
-          '$base.webp',
-        ]);
+        paths.addAll(['$base.jpeg', '$base.png', '$base.webp']);
       }
+
       if (authNorm.isNotEmpty) {
         addFullForStem(authNorm);
       }
@@ -557,11 +590,12 @@ class FirebaseStorageService {
       }
     }
     // Vários caminhos legados: falha (objeto inexistente) costuma ser rápida — timeout curto.
-    final perTimeout =
-        Duration(seconds: kIsWeb ? 1 : 2);
+    final perTimeout = Duration(seconds: kIsWeb ? 1 : 2);
     final batchSize = kIsWeb ? 3 : 8;
     final maxPaths = kIsWeb ? 12 : paths.length;
-    final pathsToTry = paths.length > maxPaths ? paths.sublist(0, maxPaths) : paths;
+    final pathsToTry = paths.length > maxPaths
+        ? paths.sublist(0, maxPaths)
+        : paths;
     Future<String?> tryPath(String path) async {
       try {
         final ref = firebaseDefaultStorage.ref(path);
@@ -570,13 +604,17 @@ class FirebaseStorageService {
       } catch (e) {
         if (kDebugMode) {
           debugPrint(
-              'FirebaseStorageService.getMemberProfilePhotoDownloadUrl ($path): $e');
+            'FirebaseStorageService.getMemberProfilePhotoDownloadUrl ($path): $e',
+          );
         }
       }
       return null;
     }
+
     for (var i = 0; i < pathsToTry.length; i += batchSize) {
-      final end = i + batchSize > pathsToTry.length ? pathsToTry.length : i + batchSize;
+      final end = i + batchSize > pathsToTry.length
+          ? pathsToTry.length
+          : i + batchSize;
       final batch = pathsToTry.sublist(i, end);
       final results = await Future.wait(batch.map(tryPath));
       for (final u in results) {
@@ -628,13 +666,15 @@ class FirebaseStorageService {
     final path = ChurchStorageLayout.gestorPublicProfilePhotoPath(tid);
     try {
       final ref = firebaseDefaultStorage.ref(path);
-      final url = await ref
-          .getDownloadURL()
-          .timeout(const Duration(seconds: 10), onTimeout: () => '');
+      final url = await ref.getDownloadURL().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => '',
+      );
       return url.isNotEmpty ? url : null;
     } catch (e) {
       debugPrint(
-          'FirebaseStorageService.getGestorPublicMirrorPhotoUrl ($path): $e');
+        'FirebaseStorageService.getGestorPublicMirrorPhotoUrl ($path): $e',
+      );
       return null;
     }
   }
@@ -653,12 +693,13 @@ class FirebaseStorageService {
     String? fileName,
   }) async {
     try {
-      final XFile? picked = await MediaHandlerService.instance.pickAndProcessImage(
-        source: source,
-        imageQuality: quality,
-        minWidth: maxWidth,
-        minHeight: maxHeight,
-      );
+      final XFile? picked = await MediaHandlerService.instance
+          .pickAndProcessImage(
+            source: source,
+            imageQuality: quality,
+            minWidth: maxWidth,
+            minHeight: maxHeight,
+          );
       if (picked == null) return null;
 
       final bytes = await picked.readAsBytes();
@@ -701,7 +742,8 @@ class FirebaseStorageService {
       );
     } on FirebaseException catch (e) {
       debugPrint(
-          'FirebaseStorageService.uploadBytes: ${e.code} ${e.message ?? e}');
+        'FirebaseStorageService.uploadBytes: ${e.code} ${e.message ?? e}',
+      );
       return null;
     } catch (e) {
       debugPrint('FirebaseStorageService.uploadBytes: $e');
@@ -709,4 +751,3 @@ class FirebaseStorageService {
     }
   }
 }
-

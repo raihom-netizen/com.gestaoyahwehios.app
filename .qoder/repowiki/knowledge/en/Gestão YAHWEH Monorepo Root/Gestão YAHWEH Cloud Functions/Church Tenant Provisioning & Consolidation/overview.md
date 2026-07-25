@@ -1,0 +1,1 @@
+Provisions, normalizes, and consolidates church tenant documents under `igrejas/{id}` with Storage folders, canonical ID resolution, and legacy subcollection migration (members→membros).

@@ -1,0 +1,1 @@
+TypeScript Firebase Cloud Functions v1 with `firebase-admin` for Firestore and FCM; SendGrid HTTP API (no SDK) for email delivery; `firebase-functions/params.defineString` for runtime config (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `PUBLIC_WEB_BASE_URL`).

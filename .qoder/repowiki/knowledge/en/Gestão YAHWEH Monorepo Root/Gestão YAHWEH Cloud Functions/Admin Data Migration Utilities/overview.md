@@ -1,0 +1,1 @@
+Firebase Cloud Functions that migrate tenant Firestore collections and Google Storage assets into the consolidated multi-tenant architecture, exposing callable endpoints for per-tenant and bulk operations.

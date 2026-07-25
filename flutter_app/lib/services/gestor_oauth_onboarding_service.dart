@@ -2,7 +2,6 @@
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -31,11 +30,14 @@ class GestorOAuthOnboardingService {
     final user = firebaseDefaultAuth.currentUser;
     if (user == null) return;
 
-    final doc =
-        await firebaseDefaultFirestore.collection('users').doc(user.uid).get();
+    final doc = await firebaseDefaultFirestore
+        .collection('users')
+        .doc(user.uid)
+        .get();
     final data = doc.data();
-    final igrejaId =
-        (data?['igrejaId'] ?? data?['tenantId'] ?? '').toString().trim();
+    final igrejaId = (data?['igrejaId'] ?? data?['tenantId'] ?? '')
+        .toString()
+        .trim();
 
     if (!context.mounted) return;
     if (igrejaId.isNotEmpty) {
@@ -96,7 +98,8 @@ class GestorOAuthOnboardingService {
     if (kIsWeb) {
       throw StateError('Use signInWithPopup na web.');
     }
-    final forcePicker = forceAccountPicker ||
+    final forcePicker =
+        forceAccountPicker ||
         await LoginPreferences.shouldForceGoogleAccountPicker();
 
     // Silencioso só no botão manual e sem sessão Firebase (nunca no arranque).
@@ -173,11 +176,9 @@ class GestorOAuthOnboardingService {
       );
     }
 
-    final oauthCredential = OAuthProvider('apple.com').credential(
-      idToken: idToken,
-      rawNonce: rawNonce,
-    );
+    final oauthCredential = OAuthProvider(
+      'apple.com',
+    ).credential(idToken: idToken, rawNonce: rawNonce);
     return firebaseDefaultAuth.signInWithCredential(oauthCredential);
   }
 }
-

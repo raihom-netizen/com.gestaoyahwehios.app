@@ -1,0 +1,6 @@
+- Field extraction across heterogeneous document shapes uses a `pickString` / `pickHttp` helper that iterates over an array of candidate key names and returns the first non-empty match, allowing multiple legacy field naming conventions.
+- All HTTP(S) URLs are validated by checking `startsWith('http')` before use, and strings are trimmed and lowercased where appropriate before normalization.
+- Cloud Functions are declared with `.region('us-central1')` and use `functions.logger.info/warn/error` for structured logging rather than `console.log`.
+- Configuration values are read through `defineString(..., { default: '' })` from `firebase-functions/params` so the same code works both locally and in production without code changes.
+- Batch Firestore writes go through `db.batch()` with `{ merge: true }` and include a `schemaVersion` field to support future format migrations.
+- Heavy or optional dependencies (e.g. `./churchPerformancePack`, `./panelPublicSiteCache`) are loaded via dynamic `import()` inside the function handler to avoid cold-start overhead when not needed.

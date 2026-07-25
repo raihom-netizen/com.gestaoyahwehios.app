@@ -72,12 +72,19 @@ function collectHttpPhotoUrls(data) {
     function push(raw) {
         if (typeof raw !== "string")
             return;
-        const s = raw.trim().replace(/&amp;/g, "&");
+        let s = raw.trim().replace(/&amp;/g, "&");
         if (!s.startsWith("http") || seen.has(s))
             return;
         if (isYoutubeVimeo(s))
             return;
         if (looksLikeVideoFile(s))
+            return;
+        // Share: preferir medium_800 (mais leve) quando o path for full_1920.
+        s = s
+            .replace(/_full_1920\.webp/gi, "_medium_800.webp")
+            .replace(/_full_1920\.jpg/gi, "_medium_800.webp")
+            .replace(/\/full_1920\./gi, "/medium_800.");
+        if (seen.has(s))
             return;
         seen.add(s);
         out.push(s);
@@ -141,7 +148,8 @@ function collectHttpPhotoUrls(data) {
     }
     const iv = data.imageVariants;
     if (iv && typeof iv === "object") {
-        for (const key of ["full_1920", "full", "medium_800", "medium", "thumb_200"]) {
+        // Share / site: medium primeiro (rápido); full só se não houver medium.
+        for (const key of ["medium_800", "medium", "full_1920", "full", "thumb_200"]) {
             const e = iv[key];
             if (e && typeof e === "object")
                 push(e.url);
@@ -284,21 +292,24 @@ async function firebaseDownloadUrlForPath(objectPath) {
     }
 }
 async function resolveFirstPath(paths) {
-    for (const p of paths) {
-        const url = await firebaseDownloadUrlForPath(p);
-        if (url)
-            return url;
+    // Parallel: try all paths at once, pick first successful
+    const results = await Promise.all(paths.map((p) => firebaseDownloadUrlForPath(p).then((url) => ({ p, url }))));
+    for (const r of results) {
+        if (r.url)
+            return r.url;
     }
     return null;
 }
 async function enrichPostMedia(tenantId, collection, postId, data) {
     const httpPhotos = collectHttpPhotoUrls(data);
     const paths = collectStoragePaths(tenantId, collection, postId, data);
+    // Parallel: resolve all storage paths at once (batch)
+    const pathResults = await Promise.all(paths.slice(0, MAX_PHOTOS_PER_POST).map((p) => firebaseDownloadUrlForPath(p)));
     const resolved = [...httpPhotos];
-    for (let i = 0; i < paths.length && resolved.length < MAX_PHOTOS_PER_POST; i++) {
-        const url = await firebaseDownloadUrlForPath(paths[i]);
-        if (url && !resolved.includes(url))
+    for (const url of pathResults) {
+        if (url && resolved.length < MAX_PHOTOS_PER_POST && !resolved.includes(url)) {
             resolved.push(url);
+        }
     }
     const feedCoverUrl = resolved[0] ?? null;
     let videoThumbUrl = pickHttp(data, ["videoThumbUrl", "thumbUrl", "thumb_url"]) || null;
@@ -313,11 +324,7 @@ async function enrichPostMedia(tenantId, collection, postId, data) {
             }
         }
     }
-    if (!videoThumbUrl && paths.length > 0) {
-        const thumbPath = paths.find((p) => p.includes("_thumb") || p.includes("/thumbs/"));
-        if (thumbPath)
-            videoThumbUrl = await firebaseDownloadUrlForPath(thumbPath);
-    }
+    // Parallel: resolve thumb and video paths together
     let hostedVideoUrl = pickHttp(data, ["hostedVideoUrl", "videoUrl", "video_url"]);
     if (hostedVideoUrl && (!looksLikeVideoFile(hostedVideoUrl) || isYoutubeVimeo(hostedVideoUrl))) {
         hostedVideoUrl = "";
@@ -333,10 +340,25 @@ async function enrichPostMedia(tenantId, collection, postId, data) {
             }
         }
     }
+    const extraPaths = [];
+    if (!videoThumbUrl) {
+        const thumbPath = paths.find((p) => p.includes("_thumb") || p.includes("/thumbs/"));
+        if (thumbPath)
+            extraPaths.push({ key: "thumb", path: thumbPath });
+    }
     if (!hostedVideoUrl) {
         const vPath = paths.find((p) => looksLikeVideoFile(p) || p.includes("/videos/"));
         if (vPath)
-            hostedVideoUrl = (await firebaseDownloadUrlForPath(vPath)) ?? "";
+            extraPaths.push({ key: "video", path: vPath });
+    }
+    if (extraPaths.length > 0) {
+        const extraResults = await Promise.all(extraPaths.map((e) => firebaseDownloadUrlForPath(e.path).then((url) => ({ ...e, url }))));
+        for (const r of extraResults) {
+            if (r.key === "thumb" && r.url)
+                videoThumbUrl = r.url;
+            if (r.key === "video" && r.url)
+                hostedVideoUrl = r.url;
+        }
     }
     return {
         feedCoverUrl,
@@ -384,23 +406,42 @@ async function recomputePublicSiteMediaPrefetch(tenantId) {
     }
     addPrefetch(churchLogoUrl);
     const enriched = [];
-    for (let i = 0; i < rawFeed.length && i < MAX_POSTS; i++) {
-        const row = rawFeed[i];
+    // Parallel: batch-fetch all post documents at once
+    const postRefs = rawFeed.slice(0, MAX_POSTS).map((row) => {
         if (!row || typeof row !== "object")
-            continue;
+            return null;
         const base = row;
         const postId = String(base.id ?? "").trim();
         const collection = String(base.collection ?? "avisos").trim();
-        if (!postId) {
-            enriched.push(base);
+        if (!postId)
+            return null;
+        const col = collection === "avisos" ? "avisos" : "eventos";
+        return { postId, collection, base, ref: churchRef.collection(col).doc(postId) };
+    });
+    const postSnaps = await Promise.all(postRefs.map((r) => (r ? r.ref.get() : Promise.resolve(null))));
+    // Parallel: enrich all post media at once
+    const mediaResults = await Promise.all(postRefs.map((r, i) => {
+        if (!r)
+            return Promise.resolve(null);
+        const snap = postSnaps[i];
+        const postData = (snap?.data() ?? r.base);
+        return enrichPostMedia(tid, r.collection, r.postId, postData);
+    }));
+    for (let i = 0; i < postRefs.length; i++) {
+        const r = postRefs[i];
+        if (!r) {
+            const row = rawFeed[i];
+            if (row && typeof row === "object")
+                enriched.push(row);
             continue;
         }
-        const churchRefPosts = churchRef.collection(collection === "avisos" ? "avisos" : "eventos");
-        const postSnap = await churchRefPosts.doc(postId).get();
-        const postData = (postSnap.data() ?? base);
-        const media = await enrichPostMedia(tid, collection, postId, postData);
+        const media = mediaResults[i];
+        if (!media) {
+            enriched.push(r.base);
+            continue;
+        }
         const merged = {
-            ...base,
+            ...r.base,
             feedCoverUrl: media.feedCoverUrl,
             photoUrls: media.photoUrls,
             videoThumbUrl: media.videoThumbUrl,

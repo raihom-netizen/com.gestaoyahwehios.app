@@ -1,0 +1,1 @@
+Firebase Cloud Functions handling church finance payment reminders, recurring revenue generation, and Mercado Pago PIX/Checkout donation processing with webhook reconciliation into Firestore.

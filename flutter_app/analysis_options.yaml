@@ -18,6 +18,8 @@ analyzer:
     - "lib/pwa_install/pwa_install_web.dart"
     - "lib/controle_total_sync/smart_input_clipboard_paste_web.dart"
     - "lib/ui/widgets/pwa_install_bridge_web.dart"
+    # TDLib FFI só com libtdjson no pubspec (desativado em produção — ver tdlib_service.dart)
+    - "lib/features/chat/data/tdlib_service_io.dart"
 
 linter:
   # The lint rules applied to this project can be customized in the

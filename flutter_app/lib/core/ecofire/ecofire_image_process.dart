@@ -1,14 +1,17 @@
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart'
-    show kEventoAvisoFeedEncodeMaxEdgePx;
+    show
+        kEventoAvisoFeedEncodeMaxEdgePx,
+        kEventoAvisoFeedJpegQuality,
+        kEventoAvisoFeedTargetMaxBytes;
+import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/media_service.dart';
 
-/// Compressão/crop **antes** do upload — padrão EcoFire (`ImageProcessService`).
+/// Compressão/crop **antes** do upload — padrão EcoFire + Controle Total.
 ///
-/// Gestão YAHWEH usa WebP/JPEG via [MediaService] (nunca Base64 no Firestore).
+/// Decode/resize/encode rodam em [YahwehHeavyWork] (isolate no mobile) — **uma**
+/// passagem JPEG (sem ponte q=92 + 2.ª compressão que travava a UI).
 abstract final class EcoFireImageProcess {
   EcoFireImageProcess._();
 
@@ -21,82 +24,53 @@ abstract final class EcoFireImageProcess {
   static Future<({Uint8List bytes, String mime})> processForLogo(
     Uint8List inputBytes,
   ) async {
-    final decoded = img.decodeImage(inputBytes);
-    if (decoded == null) {
-      throw StateError('Não foi possível decodificar a imagem (logo).');
-    }
-    final resized = _resizeKeepAspect(decoded, logoMaxSide);
-    return (
-      bytes: Uint8List.fromList(img.encodePng(resized)),
-      mime: 'image/png',
-    );
+    final out = await YahwehHeavyWork.run(_logoIsolate, inputBytes);
+    return (bytes: out, mime: 'image/png');
   }
 
   static Future<({Uint8List bytes, String mime})> processForMemberProfile(
     Uint8List inputBytes,
   ) async {
-    final decoded = img.decodeImage(inputBytes);
-    if (decoded == null) {
-      throw StateError('Não foi possível decodificar a imagem (membro).');
-    }
-    final cropped = _cropCenterAspect(decoded, 1.0);
-    final resized = img.copyResize(
-      cropped,
-      width: memberSize,
-      height: memberSize,
-      interpolation: img.Interpolation.linear,
+    final out = await YahwehHeavyWork.run(
+      _memberProfileIsolate,
+      _MemberEncodeArgs(inputBytes, memberSize, 80),
     );
-    return _encodeProfile(resized, MediaImageProfile.feed, preferWebp: true);
+    return (bytes: out, mime: 'image/jpeg');
   }
 
   static Future<({Uint8List bytes, String mime})> processForMemberThumb(
     Uint8List inputBytes,
   ) async {
-    final decoded = img.decodeImage(inputBytes);
-    if (decoded == null) {
-      throw StateError('Não foi possível decodificar a imagem (thumb).');
-    }
-    final cropped = _cropCenterAspect(decoded, 1.0);
-    final resized = img.copyResize(
-      cropped,
-      width: thumbSize,
-      height: thumbSize,
-      interpolation: img.Interpolation.linear,
+    final out = await YahwehHeavyWork.run(
+      _memberProfileIsolate,
+      _MemberEncodeArgs(inputBytes, thumbSize, 70),
     );
-    return _encodeProfile(resized, MediaImageProfile.thumb, preferWebp: true);
+    return (bytes: out, mime: 'image/jpeg');
   }
 
   static Future<({Uint8List bytes, String mime})> processForFeedPhoto(
     Uint8List inputBytes,
   ) async {
-    final decoded = img.decodeImage(inputBytes);
-    if (decoded == null) {
-      throw StateError('Não foi possível decodificar a imagem (feed).');
-    }
-    final resized = _resizeKeepAspect(decoded, feedMaxEdge);
-    final encoded = await _encodeProfile(
-      resized,
-      MediaImageProfile.feed,
-      preferWebp: false,
+    final out = await YahwehHeavyWork.run(
+      _feedPhotoIsolate,
+      _FeedEncodeArgs(
+        inputBytes,
+        feedMaxEdge,
+        kEventoAvisoFeedJpegQuality,
+        kEventoAvisoFeedTargetMaxBytes,
+      ),
     );
-    return (bytes: encoded.bytes, mime: 'image/jpeg');
+    return (bytes: out, mime: 'image/jpeg');
   }
 
   static Future<({Uint8List bytes, String mime})> processForPatrimonio(
     Uint8List inputBytes,
   ) async {
-    final decoded = img.decodeImage(inputBytes);
-    if (decoded == null) {
-      throw StateError('Não foi possível decodificar a imagem (patrimônio).');
-    }
-    final cropped = _cropCenterAspect(decoded, 1.0);
-    final resized = img.copyResize(
-      cropped,
-      width: patrimonioSize,
-      height: patrimonioSize,
-      interpolation: img.Interpolation.linear,
+    final out = await YahwehHeavyWork.run(
+      _memberProfileIsolate,
+      _MemberEncodeArgs(inputBytes, patrimonioSize, 80),
     );
-    return _encodeProfile(resized, MediaImageProfile.patrimonio, preferWebp: true);
+    return (bytes: out, mime: 'image/jpeg');
   }
 
   static ({Uint8List bytes, String mime}) passthrough(
@@ -114,62 +88,113 @@ abstract final class EcoFireImageProcess {
     if (m.contains('mp4')) return 'mp4';
     return 'bin';
   }
+}
 
-  static Future<({Uint8List bytes, String mime})> _encodeProfile(
-    img.Image image,
-    MediaImageProfile profile, {
-    required bool preferWebp,
-  }) async {
-    final bridge = Uint8List.fromList(img.encodeJpg(image, quality: 92));
-    final out = await MediaService.compressImageBytes(bridge, profile: profile);
-    final mime = preferWebp &&
-            (profile == MediaImageProfile.feed ||
-                profile == MediaImageProfile.patrimonio ||
-                profile == MediaImageProfile.thumb)
-        ? 'image/webp'
-        : 'image/jpeg';
-    return (bytes: out, mime: mime);
+@immutable
+class _FeedEncodeArgs {
+  const _FeedEncodeArgs(this.raw, this.maxEdge, this.quality, this.targetBytes);
+  final Uint8List raw;
+  final int maxEdge;
+  final int quality;
+  final int targetBytes;
+}
+
+@immutable
+class _MemberEncodeArgs {
+  const _MemberEncodeArgs(this.raw, this.edge, this.quality);
+  final Uint8List raw;
+  final int edge;
+  final int quality;
+}
+
+Uint8List _logoIsolate(Uint8List inputBytes) {
+  final decoded = img.decodeImage(inputBytes);
+  if (decoded == null) {
+    throw StateError('Não foi possível decodificar a imagem (logo).');
+  }
+  final resized = _resizeKeepAspect(decoded, EcoFireImageProcess.logoMaxSide);
+  return Uint8List.fromList(img.encodePng(resized));
+}
+
+Uint8List _memberProfileIsolate(_MemberEncodeArgs args) {
+  final decoded = img.decodeImage(args.raw);
+  if (decoded == null) {
+    throw StateError('Não foi possível decodificar a imagem.');
+  }
+  final cropped = _cropCenterAspect(decoded, 1.0);
+  final resized = img.copyResize(
+    cropped,
+    width: args.edge,
+    height: args.edge,
+    interpolation: img.Interpolation.linear,
+  );
+  return Uint8List.fromList(img.encodeJpg(resized, quality: args.quality));
+}
+
+/// Padrão CT: resize + qualities descendentes até caber no teto.
+Uint8List _feedPhotoIsolate(_FeedEncodeArgs args) {
+  final raw = args.raw;
+  if (raw.isEmpty) return raw;
+  final decoded = img.decodeImage(raw);
+  if (decoded == null) {
+    throw StateError('Não foi possível decodificar a imagem (feed).');
+  }
+  final resized = _resizeKeepAspect(decoded, args.maxEdge);
+  const qualities = <int>[78, 70, 62, 55, 48];
+  final startQ = args.quality.clamp(48, 90);
+  final ladder = <int>[
+    startQ,
+    for (final q in qualities)
+      if (q < startQ) q,
+  ];
+  Uint8List best = Uint8List.fromList(img.encodeJpg(resized, quality: ladder.first));
+  for (final q in ladder) {
+    final enc = Uint8List.fromList(img.encodeJpg(resized, quality: q));
+    if (enc.isEmpty) continue;
+    best = enc;
+    if (best.length <= args.targetBytes) break;
+  }
+  return best;
+}
+
+img.Image _resizeKeepAspect(img.Image source, int maxSide) {
+  final w = source.width;
+  final h = source.height;
+  final m = w > h ? w : h;
+  if (m <= maxSide) return source;
+  final scale = maxSide / m;
+  return img.copyResize(
+    source,
+    width: (w * scale).round(),
+    height: (h * scale).round(),
+    interpolation: img.Interpolation.linear,
+  );
+}
+
+img.Image _cropCenterAspect(img.Image source, double aspect) {
+  final srcW = source.width;
+  final srcH = source.height;
+  final srcAspect = srcW / srcH;
+
+  int cropW;
+  int cropH;
+
+  if (srcAspect > aspect) {
+    cropH = srcH;
+    cropW = (srcH * aspect).round();
+  } else {
+    cropW = srcW;
+    cropH = (srcW / aspect).round();
   }
 
-  static img.Image _resizeKeepAspect(img.Image source, int maxSide) {
-    final w = source.width;
-    final h = source.height;
-    final m = w > h ? w : h;
-    if (m <= maxSide) return source;
-    final scale = maxSide / m;
-    return img.copyResize(
-      source,
-      width: (w * scale).round(),
-      height: (h * scale).round(),
-      interpolation: img.Interpolation.linear,
-    );
-  }
+  final x = ((srcW - cropW) / 2).round().clamp(0, srcW - 1);
+  final y = ((srcH - cropH) / 2).round().clamp(0, srcH - 1);
 
-  static img.Image _cropCenterAspect(img.Image source, double aspect) {
-    final srcW = source.width;
-    final srcH = source.height;
-    final srcAspect = srcW / srcH;
-
-    int cropW;
-    int cropH;
-
-    if (srcAspect > aspect) {
-      cropH = srcH;
-      cropW = (srcH * aspect).round();
-    } else {
-      cropW = srcW;
-      cropH = (srcW / aspect).round();
-    }
-
-    final x = ((srcW - cropW) / 2).round().clamp(0, srcW - 1);
-    final y = ((srcH - cropH) / 2).round().clamp(0, srcH - 1);
-
-    return img.copyCrop(
-      source,
-      x: x,
-      y: y,
-      width: cropW.clamp(1, srcW - x),
-      height: cropH.clamp(1, srcH - y),
-    );
-  }
+  return img.copyCrop(
+    source,
+    x: x,
+    y: y,
+    width: cropW.clamp(1, srcW - x),
+    height: cropH.clamp(1, srcH - y),
+  );
 }

@@ -133,8 +133,9 @@ abstract final class MemberProfilePhotoPickService {
     } else {
       final ct = await ChurchCtModuleUpload.pickImage(
         source: sourceKey == 'camera' ? ImageSource.camera : ImageSource.gallery,
-        imageQuality: 92,
-        maxWidth: 1920,
+        // Perfil final = 512px — pick leve (padrão CT), evita 1920px + recompress.
+        imageQuality: 78,
+        maxWidth: 1024,
       );
       if (ct == null) return null;
       final name =

@@ -95,13 +95,18 @@ abstract final class ChurchCentralStorageUpload {
     try {
       final ({Uint8List bytes, String mime}) processed;
       if (alreadyCompressed && !compressForFeed) {
-        if (rawBytes.length <= 420 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
+        if (rawBytes.length <= 700 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
           processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
         } else {
           processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
         }
       } else if (compressForFeed) {
-        processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+        // Já leve (pick CT) — evita 2.ª compressão e travamento.
+        if (rawBytes.length <= 700 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
+          processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
+        } else {
+          processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+        }
       } else {
         processed = (
           bytes: await MediaService.compressImageBytes(

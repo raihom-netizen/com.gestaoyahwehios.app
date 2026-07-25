@@ -63,13 +63,28 @@ abstract final class SafeImageBytes {
 
   static Future<Uint8List> patrimonioFromPicker(XFile file) async {
     final raw = await _readPickerBytes(file);
-    // MediaHandler já comprimiu (JPEG leve) — 1 compressão só no domínio (padrão CT).
+    // Pick CT (1600/78) — se já JPEG leve, zero recompressão.
     if (_looksLikeJpeg(raw) &&
         raw.length <= ImageHelper.kPatrimonioMaxUploadBytes) {
       return raw;
     }
+    if (raw.length <= ImageHelper.kPatrimonioMaxUploadBytes &&
+        (_looksLikeJpeg(raw) || _looksLikeWebp(raw))) {
+      return raw;
+    }
     return ImageHelper.compressPatrimonioPhotoForUpload(raw);
   }
+
+  static bool _looksLikeWebp(Uint8List bytes) =>
+      bytes.length >= 12 &&
+      bytes[0] == 0x52 &&
+      bytes[1] == 0x49 &&
+      bytes[2] == 0x46 &&
+      bytes[3] == 0x46 &&
+      bytes[8] == 0x57 &&
+      bytes[9] == 0x45 &&
+      bytes[10] == 0x42 &&
+      bytes[11] == 0x50;
 
   static bool _looksLikeJpeg(Uint8List bytes) {
     if (bytes.length < 3) return false;

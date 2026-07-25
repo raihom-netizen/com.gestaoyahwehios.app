@@ -25,8 +25,7 @@ class BillingLicenseService {
     return from.add(Duration(days: days));
   }
 
-  static DateTime _startOfDay(DateTime d) =>
-      DateTime(d.year, d.month, d.day);
+  static DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
 
   static Timestamp _tsNow() => Timestamp.now();
 
@@ -87,10 +86,11 @@ class BillingLicenseService {
     });
   }
 
-  Future<DocumentReference<Map<String, dynamic>>> igrejaRef(String igrejaId) async =>
-      ChurchOperationalPaths.churchDoc(
-        await ChurchOperationalPaths.resolveCached(igrejaId),
-      );
+  Future<DocumentReference<Map<String, dynamic>>> igrejaRef(
+    String igrejaId,
+  ) async => ChurchOperationalPaths.churchDoc(
+    await ChurchOperationalPaths.resolveCached(igrejaId),
+  );
 
   Future<void> reativarIgreja(String igrejaId) async {
     await _runLicenseWrite(() async {
@@ -105,13 +105,17 @@ class BillingLicenseService {
 
   // --- TENANTS (painel master) ---
 
-  Future<DocumentReference<Map<String, dynamic>>> tenantRef(String tenantId) async =>
-      ChurchOperationalPaths.churchDoc(
-        await ChurchOperationalPaths.resolveCached(tenantId),
-      );
+  Future<DocumentReference<Map<String, dynamic>>> tenantRef(
+    String tenantId,
+  ) async => ChurchOperationalPaths.churchDoc(
+    await ChurchOperationalPaths.resolveCached(tenantId),
+  );
 
-  Future<void> setTenantPlano(String tenantId, String plan,
-      {DateTime? licenseExpiresAt}) async {
+  Future<void> setTenantPlano(
+    String tenantId,
+    String plan, {
+    DateTime? licenseExpiresAt,
+  }) async {
     if (plan == 'free') {
       await setTenantFreeMaster(tenantId);
       return;
@@ -123,13 +127,14 @@ class BillingLicenseService {
     );
   }
 
-  Future<void> setTenantLicenseExpiresAt(String tenantId, DateTime? date) async {
+  Future<void> setTenantLicenseExpiresAt(
+    String tenantId,
+    DateTime? date,
+  ) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(tenantId);
       final ref = ChurchOperationalPaths.churchDoc(op);
-      final patch = <String, dynamic>{
-        'updatedAt': _tsNow(),
-      };
+      final patch = <String, dynamic>{'updatedAt': _tsNow()};
       if (date == null) {
         patch['licenseExpiresAt'] = FieldValue.delete();
         patch['expiresAt'] = FieldValue.delete();
@@ -192,7 +197,10 @@ class BillingLicenseService {
   }
 
   /// Painel master: igreja gratuita (sem bloqueio por licença).
-  Future<void> setTenantFreeMaster(String tenantId, {bool adminBlocked = false}) async {
+  Future<void> setTenantFreeMaster(
+    String tenantId, {
+    bool adminBlocked = false,
+  }) async {
     await applyMasterLicenseConfig(
       tenantId,
       isFreeMode: true,
@@ -249,9 +257,10 @@ class BillingLicenseService {
     }
 
     try {
-      final callable =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable('masterApplyTenantLicense');
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('masterApplyTenantLicense');
       await callable.call(payload);
     } on FirebaseFunctionsException catch (e) {
       throw ArgumentError(
@@ -260,7 +269,10 @@ class BillingLicenseService {
     }
   }
 
-  Future<void> _syncSubscriptionsBlockFlag(String tenantId, bool blocked) async {
+  Future<void> _syncSubscriptionsBlockFlag(
+    String tenantId,
+    bool blocked,
+  ) async {
     try {
       final snap = await _db
           .collection('subscriptions')
@@ -349,7 +361,7 @@ class BillingLicenseService {
     Future<void> deleteCollection(
       CollectionReference<Map<String, dynamic>> col, {
       Future<void> Function(DocumentReference<Map<String, dynamic>>)?
-          beforeDeleteDoc,
+      beforeDeleteDoc,
     }) async {
       QuerySnapshot<Map<String, dynamic>> snap;
       do {
@@ -358,7 +370,9 @@ class BillingLicenseService {
           if (beforeDeleteDoc != null) await beforeDeleteDoc(doc.reference);
         }
         final batch = _db.batch();
-        for (final doc in snap.docs) batch.delete(doc.reference);
+        for (final doc in snap.docs) {
+          batch.delete(doc.reference);
+        }
         if (snap.docs.isNotEmpty) await batch.commit();
       } while (snap.docs.length >= batchLimit);
     }
@@ -366,25 +380,33 @@ class BillingLicenseService {
     final root = ref;
 
     Future<void> deleteNoticiasLike(
-        CollectionReference<Map<String, dynamic>> col) async {
-      await deleteCollection(col, beforeDeleteDoc: (docRef) async {
-        await deleteCollection(docRef.collection('comentarios'));
-        await deleteCollection(docRef.collection('comments'));
-        await deleteCollection(docRef.collection('curtidas'));
-        await deleteCollection(docRef.collection('confirmacoes'));
-      });
+      CollectionReference<Map<String, dynamic>> col,
+    ) async {
+      await deleteCollection(
+        col,
+        beforeDeleteDoc: (docRef) async {
+          await deleteCollection(docRef.collection('comentarios'));
+          await deleteCollection(docRef.collection('comments'));
+          await deleteCollection(docRef.collection('curtidas'));
+          await deleteCollection(docRef.collection('confirmacoes'));
+        },
+      );
     }
 
     await deleteNoticiasLike(root.collection('eventos'));
     await deleteNoticiasLike(root.collection('avisos'));
-    await deleteCollection(root.collection('visitantes'),
-        beforeDeleteDoc: (docRef) async {
-      await deleteCollection(docRef.collection('followups'));
-    });
-    await deleteCollection(root.collection('cultos'),
-        beforeDeleteDoc: (docRef) async {
-      await deleteCollection(docRef.collection('presencas'));
-    });
+    await deleteCollection(
+      root.collection('visitantes'),
+      beforeDeleteDoc: (docRef) async {
+        await deleteCollection(docRef.collection('followups'));
+      },
+    );
+    await deleteCollection(
+      root.collection('cultos'),
+      beforeDeleteDoc: (docRef) async {
+        await deleteCollection(docRef.collection('presencas'));
+      },
+    );
 
     for (final name in [
       'members',
@@ -423,7 +445,9 @@ class BillingLicenseService {
       final subRef = _db.collection('subscriptions');
       final subSnap = await subRef.where('igrejaId', isEqualTo: tenantId).get();
       final batch = _db.batch();
-      for (final d in subSnap.docs) batch.delete(d.reference);
+      for (final d in subSnap.docs) {
+        batch.delete(d.reference);
+      }
       if (subSnap.docs.isNotEmpty) await batch.commit();
     } catch (_) {}
   }
@@ -447,7 +471,9 @@ class BillingLicenseService {
         'expiresAt': ts,
         'data_vencimento': ts,
         'data_bloqueio': Timestamp.fromDate(
-          novaData.add(const Duration(days: AppConstants.subscriptionGraceDays)),
+          novaData.add(
+            const Duration(days: AppConstants.subscriptionGraceDays),
+          ),
         ),
         'status': 'ativa',
         'updatedAt': _tsNow(),

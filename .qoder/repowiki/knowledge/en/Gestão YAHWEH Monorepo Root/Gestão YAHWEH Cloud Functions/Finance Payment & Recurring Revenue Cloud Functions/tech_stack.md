@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`) with Firebase Admin SDK for Firestore and Cloud Messaging; Mercado Pago REST API accessed via Node.js `fetch`; timezone handling uses `America/Sao_Paulo` via `toLocaleDateString`; idempotency keys sent to MP via `X-Idempotency-Key` header.

@@ -22,12 +22,10 @@ import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Agrupa documentos de escala por dia civil (ordenados por horário dentro do dia).
-Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedulesByDay(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-) {
+Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+_groupSchedulesByDay(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
   final map = <DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
   for (final d in docs) {
     final dt = EscalaFirestoreFields.parseDate(d.data());
@@ -111,8 +109,14 @@ Future<void> showEscalaPremiumPreviewSheet(
   required DateTime now,
   required String cpfDigits,
   required List<Color> deptColors,
-  required Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm,
-  Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap,
+  required Future<void> Function(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ])
+  onConfirm,
+  Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)?
+  onRequestSwap,
   DateTime? dayContext,
 }) async {
   if (docs.isEmpty) return;
@@ -134,7 +138,9 @@ Future<void> showEscalaPremiumPreviewSheet(
             constraints: BoxConstraints(maxHeight: maxH),
             child: Material(
               color: Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(26),
+              ),
               clipBehavior: Clip.antiAlias,
               child: Column(
                 children: [
@@ -168,7 +174,10 @@ Future<void> showEscalaPremiumPreviewSheet(
                             const Spacer(),
                             IconButton(
                               onPressed: () => Navigator.pop(ctx),
-                              icon: const Icon(Icons.close_rounded, color: Colors.white),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Colors.white,
+                              ),
                               tooltip: 'Fechar',
                             ),
                           ],
@@ -182,7 +191,11 @@ Future<void> showEscalaPremiumPreviewSheet(
                                 color: Colors.white.withValues(alpha: 0.18),
                                 borderRadius: BorderRadius.circular(14),
                               ),
-                              child: const Icon(Icons.groups_rounded, color: Colors.white, size: 26),
+                              child: const Icon(
+                                Icons.groups_rounded,
+                                color: Colors.white,
+                                size: 26,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -196,7 +209,9 @@ Future<void> showEscalaPremiumPreviewSheet(
                                     style: GoogleFonts.poppins(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white.withValues(alpha: 0.88),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.88,
+                                      ),
                                       letterSpacing: 0.6,
                                     ),
                                   ),
@@ -204,16 +219,25 @@ Future<void> showEscalaPremiumPreviewSheet(
                                   Text(
                                     dayContext != null
                                         ? _capitalizeFirstLetter(
-                                            DateFormat("EEEE, d 'de' MMMM yyyy", 'pt_BR').format(dayContext),
+                                            DateFormat(
+                                              "EEEE, d 'de' MMMM yyyy",
+                                              'pt_BR',
+                                            ).format(dayContext),
                                           )
                                         : (() {
                                             DateTime? dt;
                                             try {
-                                              dt = (docs.first.data()['date'] as Timestamp).toDate();
+                                              dt =
+                                                  (docs.first.data()['date']
+                                                          as Timestamp)
+                                                      .toDate();
                                             } catch (_) {}
                                             return dt != null
                                                 ? _capitalizeFirstLetter(
-                                                    DateFormat("EEEE, d 'de' MMMM yyyy", 'pt_BR').format(dt),
+                                                    DateFormat(
+                                                      "EEEE, d 'de' MMMM yyyy",
+                                                      'pt_BR',
+                                                    ).format(dt),
                                                   )
                                                 : 'Data';
                                           })(),
@@ -248,7 +272,9 @@ Future<void> showEscalaPremiumPreviewSheet(
                               onConfirm: onConfirm,
                               onRequestSwap: onRequestSwap,
                               showDividerHeader: docs.length > 1,
-                              indexLabel: docs.length > 1 ? '${di + 1}/${docs.length}' : null,
+                              indexLabel: docs.length > 1
+                                  ? '${di + 1}/${docs.length}'
+                                  : null,
                             ),
                           ],
                         ],
@@ -270,8 +296,14 @@ class _EscalaPreviewSection extends StatelessWidget {
   final DateTime now;
   final String cpfDigits;
   final List<Color> deptColors;
-  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
-  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap;
+  final Future<void> Function(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ])
+  onConfirm;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)?
+  onRequestSwap;
   final bool showDividerHeader;
   final String? indexLabel;
 
@@ -289,8 +321,12 @@ class _EscalaPreviewSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = doc.data();
-    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    final cpfs = ((m['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final names = ((m['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     final title = (m['title'] ?? 'Escala').toString();
     final dept = (m['departmentName'] ?? '').toString();
     final time = (m['time'] ?? '').toString();
@@ -301,7 +337,8 @@ class _EscalaPreviewSection extends StatelessWidget {
     try {
       dt = (m['date'] as Timestamp).toDate();
     } catch (_) {}
-    final isFuture = dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
+    final isFuture =
+        dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
 
     String confForCpf(String c) {
       var s = (confirmations[c] ?? '').toString();
@@ -318,7 +355,8 @@ class _EscalaPreviewSection extends StatelessWidget {
     }
 
     String myStatus = confForCpf(cpfDigits);
-    final unavailabilityReasons = (m['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
+    final unavailabilityReasons =
+        (m['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
     String? myReason;
     for (final k in unavailabilityReasons.keys) {
       if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
@@ -335,7 +373,11 @@ class _EscalaPreviewSection extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
-          BoxShadow(color: Color(0x0C0F172A), blurRadius: 16, offset: Offset(0, 6)),
+          BoxShadow(
+            color: Color(0x0C0F172A),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
@@ -346,7 +388,9 @@ class _EscalaPreviewSection extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
               child: Row(
                 children: [
-                  Expanded(child: Divider(color: Colors.grey.shade300, height: 1)),
+                  Expanded(
+                    child: Divider(color: Colors.grey.shade300, height: 1),
+                  ),
                   if (indexLabel != null) ...[
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -359,7 +403,9 @@ class _EscalaPreviewSection extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Expanded(child: Divider(color: Colors.grey.shade300, height: 1)),
+                    Expanded(
+                      child: Divider(color: Colors.grey.shade300, height: 1),
+                    ),
                   ],
                 ],
               ),
@@ -384,10 +430,16 @@ class _EscalaPreviewSection extends StatelessWidget {
                     ),
                     if (time.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [color.withValues(alpha: 0.95), color.withValues(alpha: 0.65)],
+                            colors: [
+                              color.withValues(alpha: 0.95),
+                              color.withValues(alpha: 0.65),
+                            ],
                           ),
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
@@ -401,7 +453,11 @@ class _EscalaPreviewSection extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.schedule_rounded, color: Colors.white, size: 16),
+                            const Icon(
+                              Icons.schedule_rounded,
+                              color: Colors.white,
+                              size: 16,
+                            ),
                             const SizedBox(width: 6),
                             Text(
                               time,
@@ -420,7 +476,11 @@ class _EscalaPreviewSection extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      Icon(Icons.event_rounded, size: 18, color: Colors.grey.shade600),
+                      Icon(
+                        Icons.event_rounded,
+                        size: 18,
+                        color: Colors.grey.shade600,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
@@ -436,7 +496,10 @@ class _EscalaPreviewSection extends StatelessWidget {
                 if (dept.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
@@ -486,12 +549,21 @@ class _EscalaPreviewSection extends StatelessWidget {
                     final conf = confForCpf(c);
                     final stColor = _statusColor(conf.isEmpty ? '' : conf);
                     final initials = n.isNotEmpty
-                        ? n.trim().split(RegExp(r'\s+')).where((x) => x.isNotEmpty).take(2).map((x) => x[0]).join()
+                        ? n
+                              .trim()
+                              .split(RegExp(r'\s+'))
+                              .where((x) => x.isNotEmpty)
+                              .take(2)
+                              .map((x) => x[0])
+                              .join()
                         : '?';
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(14),
@@ -503,7 +575,9 @@ class _EscalaPreviewSection extends StatelessWidget {
                               radius: 22,
                               backgroundColor: stColor.withValues(alpha: 0.15),
                               child: Text(
-                                initials.isNotEmpty ? initials.toUpperCase() : '?',
+                                initials.isNotEmpty
+                                    ? initials.toUpperCase()
+                                    : '?',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
@@ -536,7 +610,10 @@ class _EscalaPreviewSection extends StatelessWidget {
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: stColor.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(20),
@@ -566,7 +643,10 @@ class _EscalaPreviewSection extends StatelessWidget {
                           color: ThemeCleanPremium.success,
                           active: myStatus == 'confirmado',
                           onTap: () async {
-                            await onConfirm(doc, myStatus == 'confirmado' ? '' : 'confirmado');
+                            await onConfirm(
+                              doc,
+                              myStatus == 'confirmado' ? '' : 'confirmado',
+                            );
                             if (context.mounted) Navigator.pop(context);
                           },
                         ),
@@ -590,18 +670,29 @@ class _EscalaPreviewSection extends StatelessWidget {
                                 final ctrl = TextEditingController();
                                 return AlertDialog(
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusLg,
+                                    ),
                                   ),
                                   title: const Row(
                                     children: [
-                                      Icon(Icons.cancel_rounded, color: ThemeCleanPremium.error),
+                                      Icon(
+                                        Icons.cancel_rounded,
+                                        color: ThemeCleanPremium.error,
+                                      ),
                                       SizedBox(width: 10),
-                                      Text('Indisponível', style: TextStyle(fontWeight: FontWeight.w800)),
+                                      Text(
+                                        'Indisponível',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                   content: Column(
                                     mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
                                     children: [
                                       const Text(
                                         'Informe o motivo (o gestor verá esta justificativa):',
@@ -612,9 +703,12 @@ class _EscalaPreviewSection extends StatelessWidget {
                                         controller: ctrl,
                                         maxLines: 3,
                                         decoration: InputDecoration(
-                                          hintText: 'Ex.: viagem, saúde, compromisso...',
+                                          hintText:
+                                              'Ex.: viagem, saúde, compromisso...',
                                           border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                                            borderRadius: BorderRadius.circular(
+                                              ThemeCleanPremium.radiusSm,
+                                            ),
                                           ),
                                           filled: true,
                                         ),
@@ -627,8 +721,12 @@ class _EscalaPreviewSection extends StatelessWidget {
                                       child: const Text('Cancelar'),
                                     ),
                                     FilledButton(
-                                      onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-                                      style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, ctrl.text.trim()),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor:
+                                            ThemeCleanPremium.error,
+                                      ),
                                       child: const Text('Enviar'),
                                     ),
                                   ],
@@ -666,10 +764,16 @@ class _EscalaPreviewSection extends StatelessWidget {
                   const SizedBox(height: 8),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
-                      color: (myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error)
-                          .withValues(alpha: 0.08),
+                      color:
+                          (myStatus == 'confirmado'
+                                  ? ThemeCleanPremium.success
+                                  : ThemeCleanPremium.error)
+                              .withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
@@ -687,11 +791,15 @@ class _EscalaPreviewSection extends StatelessWidget {
                                 : ThemeCleanPremium.error,
                           ),
                         ),
-                        if (myStatus == 'indisponivel' && (myReason ?? '').trim().isNotEmpty) ...[
+                        if (myStatus == 'indisponivel' &&
+                            (myReason ?? '').trim().isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
                             'Motivo: ${myReason!.trim()}',
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade700,
+                            ),
                           ),
                         ],
                       ],
@@ -715,11 +823,10 @@ abstract final class _MySchedulesRamCache {
       '${tenantId.trim()}|${cpfDigits.trim()}';
 
   static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byKey = {};
+    String,
+    ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})
+  >
+  _byKey = {};
 
   static const Duration _ttl = Duration(minutes: 20);
 
@@ -741,8 +848,10 @@ abstract final class _MySchedulesRamCache {
     String cpfDigits,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    _byKey[_key(tenantId, cpfDigits)] =
-        (docs: List.from(docs), at: DateTime.now());
+    _byKey[_key(tenantId, cpfDigits)] = (
+      docs: List.from(docs),
+      at: DateTime.now(),
+    );
   }
 }
 
@@ -750,6 +859,7 @@ class MySchedulesPage extends StatefulWidget {
   final String tenantId;
   final String cpf;
   final String role;
+
   /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra sob o cartão do módulo.
   final bool embeddedInShell;
   const MySchedulesPage({
@@ -782,17 +892,29 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   String? _loadError;
   Timer? _webLoadCap;
   final Map<String, Map<String, dynamic>> _escalaDataOverrides = {};
+
   /// `month` = lista só no mês de [_monthCursor] (setas anterior/próximo).
   String _dateFilter = 'month';
-  DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _monthCursor = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+    1,
+  );
   DateTime? _periodStart;
   DateTime? _periodEnd;
+
   /// Vista em grade (cartões) vs lista por dia.
   bool _useGridView = false;
 
   static const _deptColors = [
-    Color(0xFF3B82F6), Color(0xFF16A34A), Color(0xFFE11D48), Color(0xFFF59E0B),
-    Color(0xFF8B5CF6), Color(0xFF0891B2), Color(0xFFDB2777), Color(0xFF059669),
+    Color(0xFF3B82F6),
+    Color(0xFF16A34A),
+    Color(0xFFE11D48),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFF0891B2),
+    Color(0xFFDB2777),
+    Color(0xFF059669),
   ];
 
   static const Color _wisdomAccent = Color(0xFF3B82F6);
@@ -815,9 +937,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Map<String, dynamic> _escalaDataFor(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) =>
-      _escalaDataOverrides[doc.id] ??
-      Map<String, dynamic>.from(doc.data());
+  ) => _escalaDataOverrides[doc.id] ?? Map<String, dynamic>.from(doc.data());
 
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
@@ -830,18 +950,16 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   }
 
   String get _churchId => ChurchPanelTenant.forFirestore(
-        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-      );
+    _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+  );
 
   void _seedFromCaches(String churchId) {
     if (churchId.isEmpty) return;
     final ram = (_cpfDigits.length == 11 && !_isAdmin)
-        ? ChurchSchedulesLoadService.peekMemberEscalasRam(
-            churchId,
-            _cpfDigits,
-          )
+        ? ChurchSchedulesLoadService.peekMemberEscalasRam(churchId, _cpfDigits)
         : null;
-    final docs = ram ??
+    final docs =
+        ram ??
         ChurchSchedulesLoadService.peekEscalasRam(churchId) ??
         _MySchedulesRamCache.peek(churchId, _cpfDigits);
     if (docs != null && mounted) {
@@ -930,8 +1048,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   }
 
   /// Extrai 11 dígitos do documento de membro (campos CPF/cpf ou ID = CPF).
-  String? _cpfDigitsFromMemberDoc(
-      DocumentSnapshot<Map<String, dynamic>> doc) {
+  String? _cpfDigitsFromMemberDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
     if (data == null) return null;
     for (final k in ['CPF', 'cpf', 'documento']) {
@@ -979,13 +1096,15 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
     try {
       if (await applyFirst(
-          await col.where('authUid', isEqualTo: user.uid).limit(1).get())) {
+        await col.where('authUid', isEqualTo: user.uid).limit(1).get(),
+      )) {
         return;
       }
     } catch (_) {}
     try {
       if (await applyFirst(
-          await col.where('firebaseUid', isEqualTo: user.uid).limit(1).get())) {
+        await col.where('firebaseUid', isEqualTo: user.uid).limit(1).get(),
+      )) {
         return;
       }
     } catch (_) {}
@@ -996,13 +1115,15 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     for (final v in variants) {
       try {
         if (await applyFirst(
-            await col.where('email', isEqualTo: v).limit(1).get())) {
+          await col.where('email', isEqualTo: v).limit(1).get(),
+        )) {
           return;
         }
       } catch (_) {}
       try {
         if (await applyFirst(
-            await col.where('EMAIL', isEqualTo: v).limit(1).get())) {
+          await col.where('EMAIL', isEqualTo: v).limit(1).get(),
+        )) {
           return;
         }
       } catch (_) {}
@@ -1192,8 +1313,19 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           return !dt.isBefore(startOfToday) && !dt.isAfter(endOfToday);
         case 'custom':
           if (_periodStart == null || _periodEnd == null) return true;
-          final start = DateTime(_periodStart!.year, _periodStart!.month, _periodStart!.day);
-          final end = DateTime(_periodEnd!.year, _periodEnd!.month, _periodEnd!.day, 23, 59, 59);
+          final start = DateTime(
+            _periodStart!.year,
+            _periodStart!.month,
+            _periodStart!.day,
+          );
+          final end = DateTime(
+            _periodEnd!.year,
+            _periodEnd!.month,
+            _periodEnd!.day,
+            23,
+            59,
+            59,
+          );
           return !dt.isBefore(start) && !dt.isAfter(end);
         default:
           return !dt.isBefore(startOfNavMonth) && !dt.isAfter(endOfNavMonth);
@@ -1203,8 +1335,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   /// Escalas do filtro atual, ordenadas por data e horário.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _sortedFilteredDocs {
-    final list =
-        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_filteredDocs);
+    final list = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      _filteredDocs,
+    );
     list.sort((a, b) {
       final da = EscalaFirestoreFields.parseDate(a.data());
       final db = EscalaFirestoreFields.parseDate(b.data());
@@ -1213,22 +1346,28 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (db == null) return -1;
       final c = da.compareTo(db);
       if (c != 0) return c;
-      return (a.data()['time'] ?? '')
-          .toString()
-          .compareTo((b.data()['time'] ?? '').toString());
+      return (a.data()['time'] ?? '').toString().compareTo(
+        (b.data()['time'] ?? '').toString(),
+      );
     });
     return list;
   }
 
-  Future<List<String>> _loadMemberDepartments(CollectionReference<Map<String, dynamic>> members) async {
+  Future<List<String>> _loadMemberDepartments(
+    CollectionReference<Map<String, dynamic>> members,
+  ) async {
     if (_cpfDigits.isEmpty) return [];
     Future<List<String>> read() async {
       final byId = await members.doc(_cpfDigits).get();
       if (byId.exists) return _deptList(byId.data());
-      final q = await members.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
+      final q = await members
+          .where('CPF', isEqualTo: _cpfDigits)
+          .limit(1)
+          .get();
       if (q.docs.isNotEmpty) return _deptList(q.docs.first.data());
       return [];
     }
+
     try {
       return await read().timeout(const Duration(seconds: 8));
     } catch (_) {
@@ -1266,16 +1405,17 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     } catch (_) {}
     if (escDt == null) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Data da escala inválida.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Data da escala inválida.')));
       return;
     }
     final escalaTime = (m['time'] ?? '19:00').toString();
     final escalaTitle = (m['title'] ?? 'Escala').toString().trim();
     final escalaDateLabel = DateFormat('dd/MM/yyyy', 'pt_BR').format(escDt);
-    final memberCpfs =
-        ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final memberCpfs = ((m['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     final currentNorm = <String>{
       for (final c in memberCpfs) c.replaceAll(RegExp(r'[^0-9]'), ''),
     };
@@ -1285,19 +1425,20 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
     String solicitanteNome = '';
     try {
-      final col =
-          ChurchUiCollections.membros(tid);
+      final col = ChurchUiCollections.membros(tid);
       final byId = await col.doc(_cpfDigits).get();
-      if (byId.exists) {
+      if (byId.exists && byId.data() != null) {
         final d = byId.data()!;
-        solicitanteNome =
-            (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+        solicitanteNome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
+            .toString()
+            .trim();
       } else {
         final q = await col.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
         if (q.docs.isNotEmpty) {
           final d = q.docs.first.data();
-          solicitanteNome =
-              (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+          solicitanteNome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
+              .toString()
+              .trim();
         }
       }
     } catch (_) {}
@@ -1336,7 +1477,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Solicitar troca'),
         content: SizedBox(
           width: 320,
@@ -1386,7 +1528,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         'alvoCpf': chosen.cpf,
         'alvoNome': chosen.nome,
         'status': 'pendente_alvo',
-        'solicitanteNome': solicitanteNome.isNotEmpty ? solicitanteNome : _cpfDigits,
+        'solicitanteNome': solicitanteNome.isNotEmpty
+            ? solicitanteNome
+            : _cpfDigits,
         'escalaTitle': escalaTitle,
         'escalaDateLabel': escalaDateLabel,
         'escalaTime': escalaTime,
@@ -1403,14 +1547,18 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao registrar pedido: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao registrar pedido: $e')));
       }
     }
   }
 
-  Future<void> _respondTrocaConvite(String tid, String trocaId, bool accept) async {
+  Future<void> _respondTrocaConvite(
+    String tid,
+    String trocaId,
+    bool accept,
+  ) async {
     try {
       await ScheduleSwapService.respondSwap(
         tenantId: tid,
@@ -1454,112 +1602,117 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final churchId = ChurchPanelTenant.forFirestore(tid);
     if (churchId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: ChurchUiCollections.escalaTrocas(churchId)
-              .where('alvoCpf', isEqualTo: _cpfDigits)
-              .watchSafe(),
-          builder: (context, tSnap) {
-            if (!tSnap.hasData) return const SizedBox.shrink();
-            final items = tSnap.data!.docs
-                .where(
-                    (d) => (d.data()['status'] ?? '').toString() == 'pendente_alvo')
-                .toList();
-            if (items.isEmpty) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+      stream: ChurchUiCollections.escalaTrocas(
+        churchId,
+      ).where('alvoCpf', isEqualTo: _cpfDigits).watchSafe(),
+      builder: (context, tSnap) {
+        if (!tSnap.hasData) return const SizedBox.shrink();
+        final items = tSnap.data!.docs
+            .where(
+              (d) => (d.data()['status'] ?? '').toString() == 'pendente_alvo',
+            )
+            .toList();
+        if (items.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.mail_outline_rounded,
-                          color: Colors.deepPurple.shade700, size: 22),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Convites de troca',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.deepPurple.shade800,
-                        ),
-                      ),
-                    ],
+                  Icon(
+                    Icons.mail_outline_rounded,
+                    color: Colors.deepPurple.shade700,
+                    size: 22,
                   ),
-                  const SizedBox(height: 10),
-                  for (final doc in items)
-                    Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        side: BorderSide(color: Colors.deepPurple.shade100),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                  const SizedBox(width: 8),
+                  Text(
+                    'Convites de troca',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.deepPurple.shade800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              for (final doc in items)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusMd,
+                    ),
+                    side: BorderSide(color: Colors.deepPurple.shade100),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          (doc.data()['solicitanteNome'] ?? 'Um irmão')
+                              .toString(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'pediu para você assumir esta escala.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          [
+                            (doc.data()['escalaDateLabel'] ?? '').toString(),
+                            (doc.data()['escalaTitle'] ?? '').toString(),
+                          ].where((s) => s.trim().isNotEmpty).join(' · '),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
                           children: [
-                            Text(
-                              (doc.data()['solicitanteNome'] ?? 'Um irmão')
-                                  .toString(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'pediu para você assumir esta escala.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              [
-                                (doc.data()['escalaDateLabel'] ?? '').toString(),
-                                (doc.data()['escalaTitle'] ?? '').toString(),
-                              ].where((s) => s.trim().isNotEmpty).join(' · '),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () => _respondTrocaConvite(
-                                        tid, doc.id, true),
-                                    icon: const Icon(Icons.check_rounded, size: 20),
-                                    label: const Text('Aceitar'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xFF16A34A),
-                                    ),
-                                  ),
+                            Expanded(
+                              child: FilledButton.icon(
+                                onPressed: () =>
+                                    _respondTrocaConvite(tid, doc.id, true),
+                                icon: const Icon(Icons.check_rounded, size: 20),
+                                label: const Text('Aceitar'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF16A34A),
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _respondTrocaConvite(
-                                        tid, doc.id, false),
-                                    icon: const Icon(Icons.close_rounded, size: 20),
-                                    label: const Text('Recusar'),
-                                  ),
-                                ),
-                              ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    _respondTrocaConvite(tid, doc.id, false),
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                                label: const Text('Recusar'),
+                              ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ),
-                ],
-              ),
-            );
-          },
+                  ),
+                ),
+            ],
+          ),
         );
+      },
+    );
   }
 
   Future<String?> _resolveMemberDocId(String tid) async {
@@ -1581,9 +1734,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (_cpfDigits.length != 11) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text(
-                'Não foi possível identificar seu CPF (cadastro de membro). '
-                'Confira se a ficha tem CPF ou está vinculada ao seu login (e-mail).')),
+          content: Text(
+            'Não foi possível identificar seu CPF (cadastro de membro). '
+            'Confira se a ficha tem CPF ou está vinculada ao seu login (e-mail).',
+          ),
+        ),
       );
       return;
     }
@@ -1594,7 +1749,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (mid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Cadastro de membro não encontrado para este CPF.')),
+          content: Text('Cadastro de membro não encontrado para este CPF.'),
+        ),
       );
       return;
     }
@@ -1611,7 +1767,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     await _load();
   }
 
-  Future<void> _confirmPresence(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) async {
+  Future<void> _confirmPresence(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ]) async {
     if (_cpfDigits.isEmpty) return;
     final data = doc.data() ?? {};
     final member = EscalaMemberPayload.findMemberForUser(
@@ -1636,8 +1796,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
             status.isEmpty
                 ? 'Confirmação atualizada.'
                 : (status == 'confirmado'
-                    ? 'Presença confirmada.'
-                    : 'Indisponibilidade registrada.'),
+                      ? 'Presença confirmada.'
+                      : 'Indisponibilidade registrada.'),
           ),
         ),
       );
@@ -1662,9 +1822,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Não foi possível salvar. ${e.message ?? e.code}',
-          ),
+          content: Text('Não foi possível salvar. ${e.message ?? e.code}'),
         ),
       );
     } catch (e) {
@@ -1676,9 +1834,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           _escalaDataOverrides[doc.id] = prevOverride;
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao salvar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
     }
   }
 
@@ -1740,8 +1898,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         padding: const EdgeInsets.only(bottom: 8, top: 4),
         child: Row(
           children: [
-            Icon(Icons.view_list_rounded,
-                size: 22, color: ThemeCleanPremium.primary),
+            Icon(
+              Icons.view_list_rounded,
+              size: 22,
+              color: ThemeCleanPremium.primary,
+            ),
             const SizedBox(width: 8),
             Text(
               'Suas escalas',
@@ -1774,7 +1935,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                 icon: Icon(
                   Icons.view_list_rounded,
                   size: 20,
-                  color: !_useGridView ? ThemeCleanPremium.primary : Colors.grey,
+                  color: !_useGridView
+                      ? ThemeCleanPremium.primary
+                      : Colors.grey,
                 ),
               ),
             ),
@@ -1811,8 +1974,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           ),
           child: Column(
             children: [
-              Icon(Icons.event_busy_rounded,
-                  size: 52, color: Colors.grey.shade400),
+              Icon(
+                Icons.event_busy_rounded,
+                size: 52,
+                color: Colors.grey.shade400,
+              ),
               const SizedBox(height: 14),
               Text(
                 'Nenhuma escala neste período.',
@@ -1865,100 +2031,112 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final pagePad = ThemeCleanPremium.pagePadding(context);
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: isMobile ? null : AppBar(
-        elevation: 0,
-        title: const Text('Minhas Escalas', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          IconButton(
-            tooltip: 'Indisponibilidade para escalas',
-            onPressed: _openAvailabilityCalendar,
-            icon: const Icon(Icons.event_busy_rounded),
-          ),
-        ],
-      ),
+      appBar: isMobile
+          ? null
+          : AppBar(
+              elevation: 0,
+              title: const Text(
+                'Minhas Escalas',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              actions: [
+                IconButton(
+                  tooltip: 'Indisponibilidade para escalas',
+                  onPressed: _openAvailabilityCalendar,
+                  icon: const Icon(Icons.event_busy_rounded),
+                ),
+              ],
+            ),
       body: YahwehWisdomPanelBackdrop(
         child: SafeArea(
-        top: !widget.embeddedInShell,
-        child: _loading && _allDocs.isEmpty
-            ? const Center(child: ChurchPanelLoadingBody())
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      pagePad.left,
-                      widget.embeddedInShell ? 8 : 12,
-                      pagePad.right,
-                      0,
-                    ),
-                    child: ChurchPanelResilientLoadBanner(
-                      hasLocalData: _allDocs.isNotEmpty,
-                      isSyncing:
-                          (_fetching || _loading) && _allDocs.isNotEmpty,
-                      errorTitle: 'Não foi possível carregar suas escalas',
-                      error: _allDocs.isEmpty ? _loadError : null,
-                      onRetry: () => _load(forceRefresh: true),
-                    ),
-                  ),
-                  if (isMobile)
+          top: !widget.embeddedInShell,
+          child: _loading && _allDocs.isEmpty
+              ? const Center(child: ChurchPanelLoadingBody())
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                     Padding(
                       padding: EdgeInsets.fromLTRB(
                         pagePad.left,
-                        widget.embeddedInShell ? 4 : ThemeCleanPremium.spaceSm,
+                        widget.embeddedInShell ? 8 : 12,
                         pagePad.right,
-                        ThemeCleanPremium.spaceSm,
+                        0,
                       ),
-                      child: FilledButton.tonalIcon(
-                        onPressed: _openAvailabilityCalendar,
-                        icon: const Icon(Icons.event_busy_rounded, size: 20),
-                        label: const Text('Dias em que não posso servir'),
-                        style: FilledButton.styleFrom(
-                          foregroundColor: _wisdomAccent,
-                          backgroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 14, horizontal: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(
-                              color: _wisdomAccent.withValues(alpha: 0.45),
-                              width: 1.35,
-                            ),
-                          ),
-                          elevation: 0,
-                          shadowColor: const Color(0x220F172A),
-                        ),
+                      child: ChurchPanelResilientLoadBanner(
+                        hasLocalData: _allDocs.isNotEmpty,
+                        isSyncing:
+                            (_fetching || _loading) && _allDocs.isNotEmpty,
+                        errorTitle: 'Não foi possível carregar suas escalas',
+                        error: _allDocs.isEmpty ? _loadError : null,
+                        onRetry: () => _load(forceRefresh: true),
                       ),
                     ),
-                  Expanded(
-                    child: RefreshIndicator(
-                      color: _wisdomAccent,
-                      onRefresh: () => _load(forceRefresh: true),
-                      child: CustomScrollView(
-                        physics: const AlwaysScrollableScrollPhysics(
-                          parent: BouncingScrollPhysics(),
+                    if (isMobile)
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          pagePad.left,
+                          widget.embeddedInShell
+                              ? 4
+                              : ThemeCleanPremium.spaceSm,
+                          pagePad.right,
+                          ThemeCleanPremium.spaceSm,
                         ),
-                        slivers: [
-                          SliverPadding(
-                            padding: EdgeInsets.fromLTRB(
-                              pagePad.left,
-                              4,
-                              pagePad.right,
-                              pagePad.bottom + 16,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _openAvailabilityCalendar,
+                          icon: const Icon(Icons.event_busy_rounded, size: 20),
+                          label: const Text('Dias em que não posso servir'),
+                          style: FilledButton.styleFrom(
+                            foregroundColor: _wisdomAccent,
+                            backgroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 16,
                             ),
-                            sliver: SliverList(
-                              delegate: SliverChildListDelegate(
-                                _mySchedulesScrollChildren(
-                                    context, now, sorted),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              side: BorderSide(
+                                color: _wisdomAccent.withValues(alpha: 0.45),
+                                width: 1.35,
                               ),
                             ),
+                            elevation: 0,
+                            shadowColor: const Color(0x220F172A),
                           ),
-                        ],
+                        ),
+                      ),
+                    Expanded(
+                      child: RefreshIndicator(
+                        color: _wisdomAccent,
+                        onRefresh: () => _load(forceRefresh: true),
+                        child: CustomScrollView(
+                          physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics(),
+                          ),
+                          slivers: [
+                            SliverPadding(
+                              padding: EdgeInsets.fromLTRB(
+                                pagePad.left,
+                                4,
+                                pagePad.right,
+                                pagePad.bottom + 16,
+                              ),
+                              sliver: SliverList(
+                                delegate: SliverChildListDelegate(
+                                  _mySchedulesScrollChildren(
+                                    context,
+                                    now,
+                                    sorted,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-      ),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -1969,13 +2147,17 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final refM = _dateFilter == 'month' ? _monthCursor.month : now.month;
     final thisMonth = filtered.where((d) {
       DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
+      try {
+        dt = (d.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
       return dt != null && dt.month == refM && dt.year == refY;
     }).toList();
     final startOfToday = DateTime(now.year, now.month, now.day);
     final upcoming = filtered.where((d) {
       DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
+      try {
+        dt = (d.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
       return dt != null && !dt.isBefore(startOfToday);
     }).toList();
     final confirmed = filtered.where((d) {
@@ -1983,37 +2165,42 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       return conf[_cpfDigits] == 'confirmado';
     }).toList();
 
-    return Row(children: [
-      Expanded(
-        child: _SummaryCard(
-          value: '${thisMonth.length}',
-          label: 'Este mês',
-          icon: Icons.calendar_month_rounded,
-          color: ThemeCleanPremium.primary,
-          onTap: () => _openListaDetalhada(context, 'Este mês', thisMonth, now),
+    return Row(
+      children: [
+        Expanded(
+          child: _SummaryCard(
+            value: '${thisMonth.length}',
+            label: 'Este mês',
+            icon: Icons.calendar_month_rounded,
+            color: ThemeCleanPremium.primary,
+            onTap: () =>
+                _openListaDetalhada(context, 'Este mês', thisMonth, now),
+          ),
         ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _SummaryCard(
-          value: '${upcoming.length}',
-          label: 'Próximas',
-          icon: Icons.upcoming_rounded,
-          color: const Color(0xFF0891B2),
-          onTap: () => _openListaDetalhada(context, 'Próximas', upcoming, now),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _SummaryCard(
+            value: '${upcoming.length}',
+            label: 'Próximas',
+            icon: Icons.upcoming_rounded,
+            color: const Color(0xFF0891B2),
+            onTap: () =>
+                _openListaDetalhada(context, 'Próximas', upcoming, now),
+          ),
         ),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: _SummaryCard(
-          value: '${confirmed.length}',
-          label: 'Confirmadas',
-          icon: Icons.check_circle_rounded,
-          color: ThemeCleanPremium.success,
-          onTap: () => _openListaDetalhada(context, 'Confirmadas', confirmed, now),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _SummaryCard(
+            value: '${confirmed.length}',
+            label: 'Confirmadas',
+            icon: Icons.check_circle_rounded,
+            color: ThemeCleanPremium.success,
+            onTap: () =>
+                _openListaDetalhada(context, 'Confirmadas', confirmed, now),
+          ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 
   void _openListaDetalhada(
@@ -2090,7 +2277,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   ],
                 ),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: primary.withValues(alpha: 0.35), width: 1.25),
+                border: Border.all(
+                  color: primary.withValues(alpha: 0.35),
+                  width: 1.25,
+                ),
               ),
               child: Row(
                 children: [
@@ -2106,7 +2296,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     style: IconButton.styleFrom(
                       foregroundColor: primary,
                       backgroundColor: Colors.white,
-                      side: BorderSide(color: primary.withValues(alpha: 0.4), width: 1.2),
+                      side: BorderSide(
+                        color: primary.withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
                     ),
                   ),
                   Expanded(
@@ -2148,7 +2341,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     style: IconButton.styleFrom(
                       foregroundColor: primary,
                       backgroundColor: Colors.white,
-                      side: BorderSide(color: primary.withValues(alpha: 0.4), width: 1.2),
+                      side: BorderSide(
+                        color: primary.withValues(alpha: 0.4),
+                        width: 1.2,
+                      ),
                     ),
                   ),
                 ],
@@ -2167,7 +2363,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                 style: FilledButton.styleFrom(
                   foregroundColor: primary,
                   backgroundColor: primary.withValues(alpha: 0.12),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: BorderSide(color: primary.withValues(alpha: 0.35)),
@@ -2190,14 +2389,20 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   ],
                 ),
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: primary.withValues(alpha: 0.35), width: 1.25),
+                border: Border.all(
+                  color: primary.withValues(alpha: 0.35),
+                  width: 1.25,
+                ),
               ),
               child: Row(
                 children: [
                   IconButton.filledTonal(
                     onPressed: () => setState(() {
-                      _monthCursor =
-                          DateTime(_monthCursor.year - 1, _monthCursor.month, 1);
+                      _monthCursor = DateTime(
+                        _monthCursor.year - 1,
+                        _monthCursor.month,
+                        1,
+                      );
                     }),
                     icon: const Icon(Icons.chevron_left_rounded, size: 26),
                     style: IconButton.styleFrom(
@@ -2218,8 +2423,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   ),
                   IconButton.filledTonal(
                     onPressed: () => setState(() {
-                      _monthCursor =
-                          DateTime(_monthCursor.year + 1, _monthCursor.month, 1);
+                      _monthCursor = DateTime(
+                        _monthCursor.year + 1,
+                        _monthCursor.month,
+                        1,
+                      );
                     }),
                     icon: const Icon(Icons.chevron_right_rounded, size: 26),
                     style: IconButton.styleFrom(
@@ -2269,7 +2477,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     color: selected ? primary : _premiumFilterBorder,
                     width: selected ? 2 : 1.25,
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -2306,7 +2517,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 14),
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.circular(12),
@@ -2317,8 +2530,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.event_rounded,
-                                size: 20, color: primary),
+                            Icon(Icons.event_rounded, size: 20, color: primary),
                             const SizedBox(width: 10),
                             Expanded(
                               child: Column(
@@ -2335,8 +2547,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                                   Text(
                                     _periodStart == null
                                         ? 'Toque para escolher'
-                                        : DateFormat('dd/MM/yyyy', 'pt_BR')
-                                            .format(_periodStart!),
+                                        : DateFormat(
+                                            'dd/MM/yyyy',
+                                            'pt_BR',
+                                          ).format(_periodStart!),
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w800,
@@ -2360,9 +2574,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                       onTap: () async {
                         final d = await showDatePicker(
                           context: context,
-                          initialDate: _periodEnd ??
-                              _periodStart ??
-                              DateTime.now(),
+                          initialDate:
+                              _periodEnd ?? _periodStart ?? DateTime.now(),
                           firstDate: _periodStart ?? DateTime(2020),
                           lastDate: DateTime(2035),
                         );
@@ -2371,7 +2584,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                       borderRadius: BorderRadius.circular(12),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 14),
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.circular(12),
@@ -2399,8 +2614,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                                   Text(
                                     _periodEnd == null
                                         ? 'Toque para escolher'
-                                        : DateFormat('dd/MM/yyyy', 'pt_BR')
-                                            .format(_periodEnd!),
+                                        : DateFormat(
+                                            'dd/MM/yyyy',
+                                            'pt_BR',
+                                          ).format(_periodEnd!),
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w800,
@@ -2424,7 +2641,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     );
   }
 
-  Widget _buildEventCard(QueryDocumentSnapshot<Map<String, dynamic>> doc, DateTime now) {
+  Widget _buildEventCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    DateTime now,
+  ) {
     return _ScaleEventCard(
       doc: doc,
       escalaData: _escalaDataFor(doc),
@@ -2463,7 +2683,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         crossAxisCount: crossAxis,
         mainAxisSpacing: 12,
         crossAxisSpacing: 12,
-        childAspectRatio: crossAxis >= 3 ? 1.42 : (crossAxis == 2 ? 1.28 : 1.12),
+        childAspectRatio: crossAxis >= 3
+            ? 1.42
+            : (crossAxis == 2 ? 1.28 : 1.12),
       ),
       itemCount: docs.length,
       itemBuilder: (context, i) {
@@ -2574,7 +2796,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Icon(Icons.schedule_rounded, size: 14, color: color),
+                                      Icon(
+                                        Icons.schedule_rounded,
+                                        size: 14,
+                                        color: color,
+                                      ),
                                       const SizedBox(width: 4),
                                       Text(
                                         time,
@@ -2591,7 +2817,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                               Icon(
                                 Icons.open_in_new_rounded,
                                 size: 16,
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+                                color: ThemeCleanPremium.primary.withValues(
+                                  alpha: 0.65,
+                                ),
                               ),
                             ],
                           ),
@@ -2634,15 +2862,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       final dayDocs = grouped[dayOnly]!;
       final raw = DateFormat("EEEE, d 'de' MMMM", 'pt_BR').format(dayOnly);
       final cap = _capitalizeFirstLetter(raw);
-      final sameCalendarDay = dayOnly.year == now.year &&
+      final sameCalendarDay =
+          dayOnly.year == now.year &&
           dayOnly.month == now.month &&
           dayOnly.day == now.day;
       out.add(
         Padding(
-          padding: EdgeInsets.only(
-            top: out.isEmpty ? 0 : 20,
-            bottom: 10,
-          ),
+          padding: EdgeInsets.only(top: out.isEmpty ? 0 : 20, bottom: 10),
           child: Material(
             color: Colors.transparent,
             borderRadius: BorderRadius.circular(12),
@@ -2688,7 +2914,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          color: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.12,
+                          ),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -2738,7 +2966,12 @@ class _ScaleEventCard extends StatelessWidget {
   final DateTime now;
   final String cpfDigits;
   final List<Color> deptColors;
-  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
+  final Future<void> Function(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ])
+  onConfirm;
   final VoidCallback? onRequestSwap;
   final VoidCallback onOpenPreview;
 
@@ -2775,8 +3008,11 @@ class _ScaleEventCard extends StatelessWidget {
     final deptId = (m['departmentId'] ?? '').toString();
     final color = deptColors[deptId.hashCode.abs() % deptColors.length];
     DateTime? dt;
-    try { dt = (m['date'] as Timestamp).toDate(); } catch (_) {}
-    final isFuture = dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
+    try {
+      dt = (m['date'] as Timestamp).toDate();
+    } catch (_) {}
+    final isFuture =
+        dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
 
     return Material(
       color: Colors.transparent,
@@ -2785,184 +3021,310 @@ class _ScaleEventCard extends StatelessWidget {
         onTap: onOpenPreview,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(width: 5, height: 140, decoration: BoxDecoration(color: color, borderRadius: const BorderRadius.horizontal(left: Radius.circular(16)))),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(children: [
-                    Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
-                    if (time.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                        child: Text(time, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
-                      ),
-                  ]),
-                  if (dt != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                  ],
-                  if (dept.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(dept, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
-                  ],
-                  if (members.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: List.generate(members.length.clamp(0, 6), (i) {
-                        final row = members[i];
-                        final n = row.name;
-                        final conf = EscalaMemberPayload.confirmationStatus(m, row);
-                        Color bg;
-                        if (conf == 'confirmado') { bg = ThemeCleanPremium.success; }
-                        else if (conf == 'indisponivel') { bg = ThemeCleanPremium.error; }
-                        else if (conf == 'falta_nao_justificada') { bg = const Color(0xFFB91C1C); }
-                        else { bg = Colors.grey.shade400; }
-                        return Tooltip(
-                          message: '$n (${conf.isEmpty ? 'pendente' : conf})',
-                          child: CircleAvatar(
-                            radius: 14,
-                            backgroundColor: bg.withValues(alpha: 0.2),
-                            child: Text(n.isNotEmpty ? n[0].toUpperCase() : '?', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: bg)),
-                          ),
-                        );
-                      }),
-                    ),
-                  ],
-                  if (isFuture && cpfDigits.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                        child: _ConfirmButton(
-                          label: 'Confirmar',
-                          icon: Icons.check_circle_rounded,
-                          color: ThemeCleanPremium.success,
-                          active: myStatus == 'confirmado',
-                          onTap: () async {
-                            await onConfirm(doc, myStatus == 'confirmado' ? '' : 'confirmado');
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _ConfirmButton(
-                          label: 'Indisponível',
-                          icon: Icons.cancel_rounded,
-                          color: ThemeCleanPremium.error,
-                          active: myStatus == 'indisponivel',
-                          onTap: () async {
-                            if (myStatus == 'indisponivel') {
-                              await onConfirm(doc, '');
-                              return;
-                            }
-                            final reason = await showDialog<String>(
-                              context: context,
-                              builder: (ctx) {
-                                final ctrl = TextEditingController();
-                                return AlertDialog(
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-                                  title: const Row(
-                                    children: [
-                                      Icon(Icons.cancel_rounded, color: ThemeCleanPremium.error),
-                                      SizedBox(width: 10),
-                                      Text('Indisponível', style: TextStyle(fontWeight: FontWeight.w800)),
-                                    ],
-                                  ),
-                                  content: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    children: [
-                                      const Text('Informe o motivo (o gestor verá esta justificativa):', style: TextStyle(fontSize: 14)),
-                                      const SizedBox(height: 12),
-                                      TextField(
-                                        controller: ctrl,
-                                        maxLines: 3,
-                                        decoration: InputDecoration(
-                                          hintText: 'Ex.: viagem, saúde, compromisso...',
-                                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                                          filled: true,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
-                                    FilledButton(
-                                      onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-                                      style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
-                                      child: const Text('Enviar'),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                            if (reason != null) await onConfirm(doc, 'indisponivel', reason.isNotEmpty ? reason : null);
-                          },
-                        ),
-                      ),
-                    ]),
-                    if (onRequestSwap != null) ...[
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: onRequestSwap,
-                          icon: const Icon(Icons.swap_horiz_rounded, size: 18),
-                          label: const Text('Solicitar troca'),
-                        ),
-                      ),
-                    ],
-                  ] else if (myStatus.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: (myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error).withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 5,
+                height: 140,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(16),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            myStatus == 'confirmado' ? 'Você confirmou presença' : 'Você marcou indisponível',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: myStatus == 'confirmado' ? ThemeCleanPremium.success : ThemeCleanPremium.error),
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                           ),
-                          if (myStatus == 'indisponivel' && (myReason ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text('Motivo: ${myReason!.trim()}', style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
-                          ],
+                          if (time.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                time,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: color,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                    ),
-                  ],
-                ],
+                      if (dt != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                      if (dept.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          dept,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: color,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      if (members.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: List.generate(members.length.clamp(0, 6), (
+                            i,
+                          ) {
+                            final row = members[i];
+                            final n = row.name;
+                            final conf = EscalaMemberPayload.confirmationStatus(
+                              m,
+                              row,
+                            );
+                            Color bg;
+                            if (conf == 'confirmado') {
+                              bg = ThemeCleanPremium.success;
+                            } else if (conf == 'indisponivel') {
+                              bg = ThemeCleanPremium.error;
+                            } else if (conf == 'falta_nao_justificada') {
+                              bg = const Color(0xFFB91C1C);
+                            } else {
+                              bg = Colors.grey.shade400;
+                            }
+                            return Tooltip(
+                              message:
+                                  '$n (${conf.isEmpty ? 'pendente' : conf})',
+                              child: CircleAvatar(
+                                radius: 14,
+                                backgroundColor: bg.withValues(alpha: 0.2),
+                                child: Text(
+                                  n.isNotEmpty ? n[0].toUpperCase() : '?',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: bg,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ),
+                      ],
+                      if (isFuture && cpfDigits.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _ConfirmButton(
+                                label: 'Confirmar',
+                                icon: Icons.check_circle_rounded,
+                                color: ThemeCleanPremium.success,
+                                active: myStatus == 'confirmado',
+                                onTap: () async {
+                                  await onConfirm(
+                                    doc,
+                                    myStatus == 'confirmado'
+                                        ? ''
+                                        : 'confirmado',
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _ConfirmButton(
+                                label: 'Indisponível',
+                                icon: Icons.cancel_rounded,
+                                color: ThemeCleanPremium.error,
+                                active: myStatus == 'indisponivel',
+                                onTap: () async {
+                                  if (myStatus == 'indisponivel') {
+                                    await onConfirm(doc, '');
+                                    return;
+                                  }
+                                  final reason = await showDialog<String>(
+                                    context: context,
+                                    builder: (ctx) {
+                                      final ctrl = TextEditingController();
+                                      return AlertDialog(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusLg,
+                                          ),
+                                        ),
+                                        title: const Row(
+                                          children: [
+                                            Icon(
+                                              Icons.cancel_rounded,
+                                              color: ThemeCleanPremium.error,
+                                            ),
+                                            SizedBox(width: 10),
+                                            Text(
+                                              'Indisponível',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        content: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            const Text(
+                                              'Informe o motivo (o gestor verá esta justificativa):',
+                                              style: TextStyle(fontSize: 14),
+                                            ),
+                                            const SizedBox(height: 12),
+                                            TextField(
+                                              controller: ctrl,
+                                              maxLines: 3,
+                                              decoration: InputDecoration(
+                                                hintText:
+                                                    'Ex.: viagem, saúde, compromisso...',
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        ThemeCleanPremium
+                                                            .radiusSm,
+                                                      ),
+                                                ),
+                                                filled: true,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text('Cancelar'),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () => Navigator.pop(
+                                              ctx,
+                                              ctrl.text.trim(),
+                                            ),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  ThemeCleanPremium.error,
+                                            ),
+                                            child: const Text('Enviar'),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                  if (reason != null)
+                                    await onConfirm(
+                                      doc,
+                                      'indisponivel',
+                                      reason.isNotEmpty ? reason : null,
+                                    );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (onRequestSwap != null) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: onRequestSwap,
+                              icon: const Icon(
+                                Icons.swap_horiz_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('Solicitar troca'),
+                            ),
+                          ),
+                        ],
+                      ] else if (myStatus.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                (myStatus == 'confirmado'
+                                        ? ThemeCleanPremium.success
+                                        : ThemeCleanPremium.error)
+                                    .withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                myStatus == 'confirmado'
+                                    ? 'Você confirmou presença'
+                                    : 'Você marcou indisponível',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: myStatus == 'confirmado'
+                                      ? ThemeCleanPremium.success
+                                      : ThemeCleanPremium.error,
+                                ),
+                              ),
+                              if (myStatus == 'indisponivel' &&
+                                  (myReason ?? '').trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Motivo: ${myReason!.trim()}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
         ),
       ),
     );
@@ -2975,9 +3337,15 @@ class _MinhaEscalaListaPage extends StatefulWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final DateTime now;
   final String cpfDigits;
-  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) onConfirm;
+  final Future<void> Function(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ])
+  onConfirm;
   final VoidCallback onPop;
-  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onRequestSwap;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)?
+  onRequestSwap;
 
   const _MinhaEscalaListaPage({
     required this.titulo,
@@ -2995,17 +3363,29 @@ class _MinhaEscalaListaPage extends StatefulWidget {
 
 class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
   static const _deptColors = [
-    Color(0xFF3B82F6), Color(0xFF16A34A), Color(0xFFE11D48), Color(0xFFF59E0B),
-    Color(0xFF8B5CF6), Color(0xFF0891B2), Color(0xFFDB2777), Color(0xFF059669),
+    Color(0xFF3B82F6),
+    Color(0xFF16A34A),
+    Color(0xFFE11D48),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFF0891B2),
+    Color(0xFFDB2777),
+    Color(0xFF059669),
   ];
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _sortedDocs {
-    final list = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(widget.docs);
+    final list = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      widget.docs,
+    );
     list.sort((a, b) {
       DateTime? da;
       DateTime? db;
-      try { da = (a.data()['date'] as Timestamp).toDate(); } catch (_) {}
-      try { db = (b.data()['date'] as Timestamp).toDate(); } catch (_) {}
+      try {
+        da = (a.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
+      try {
+        db = (b.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
       if (da == null || db == null) return 0;
       int c = da.compareTo(db);
       if (c != 0) return c;
@@ -3020,15 +3400,22 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
     final map = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
     for (final d in _sortedDocs) {
       DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
+      try {
+        dt = (d.data()['date'] as Timestamp).toDate();
+      } catch (_) {}
       if (dt == null) continue;
-      final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final key =
+          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
       map.putIfAbsent(key, () => []).add(d);
     }
     return map;
   }
 
-  Future<void> _confirm(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) async {
+  Future<void> _confirm(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String status, [
+    String? motivo,
+  ]) async {
     await widget.onConfirm(doc, status, motivo);
     if (mounted) setState(() {});
   }
@@ -3076,7 +3463,10 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
             ),
           ),
         ),
-        title: Text(widget.titulo, style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(
+          widget.titulo,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
         backgroundColor: ThemeCleanPremium.primary,
         foregroundColor: Colors.white,
       ),
@@ -3085,9 +3475,16 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.event_available_rounded, size: 56, color: Colors.grey.shade400),
+                  Icon(
+                    Icons.event_available_rounded,
+                    size: 56,
+                    color: Colors.grey.shade400,
+                  ),
                   const SizedBox(height: 16),
-                  Text('Nenhuma escala nesta lista.', style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
+                  Text(
+                    'Nenhuma escala nesta lista.',
+                    style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                  ),
                 ],
               ),
             )
@@ -3098,11 +3495,18 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                 final key = days[i];
                 final parts = key.split('-');
                 final year = parts.isNotEmpty ? int.tryParse(parts[0]) ?? 0 : 0;
-                final month = parts.length >= 2 ? int.tryParse(parts[1]) ?? 0 : 0;
+                final month = parts.length >= 2
+                    ? int.tryParse(parts[1]) ?? 0
+                    : 0;
                 final day = parts.length >= 3 ? int.tryParse(parts[2]) ?? 0 : 0;
                 final date = DateTime(year, month, day);
-                final labelRaw = DateFormat('EEEE, d \'de\' MMMM', 'pt_BR').format(date);
-                final label = labelRaw.isNotEmpty ? '${labelRaw[0].toUpperCase()}${labelRaw.substring(1)}' : labelRaw;
+                final labelRaw = DateFormat(
+                  'EEEE, d \'de\' MMMM',
+                  'pt_BR',
+                ).format(date);
+                final label = labelRaw.isNotEmpty
+                    ? '${labelRaw[0].toUpperCase()}${labelRaw.substring(1)}'
+                    : labelRaw;
                 final events = byDay[key]!;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3110,7 +3514,9 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                     SizedBox(height: i == 0 ? 8 : 20),
                     Material(
                       color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
                       child: InkWell(
                         onTap: () => showEscalaPremiumPreviewSheet(
                           context,
@@ -3122,29 +3528,55 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                           onRequestSwap: widget.onRequestSwap,
                           dayContext: date,
                         ),
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
-                            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                            border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.2)),
+                            color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.1,
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm,
+                            ),
+                            border: Border.all(
+                              color: ThemeCleanPremium.primary.withValues(
+                                alpha: 0.2,
+                              ),
+                            ),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.calendar_today_rounded, size: 20, color: ThemeCleanPremium.primary),
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 20,
+                                color: ThemeCleanPremium.primary,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   label,
-                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface),
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: ThemeCleanPremium.onSurface,
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.2,
+                                  ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
@@ -3160,7 +3592,9 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                               Icon(
                                 Icons.visibility_rounded,
                                 size: 20,
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+                                color: ThemeCleanPremium.primary.withValues(
+                                  alpha: 0.85,
+                                ),
                               ),
                             ],
                           ),
@@ -3168,25 +3602,27 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    ...events.map((doc) => _ScaleEventCard(
-                      doc: doc,
-                      now: widget.now,
-                      cpfDigits: widget.cpfDigits,
-                      deptColors: _deptColors,
-                      onConfirm: _confirm,
-                      onOpenPreview: () => showEscalaPremiumPreviewSheet(
-                        context,
-                        docs: [doc],
+                    ...events.map(
+                      (doc) => _ScaleEventCard(
+                        doc: doc,
                         now: widget.now,
                         cpfDigits: widget.cpfDigits,
                         deptColors: _deptColors,
                         onConfirm: _confirm,
-                        onRequestSwap: widget.onRequestSwap,
+                        onOpenPreview: () => showEscalaPremiumPreviewSheet(
+                          context,
+                          docs: [doc],
+                          now: widget.now,
+                          cpfDigits: widget.cpfDigits,
+                          deptColors: _deptColors,
+                          onConfirm: _confirm,
+                          onRequestSwap: widget.onRequestSwap,
+                        ),
+                        onRequestSwap: widget.onRequestSwap != null
+                            ? () => widget.onRequestSwap!(doc)
+                            : null,
                       ),
-                      onRequestSwap: widget.onRequestSwap != null
-                          ? () => widget.onRequestSwap!(doc)
-                          : null,
-                    )),
+                    ),
                   ],
                 );
               },
@@ -3218,21 +3654,34 @@ class _SummaryCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            color.withValues(alpha: 0.12),
-            Colors.white,
-          ],
+          colors: [color.withValues(alpha: 0.12), Colors.white],
         ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         boxShadow: YahwehWisdomVisualKit.softElevatedShadow,
         border: Border.all(color: color.withValues(alpha: 0.28)),
       ),
-      child: Column(children: [
-        Icon(icon, color: color, size: 22),
-        const SizedBox(height: 6),
-        Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color)),
-        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
-      ]),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
     );
     if (onTap == null) return child;
     return Material(
@@ -3253,7 +3702,13 @@ class _ConfirmButton extends StatelessWidget {
   final Color color;
   final bool active;
   final VoidCallback onTap;
-  const _ConfirmButton({required this.label, required this.icon, required this.color, required this.active, required this.onTap});
+  const _ConfirmButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.active,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3268,13 +3723,25 @@ class _ConfirmButton extends StatelessWidget {
           decoration: BoxDecoration(
             color: active ? color : color.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: active ? color : color.withValues(alpha: 0.3)),
+            border: Border.all(
+              color: active ? color : color.withValues(alpha: 0.3),
+            ),
           ),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, size: 16, color: active ? Colors.white : color),
-            const SizedBox(width: 6),
-            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: active ? Colors.white : color)),
-          ]),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: active ? Colors.white : color),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: active ? Colors.white : color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

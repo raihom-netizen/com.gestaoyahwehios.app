@@ -14,6 +14,7 @@
     "orientation": "portrait-primary",
     "background_color": "#FFFFFF",
     "theme_color": "#0C3B8A",
+    "gcm_sender_id": "157235497908",
     "prefer_related_applications": false,
     "icons": [
         {

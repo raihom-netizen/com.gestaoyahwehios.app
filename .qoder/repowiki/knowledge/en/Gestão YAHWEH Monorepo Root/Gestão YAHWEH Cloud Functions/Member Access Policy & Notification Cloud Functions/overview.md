@@ -1,0 +1,1 @@
+Firebase Cloud Functions that enforce member panel access rules, render branded HTML notification emails via SendGrid, and push FCM alerts to church administrators when new members register.

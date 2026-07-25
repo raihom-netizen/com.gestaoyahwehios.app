@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`) with Firebase Admin SDK Firestore; uses `FieldValue.delete()` for nested map deletion, server timestamps, batched writes, and a pubsub schedule trigger for periodic recomputation.

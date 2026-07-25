@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/certificates_events
+title: Certificate Batch Generation, Event Reminders & Social Share Pages
+scope:
+    - functions/src/certificadosLote.ts
+    - functions/src/eventoReminders.ts
+    - functions/src/shareEvento.ts
+source_files: []
+depends_on: []
+related_to: []

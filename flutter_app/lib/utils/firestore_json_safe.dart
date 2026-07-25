@@ -2,14 +2,24 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Substitui números não-finitos (`double.infinity`, `double.nan`, `-Infinity`)
-/// por `0.0` num mapa/lista recursivamente.
+/// Sanitiza dados para escrita no Firestore.
 ///
-/// O Firestore (e o codificador JSON do Dart) rejeitam `Infinity`/`NaN` e lançam
-/// "Converting object to an encodable object failed: Infinity" ao escrever ou ao
-/// fazer [jsonEncode]. Use antes de `set`/`update`/`add` e antes de [jsonEncode].
+/// - Substitui `double.infinity` / `double.nan` por `0.0`.
+/// - Preserva `FieldValue` (serverTimestamp, increment, etc.), `Timestamp`,
+///   `GeoPoint`, `DocumentReference` — o SDK Firestore trata nativamente.
+/// - Remove `null` keys e recursa em Maps/Iterables.
+///
+/// **NÃO** usar para `jsonEncode` — use [firestoreToJsonSafe] / [safeJsonEncode].
 dynamic sanitizeFirestoreData(dynamic v) {
   if (v == null) return null;
+  // Firestore-native sentinel types — pass through unchanged.
+  if (v is FieldValue ||
+      v is Timestamp ||
+      v is GeoPoint ||
+      v is DocumentReference ||
+      v is Blob) {
+    return v;
+  }
   if (v is double) {
     return v.isFinite ? v : 0.0;
   }
@@ -41,25 +51,16 @@ dynamic firestoreToJsonSafe(dynamic v) {
     };
   }
   if (v is DocumentReference) {
-    return <String, dynamic>{
-      '_firestore_ref': true,
-      'path': v.path,
-    };
+    return <String, dynamic>{'_firestore_ref': true, 'path': v.path};
   }
   if (v is VectorValue) {
-    return <String, dynamic>{
-      '_firestore_vector': true,
-      'repr': v.toString(),
-    };
+    return <String, dynamic>{'_firestore_vector': true, 'repr': v.toString()};
   }
   if (v is Blob) {
     final bytes = v.bytes;
     const max = 65536;
     if (bytes.length > max) {
-      return <String, dynamic>{
-        '_blob_omitted': true,
-        'length': bytes.length,
-      };
+      return <String, dynamic>{'_blob_omitted': true, 'length': bytes.length};
     }
     return <String, dynamic>{
       '_firestore_blob_b64': true,

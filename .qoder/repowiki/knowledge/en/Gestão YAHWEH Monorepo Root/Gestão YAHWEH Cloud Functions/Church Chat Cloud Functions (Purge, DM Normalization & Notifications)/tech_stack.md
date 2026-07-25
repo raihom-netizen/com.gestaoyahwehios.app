@@ -1,0 +1,1 @@
+Firebase Functions v1 API (`firebase-functions/v1`) with `firebase-admin` SDK for Firestore, Storage, and Messaging; PubSub scheduler (`schedule("every 15 minutes")`); FCM channel IDs `gy_fcm_chat_sound|vibrate|silent` aligned with Flutter's `ChurchChatAlertNotificationService`; region pinned to `us-central1` for compute-heavy triggers.

@@ -107,12 +107,19 @@ class ImageHelper {
     return current;
   }
 
-  /// Patrimônio: JPEG ≤150 KB (1024px) — overwrite fixo no Storage por slot.
-  static const int kPatrimonioWebpQuality = 75;
-  static const int kPatrimonioMaxUploadBytes = 150 * 1024;
+  /// Patrimônio: JPEG leve (~500 KB / 1200px) — upload rápido.
+  static const int kPatrimonioJpegQuality = 70;
+  static const int kPatrimonioMaxUploadBytes = 500 * 1024;
+  static const int kPatrimonioMaxEdge = 1200;
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {
     if (list.isEmpty) return list;
+    if (list.length <= kPatrimonioMaxUploadBytes &&
+        list.length >= 2 &&
+        list[0] == 0xFF &&
+        list[1] == 0xD8) {
+      return list;
+    }
     if (kIsWeb) {
       try {
         final compressed = await MediaService.compressImageBytes(
@@ -123,22 +130,22 @@ class ImageHelper {
       } catch (_) {}
       return list;
     }
-    // FlutterImageCompress usa platform channel — não pode correr em isolate (UnimplementedError).
-    var quality = kPatrimonioWebpQuality;
+    // FlutterImageCompress = platform channel — NÃO em isolate.
+    var quality = kPatrimonioJpegQuality;
     Uint8List? best;
-    for (var pass = 0; pass < 5; pass++) {
+    for (var pass = 0; pass < 3; pass++) {
       try {
         final result = await FlutterImageCompress.compressWithList(
           list,
-          minWidth: kStandardUploadImageMaxEdge,
-          minHeight: kStandardUploadImageMaxEdge,
+          minWidth: kPatrimonioMaxEdge,
+          minHeight: kPatrimonioMaxEdge,
           quality: quality,
           format: CompressFormat.jpeg,
         );
         if (result.isEmpty) break;
         best = Uint8List.fromList(result);
         if (best.length <= kPatrimonioMaxUploadBytes) return best;
-        quality = (quality - 12).clamp(38, 80);
+        quality = (quality - 10).clamp(55, 80);
       } catch (_) {
         break;
       }

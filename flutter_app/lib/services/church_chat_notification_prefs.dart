@@ -1,6 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -49,8 +47,10 @@ class ChurchChatNotificationPrefs {
     final u = firebaseDefaultAuth.currentUser;
     if (u != null) {
       try {
-        final doc =
-            await firebaseDefaultFirestore.collection('users').doc(u.uid).get();
+        final doc = await firebaseDefaultFirestore
+            .collection('users')
+            .doc(u.uid)
+            .get();
         final d = doc.data();
         if (d != null && d['pushChat'] is bool) {
           pushChat = d['pushChat'] as bool;
@@ -91,12 +91,10 @@ class ChurchChatNotificationPrefs {
           patch: {'pushChat': enabled},
         );
       } catch (_) {}
-      if (!kIsWeb) {
-        await FcmService.instance.syncPreferencePushTopics(
-          uid: u.uid,
-          tenantId: tenantId,
-        );
-      }
+      await FcmService.instance.syncPreferencePushTopics(
+        uid: u.uid,
+        tenantId: tenantId,
+      );
     }
   }
 
@@ -120,8 +118,10 @@ class ChurchChatNotificationPrefs {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return global;
 
-    var threadType =
-        (msg.data['threadType'] ?? '').toString().trim().toLowerCase();
+    var threadType = (msg.data['threadType'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     if (threadType.isEmpty) {
       threadType = threadId.startsWith('dm_') ? 'dm' : 'department';
     }
@@ -144,10 +144,9 @@ class ChurchChatNotificationPrefs {
       final ov = prefs.threadNotifOverride(threadId);
       if (ov != null && _validAlertModes.contains(ov)) return ov;
       if (isDm) {
-        final peer =
-            (dmPeerUid.isNotEmpty && dmPeerUid != uid)
-                ? dmPeerUid
-                : await _dmPeerUidFromThread(tenantId, threadId, uid);
+        final peer = (dmPeerUid.isNotEmpty && dmPeerUid != uid)
+            ? dmPeerUid
+            : await _dmPeerUidFromThread(tenantId, threadId, uid);
         if (peer.isNotEmpty) {
           final pm = prefs.dmPeerAlertMode(peer);
           if (pm != null && _validAlertModes.contains(pm)) return pm;
@@ -177,10 +176,9 @@ class ChurchChatNotificationPrefs {
     if (!threadId.startsWith('dm_')) return '';
     try {
       final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final t = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('chats')
-          .doc(threadId)
-          .get();
+      final t = await ChurchOperationalPaths.churchDoc(
+        op,
+      ).collection('chats').doc(threadId).get();
       final peers = t.data()?['participantUids'];
       if (peers is! List) return '';
       for (final p in peers) {
@@ -200,10 +198,9 @@ class ChurchChatNotificationPrefs {
     }
     try {
       final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final t = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('chats')
-          .doc(threadId)
-          .get();
+      final t = await ChurchOperationalPaths.churchDoc(
+        op,
+      ).collection('chats').doc(threadId).get();
       final id = (t.data()?['departmentId'] ?? '').toString().trim();
       return id;
     } catch (_) {}
@@ -227,23 +224,23 @@ class ChurchChatNotificationPrefs {
       } catch (_) {
         try {
           final prefs = await SharedPreferences.getInstance();
-          final local = prefs.getString(sharedPrefsAlertModeKey) ?? alertModeSound;
+          final local =
+              prefs.getString(sharedPrefsAlertModeKey) ?? alertModeSound;
           mode = normalizeAlertMode(local);
         } catch (_) {}
       }
     } else {
       try {
         final prefs = await SharedPreferences.getInstance();
-        final local = prefs.getString(sharedPrefsAlertModeKey) ?? alertModeSound;
+        final local =
+            prefs.getString(sharedPrefsAlertModeKey) ?? alertModeSound;
         mode = normalizeAlertMode(local);
       } catch (_) {}
     }
     return mode;
   }
 
-  static Future<void> setChatAlertMode({
-    required String mode,
-  }) async {
+  static Future<void> setChatAlertMode({required String mode}) async {
     final norm = normalizeAlertMode(mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(sharedPrefsAlertModeKey, norm);
@@ -272,4 +269,3 @@ class ChurchChatNotificationPrefs {
     await HapticFeedback.lightImpact();
   }
 }
-

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/design_system/app_theme.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
+import 'package:gestao_yahweh/features/chat/presentation/tdlib_chat_thread_page.dart';
 
 /// Lista de chats após autorização TDLib.
 class TelegramChatListScreen extends StatefulWidget {
@@ -177,10 +178,11 @@ class _TelegramChatListScreenState extends State<TelegramChatListScreen> {
                                 )
                               : null,
                           onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Chat ${c.id} — sala de mensagens em breve',
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => TdlibChatThreadPage(
+                                  chatId: c.id,
+                                  title: c.title,
                                 ),
                               ),
                             );

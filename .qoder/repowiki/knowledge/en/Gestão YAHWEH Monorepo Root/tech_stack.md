@@ -1,0 +1,1 @@
+Firebase Hosting + Cloud Functions (Node 22) + Firestore + Storage as the unified backend; Flutter 3.44.1 for the cross-platform client; Codemagic CI with Xcode/macOS runners for iOS signing and TestFlight publishing; PowerShell/Bash/Python/Node scripts for deployment automation.

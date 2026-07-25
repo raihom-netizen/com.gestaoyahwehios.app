@@ -234,8 +234,11 @@ exports.gerarCertificadosEmLote = functions
     let pastorCargo = "Pastor(a) Presidente";
     const signatureBuffers = [];
     const idsToLoad = defaultSigIds.slice(0, sigCount);
-    for (const mid of idsToLoad) {
-        const mSnap = await db.doc(`igrejas/${tenantId}/membros/${mid}`).get();
+    // Parallel: read all signatory members at once
+    const sigSnaps = await Promise.all(idsToLoad.map((mid) => db.doc(`igrejas/${tenantId}/membros/${mid}`).get()));
+    for (const mSnap of sigSnaps) {
+        if (!mSnap.exists)
+            continue;
         const md = mSnap.data() || {};
         const nome = String(md.NOME_COMPLETO || md.nome || "").trim();
         const cargo = cargoFromMemberData(md);
@@ -243,24 +246,46 @@ exports.gerarCertificadosEmLote = functions
             pastorNome = nome;
         if (pastorCargo === "Pastor(a) Presidente" && cargo)
             pastorCargo = cargo;
-        if (useDigital) {
+    }
+    // Parallel: download all signature images at once
+    if (useDigital) {
+        const sigUrls = [];
+        for (const mSnap of sigSnaps) {
+            if (!mSnap.exists)
+                continue;
+            const md = mSnap.data() || {};
             const raw = String(md.assinaturaUrl || md.assinatura_url || "").trim();
-            if (raw) {
-                const buf = await downloadUrlBuffer(raw);
-                if (buf)
-                    signatureBuffers.push(buf);
-            }
+            if (raw)
+                sigUrls.push({ url: raw });
+        }
+        const bufs = await Promise.all(sigUrls.map((s) => downloadUrlBuffer(s.url)));
+        for (const buf of bufs) {
+            if (buf)
+                signatureBuffers.push(buf);
         }
     }
     if (!pastorNome)
         pastorNome = "_______________________";
     const dh = dataHojeBr();
     const pdfFiles = [];
-    for (const mid of memberIds) {
-        const mSnap = await db.doc(`igrejas/${tenantId}/membros/${mid}`).get();
-        if (!mSnap.exists)
+    // Parallel: batch-read all member docs (chunks of 10 for Firestore getAll)
+    const CHUNK = 10;
+    const allMemberDocs = new Array(memberIds.length).fill(null);
+    for (let i = 0; i < memberIds.length; i += CHUNK) {
+        const slice = memberIds.slice(i, i + CHUNK);
+        const refs = slice.map((mid) => db.doc(`igrejas/${tenantId}/membros/${mid}`));
+        const snaps = await Promise.all(refs.map((r) => r.get()));
+        for (let j = 0; j < snaps.length; j++) {
+            allMemberDocs[i + j] = snaps[j];
+        }
+    }
+    // Generate PDFs (CPU-bound, sequential is fine)
+    for (let idx = 0; idx < memberIds.length; idx++) {
+        const mSnap = allMemberDocs[idx];
+        if (!mSnap || !mSnap.exists)
             continue;
         const md = mSnap.data() || {};
+        const mid = memberIds[idx];
         const nome = String(md.NOME_COMPLETO || md.nome || "Membro").trim();
         const cpf = String(md.CPF || md.cpf || "").trim();
         const texto = textoModelo

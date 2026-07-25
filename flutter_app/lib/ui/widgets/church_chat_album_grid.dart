@@ -4,21 +4,32 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart'
     show churchChatOpenImageZoom;
+import 'package:gestao_yahweh/ui/widgets/church_chat_storage_media.dart'
+    show ChurchChatStorageMediaImage;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
-/// Item de célula na grelha (URL remota, ficheiro local ou bytes de pré-visualização).
+/// Item de célula na grelha (URL remota, path Storage, ficheiro local ou bytes).
 class ChurchChatAlbumCell {
   const ChurchChatAlbumCell({
     this.url,
+    this.storagePath,
     this.localPath,
     this.previewBytes,
+    this.messageData,
+    this.tenantId,
+    this.messageId,
     required this.type,
     this.onTap,
   });
 
   final String? url;
+  /// Path Firebase Storage — resolve bytes quando `url` ainda não existe.
+  final String? storagePath;
   final String? localPath;
   final Uint8List? previewBytes;
+  final Map<String, dynamic>? messageData;
+  final String? tenantId;
+  final String? messageId;
   final String type;
   final VoidCallback? onTap;
 
@@ -190,6 +201,24 @@ class _AlbumTile extends StatelessWidget {
         skipFreshDisplayUrl: true,
         memCacheWidth: memCache,
         memCacheHeight: memCache,
+      );
+    } else if ((cell.storagePath ?? '').trim().isNotEmpty ||
+        (cell.messageData != null &&
+            ((cell.messageData!['storagePath'] ?? '').toString().trim().isNotEmpty ||
+                (cell.messageData!['mediaUrl'] ?? '').toString().trim().isNotEmpty))) {
+      img = ChurchChatStorageMediaImage(
+        data: cell.messageData ??
+            <String, dynamic>{
+              if ((cell.storagePath ?? '').trim().isNotEmpty)
+                'storagePath': cell.storagePath!.trim(),
+              if ((cell.url ?? '').trim().isNotEmpty) 'mediaUrl': cell.url!.trim(),
+              'type': cell.type,
+            },
+        tenantId: cell.tenantId,
+        messageId: cell.messageId,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
       );
     } else {
       img = _placeholder(height);

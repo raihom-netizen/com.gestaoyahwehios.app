@@ -1,0 +1,1 @@
+Google Firebase (google-services.json), Google OAuth 2.0 client secrets, Firebase Admin SDK service accounts, Flutter Android manifest merging (`tools:node="remove"`), and Google Play App Signing with SHA-1/SHA-256 fingerprints.

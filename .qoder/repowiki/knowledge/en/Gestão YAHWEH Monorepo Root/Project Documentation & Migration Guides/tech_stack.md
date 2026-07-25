@@ -1,0 +1,1 @@
+Markdown documentation referencing Flutter/Firestore/Firebase Storage architecture, WISDOMAPP v10.04+ as the performance baseline, and iOS App Store Review Guidelines (3.1.1, 3.1.3(b), 3.2.1(viii), 3.2.2(iv), 4.8). Build/deployment scripts referenced include PowerShell deployers for CanvasKit, HTML/DOM, and Skwasm web renderers.

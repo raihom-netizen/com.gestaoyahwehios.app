@@ -1,0 +1,5 @@
+- Callable functions validate `context.auth` first, then enforce role-based access using uppercase-normalized token claims (`role.toUpperCase() === 'MASTER' | 'ADMIN' | 'ADM'`) before executing business logic.
+- Firestore writes use `{ merge: true }` with `admin.firestore.FieldValue.serverTimestamp()` for `updatedAt` fields and `FieldValue.delete()` to remove keys from nested maps instead of overwriting entire documents.
+- Error responses are thrown as `functions.https.HttpsError` with specific codes (`invalid-argument`, `not-found`, `unauthenticated`, `permission-denied`) and Portuguese messages.
+- Input parameters are normalized early via `String(x || '').trim()` and coerced booleans with explicit `=== true` checks to guard against undefined/null values.
+- Cross-cutting concerns like master-operator identity and church-list caching are factored into separate exported functions (`isPlatformOperatorToken`, `patchMasterChurchesIndexForTenant`) rather than inline implementations.

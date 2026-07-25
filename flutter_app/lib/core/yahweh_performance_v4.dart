@@ -7,20 +7,20 @@ abstract final class YahwehPerformanceV4 {
 
   // ——— Cache HTTP (cached_network_image / flutter_cache_manager) ———
   static const Duration imageCacheStalePeriod = Duration(days: 30);
-  static const int imageCacheMaxObjects = 1000;
-  static const int feedThumbCacheMaxObjects = 1000;
+  static const int imageCacheMaxObjects = 500;
+  static const int feedThumbCacheMaxObjects = 500;
 
   // ——— WebP (paridade Controle Total) ———
-  static const int webpQuality = 80;
-  /// Fotos gerais — spec escala (1920px / JPEG 80%).
-  static const int uploadMaxEdgePx = 1920;
+  static const int webpQuality = 78;
+  /// Fotos gerais — padrão CT (1600px / JPEG ~78%, alvo ~700 KB).
+  static const int uploadMaxEdgePx = 1600;
 
   // ——— Fotos de perfil (membros) ———
-  /// Perfil membro — 512×512.
-  static const int profileFullEdge = 512;
-  static const int profileThumbEdge = 200;
-  static const int profileFullQuality = 80;
-  static const int profileThumbQuality = 70;
+  /// Perfil membro — 400×400 (upload mais rápido, visual OK em smartphones).
+  static const int profileFullEdge = 400;
+  static const int profileThumbEdge = 160;
+  static const int profileFullQuality = 75;
+  static const int profileThumbQuality = 65;
   /// Campos canónicos Firestore.
   static const String profileThumbField = 'fotoThumbUrl';
   static const String profileFullField = 'fotoUrl';
@@ -48,9 +48,9 @@ abstract final class YahwehPerformanceV4 {
   static const int financeListInitialLimit = blindListPageSize;
   static const int financeListPageStep = blindListPageSize;
   static const int publicFeedPageSize = 20;
-  /// Chat — só as 50 mensagens mais recentes (sem histórico inteiro).
-  static const int chatMessagesPageSize = 40;
-  static const int chatThreadsListLimit = 50;
+  /// Chat — 30 mensagens por página (carrega mais rápido).
+  static const int chatMessagesPageSize = 30;
+  static const int chatThreadsListLimit = 40;
   static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;
   static const int birthdayQueryLimit = 20;
@@ -76,7 +76,7 @@ abstract final class YahwehPerformanceV4 {
   static const int financeSummaryFirstLimit = 20;
 
   // ——— Pré-carregamento ———
-  static const int preloadFeedLeadItems = 16;
+  static const int preloadFeedLeadItems = 10;
   static const int preloadFeedItems = 32;
   static const int preloadScreenMaxUrls = 32;
 

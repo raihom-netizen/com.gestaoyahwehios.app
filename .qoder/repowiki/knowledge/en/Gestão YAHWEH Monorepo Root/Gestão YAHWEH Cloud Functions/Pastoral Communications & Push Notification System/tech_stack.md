@@ -1,0 +1,1 @@
+Firebase Functions v1 (TypeScript) with `firebase-admin` SDK; FCM rich notifications with Android `channelId` (`gy_fcm_panel_default`), APNS `mutableContent` + `imageUrl`, and WebPush actions; environment-driven branding via `defineString("PUBLIC_WEB_BASE_URL")` pointing to Hosting-hosted `web/brand/gestao_yahweh_mark.png`.

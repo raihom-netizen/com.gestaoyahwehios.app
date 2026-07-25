@@ -9,7 +9,8 @@ import 'package:flutter/foundation.dart'
 const int kMediaImagePreferredMaxBytes = 1024 * 1024; // 1MB (padrão)
 
 /// Acima deste tamanho: comprimir automaticamente antes do upload (avisos, eventos, chat).
-const int kAutoCompressImageThresholdBytes = 3 * 1024 * 1024;
+/// 1.5 MB — comprime menos imagens (a maioria já sai do picker < 1.5 MB após compressão).
+const int kAutoCompressImageThresholdBytes = 1536 * 1024;
 
 /// Vídeo bruto acima disto: recomprimir (eventos/chat) antes do upload.
 const int kAutoRecompressVideoThresholdBytes = 50 * 1024 * 1024;
@@ -28,7 +29,7 @@ const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outro
 const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 
 /// Uploads de mídia no chat em paralelo (fotos/vídeos do lote).
-const int kChatMaxConcurrentMediaUploads = 4;
+const int kChatMaxConcurrentMediaUploads = 6;
 
 /// Timeout para fotos **já compactadas** (≤ ~1 MB).
 /// 90s: redes 4G lentas ainda cabem; evita hang eterno de 3 min.
@@ -41,11 +42,11 @@ const int kStorageUploadCompressedImageMaxBytes = 1024 * 1024;
 const int kStorageUploadImageMaxSeconds = 120;
 
 /// Cancela upload se bytes não avançarem neste intervalo (imagens compactadas).
-/// 45s sem avanço = upload travado; falhar rápido → «Tentar de novo».
-const int kStorageUploadCompressedImageStallSeconds = 45;
+/// 25s sem avanço = upload travado; falhar rápido → «Tentar de novo».
+const int kStorageUploadCompressedImageStallSeconds = 25;
 
 /// Cancela upload se bytes não avançarem neste intervalo (imagens maiores).
-const int kStorageUploadImageStallSeconds = 60;
+const int kStorageUploadImageStallSeconds = 40;
 
 /// Teto alinhado às regras Storage (`storage.rules`) para fotos de feed/perfil/património.
 const int kStorageRulesMaxFeedImageBytes = 10 * 1024 * 1024;
@@ -68,9 +69,8 @@ const int kMediaEventVideoHardMaxBytes = 100 * 1024 * 1024;
 Duration get mediaEventVideoMaxDurationEffective =>
     Duration(seconds: kMediaEventVideoMaxSeconds);
 
-/// Eventos mobile — rejeita vídeo bruto acima deste tamanho antes de transcodificar (evita timeout em 4G).
-/// Equivalente ao `limiteMaximoMB = 15` do fluxo web.
-const int kMediaEventVideoMobilePickMaxBytes = 15 * 1024 * 1024;
+/// Eventos mobile — rejeita vídeo bruto acima de 10 MB antes de transcodificar (evita timeout em 4G).
+const int kMediaEventVideoMobilePickMaxBytes = 10 * 1024 * 1024;
 
 int get mediaEventVideoMobilePickMaxBytesEffective =>
     kMediaEventVideoMobilePickMaxBytes;
@@ -93,7 +93,7 @@ bool get kMediaTurboMobilePreset {
 bool get kMediaTurboEnabled => kMediaTurboMobilePreset;
 
 int get mediaImagePreferredMaxBytesEffective =>
-    kMediaTurboMobilePreset ? (850 * 1024) : kMediaImagePreferredMaxBytes;
+    kMediaTurboMobilePreset ? (700 * 1024) : kMediaImagePreferredMaxBytes;
 
 int get mediaVideoHardMaxBytesEffective =>
     kMediaTurboMobilePreset
@@ -107,12 +107,12 @@ int get mediaChatVideoHardMaxBytesEffective => kMediaChatVideoHardMaxBytes;
 Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 
 int get mediaVideoSkipTranscodeMaxBytes =>
-    kMediaTurboMobilePreset ? (64 * 1024 * 1024) : (32 * 1024 * 1024);
+    kMediaTurboMobilePreset ? (80 * 1024 * 1024) : (40 * 1024 * 1024);
 
 /// Uploads em lote (avisos/eventos): paralelo limitado (turbo mobile = mais rápido em Wi‑Fi/4G).
 int get mediaFeedUploadMaxConcurrent {
-  if (kIsWeb) return 6;
-  return kMediaTurboMobilePreset ? 4 : 3;
+  if (kIsWeb) return 8;
+  return kMediaTurboMobilePreset ? 6 : 4;
 }
 
 /// Lado máximo e qualidade padrão para fotos antes do Firebase Storage

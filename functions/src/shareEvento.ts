@@ -633,19 +633,8 @@ export const shareEvento = functions
     const ogTitle = `${titleRaw} — ${churchName}`;
     const ogDesc = buildDescription(d);
     const ogImageRaw = pickOgImage(d, church);
-    const ogImage = await toSignedReadUrlIfStorage(ogImageRaw);
-    const canonical =
-      s && e
-        ? `${BASE}/igreja/${encodeURIComponent(s)}/evento/${encodeURIComponent(e)}`
-        : `${BASE}/s/evento?c=${encodeURIComponent(tenantId)}&e=${encodeURIComponent(e)}`;
-    const imgDim = ogImageDimensions(ogImage);
-    const isoPublished = isoStartDate(d);
-    const articleTimeMeta =
-      isoPublished !== null
-        ? `\n  <meta property="article:published_time" content="${escAttr(isoPublished)}">`
-        : "";
 
-    // Player (para "abrir o link e ver" estilo YouTube)
+    // Detect YouTube vs hosted video early so we can sign both URLs in parallel
     let youtubeId: string | null = null;
     const videos = d.videos;
     if (Array.isArray(videos)) {
@@ -662,10 +651,26 @@ export const shareEvento = functions
     }
     youtubeId = youtubeId ?? youtubeIdFromUrl(String(d.videoUrl || "").trim());
     const hostedVideoRaw = youtubeId ? "" : pickHostedVideoUrl(d);
-    const hostedVideo =
+
+    // Parallel: sign OG image + hosted video URL at once
+    const [ogImage, hostedVideo] = await Promise.all([
+      toSignedReadUrlIfStorage(ogImageRaw),
       hostedVideoRaw.trim().length > 0
-        ? await toSignedReadUrlIfStorage(hostedVideoRaw)
+        ? toSignedReadUrlIfStorage(hostedVideoRaw)
+        : Promise.resolve(""),
+    ]);
+    const canonical =
+      s && e
+        ? `${BASE}/igreja/${encodeURIComponent(s)}/evento/${encodeURIComponent(e)}`
+        : `${BASE}/s/evento?c=${encodeURIComponent(tenantId)}&e=${encodeURIComponent(e)}`;
+    const imgDim = ogImageDimensions(ogImage);
+    const isoPublished = isoStartDate(d);
+    const articleTimeMeta =
+      isoPublished !== null
+        ? `\n  <meta property="article:published_time" content="${escAttr(isoPublished)}">`
         : "";
+
+    // Player (para "abrir o link e ver" estilo YouTube)
 
     const ytWatch = youtubeId ? `https://www.youtube.com/watch?v=${youtubeId}` : "";
 

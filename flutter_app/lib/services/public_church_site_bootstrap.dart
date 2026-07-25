@@ -28,7 +28,7 @@ abstract final class PublicChurchSiteBootstrap {
   /// Prepara visita pública: auth mídia + Firestore web (só web).
   static Future<void> prepareVisit() async {
     await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess()
-        .timeout(const Duration(seconds: 4), onTimeout: () {});
+        .timeout(const Duration(seconds: 2), onTimeout: () {});
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
@@ -56,7 +56,7 @@ abstract final class PublicChurchSiteBootstrap {
     if (peek == null || peek.fromIndexOnly) {
       try {
         fast = await PublicChurchSlugResolver.resolveFast(slug).timeout(
-          const Duration(seconds: 4),
+          const Duration(milliseconds: 2500),
         );
       } catch (_) {
         fast = peek;
@@ -74,11 +74,11 @@ abstract final class PublicChurchSiteBootstrap {
       try {
         final resolvedChurchId =
             await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slug)
-                .timeout(const Duration(seconds: 4));
+                .timeout(const Duration(milliseconds: 2500));
         if (resolvedChurchId != null && resolvedChurchId.isNotEmpty) {
           final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(
             resolvedChurchId,
-          ).timeout(const Duration(seconds: 6));
+          ).timeout(const Duration(seconds: 4));
           if (hit != null && hit.data.isNotEmpty) {
             final direct = PublicChurchResolved(
               churchId: hit.docId,
@@ -98,7 +98,7 @@ abstract final class PublicChurchSiteBootstrap {
       slug,
       seed: fast,
     ).timeout(
-      const Duration(seconds: 10),
+      const Duration(seconds: 6),
       onTimeout: () => fast,
     );
     if (full != null) {
@@ -177,7 +177,7 @@ abstract final class PublicChurchSiteBootstrap {
           .where('active', isEqualTo: true)
           .limit(50)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 6));
+          .timeout(const Duration(seconds: 4));
     } catch (_) {}
   }
 
@@ -185,7 +185,7 @@ abstract final class PublicChurchSiteBootstrap {
     try {
       final call = _functionsSa.httpsCallable('warmPublicSiteAndSignupCache');
       await call.call(<String, dynamic>{'churchId': churchId}).timeout(
-        const Duration(seconds: 8),
+        const Duration(seconds: 5),
       );
     } catch (_) {}
   }

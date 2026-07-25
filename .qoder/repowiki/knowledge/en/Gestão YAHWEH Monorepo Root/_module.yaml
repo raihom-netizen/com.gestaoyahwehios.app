@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: Gestão YAHWEH Monorepo Root
+scope:
+    - README.md
+    - CONTRIBUTING.md
+    - .gitignore
+    - .firebaserc
+    - firebase.json
+    - firestore.rules
+    - storage.rules
+    - cors.json
+    - codemagic.yaml
+    - .gitattributes
+source_files: []
+depends_on: []
+related_to: []

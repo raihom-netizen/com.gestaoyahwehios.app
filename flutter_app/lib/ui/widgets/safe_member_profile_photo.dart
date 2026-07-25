@@ -132,6 +132,17 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         (mid == docId || au == docId || hintAu == docId);
     if (!matchesUid && !matchesDoc) return;
     _syncBump = n.lastCacheRevision > 0 ? n.lastCacheRevision : _syncBump + 1;
+    final liveUrl = sanitizeImageUrl(n.lastPhotoUrl ?? '');
+    if (liveUrl.isNotEmpty && isValidImageUrl(liveUrl)) {
+      final busted = _syncBump > 0
+          ? YahwehMediaCacheBust.apply(liveUrl, _syncBump)
+          : liveUrl;
+      _displayUrl = busted;
+      _variantFallbackUrl = null;
+      _resolving = false;
+      if (mounted) setState(() {});
+      return;
+    }
     _displayUrl = null;
     if (mounted) {
       setState(() {});

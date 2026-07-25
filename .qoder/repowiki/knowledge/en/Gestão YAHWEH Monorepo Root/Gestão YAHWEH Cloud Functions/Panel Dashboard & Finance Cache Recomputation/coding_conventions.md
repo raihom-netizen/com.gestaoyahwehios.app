@@ -1,0 +1,5 @@
+- Each recomputation function starts by trimming the tenantId, skipping forbidden test church IDs, and acquiring a `_*_lock` document with a `lastRun` server timestamp to enforce a minimum interval before recomputation.
+- Firestore reads are wrapped in try/catch blocks that log warnings via `functions.logger.warn` and return safe defaults (empty arrays, zero counts) so a single failing query does not abort the whole recomputation.
+- Output payloads include both `updatedAt: FieldValue.serverTimestamp()` and a `schemaVersion` field, and are persisted with `{ merge: false }` to atomically replace the cache document.
+- Cross-field normalization helpers (`pickString`, `canonicalCpf`, `normCpf`, `parseAmount`, `toDateMaybe`) accept multiple possible field names (e.g. `CPF`/`cpf`, `amount`/`valor`) to tolerate schema drift across churches.
+- Aggregated results are mirrored to the church root via dedicated mirror functions from `churchRootCountersMirror` (e.g. `mirrorDashboardCacheAlias`, `mirrorChurchCountersToRoot`, `mirrorFinanceAggregatesToRoot`) rather than writing duplicates inline.

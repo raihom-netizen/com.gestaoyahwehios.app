@@ -1,0 +1,1 @@
+No build script is specific to this module; functions are deployed as part of the parent `functions/` package. The finance recomputation is event-driven via a Firestore `onWrite` trigger on `igrejas/{tenantId}/contas/{docId}`, so deployment requires Firestore rules allowing reads/writes to those paths.

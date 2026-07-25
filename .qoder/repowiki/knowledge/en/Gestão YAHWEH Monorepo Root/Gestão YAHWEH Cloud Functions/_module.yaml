@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: cloud_functions
+title: Gestão YAHWEH Cloud Functions
+scope:
+    - functions/
+source_files: []
+depends_on: []
+related_to: []

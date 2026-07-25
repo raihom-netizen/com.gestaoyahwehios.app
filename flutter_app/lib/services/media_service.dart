@@ -49,19 +49,20 @@ class MediaVideoPrepareResult {
 abstract final class MediaService {
   MediaService._();
 
-  static const int chatImageMaxEdge = 1024;
-  /// Feed (avisos/eventos) — alinhado a [kEventoAvisoFeedEncodeMaxEdgePx] (1920).
-  static const int feedImageMaxEdge = kEventoAvisoFeedEncodeMaxEdgePx;
-  static const int feedImageMaxHeight = kEventoAvisoFeedEncodeMaxEdgePx;
+  /// Chat: 800px JPEG ~70% (upload ultra-rápido em 4G).
+  static const int chatImageMaxEdge = 800;
+  /// Feed (avisos/eventos) — 1440px WebP ~75% (bom visual + upload leve).
+  static const int feedImageMaxEdge = 1440;
+  static const int feedImageMaxHeight = 1440;
   static const int thumbMaxEdge = 480;
 
-  static const int chatJpegQuality = kStandardUploadImageQuality;
-  /// Qualidade feed — alinhada a [kEventoAvisoFeedWebpQuality] (85).
-  static const int feedWebpQuality = kEventoAvisoFeedWebpQuality;
-  static const int thumbJpegQuality = 78;
+  static const int chatJpegQuality = 70;
+  /// Qualidade feed — 75% (visual bom, ~50% do tamanho do 85%).
+  static const int feedWebpQuality = 75;
+  static const int thumbJpegQuality = 72;
 
-  static const int patrimonioImageMaxEdge = kStandardUploadImageMaxEdge;
-  static const int patrimonioWebpQuality = kStandardUploadImageQuality;
+  static const int patrimonioImageMaxEdge = 1200;
+  static const int patrimonioWebpQuality = 70;
 
   static int _edgeFor(MediaImageProfile profile) => switch (profile) {
         MediaImageProfile.chat => chatImageMaxEdge,
@@ -296,7 +297,7 @@ abstract final class MediaService {
     File resolved = file;
     if (!skipTranscode) {
       final info = await compressVideo(file)
-          .timeout(const Duration(minutes: 4), onTimeout: () => null);
+          .timeout(const Duration(minutes: 2), onTimeout: () => null);
       onCompressProgress?.call(0.75);
       if (info?.file != null && info!.file!.existsSync()) {
         resolved = info.file!;
@@ -341,6 +342,7 @@ abstract final class MediaService {
       );
     }
 
+    // Skip transcode: MP4/M4V/3GP under skip threshold (16MB turbo).
     final skipTranscode = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
         (lower.endsWith('.mp4') ||
             lower.endsWith('.m4v') ||
@@ -348,7 +350,7 @@ abstract final class MediaService {
 
     onCompressProgress?.call(0.08);
     File resolved = file;
-    if (!skipTranscode && byteLen > 8 * 1024 * 1024) {
+    if (!skipTranscode && byteLen > 16 * 1024 * 1024) {
       final info = await compressVideo(file).timeout(
         const Duration(minutes: 2),
         onTimeout: () => null,

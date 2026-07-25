@@ -7,8 +7,8 @@ class ChurchChatAttachmentUtils {
   /// Extensões bloqueadas no chat (pedido: não aceitar `.exe`).
   static const Set<String> blockedExtensions = {'.exe'};
 
-  /// Vídeo no chat desactivado — vídeos ficam só em eventos (menos carga no servidor).
-  static const bool chatVideoUploadEnabled = false;
+  /// Vídeo no chat activado — mesmo pipeline Storage do Telegram-like nativo.
+  static const bool chatVideoUploadEnabled = true;
 
   /// Sem ponto — [FilePicker] `allowedExtensions` (só PDF, Word, Excel).
   static const List<String> documentPickerExtensions = [

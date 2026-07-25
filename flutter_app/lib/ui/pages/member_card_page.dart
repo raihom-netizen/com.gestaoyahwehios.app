@@ -213,48 +213,105 @@ class _MemberCardPageState extends State<MemberCardPage>
                     ((preview.data['authUid'] ?? '').toString().trim() ==
                         uid)))) ||
         (docId.isNotEmpty &&
-            (targetId == docId || payload?.memberId == docId));
-    if (!matches && targetId.isNotEmpty) return;
-    // Atualiza payload em memória (directory já foi patchado no upload).
-    final payloadNow = _cardPayload;
-    if (payloadNow != null) {
-      final dir = MembersDirectorySnapshotService.peekMemory(tid) ??
-          MembersDirectorySnapshotService.peekMemory(church);
-      MemberDirectoryEntry? hit;
-      if (dir != null) {
-        for (final e in dir.entries) {
-          if (e.memberDocId == targetId ||
-              e.memberDocId == docId ||
-              e.memberDocId == payloadNow.memberId ||
-              (uid.isNotEmpty && (e.authUid ?? '').trim() == uid)) {
-            hit = e;
-            break;
-          }
-        }
+            (targetId == docId ||
+                payload?.memberId == docId ||
+                _members.any((m) => m.id == docId)));
+    // Lista do cartão: sempre patcha a linha mesmo se o preview for outro membro.
+    final photoUrl = (n.lastPhotoUrl ?? '').trim();
+    final thumbUrl = (n.lastPhotoThumbUrl ?? photoUrl).trim();
+    final storagePath = (n.lastStoragePath ?? '').trim();
+    final rev = n.lastCacheRevision;
+
+    Map<String, dynamic> photoPatch(Map<String, dynamic> base) {
+      final merged = Map<String, dynamic>.from(base);
+      if (rev > 0) merged['fotoUrlCacheRevision'] = rev;
+      if (photoUrl.isNotEmpty) {
+        merged['fotoUrl'] = photoUrl;
+        merged['photoUrl'] = photoUrl;
+        merged['photoURL'] = photoUrl;
+        merged['FOTO_URL_OU_ID'] = photoUrl;
+        merged['FOTO_URL_DB'] = photoUrl;
+        merged['avatarUrl'] = photoUrl;
       }
-      if (hit != null) {
-        final merged = Map<String, dynamic>.from(payloadNow.member)
-          ..addAll(hit.toMemberDataMap());
-        if (n.lastCacheRevision > 0) {
-          merged['fotoUrlCacheRevision'] = n.lastCacheRevision;
-        }
-        setState(() {
-          _cardPayload = MemberCardLoadPayload(
-            igrejaDocId: payloadNow.igrejaDocId,
-            memberId: payloadNow.memberId,
-            member: merged,
-            tenant: payloadNow.tenant,
-          );
-        });
+      if (thumbUrl.isNotEmpty) {
+        merged['fotoThumbUrl'] = thumbUrl;
+        merged['photoThumbUrl'] = thumbUrl;
       }
+      if (storagePath.isNotEmpty) {
+        merged['photoStoragePath'] = storagePath;
+        merged['fotoPath'] = storagePath;
+      }
+      return merged;
     }
+
+    bool rowMatches(_MemberRow m) {
+      if (docId.isNotEmpty && m.id == docId) return true;
+      if (uid.isEmpty) return false;
+      final a = (m.data['authUid'] ?? m.data['firebaseUid'] ?? '')
+          .toString()
+          .trim();
+      return a == uid || m.id == uid;
+    }
+
+    setState(() {
+      if (_members.isNotEmpty) {
+        _members = _members.map((m) {
+          if (!rowMatches(m)) return m;
+          final d = photoPatch(m.data);
+          return _MemberRow(
+            id: m.id,
+            name: m.name,
+            data: d,
+            photoUrl: photoUrl.isNotEmpty ? photoUrl : m.photoUrl,
+          );
+        }).toList();
+      }
+      if (preview != null && rowMatches(preview)) {
+        final d = photoPatch(preview.data);
+        _previewMember = _MemberRow(
+          id: preview.id,
+          name: preview.name,
+          data: d,
+          photoUrl: photoUrl.isNotEmpty ? photoUrl : preview.photoUrl,
+        );
+      }
+      final payloadNow = _cardPayload;
+      if (payloadNow != null &&
+          (matches ||
+              (docId.isNotEmpty && payloadNow.memberId == docId) ||
+              (uid.isNotEmpty &&
+                  ((payloadNow.member['authUid'] ?? '')
+                              .toString()
+                              .trim() ==
+                          uid ||
+                      payloadNow.memberId == uid)))) {
+        _cardPayload = MemberCardLoadPayload(
+          igrejaDocId: payloadNow.igrejaDocId,
+          memberId: payloadNow.memberId,
+          member: photoPatch(payloadNow.member),
+          tenant: payloadNow.tenant,
+        );
+      }
+    });
+
+    if (!matches && targetId.isNotEmpty && !_members.any(rowMatches)) {
+      return;
+    }
+
+    // Recarrega do servidor sem seed antigo — garante cartão CNH alinhado.
+    final reloadId = (docId.isNotEmpty
+            ? docId
+            : (preview?.id ??
+                payload?.memberId ??
+                widget.memberId ??
+                ''))
+        .trim();
     if (widget.cnhFullscreenOnly || _isRestricted || preview != null) {
       unawaited(_loadSingleCard(
-        memberId: preview?.id ?? widget.memberId,
-        seed: _cardPayload?.member ??
-            preview?.data ??
-            widget.memberSeedData,
+        memberId: reloadId.isEmpty ? null : reloadId,
+        seed: _cardPayload?.member ?? _previewMember?.data,
         restricted: _isRestricted,
+        preferFresh: true,
       ));
     } else {
       unawaited(_reloadMembers(forceRefresh: true));
@@ -875,6 +932,7 @@ class _MemberCardPageState extends State<MemberCardPage>
     String? memberId,
     Map<String, dynamic>? seed,
     bool restricted = false,
+    bool preferFresh = false,
   }) async {
     if (!mounted) return;
     setState(() {
@@ -890,22 +948,69 @@ class _MemberCardPageState extends State<MemberCardPage>
           churchIdHint: _churchIdResolved,
           memberId: memberId,
           cpf: widget.cpf,
+          // Com preferFresh o seed só serve de fallback se a rede falhar.
           memberSeedData: seed,
           restrictedMember: restricted,
+          preferFresh: preferFresh,
         ),
       );
       if (!mounted) return;
       setState(() {
-        _cardPayload = payload;
+        // Não regredir foto se o servidor ainda devolver revisão antiga.
+        var finalPayload = payload;
+        final prev = _cardPayload;
+        if (finalPayload != null && prev != null) {
+          final prevRev = int.tryParse(
+                '${prev.member['fotoUrlCacheRevision'] ?? 0}',
+              ) ??
+              0;
+          final nextRev = int.tryParse(
+                '${finalPayload.member['fotoUrlCacheRevision'] ?? 0}',
+              ) ??
+              0;
+          if (prev.memberId == finalPayload.memberId && prevRev > nextRev) {
+            final merged = Map<String, dynamic>.from(finalPayload.member);
+            for (final k in const [
+              'fotoUrl',
+              'photoUrl',
+              'photoURL',
+              'FOTO_URL_OU_ID',
+              'FOTO_URL_DB',
+              'avatarUrl',
+              'fotoThumbUrl',
+              'photoThumbUrl',
+              'photoStoragePath',
+              'fotoPath',
+              'fotoUrlCacheRevision',
+            ]) {
+              if (prev.member[k] != null) merged[k] = prev.member[k];
+            }
+            finalPayload = MemberCardLoadPayload(
+              igrejaDocId: finalPayload.igrejaDocId,
+              memberId: finalPayload.memberId,
+              member: merged,
+              tenant: finalPayload.tenant,
+            );
+          }
+        }
+        _cardPayload = finalPayload;
         _loadingCard = false;
-        if (payload != null) {
-          _previewMember = _MemberRow(
-            id: payload.memberId,
-            name: (payload.member['NOME_COMPLETO'] ??
-                    payload.member['nome'] ??
+        if (finalPayload != null) {
+          final photo = sanitizeImageUrl(
+            (finalPayload.member['fotoUrl'] ??
+                    finalPayload.member['photoUrl'] ??
+                    finalPayload.member['FOTO_URL_OU_ID'] ??
                     '')
                 .toString(),
-            data: payload.member,
+          );
+          _previewMember = _MemberRow(
+            id: finalPayload.memberId,
+            name: (finalPayload.member['NOME_COMPLETO'] ??
+                    finalPayload.member['nome'] ??
+                    '')
+                .toString(),
+            data: finalPayload.member,
+            photoUrl: photo.isEmpty ? null : photo,
           );
         }
       });

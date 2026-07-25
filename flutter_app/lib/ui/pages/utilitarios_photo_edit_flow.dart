@@ -1,6 +1,5 @@
 ﻿import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -29,13 +28,7 @@ class UtilitariosPhotoEditResult {
 
 enum _PhotoPageMode { editor, collage }
 
-enum _PhotoTool {
-  none,
-  manualBlur,
-  faces,
-  crop,
-  caption,
-}
+enum _PhotoTool { none, manualBlur, faces, crop, caption }
 
 enum _CropAspectPreset {
   free(null, 'Livre'),
@@ -132,7 +125,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+            e
+                .toString()
+                .replaceFirst('StateError: ', '')
+                .replaceFirst('Bad state: ', ''),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -552,14 +548,14 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   ButtonStyle _photoOutlinedActionStyle() => OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 48),
-        foregroundColor: const Color(0xFF7C3AED),
-        side: BorderSide(
-          color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
-          width: 1.4,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      );
+    minimumSize: const Size(0, 48),
+    foregroundColor: const Color(0xFF7C3AED),
+    side: BorderSide(
+      color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
+      width: 1.4,
+    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  );
 
   Future<void> _pickImage({bool camera = false}) async {
     await _withBusy('Carregando foto…', () async {
@@ -598,7 +594,6 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       await _setImage(bytes, pushHistory: false);
     });
   }
-
 
   Future<void> _runRotate() async {
     final raw = _image;
@@ -702,8 +697,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   String get _outputFileName {
-    final base = (_fileName ?? 'foto')
-        .replaceAll(RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false), '');
+    final base = (_fileName ?? 'foto').replaceAll(
+      RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false),
+      '',
+    );
     return '${base.isEmpty ? 'foto' : base}_editada.jpg';
   }
 
@@ -876,8 +873,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
-    final base = (_fileName ?? 'foto')
-        .replaceAll(RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false), '');
+    final base = (_fileName ?? 'foto').replaceAll(
+      RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false),
+      '',
+    );
     if (!mounted) return;
     Navigator.pop(
       context,
@@ -892,10 +891,14 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   @override
   Widget build(BuildContext context) {
     final editingPhoto =
-        _pageMode == _PhotoPageMode.editor && _image != null && !_blurWorkspaceOpen;
+        _pageMode == _PhotoPageMode.editor &&
+        _image != null &&
+        !_blurWorkspaceOpen;
 
     return Scaffold(
-      backgroundColor: editingPhoto ? _immersiveBg : Theme.of(context).scaffoldBackgroundColor,
+      backgroundColor: editingPhoto
+          ? _immersiveBg
+          : Theme.of(context).scaffoldBackgroundColor,
       extendBodyBehindAppBar: editingPhoto,
       appBar: _buildAppBar(editingPhoto),
       body: Stack(
@@ -934,7 +937,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     if (editingPhoto && !_chromeVisible) {
       return null;
     }
-    final showEditorActions = _pageMode == _PhotoPageMode.editor &&
+    final showEditorActions =
+        _pageMode == _PhotoPageMode.editor &&
         _image != null &&
         !_blurWorkspaceOpen &&
         !_previewPanelOpen;
@@ -1052,7 +1056,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 onLongPressEnd: _historyIndex > 0
                     ? (_) => setState(() => _showingOriginal = false)
                     : null,
-                onLongPressCancel: () => setState(() => _showingOriginal = false),
+                onLongPressCancel: () =>
+                    setState(() => _showingOriginal = false),
                 child: _buildBody(),
               ),
               if (_showingOriginal && _originalImage != null)
@@ -1062,7 +1067,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   right: 0,
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(20),
@@ -1120,8 +1128,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             openForSave
                 ? 'Revise a foto final antes de exportar.'
                 : steps > 0
-                    ? '$steps edição(ões) aplicada(s).'
-                    : 'Visualização da foto atual.',
+                ? '$steps edição(ões) aplicada(s).'
+                : 'Visualização da foto atual.',
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.white,
@@ -1158,7 +1166,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _historyStack.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, i) {
                         final selected = i == _historyIndex;
                         return ClipRRect(
@@ -1197,7 +1205,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size.fromHeight(50),
                     foregroundColor: Colors.white,
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.4)),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -1226,7 +1236,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   OutlinedButton.icon(
                     onPressed: _busy
                         ? null
-                        : () => _handlePreviewAction(_PhotoPreviewAction.finish),
+                        : () =>
+                              _handlePreviewAction(_PhotoPreviewAction.finish),
                     icon: const Icon(Icons.check_rounded, size: 18),
                     label: const Text(
                       'Concluir e voltar',
@@ -1332,44 +1343,46 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          itemCount: _historyStack.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
-          itemBuilder: (context, i) {
-            final selected = i == _historyIndex;
-            return GestureDetector(
-              onTap: _busy ? null : () => _jumpToHistory(i),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: 44,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: selected
-                        ? const Color(0xFFDB2777)
-                        : Colors.white.withValues(alpha: 0.25),
-                    width: selected ? 2.5 : 1,
-                  ),
-                  boxShadow: selected
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFFDB2777).withValues(alpha: 0.45),
-                            blurRadius: 8,
-                          ),
-                        ]
-                      : null,
+        itemCount: _historyStack.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final selected = i == _historyIndex;
+          return GestureDetector(
+            onTap: _busy ? null : () => _jumpToHistory(i),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              width: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: selected
+                      ? const Color(0xFFDB2777)
+                      : Colors.white.withValues(alpha: 0.25),
+                  width: selected ? 2.5 : 1,
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.memory(
-                    _historyStack[i],
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
+                boxShadow: selected
+                    ? [
+                        BoxShadow(
+                          color: const Color(
+                            0xFFDB2777,
+                          ).withValues(alpha: 0.45),
+                          blurRadius: 8,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  _historyStack[i],
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1437,11 +1450,46 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
 
   Widget _buildCaptionSheet() {
     const emojis = [
-      '😀', '😁', '😂', '🤣', '😊', '😍', '🥰', '😘',
-      '😎', '🤩', '😇', '🙂', '😉', '😭', '😤', '🔥',
-      '❤️', '💕', '💯', '✨', '⭐', '🌟', '✅', '✔️',
-      '📌', '📍', '🎉', '🎊', '💪', '👍', '👏', '🙏',
-      '📸', '🎯', '🚀', '💎', '🏆', '⚡', '🌈', '🌸',
+      '😀',
+      '😁',
+      '😂',
+      '🤣',
+      '😊',
+      '😍',
+      '🥰',
+      '😘',
+      '😎',
+      '🤩',
+      '😇',
+      '🙂',
+      '😉',
+      '😭',
+      '😤',
+      '🔥',
+      '❤️',
+      '💕',
+      '💯',
+      '✨',
+      '⭐',
+      '🌟',
+      '✅',
+      '✔️',
+      '📌',
+      '📍',
+      '🎉',
+      '🎊',
+      '💪',
+      '👍',
+      '👏',
+      '🙏',
+      '📸',
+      '🎯',
+      '🚀',
+      '💎',
+      '🏆',
+      '⚡',
+      '🌈',
+      '🌸',
     ];
     const textColors = [
       0xFFFFFFFF,
@@ -1564,7 +1612,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: _captionPreviewStyledText(previewText, isHint: draft.isEmpty),
+                    child: _captionPreviewStyledText(
+                      previewText,
+                      isHint: draft.isEmpty,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1741,8 +1792,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                                   _captionInputCtrl.text = '$cur$e';
                                   _captionInputCtrl.selection =
                                       TextSelection.collapsed(
-                                    offset: _captionInputCtrl.text.length,
-                                  );
+                                        offset: _captionInputCtrl.text.length,
+                                      );
                                   setState(() {
                                     _syncLiveCaptionFromDraft(
                                       createIfNeeded: true,
@@ -1792,13 +1843,12 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, 1)),
         ];
       case UtilPhotoCaptionStyle.neon:
-        shadows = [
-          Shadow(color: color.withValues(alpha: 0.7), blurRadius: 10),
-        ];
+        shadows = [Shadow(color: color.withValues(alpha: 0.7), blurRadius: 10)];
       case UtilPhotoCaptionStyle.bold:
         shadows = null;
     }
-    final showBox = _captionUseBox || _captionStyle == UtilPhotoCaptionStyle.bold;
+    final showBox =
+        _captionUseBox || _captionStyle == UtilPhotoCaptionStyle.bold;
     return Container(
       padding: showBox || _captionUseBorder
           ? const EdgeInsets.symmetric(horizontal: 14, vertical: 8)
@@ -1807,8 +1857,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         color: _captionUseBox
             ? Color(_captionBoxBg)
             : (_captionStyle == UtilPhotoCaptionStyle.bold
-                ? const Color(0xCC0F172A)
-                : null),
+                  ? const Color(0xCC0F172A)
+                  : null),
         borderRadius: BorderRadius.circular(12),
         border: _captionUseBorder
             ? Border.all(color: Color(_captionBorder), width: 2.5)
@@ -1820,9 +1870,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         style: TextStyle(
           fontSize: fontSize,
           fontWeight: weight,
-          color: _captionUseBox &&
+          color:
+              _captionUseBox &&
                   _captionBoxBg == 0xFFFFFFFF &&
-                  color.value == 0xFFFFFFFF
+                  color.toARGB32() == 0xFFFFFFFF
               ? const Color(0xFF0F172A)
               : color,
           shadows: shadows,
@@ -1880,17 +1931,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 color: Colors.white.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
                 border: Border.all(
-                  color: noneSelected
-                      ? Colors.white
-                      : Colors.white24,
+                  color: noneSelected ? Colors.white : Colors.white24,
                   width: noneSelected ? 3 : 1,
                 ),
               ),
-              child: const Icon(
-                Icons.block,
-                size: 18,
-                color: Colors.white70,
-              ),
+              child: const Icon(Icons.block, size: 18, color: Colors.white70),
             ),
           ),
           for (final c in colors) ...[
@@ -2099,9 +2144,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                         onPressed: _busy
                             ? null
                             : () => setState(() {
-                                  _tool = _PhotoTool.none;
-                                  _cropRect = null;
-                                }),
+                                _tool = _PhotoTool.none;
+                                _cropRect = null;
+                              }),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white,
                           side: BorderSide(
@@ -2122,7 +2167,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     final applyBtn = SizedBox(
                       width: stacked ? double.infinity : null,
                       child: FilledButton.icon(
-                        onPressed: _busy || _cropRect == null ? null : _applyCrop,
+                        onPressed: _busy || _cropRect == null
+                            ? null
+                            : _applyCrop,
                         icon: const Icon(Icons.crop_rounded, size: 18),
                         label: const Text(
                           'Aplicar corte',
@@ -2171,7 +2218,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             label: 'Editar foto',
             selected: _pageMode == _PhotoPageMode.editor,
             gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
-            onTap: _busy ? null : () => setState(() => _pageMode = _PhotoPageMode.editor),
+            onTap: _busy
+                ? null
+                : () => setState(() => _pageMode = _PhotoPageMode.editor),
           ),
           const SizedBox(width: 10),
           _modePill(
@@ -2179,7 +2228,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             label: 'Colagem',
             selected: _pageMode == _PhotoPageMode.collage,
             gradient: const [Color(0xFF6366F1), Color(0xFF06B6D4)],
-            onTap: _busy ? null : () => setState(() => _pageMode = _PhotoPageMode.collage),
+            onTap: _busy
+                ? null
+                : () => setState(() => _pageMode = _PhotoPageMode.collage),
           ),
         ],
       ),
@@ -2207,16 +2258,14 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
               gradient: selected ? LinearGradient(colors: gradient) : null,
               color: selected
                   ? null
-                  : (dark
-                      ? const Color(0xFF1E293B)
-                      : Colors.grey.shade100),
+                  : (dark ? const Color(0xFF1E293B) : Colors.grey.shade100),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: selected
                     ? Colors.transparent
                     : (dark
-                        ? Colors.white.withValues(alpha: 0.14)
-                        : Colors.grey.shade300),
+                          ? Colors.white.withValues(alpha: 0.14)
+                          : Colors.grey.shade300),
               ),
               boxShadow: selected
                   ? [
@@ -2246,7 +2295,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       fontWeight: FontWeight.w900,
                       color: selected
                           ? Colors.white
-                          : (dark ? Colors.white.withValues(alpha: 0.9) : Colors.black87),
+                          : (dark
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : Colors.black87),
                     ),
                   ),
                 ),
@@ -2273,12 +2324,17 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 children: [
                   IconButton(
                     onPressed: _busy ? null : _closeBlurWorkspace,
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white70,
+                    ),
                     tooltip: 'Fechar',
                   ),
                   Expanded(
                     child: Text(
-                      _tool == _PhotoTool.faces ? 'Borrar rostos' : 'Borrar áreas',
+                      _tool == _PhotoTool.faces
+                          ? 'Borrar rostos'
+                          : 'Borrar áreas',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
@@ -2392,11 +2448,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                           onPressed: _busy || _selectedId == null
                               ? null
                               : () => setState(() {
-                                    _regions.removeWhere(
-                                      (r) => r.id == _selectedId,
-                                    );
-                                    _selectedId = null;
-                                  }),
+                                  _regions.removeWhere(
+                                    (r) => r.id == _selectedId,
+                                  );
+                                  _selectedId = null;
+                                }),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.white60,
                             side: BorderSide(
@@ -2520,41 +2576,41 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Widget _buildBusyOverlay() {
     return Container(
       color: Colors.black.withValues(alpha: 0.28),
-        alignment: Alignment.bottomCenter,
-        padding: const EdgeInsets.only(bottom: 120),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 48),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF111827).withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: Color(0xFFDB2777),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Text(
-                  _busyLabel ?? 'Processando…',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            ],
-          ),
+      alignment: Alignment.bottomCenter,
+      padding: const EdgeInsets.only(bottom: 120),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 48),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111827).withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
         ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Color(0xFFDB2777),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                _busyLabel ?? 'Processando…',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2576,7 +2632,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           color: selected ? accent.withValues(alpha: 0.18) : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: selected ? accent.withValues(alpha: 0.45) : Colors.transparent,
+            color: selected
+                ? accent.withValues(alpha: 0.45)
+                : Colors.transparent,
           ),
         ),
         child: Column(
@@ -2682,7 +2740,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF16A34A),
-                    side: const BorderSide(color: Color(0xFF16A34A), width: 1.5),
+                    side: const BorderSide(
+                      color: Color(0xFF16A34A),
+                      width: 1.5,
+                    ),
                     minimumSize: const Size.fromHeight(48),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -2744,8 +2805,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 child: GestureDetector(
                   onPanStart: canDragRegion
                       ? (d) {
-                          final box = _canvasKey.currentContext
-                              ?.findRenderObject() as RenderBox?;
+                          final box =
+                              _canvasKey.currentContext?.findRenderObject()
+                                  as RenderBox?;
                           if (box == null) return;
                           final local = box.globalToLocal(d.globalPosition);
                           setState(() {
@@ -2756,8 +2818,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       : null,
                   onPanUpdate: canDragRegion
                       ? (d) {
-                          final box = _canvasKey.currentContext
-                              ?.findRenderObject() as RenderBox?;
+                          final box =
+                              _canvasKey.currentContext?.findRenderObject()
+                                  as RenderBox?;
                           if (box == null) return;
                           setState(() {
                             _dragCurrent = box.globalToLocal(d.globalPosition);
@@ -2768,8 +2831,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       ? (_) {
                           final start = _dragStart;
                           final end = _dragCurrent;
-                          final box = _canvasKey.currentContext
-                              ?.findRenderObject() as RenderBox?;
+                          final box =
+                              _canvasKey.currentContext?.findRenderObject()
+                                  as RenderBox?;
                           if (start != null && end != null && box != null) {
                             final rect = _normRectFromDrag(
                               start,
@@ -2817,10 +2881,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                                       : const Color(0xFFDB2777),
                                   width: 2,
                                 ),
-                                color: (_tool == _PhotoTool.crop
-                                        ? const Color(0xFF8B5CF6)
-                                        : const Color(0xFFDB2777))
-                                    .withValues(alpha: 0.2),
+                                color:
+                                    (_tool == _PhotoTool.crop
+                                            ? const Color(0xFF8B5CF6)
+                                            : const Color(0xFFDB2777))
+                                        .withValues(alpha: 0.2),
                               ),
                             ),
                           ),
@@ -2844,11 +2909,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       norm.height * h,
     );
     return [
-      Positioned.fill(
-        child: CustomPaint(
-          painter: _CropDimPainter(crop),
-        ),
-      ),
+      Positioned.fill(child: CustomPaint(painter: _CropDimPainter(crop))),
       Positioned.fromRect(
         rect: crop,
         child: CustomPaint(
@@ -2920,11 +2981,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           ],
         );
       case UtilPhotoCaptionStyle.bold:
-        style = TextStyle(
-          fontSize: fontSize,
-          fontWeight: weight,
-          color: color,
-        );
+        style = TextStyle(fontSize: fontSize, fontWeight: weight, color: color);
       case UtilPhotoCaptionStyle.neon:
         style = TextStyle(
           fontSize: fontSize,
@@ -2945,7 +3002,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           ],
         );
     }
-  final textPainter = TextPainter(
+    final textPainter = TextPainter(
       text: TextSpan(text: c.text, style: style),
       textDirection: TextDirection.ltr,
     )..layout(maxWidth: w * 0.9);
@@ -2984,7 +3041,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           });
         },
         child: Container(
-          padding: (c.boxBgArgb != 0 ||
+          padding:
+              (c.boxBgArgb != 0 ||
                   c.borderArgb != 0 ||
                   c.style == UtilPhotoCaptionStyle.bold)
               ? const EdgeInsets.symmetric(horizontal: 10, vertical: 6)
@@ -2993,14 +3051,14 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             color: c.boxBgArgb != 0
                 ? Color(c.boxBgArgb)
                 : (c.style == UtilPhotoCaptionStyle.bold
-                    ? Colors.black.withValues(alpha: 0.55)
-                    : null),
+                      ? Colors.black.withValues(alpha: 0.55)
+                      : null),
             borderRadius: BorderRadius.circular(10),
             border: c.borderArgb != 0
                 ? Border.all(color: Color(c.borderArgb), width: 2.5)
                 : (selected
-                    ? Border.all(color: const Color(0xFFF59E0B), width: 2)
-                    : null),
+                      ? Border.all(color: const Color(0xFFF59E0B), width: 2)
+                      : null),
           ),
           child: Text(c.text, style: style, textAlign: TextAlign.center),
         ),
@@ -3021,11 +3079,10 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         onTap: () => setState(() => _selectedId = r.id),
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(
-              color: color,
-              width: selected ? 3 : 2,
+            border: Border.all(color: color, width: selected ? 3 : 2),
+            color: color.withValues(
+              alpha: selected ? 0.32 : (isFace ? 0.22 : 0.14),
             ),
-            color: color.withValues(alpha: selected ? 0.32 : (isFace ? 0.22 : 0.14)),
             boxShadow: isFace
                 ? [
                     BoxShadow(
@@ -3044,26 +3101,26 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   ),
                 )
               : (r.label.isEmpty
-                  ? null
-                  : Align(
-                      alignment: Alignment.topLeft,
-                      child: Container(
-                        margin: const EdgeInsets.all(2),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
-                        ),
-                        color: color.withValues(alpha: 0.85),
-                        child: Text(
-                          r.label,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
+                    ? null
+                    : Align(
+                        alignment: Alignment.topLeft,
+                        child: Container(
+                          margin: const EdgeInsets.all(2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          color: color.withValues(alpha: 0.85),
+                          child: Text(
+                            r.label,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
-                      ),
-                    )),
+                      )),
         ),
       ),
     );
@@ -3078,8 +3135,7 @@ class _PhotoEditPreviewScreen extends StatelessWidget {
     required this.imageBytes,
     required this.fileName,
     required this.editSteps,
-    this.openForSave = false,
-  });
+  }) : openForSave = false;
 
   final Uint8List imageBytes;
   final String fileName;
@@ -3119,8 +3175,8 @@ class _PhotoEditPreviewScreen extends StatelessWidget {
                 openForSave
                     ? 'Revise a foto final. Salve, compartilhe ou volte para editar.'
                     : editSteps > 0
-                        ? '$editSteps edição(ões) aplicada(s).'
-                        : 'Visualização da foto atual.',
+                    ? '$editSteps edição(ões) aplicada(s).'
+                    : 'Visualização da foto atual.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.85),
@@ -3453,8 +3509,16 @@ class _CropGridPainter extends CustomPainter {
     final thirdW = size.width / 3;
     final thirdH = size.height / 3;
     for (var i = 1; i <= 2; i++) {
-      canvas.drawLine(Offset(thirdW * i, 0), Offset(thirdW * i, size.height), paint);
-      canvas.drawLine(Offset(0, thirdH * i), Offset(size.width, thirdH * i), paint);
+      canvas.drawLine(
+        Offset(thirdW * i, 0),
+        Offset(thirdW * i, size.height),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(0, thirdH * i),
+        Offset(size.width, thirdH * i),
+        paint,
+      );
     }
   }
 

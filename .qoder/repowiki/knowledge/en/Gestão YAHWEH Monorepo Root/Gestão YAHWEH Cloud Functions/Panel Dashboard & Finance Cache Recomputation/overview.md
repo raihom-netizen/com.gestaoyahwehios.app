@@ -1,0 +1,1 @@
+Firebase Cloud Functions that recompute and persist panel dashboard, finance accounts, and statistics caches under each church's `_panel_cache` collection from Firestore source documents.

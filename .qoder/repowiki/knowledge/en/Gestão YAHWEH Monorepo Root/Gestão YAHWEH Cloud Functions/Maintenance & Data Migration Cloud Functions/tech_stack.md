@@ -1,0 +1,1 @@
+Firebase Functions v1 (`firebase-functions/v1`), Firebase Admin SDK (Firestore + Auth), Pub/Sub scheduled triggers. Region deployment uses `us-central1` for callable endpoints and `southamerica-east1` for the scheduled upload purger.

@@ -125,7 +125,7 @@ abstract final class PublicSiteMediaPrefetchService {
       final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
           .httpsCallable(
         'warmPublicSiteFeedCache',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
       );
       await callable.call<Map<String, dynamic>>(<String, dynamic>{
         'tenantId': tid,

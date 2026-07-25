@@ -2,8 +2,6 @@
 // (Funções legadas do bloco gestor/meta mantidas até remoção total.)
 
 import 'dart:async' show StreamSubscription, TimeoutException, unawaited;
-import 'dart:convert';
-import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -17,7 +15,6 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -27,7 +24,6 @@ import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
@@ -37,12 +33,9 @@ import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_save_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -52,7 +45,6 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/church_logo_editor.dart';
 import 'package:gestao_yahweh/services/church_logo_update_service.dart';
-import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
@@ -63,7 +55,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         firebaseStorageDownloadUrlLooksTokenized;
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 
@@ -83,7 +74,7 @@ String _slugFromChurchName(String name) {
     'no',
     'na',
     'nos',
-    'nas'
+    'nas',
   };
   final normalized = name
       .trim()
@@ -107,10 +98,10 @@ String _slugFromChurchName(String name) {
       .replaceAll(RegExp(r'^-|-$'), '');
   return slug.isEmpty
       ? words
-          .join('-')
-          .replaceAll(RegExp(r'[^a-z0-9\-]'), '-')
-          .replaceAll(RegExp(r'-+'), '-')
-          .replaceAll(RegExp(r'^-|-$'), '')
+            .join('-')
+            .replaceAll(RegExp(r'[^a-z0-9\-]'), '-')
+            .replaceAll(RegExp(r'-+'), '-')
+            .replaceAll(RegExp(r'^-|-$'), '')
       : slug;
 }
 
@@ -137,7 +128,8 @@ int? _calcAgeGestor(DateTime? birth) {
   if (birth == null) return null;
   final now = DateTime.now();
   var age = now.year - birth.year;
-  final had = now.month > birth.month ||
+  final had =
+      now.month > birth.month ||
       (now.month == birth.month && now.day >= birth.day);
   if (!had) age -= 1;
   return age;
@@ -223,6 +215,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   bool _loadingCep = false;
   bool _formHydrated = false;
   String? _hydratedTenantId;
+
   /// Doc `igrejas/{id}` ainda não existia — não devemos marcar [_formHydrated] só por isso,
   /// senão quando o doc for criado deixamos de correr [_applyData] e a pré-visualização da logo fica em branco.
   bool _notedNonexistentIgrejaDoc = false;
@@ -267,7 +260,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-
   bool get _canEdit {
     final r = widget.role.toLowerCase();
     return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
@@ -285,13 +277,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return s
         .split('_')
         .where((p) => p.trim().isNotEmpty)
-        .map((p) => p.length == 1
-            ? p.toUpperCase()
-            : '${p[0].toUpperCase()}${p.substring(1).toLowerCase()}')
+        .map(
+          (p) => p.length == 1
+              ? p.toUpperCase()
+              : '${p[0].toUpperCase()}${p.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 
-  void _applyChurchDataResult(ChurchDataLoadResult result, {String? softError}) {
+  void _applyChurchDataResult(
+    ChurchDataLoadResult result, {
+    String? softError,
+  }) {
     final resolved = result.churchId.trim();
     if (resolved.isEmpty) {
       if (mounted) {
@@ -334,7 +331,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-
   int _cadastroRetryGen = 0;
 
   void _scheduleCadastroDataRetry() {
@@ -371,8 +367,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               churchId: doc.id.trim().isNotEmpty ? doc.id : cacheChurchId,
               data: ChurchCadastroLoadService.sliceCadastroFormFields(data),
               logoStoragePath:
-                  ChurchBrandService.logoPathFromData(data, churchId: cacheChurchId) ??
-                      ChurchStorageLayout.churchIdentityLogoPath(cacheChurchId),
+                  ChurchBrandService.logoPathFromData(
+                    data,
+                    churchId: cacheChurchId,
+                  ) ??
+                  ChurchStorageLayout.churchIdentityLogoPath(cacheChurchId),
               readSource: YahwehModuleCaches.igrejaRoot.readSource,
             ).toChurchDataLoadResult(),
           );
@@ -397,7 +396,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
     } on TimeoutException {
       if (!mounted) return;
-      final id = (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId)).trim();
+      final id =
+          (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId))
+              .trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
         _logoStoragePath ??= ChurchStorageLayout.churchIdentityLogoPath(id);
@@ -417,7 +418,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      final id = (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId)).trim();
+      final id =
+          (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId))
+              .trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
         _logoStoragePath ??= ChurchStorageLayout.churchIdentityLogoPath(id);
@@ -491,7 +494,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  Future<void> _reloadChurchDataInBackground({bool forceRefresh = false}) async {
+  Future<void> _reloadChurchDataInBackground({
+    bool forceRefresh = false,
+  }) async {
     try {
       final loaded = await ChurchCadastroLoadService.load(
         seedTenantId: widget.tenantId.trim(),
@@ -516,7 +521,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   Future<void> _refreshIgrejaDocOnce(String resolvedId) async {
-    final tid = resolvedId.trim().isNotEmpty ? resolvedId.trim() : widget.tenantId.trim();
+    final tid = resolvedId.trim().isNotEmpty
+        ? resolvedId.trim()
+        : widget.tenantId.trim();
     if (tid.isEmpty) return;
     try {
       final loaded = await ChurchCadastroLoadService.load(
@@ -525,7 +532,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       ).timeout(const Duration(seconds: 12));
       if (!mounted || loaded.data.isEmpty) return;
       _cadastroSoftSyncWarning = loaded.softError;
-      final slim = ChurchCadastroLoadService.sliceCadastroFormFields(loaded.data);
+      final slim = ChurchCadastroLoadService.sliceCadastroFormFields(
+        loaded.data,
+      );
       _hydrateFormFromFirestoreDoc(loaded.churchId, slim);
       unawaited(ChurchCadastroLoadService.persistAfterLoad(loaded));
     } catch (e, st) {
@@ -597,7 +606,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     unawaited(_bootstrapCadastro());
     unawaited(
-      ChurchMediaUploadFacade.ensureReady(requireAuth: false).catchError((_) {}),
+      ChurchMediaUploadFacade.ensureReady(
+        requireAuth: false,
+      ).catchError((_) {}),
     );
   }
 
@@ -663,7 +674,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   static String _firstNonEmptyString(
-      Map<String, dynamic> data, List<String> keys) {
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
     for (final k in keys) {
       final s = (data[k] ?? '').toString().trim();
       if (s.isNotEmpty) return s;
@@ -680,8 +693,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       try {
         final normalized =
             s.startsWith(RegExp(r'https?://', caseSensitive: false))
-                ? s
-                : 'https://$s';
+            ? s
+            : 'https://$s';
         final u = Uri.parse(normalized);
         final pathDigits = u.path.replaceAll(RegExp(r'[^0-9]'), '');
         if (pathDigits.isNotEmpty) return pathDigits;
@@ -735,8 +748,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (lat != null && lng != null) return (lat: lat, lng: lng);
     }
     // Formato query=lat,lng
-    final queryMatch =
-        RegExp(r'query=(-?\d+\.?\d*),(-?\d+\.?\d*)').firstMatch(u);
+    final queryMatch = RegExp(
+      r'query=(-?\d+\.?\d*),(-?\d+\.?\d*)',
+    ).firstMatch(u);
     if (queryMatch != null) {
       final lat = double.tryParse(queryMatch.group(1) ?? '');
       final lng = double.tryParse(queryMatch.group(2) ?? '');
@@ -750,10 +764,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!_canEdit) return;
     final parsed = _parseGoogleMapsLink(_linkMapsCtrl.text);
     if (parsed.lat == null || parsed.lng == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(ThemeCleanPremium.successSnackBar(
-        'Cole um link do Google Maps com localização (ex.: maps.google.com ou goo.gl/maps com @lat,lng ou ?q=lat,lng).',
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Cole um link do Google Maps com localização (ex.: maps.google.com ou goo.gl/maps com @lat,lng ou ?q=lat,lng).',
+        ),
+      );
       return;
     }
     setState(() {
@@ -762,21 +777,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     });
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.successSnackBar(
-          'Localização definida: ${parsed.lat?.toStringAsFixed(5)}, ${parsed.lng?.toStringAsFixed(5)}'),
+        'Localização definida: ${parsed.lat?.toStringAsFixed(5)}, ${parsed.lng?.toStringAsFixed(5)}',
+      ),
     );
   }
 
   void _applyData(Map<String, dynamic>? data, {String? docIdFallback}) {
     if (data == null) return;
-    var nome = (data['name'] ??
-            data['nome'] ??
-            data['NOME'] ??
-            data['NOME_IGREJA'] ??
-            data['razaoSocial'] ??
-            data['displayName'] ??
-            '')
-        .toString()
-        .trim();
+    var nome =
+        (data['name'] ??
+                data['nome'] ??
+                data['NOME'] ??
+                data['NOME_IGREJA'] ??
+                data['razaoSocial'] ??
+                data['displayName'] ??
+                '')
+            .toString()
+            .trim();
     if (nome.isEmpty) {
       final slug = (data['slug'] ?? data['slugId'] ?? data['alias'] ?? '')
           .toString()
@@ -794,23 +811,25 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             .toString();
     // Logo: path canónico Storage (`logoPath`) + URL https só em memória.
     final docId = (docIdFallback ?? '').trim();
-    _logoStoragePath = ChurchImageFields.logoStoragePath(
-          data,
-          churchIdHint: docId,
-        ) ??
+    _logoStoragePath =
+        ChurchImageFields.logoStoragePath(data, churchIdHint: docId) ??
         (docId.isNotEmpty
             ? ChurchStorageLayout.churchIdentityLogoPath(docId)
             : null);
     final urlFromLegacy = sanitizeImageUrl(
       (data['logoUrl'] ?? data['logo_url'] ?? '').toString(),
     );
-    final urlFromLogoField =
-        sanitizeImageUrl(ChurchImageFields.logoHttpsUrlFromDoc(data) ?? '');
+    final urlFromLogoField = sanitizeImageUrl(
+      ChurchImageFields.logoHttpsUrlFromDoc(data) ?? '',
+    );
     if (urlFromLegacy.isNotEmpty && isValidImageUrl(urlFromLegacy)) {
       _logoUrl = YahwehMediaCacheBust.applyFromDocRevision(urlFromLegacy, data);
     } else if (urlFromLogoField.isNotEmpty &&
         isValidImageUrl(urlFromLogoField)) {
-      _logoUrl = YahwehMediaCacheBust.applyFromDocRevision(urlFromLogoField, data);
+      _logoUrl = YahwehMediaCacheBust.applyFromDocRevision(
+        urlFromLogoField,
+        data,
+      );
     } else {
       _logoUrl = null;
     }
@@ -823,12 +842,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         (data['endereco'] ?? data['endereço'] ?? data['addressLine'] ?? '')
             .toString()
             .trim();
-    _ruaCtrl.text = (data['rua'] ?? data['address'] ?? enderecoLinha).toString();
-    _quadraLoteNumeroCtrl.text = (data['quadraLoteNumero'] ??
-            data['quadra_lote_numero'] ??
-            data['qdLtNumero'] ??
-            '')
+    _ruaCtrl.text = (data['rua'] ?? data['address'] ?? enderecoLinha)
         .toString();
+    _quadraLoteNumeroCtrl.text =
+        (data['quadraLoteNumero'] ??
+                data['quadra_lote_numero'] ??
+                data['qdLtNumero'] ??
+                '')
+            .toString();
     _cepCtrl.text = (data['cep'] ?? '').toString();
     _telefoneCtrl.text = brPhoneMaskLive(
       (data['phone'] ?? data['telefone'] ?? data['fone'] ?? '').toString(),
@@ -842,27 +863,30 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         ? lng.toDouble()
         : (lng != null ? double.tryParse(lng.toString()) : null);
 
-    _gestorNomeCtrl.text =
-        (data['gestorNome'] ?? data['gestor_nome'] ?? '').toString();
-    _gestorCpfCtrl.text =
-        (data['gestorCpf'] ?? data['gestor_cpf'] ?? '').toString();
+    _gestorNomeCtrl.text = (data['gestorNome'] ?? data['gestor_nome'] ?? '')
+        .toString();
+    _gestorCpfCtrl.text = (data['gestorCpf'] ?? data['gestor_cpf'] ?? '')
+        .toString();
     _gestorTelefoneCtrl.text =
         (data['gestorTelefone'] ?? data['gestor_telefone'] ?? '').toString();
     final savedSlug = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
     _slugCtrl.text = savedSlug.isNotEmpty
         ? savedSlug
         : _slugFromChurchName(_nameCtrl.text.trim());
-    _metaMinisterialTituloCtrl.text =
-        (data['metaMinisterialTitulo'] ?? '').toString().trim();
-    _metaMinisterialValorCtrl.text =
-        _metaMoneyDisplayFromFirestore(data['metaMinisterialValor']);
-    _metaMinisterialAcumuladoCtrl.text =
-        _metaMoneyDisplayFromFirestore(data['metaMinisterialAcumulado']);
+    _metaMinisterialTituloCtrl.text = (data['metaMinisterialTitulo'] ?? '')
+        .toString()
+        .trim();
+    _metaMinisterialValorCtrl.text = _metaMoneyDisplayFromFirestore(
+      data['metaMinisterialValor'],
+    );
+    _metaMinisterialAcumuladoCtrl.text = _metaMoneyDisplayFromFirestore(
+      data['metaMinisterialAcumulado'],
+    );
     final carteiraCfg = CarteiraValidadeChurch.fromTenant(data);
     _carteiraValidadeModo = carteiraCfg.modo;
     _carteiraValidadeDataFixa = carteiraCfg.dataFixa;
-    _gestorEmailCtrl.text =
-        (data['gestorEmail'] ?? data['gestor_email'] ?? '').toString();
+    _gestorEmailCtrl.text = (data['gestorEmail'] ?? data['gestor_email'] ?? '')
+        .toString();
     _instagramUrlCtrl.text = _firstNonEmptyString(data, const [
       'instagramUrl',
       'instagram',
@@ -881,16 +905,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'linkFacebook',
       'facebook_link',
     ]);
-    _whatsappChatUrlCtrl.text = brPhoneMaskLive(_whatsappDigitsForCadastro(
-        _firstNonEmptyString(
-            data,
-            const [
-              'whatsappChatUrl',
-              'whatsapp',
-              'socialWhatsappUrl',
-              'whatsappLink',
-              'linkWhatsapp',
-            ])));
+    _whatsappChatUrlCtrl.text = brPhoneMaskLive(
+      _whatsappDigitsForCadastro(
+        _firstNonEmptyString(data, const [
+          'whatsappChatUrl',
+          'whatsapp',
+          'socialWhatsappUrl',
+          'whatsappLink',
+          'linkWhatsapp',
+        ]),
+      ),
+    );
     _hydrateAddressFromCompositeEndereco(data);
     _lastHydratedCpf = null;
     _gestorMemberDocId = null;
@@ -899,22 +924,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   /// `endereco` legado (string única) → CEP, rua, bairro, cidade, UF.
   void _hydrateAddressFromCompositeEndereco(Map<String, dynamic> data) {
-    final hasParts = _cepCtrl.text.trim().isNotEmpty ||
+    final hasParts =
+        _cepCtrl.text.trim().isNotEmpty ||
         _ruaCtrl.text.trim().isNotEmpty ||
         _bairroCtrl.text.trim().isNotEmpty ||
         _cidadeCtrl.text.trim().isNotEmpty;
     if (hasParts) return;
 
-    final raw = (data['endereco'] ??
-            data['ENDERECO'] ??
-            data['enderecoCompleto'] ??
-            '')
-        .toString()
-        .trim();
+    final raw =
+        (data['endereco'] ?? data['ENDERECO'] ?? data['enderecoCompleto'] ?? '')
+            .toString()
+            .trim();
     if (raw.isEmpty) return;
 
-    final cepMatch =
-        RegExp(r'CEP\s*(\d{5})-?(\d{3})', caseSensitive: false).firstMatch(raw);
+    final cepMatch = RegExp(
+      r'CEP\s*(\d{5})-?(\d{3})',
+      caseSensitive: false,
+    ).firstMatch(raw);
     if (cepMatch != null) {
       _cepCtrl.text = '${cepMatch.group(1)!}-${cepMatch.group(2)!}';
     }
@@ -997,17 +1023,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   /// CPF canónico (11 dígitos) a partir dos campos do membro.
   static String _cpfDigitsFromMemberData(Map<String, dynamic>? d) {
     if (d == null) return '';
-    final raw =
-        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final raw = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
     return raw.length == 11 ? raw : '';
   }
 
   /// Legado / master: localiza documento por CPF (id ou campo). Com login, o padrão é `membros/{uid}`.
   Future<String> _resolveGestorMembroDocumentId(
-      String resolvedId, String cpfDigits) async {
+    String resolvedId,
+    String cpfDigits,
+  ) async {
     if (cpfDigits.length != 11) return cpfDigits;
-    final col =         ChurchRepository.churchDoc(resolvedId)
-        .collection('membros');
+    final col = ChurchRepository.churchDoc(resolvedId).collection('membros');
 
     final hinted = (_gestorMemberDocId ?? '').trim();
     if (hinted.isNotEmpty) {
@@ -1055,8 +1084,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         ('cpf', _cpfFormattedBr11(cpfDigits)),
       ]) {
         try {
-          final q =
-              await col.where(pair.$1, isEqualTo: pair.$2).limit(25).get();
+          final q = await col
+              .where(pair.$1, isEqualTo: pair.$2)
+              .limit(25)
+              .get();
           for (final d in q.docs) {
             if (d.id != canonicalId) refs.add(d.reference);
           }
@@ -1087,15 +1118,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  Future<void> _hydrateGestorFromMembros(String resolvedId,
-      {bool force = false}) async {
+  Future<void> _hydrateGestorFromMembros(
+    String resolvedId, {
+    bool force = false,
+  }) async {
     final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (cpf.length != 11 || !mounted) return;
     if (!force && _lastHydratedCpf == cpf) return;
     final seqAtStart = _gestorHydrateSeq;
     try {
-      final col =           ChurchRepository.churchDoc(resolvedId)
-          .collection('membros');
+      final col = ChurchRepository.churchDoc(resolvedId).collection('membros');
       DocumentSnapshot<Map<String, dynamic>>? memDoc;
 
       if (widget.role.toLowerCase() != 'master') {
@@ -1106,8 +1138,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             memDoc = bySelf;
           } else {
             try {
-              final q =
-                  await col.where('authUid', isEqualTo: curUid).limit(1).get();
+              final q = await col
+                  .where('authUid', isEqualTo: curUid)
+                  .limit(1)
+                  .get();
               if (q.docs.isNotEmpty) memDoc = q.docs.first;
             } catch (_) {}
           }
@@ -1127,8 +1161,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             ('cpf', _cpfFormattedBr11(cpf)),
           ]) {
             try {
-              final q =
-                  await col.where(pair.$1, isEqualTo: pair.$2).limit(1).get();
+              final q = await col
+                  .where(pair.$1, isEqualTo: pair.$2)
+                  .limit(1)
+                  .get();
               if (q.docs.isNotEmpty) {
                 found = q;
                 break;
@@ -1142,7 +1178,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
 
       if (!mounted || seqAtStart != _gestorHydrateSeq) return;
-      if (memDoc == null || !memDoc.exists) {
+      if (memDoc == null || !memDoc.exists || memDoc.data() == null) {
         setState(() {
           _lastHydratedCpf = cpf;
           _gestorExistingPhotoUrl = null;
@@ -1157,8 +1193,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final raw = d['DATA_NASCIMENTO'] ?? d['dataNascimento'];
       if (raw is Timestamp) ts = raw;
       final fromMap = imageUrlFromMap(d);
-      final legacy =
-          (d['FOTO_URL_OU_ID'] ?? d['foto_url'] ?? '').toString().trim();
+      final legacy = (d['FOTO_URL_OU_ID'] ?? d['foto_url'] ?? '')
+          .toString()
+          .trim();
       final phRaw = fromMap.isNotEmpty ? fromMap : legacy;
       final ph = phRaw.isEmpty ? '' : sanitizeImageUrl(phRaw);
       final gestorDocId = memDoc.id;
@@ -1169,20 +1206,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       setState(() {
         _lastHydratedCpf = cpf;
         _gestorMemberDocId = gestorDocId;
-        _gFiliacaoMaeCtrl.text =
-            (d['FILIACAO_MAE'] ?? d['filiacaoMae'] ?? '').toString();
-        _gFiliacaoPaiCtrl.text =
-            (d['FILIACAO_PAI'] ?? d['filiacaoPai'] ?? '').toString();
+        _gFiliacaoMaeCtrl.text = (d['FILIACAO_MAE'] ?? d['filiacaoMae'] ?? '')
+            .toString();
+        _gFiliacaoPaiCtrl.text = (d['FILIACAO_PAI'] ?? d['filiacaoPai'] ?? '')
+            .toString();
         if (_gFiliacaoPaiCtrl.text.isEmpty && _gFiliacaoMaeCtrl.text.isEmpty) {
           final leg = (d['FILIACAO'] ?? d['filiacao'] ?? '').toString();
           if (leg.isNotEmpty) _gFiliacaoPaiCtrl.text = leg;
         }
-        _gEstadoCivilCtrl.text =
-            (d['ESTADO_CIVIL'] ?? d['estadoCivil'] ?? '').toString();
-        _gEscolaridadeCtrl.text =
-            (d['ESCOLARIDADE'] ?? d['escolaridade'] ?? '').toString();
-        _gConjugeCtrl.text =
-            (d['NOME_CONJUGE'] ?? d['nomeConjuge'] ?? '').toString();
+        _gEstadoCivilCtrl.text = (d['ESTADO_CIVIL'] ?? d['estadoCivil'] ?? '')
+            .toString();
+        _gEscolaridadeCtrl.text = (d['ESCOLARIDADE'] ?? d['escolaridade'] ?? '')
+            .toString();
+        _gConjugeCtrl.text = (d['NOME_CONJUGE'] ?? d['nomeConjuge'] ?? '')
+            .toString();
         final sx = (d['SEXO'] ?? d['sexo'] ?? 'Masculino').toString();
         _gSexo = (sx == 'Feminino' || sx == 'Outro') ? sx : 'Masculino';
         _gBirthDate = ts?.toDate();
@@ -1194,7 +1231,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (resolvedPhoto == null || resolvedPhoto.isEmpty) {
         final mirror =
             await FirebaseStorageService.getGestorPublicMirrorPhotoUrl(
-                resolvedId);
+              resolvedId,
+            );
         if (mirror != null &&
             mirror.isNotEmpty &&
             mounted &&
@@ -1211,12 +1249,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         final authU = (d['authUid'] ?? '').toString().trim();
         final url =
             await FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
-          tenantId: resolvedId,
-          memberId: gestorDocId,
-          cpfDigits: cpf,
-          authUid: authU.isEmpty ? null : authU,
-          nomeCompleto: nomeGestor,
-        );
+              tenantId: resolvedId,
+              memberId: gestorDocId,
+              cpfDigits: cpf,
+              authUid: authU.isEmpty ? null : authU,
+              nomeCompleto: nomeGestor,
+            );
         if (url != null &&
             url.isNotEmpty &&
             mounted &&
@@ -1239,20 +1277,25 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final bytes = await picked.readAsBytes();
       if (!mounted || bytes.isEmpty) return;
       setState(() => _gPhotoBytes = bytes);
-      final resolution =
-          await ImmediateMediaAttachFeedback.readResolution(bytes);
+      final resolution = await ImmediateMediaAttachFeedback.readResolution(
+        bytes,
+      );
       if (!mounted) return;
       ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
-        fileName: picked.name.trim().isNotEmpty ? picked.name : 'foto_gestor.webp',
+        fileName: picked.name.trim().isNotEmpty
+            ? picked.name
+            : 'foto_gestor.webp',
         sizeBytes: bytes.length,
         resolution: resolution,
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(
-                'Erro ao escolher foto: ${formatUploadErrorForUser(e)}'));
+          ThemeCleanPremium.feedbackSnackBar(
+            'Erro ao escolher foto: ${formatUploadErrorForUser(e)}',
+          ),
+        );
       }
     }
   }
@@ -1272,8 +1315,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   String? _validateGestorMembroFields() {
     if (!_canEdit) return null;
     final curUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final uidGestorVal =
-        (_gestorMemberData?['authUid'] ?? '').toString().trim();
+    final uidGestorVal = (_gestorMemberData?['authUid'] ?? '')
+        .toString()
+        .trim();
     final docId = (_gestorMemberDocId ?? '').trim();
     final selfGestor =
         curUid.isNotEmpty && (curUid == uidGestorVal || curUid == docId);
@@ -1299,38 +1343,48 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       return null;
     }
-    if (_gestorNomeCtrl.text.trim().isEmpty)
+    if (_gestorNomeCtrl.text.trim().isEmpty) {
       return 'Preencha o nome completo do gestor.';
+    }
     final cpf = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (cpf.isNotEmpty && cpf.length != 11) {
       return 'CPF do gestor deve ter 11 dígitos ou ficar em branco.';
     }
-    final podeSemCpf = uidGestorVal.isNotEmpty ||
+    final podeSemCpf =
+        uidGestorVal.isNotEmpty ||
         (curUid.isNotEmpty && widget.role.toLowerCase() != 'master');
     if (cpf.length != 11 && !podeSemCpf) {
       return 'Informe o CPF do gestor (11 dígitos) ou edite este cadastro com a conta do gestor.';
     }
-    if (_gestorEmailCtrl.text.trim().isEmpty)
+    if (_gestorEmailCtrl.text.trim().isEmpty) {
       return 'E-mail do gestor é obrigatório.';
-    if (_gestorTelefoneCtrl.text.trim().isEmpty)
+    }
+    if (_gestorTelefoneCtrl.text.trim().isEmpty) {
       return 'Telefone do gestor é obrigatório.';
+    }
     if (_gBirthDate == null) return 'Informe a data de nascimento do gestor.';
-    if (_gEstadoCivilCtrl.text.trim().isEmpty)
+    if (_gEstadoCivilCtrl.text.trim().isEmpty) {
       return 'Informe o estado civil do gestor.';
-    if (_gEscolaridadeCtrl.text.trim().isEmpty)
+    }
+    if (_gEscolaridadeCtrl.text.trim().isEmpty) {
       return 'Informe a escolaridade do gestor.';
-    final hasNet = _gestorExistingPhotoUrl != null &&
+    }
+    final hasNet =
+        _gestorExistingPhotoUrl != null &&
         isValidImageUrl(sanitizeImageUrl(_gestorExistingPhotoUrl!));
     final hasStorageFallback =
         _gestorMemberDocId != null && _gestorMemberDocId!.trim().isNotEmpty;
     final hasPhoto = _gPhotoBytes != null || hasNet || hasStorageFallback;
-    if (!hasPhoto)
+    if (!hasPhoto) {
       return 'Envie a foto do gestor (mesmo padrão do cadastro de membros).';
+    }
     return null;
   }
 
   Future<void> _syncGestorToMembros(
-      String resolvedId, Map<String, dynamic>? tenantLive) async {
+    String resolvedId,
+    Map<String, dynamic>? tenantLive,
+  ) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || !_canEdit) return;
     final cpfDigits = _gestorCpfCtrl.text.replaceAll(RegExp(r'\D'), '');
@@ -1347,8 +1401,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         .replaceAll(RegExp(r'[^a-z0-9\-]'), '-')
         .replaceAll(RegExp(r'-+'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
-    final col =         ChurchRepository.churchDoc(resolvedId)
-        .collection('membros');
+    final col = ChurchRepository.churchDoc(resolvedId).collection('membros');
     final roleLower = widget.role.toLowerCase();
     final editorIsChurchStaff =
         roleLower == 'gestor' || roleLower == 'adm' || roleLower == 'admin';
@@ -1382,11 +1435,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
     String? photoUrl = _gestorExistingPhotoUrl;
     if ((photoUrl == null || photoUrl.isEmpty) && docId.isNotEmpty) {
-      final authGestor = (authUidForPayload.isNotEmpty
-              ? authUidForPayload
-              : (_gestorMemberData?['authUid'] ?? uid))
-          .toString()
-          .trim();
+      final authGestor =
+          (authUidForPayload.isNotEmpty
+                  ? authUidForPayload
+                  : (_gestorMemberData?['authUid'] ?? uid))
+              .toString()
+              .trim();
       final nomeGestor = _gestorNomeCtrl.text.trim().isNotEmpty
           ? _gestorNomeCtrl.text.trim()
           : (_gestorMemberData?['NOME_COMPLETO'] ?? '').toString();
@@ -1451,7 +1505,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'FILIACAO_PAI': _gFiliacaoPaiCtrl.text.trim(),
       'FILIACAO_MAE': _gFiliacaoMaeCtrl.text.trim(),
       'FILIACAO': _buildFiliacaoLegadoGestor(
-          _gFiliacaoPaiCtrl.text.trim(), _gFiliacaoMaeCtrl.text.trim()),
+        _gFiliacaoPaiCtrl.text.trim(),
+        _gFiliacaoMaeCtrl.text.trim(),
+      ),
       'FOTO_URL_OU_ID': photoUrl,
       'FUNCAO': funcaoKey,
       'FUNCOES': funcoes,
@@ -1468,7 +1524,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       payload['authUid'] = authUidForPayload;
     }
     if (pendingGestorPhotoBytes != null) {
-      payload.addAll(MemberProfilePhotoUpdateService.pendingUploadPatchFields());
+      payload.addAll(
+        MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+      );
     }
     if (!existingSnap.exists) {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
@@ -1492,7 +1550,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
 
     await _deleteDuplicateGestorMembroDocs(
-        col, docId, cpfDigits, authUidForPayload);
+      col,
+      docId,
+      cpfDigits,
+      authUidForPayload,
+    );
 
     final userWriteId = authUidForPayload.isNotEmpty
         ? authUidForPayload
@@ -1507,66 +1569,66 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               .collection('users')
               .doc(userWriteId)
               .set({
-            'role': funcaoKey,
-            'roles': funcoes,
-            'nome': nome,
-            'displayName': nome,
-            'name': nome,
-            'email': email,
-            'tenantId': resolvedId,
-            'igrejaId': resolvedId,
-            'FUNCOES': funcoes,
-            'funcao': funcaoKey,
-            'cargo': cargoLabel,
-            'CARGO': cargoLabel,
-            'photoURL': photoUrl,
-            'fotoUrl': photoUrl,
-            'FOTO_URL_OU_ID': photoUrl,
-          }, SetOptions(merge: true)),
-        ).catchError((Object _, StackTrace __) {}),
+                'role': funcaoKey,
+                'roles': funcoes,
+                'nome': nome,
+                'displayName': nome,
+                'name': nome,
+                'email': email,
+                'tenantId': resolvedId,
+                'igrejaId': resolvedId,
+                'FUNCOES': funcoes,
+                'funcao': funcaoKey,
+                'cargo': cargoLabel,
+                'CARGO': cargoLabel,
+                'photoURL': photoUrl,
+                'fotoUrl': photoUrl,
+                'FOTO_URL_OU_ID': photoUrl,
+              }, SetOptions(merge: true)),
+        ).catchError((Object _, StackTrace _) {}),
       );
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchRepository.churchDoc(resolvedId)
+          () => ChurchRepository.churchDoc(resolvedId)
               .collection('users')
               .doc(userWriteId)
               .set({
-            'role': funcaoKey,
-            'roles': funcoes,
-            'nome': nome,
-            'displayName': nome,
-            'email': email,
-            'FUNCOES': funcoes,
-            'funcao': funcaoKey,
-            'cargo': cargoLabel,
-            'CARGO': cargoLabel,
-            'photoURL': photoUrl,
-            'fotoUrl': photoUrl,
-            'FOTO_URL_OU_ID': photoUrl,
-          }, SetOptions(merge: true)),
+                'role': funcaoKey,
+                'roles': funcoes,
+                'nome': nome,
+                'displayName': nome,
+                'email': email,
+                'FUNCOES': funcoes,
+                'funcao': funcaoKey,
+                'cargo': cargoLabel,
+                'CARGO': cargoLabel,
+                'photoURL': photoUrl,
+                'fotoUrl': photoUrl,
+                'FOTO_URL_OU_ID': photoUrl,
+              }, SetOptions(merge: true)),
         ),
       );
     }
     if (cpfDigits.length == 11) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchRepository.churchDoc(resolvedId)
+          () => ChurchRepository.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(cpfDigits)
               .set({
-            'email': email,
-            'cpf': cpfDigits,
-            'nome': nome,
-            'name': nome,
-            'tenantId': resolvedId,
-            'role': funcaoKey,
-            'cargo': cargoLabel,
-            'CARGO': cargoLabel,
-            'FUNCOES': funcoes,
-            if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
-            if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true)),
+                'email': email,
+                'cpf': cpfDigits,
+                'nome': nome,
+                'name': nome,
+                'tenantId': resolvedId,
+                'role': funcaoKey,
+                'cargo': cargoLabel,
+                'CARGO': cargoLabel,
+                'FUNCOES': funcoes,
+                if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
+                if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true)),
         ),
       );
     }
@@ -1575,23 +1637,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         authUidForPayload != cpfDigits) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchRepository.churchDoc(resolvedId)
+          () => ChurchRepository.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(authUidForPayload)
               .set({
-            'email': email,
-            'cpf': cpfDigits,
-            'nome': nome,
-            'name': nome,
-            'tenantId': resolvedId,
-            'role': funcaoKey,
-            'cargo': cargoLabel,
-            'CARGO': cargoLabel,
-            'FUNCOES': funcoes,
-            'uid': authUidForPayload,
-            'authUid': authUidForPayload,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true)),
+                'email': email,
+                'cpf': cpfDigits,
+                'nome': nome,
+                'name': nome,
+                'tenantId': resolvedId,
+                'role': funcaoKey,
+                'cargo': cargoLabel,
+                'CARGO': cargoLabel,
+                'FUNCOES': funcoes,
+                'uid': authUidForPayload,
+                'authUid': authUidForPayload,
+                'updatedAt': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true)),
         ),
       );
     }
@@ -1617,8 +1679,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (cep.length != 8) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Informe um CEP válido (8 dígitos).'));
+          ThemeCleanPremium.successSnackBar(
+            'Informe um CEP válido (8 dígitos).',
+          ),
+        );
       }
       return;
     }
@@ -1629,8 +1693,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted) return;
       if (!result.ok) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'CEP não encontrado. Verifique e tente novamente.'));
+          ThemeCleanPremium.successSnackBar(
+            'CEP não encontrado. Verifique e tente novamente.',
+          ),
+        );
         setState(() => _loadingCep = false);
         return;
       }
@@ -1641,12 +1707,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (result.cep != null) _cepCtrl.text = result.cep!;
       setState(() => _loadingCep = false);
       ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Endereço preenchido pelo CEP.'));
+        ThemeCleanPremium.successSnackBar('Endereço preenchido pelo CEP.'),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _loadingCep = false);
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao buscar CEP: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao buscar CEP: $e'),
+        );
       }
     }
   }
@@ -1655,8 +1723,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   String _buildEnderecoCompleto() {
     final rua = _ruaCtrl.text.trim();
     final qdLt = _quadraLoteNumeroCtrl.text.trim();
-    final ruaCompleta =
-        rua.isEmpty ? qdLt : (qdLt.isEmpty ? rua : '$rua, $qdLt');
+    final ruaCompleta = rua.isEmpty
+        ? qdLt
+        : (qdLt.isEmpty ? rua : '$rua, $qdLt');
     final parts = <String>[
       ruaCompleta.isNotEmpty ? ruaCompleta : '',
       _bairroCtrl.text.trim(),
@@ -1665,16 +1734,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _cepCtrl.text.trim(),
     ].where((s) => s.isNotEmpty).toList();
     if (parts.isEmpty) return '';
-    final cidadeEstado = _cidadeCtrl.text.trim().isNotEmpty &&
-            _estadoCtrl.text.trim().isNotEmpty
+    final cidadeEstado =
+        _cidadeCtrl.text.trim().isNotEmpty && _estadoCtrl.text.trim().isNotEmpty
         ? '${_cidadeCtrl.text.trim()} - ${_estadoCtrl.text.trim()}'
         : (_cidadeCtrl.text.trim().isNotEmpty ? _cidadeCtrl.text.trim() : '');
     final lista = <String>[];
     if (ruaCompleta.isNotEmpty) lista.add(ruaCompleta);
     if (_bairroCtrl.text.trim().isNotEmpty) lista.add(_bairroCtrl.text.trim());
     if (cidadeEstado.isNotEmpty) lista.add(cidadeEstado);
-    if (_cepCtrl.text.trim().isNotEmpty)
+    if (_cepCtrl.text.trim().isNotEmpty) {
       lista.add('CEP ${_cepCtrl.text.trim()}');
+    }
     return lista.join(', ');
   }
 
@@ -1707,17 +1777,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
       }
-      final path = ChurchBrandService.logoPathFromData(
-            data,
-            churchId: tenantDocId,
-          ) ??
+      final path =
+          ChurchBrandService.logoPathFromData(data, churchId: tenantDocId) ??
           ChurchBrandService.canonicalLogoPath(tenantDocId);
-      final resolved =
-          await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
-        tenantId: tenantDocId,
-        tenantData: data,
-        preferStoragePath: path,
-      ).timeout(ChurchPanelReadTimeouts.warmCap);
+      final resolved = await AppStorageImageService.instance
+          .resolveChurchTenantLogoUrl(
+            tenantId: tenantDocId,
+            tenantData: data,
+            preferStoragePath: path,
+          )
+          .timeout(ChurchPanelReadTimeouts.warmCap);
       if (!mounted) return;
       final clean = sanitizeImageUrl(resolved ?? '');
       if (clean.isEmpty || !isValidImageUrl(clean)) return;
@@ -1818,12 +1887,15 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'alias': FieldValue.delete(),
         'slug': FieldValue.delete(),
         'slugId': FieldValue.delete(),
-        'cidade':
-            _cidadeCtrl.text.trim().isEmpty ? null : _cidadeCtrl.text.trim(),
-        'estado':
-            _estadoCtrl.text.trim().isEmpty ? null : _estadoCtrl.text.trim(),
-        'bairro':
-            _bairroCtrl.text.trim().isEmpty ? null : _bairroCtrl.text.trim(),
+        'cidade': _cidadeCtrl.text.trim().isEmpty
+            ? null
+            : _cidadeCtrl.text.trim(),
+        'estado': _estadoCtrl.text.trim().isEmpty
+            ? null
+            : _estadoCtrl.text.trim(),
+        'bairro': _bairroCtrl.text.trim().isEmpty
+            ? null
+            : _bairroCtrl.text.trim(),
         'rua': _ruaCtrl.text.trim().isEmpty ? null : _ruaCtrl.text.trim(),
         'quadraLoteNumero': _quadraLoteNumeroCtrl.text.trim().isEmpty
             ? null
@@ -1876,8 +1948,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'facebook',
         'linkFacebook',
       ]);
-      final waDigits =
-          _whatsappChatUrlCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+      final waDigits = _whatsappChatUrlCtrl.text.replaceAll(
+        RegExp(r'[^0-9]'),
+        '',
+      );
       mergeOptionalUrl(waDigits, 'whatsappChatUrl', const [
         'socialWhatsappUrl',
         'whatsappLink',
@@ -1894,7 +1968,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         data['logoPath'] = url;
         data['logoUrl'] = url;
         if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
-          final normalized = StorageMediaService.normalizeFirestoreStoragePath(
+          final normalized =
+              StorageMediaService.normalizeFirestoreStoragePath(
                 _logoStoragePath,
               ) ??
               _logoStoragePath!.trim();
@@ -1914,7 +1989,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         modo: _carteiraValidadeModo,
         dataFixa: _carteiraValidadeDataFixa,
       );
-      data[CarteiraValidadeChurch.firestoreKeyModo] = carteiraCfg.firestoreModoValue;
+      data[CarteiraValidadeChurch.firestoreKeyModo] =
+          carteiraCfg.firestoreModoValue;
       data['carteiraValidadePermanente'] =
           _carteiraValidadeModo == CarteiraValidadeModo.permanente;
       final anosLegado = switch (_carteiraValidadeModo) {
@@ -1930,8 +2006,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       if (_carteiraValidadeModo == CarteiraValidadeModo.dataFixa &&
           _carteiraValidadeDataFixa != null) {
-        data[CarteiraValidadeChurch.firestoreKeyDataFixa] =
-            Timestamp.fromDate(_carteiraValidadeDataFixa!);
+        data[CarteiraValidadeChurch.firestoreKeyDataFixa] = Timestamp.fromDate(
+          _carteiraValidadeDataFixa!,
+        );
       } else {
         data[CarteiraValidadeChurch.firestoreKeyDataFixa] = FieldValue.delete();
       }
@@ -1948,14 +2025,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           }
           return;
         }
-        if (!kIsWeb &&
-            _slugNeedsUniquenessCheck(slugRaw)) {
+        if (!kIsWeb && _slugNeedsUniquenessCheck(slugRaw)) {
           final taken = await FirestoreWebGuard.runWithWebRecovery(
             () => FirestoreReadResilience.getQuery(
-              ChurchRepository.churchDoc(resolvedId)
-                  .parent
-                  .where('slug', isEqualTo: slugRaw)
-                  .limit(2),
+              ChurchRepository.churchDoc(
+                resolvedId,
+              ).parent.where('slug', isEqualTo: slugRaw).limit(2),
               cacheKey: 'igrejas_slug_check_$slugRaw',
             ),
             maxAttempts: 4,
@@ -2008,9 +2083,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final msg = FirestoreWebGuard.isInternalAssertionError(e)
           ? 'Firestore instável na web. Aguarde 3 segundos e toque em Salvar novamente.'
           : formatUploadErrorForUser(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(msg),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
     } finally {
       if (mounted) setState(() => _saving = false);
       final tid = savedTenantId.trim().isNotEmpty
@@ -2034,7 +2109,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       filled: true,
       fillColor: const Color(0xFFFAFBFC),
       border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+      ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
         borderSide: BorderSide(color: Colors.grey.shade200),
@@ -2042,8 +2118,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
         borderSide: BorderSide(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
-            width: 1.4),
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+          width: 1.4,
+        ),
       ),
     );
   }
@@ -2094,16 +2171,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           ],
         ),
         shape: circular ? BoxShape.circle : BoxShape.rectangle,
-        borderRadius:
-            circular ? null : BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderRadius: circular
+            ? null
+            : BorderRadius.circular(ThemeCleanPremium.radiusMd),
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       alignment: Alignment.center,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.person_rounded,
-              size: side * 0.36, color: Colors.grey.shade300),
+          Icon(
+            Icons.person_rounded,
+            size: side * 0.36,
+            color: Colors.grey.shade300,
+          ),
           if (side >= 72) ...[
             const SizedBox(height: 4),
             Text(
@@ -2123,7 +2204,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     return inner;
   }
-
 
   Future<void> _openGestorInstagramSheet() async {
     if (!_canEdit || !mounted) return;
@@ -2156,8 +2236,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                   child: Row(
                     children: [
-                      Icon(Icons.person_rounded,
-                          color: ThemeCleanPremium.primary),
+                      Icon(
+                        Icons.person_rounded,
+                        color: ThemeCleanPremium.primary,
+                      ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
@@ -2190,8 +2272,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.crop_rounded,
-                      color: _gPhotoBytes == null ? Colors.grey : null),
+                  leading: Icon(
+                    Icons.crop_rounded,
+                    color: _gPhotoBytes == null ? Colors.grey : null,
+                  ),
                   title: const Text('Cortar foto'),
                   enabled: _gPhotoBytes != null,
                   onTap: _gPhotoBytes == null
@@ -2215,12 +2299,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     Map<String, dynamic> live,
   ) {
     final slim = ChurchCadastroLoadService.sliceCadastroFormFields(live);
-    final incomingScore =
-        TenantResolverService.churchProfileRichnessScore(slim);
+    final incomingScore = TenantResolverService.churchProfileRichnessScore(
+      slim,
+    );
     // Sempre aceitar doc mais rico OU com campos de endereço/contacto que
     // o cache local (só nome/slug) ainda não tinha — evita formulário incompleto.
-    final hasAddressGap = _cadastroAddressFieldsEmpty() &&
-        _incomingHasAddressOrContact(slim);
+    final hasAddressGap =
+        _cadastroAddressFieldsEmpty() && _incomingHasAddressOrContact(slim);
     if (_hydratedTenantId == resolvedId &&
         _formHydrated &&
         _nameCtrl.text.trim().isNotEmpty &&
@@ -2349,8 +2434,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
-              Icon(Icons.check_circle_rounded,
-                  color: Colors.green.shade700, size: 20),
+              Icon(
+                Icons.check_circle_rounded,
+                color: Colors.green.shade700,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -2410,7 +2498,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           Text(
             'Mural, eventos, escalas e demais dados ficam vinculados a este ID.',
             style: TextStyle(
-                fontSize: 11, color: Colors.grey.shade600, height: 1.3),
+              fontSize: 11,
+              color: Colors.grey.shade600,
+              height: 1.3,
+            ),
           ),
           if (_canEdit) ...[
             const SizedBox(height: 8),
@@ -2422,11 +2513,15 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                   if (!mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     ThemeCleanPremium.successSnackBar(
-                        'ID copiado para a área de transferência.'),
+                      'ID copiado para a área de transferência.',
+                    ),
                   );
                 },
-                icon: Icon(Icons.copy_rounded,
-                    size: 18, color: ThemeCleanPremium.primary),
+                icon: Icon(
+                  Icons.copy_rounded,
+                  size: 18,
+                  color: ThemeCleanPremium.primary,
+                ),
                 label: Text(
                   'Copiar ID',
                   style: TextStyle(
@@ -2459,8 +2554,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.groups_2_rounded,
-                  color: ThemeCleanPremium.primary, size: 28),
+              Icon(
+                Icons.groups_2_rounded,
+                color: ThemeCleanPremium.primary,
+                size: 28,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
@@ -2483,18 +2581,22 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.save_rounded),
-              label:
-                  Text(_saving ? 'Salvando...' : 'Salvar cadastro da igreja'),
+              label: Text(
+                _saving ? 'Salvando...' : 'Salvar cadastro da igreja',
+              ),
               style: FilledButton.styleFrom(
                 backgroundColor: ThemeCleanPremium.primary,
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 minimumSize: const Size(0, ThemeCleanPremium.minTouchTarget),
                 shape: RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
                 ),
               ),
             )
@@ -2521,16 +2623,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         onPressed: () => Navigator.maybePop(context),
         tooltip: 'Voltar',
         style: IconButton.styleFrom(
-            minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                ThemeCleanPremium.minTouchTarget)),
+          minimumSize: const Size(
+            ThemeCleanPremium.minTouchTarget,
+            ThemeCleanPremium.minTouchTarget,
+          ),
+        ),
       ),
       title: Text(
         'Cadastro da Igreja',
         style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 18,
-            letterSpacing: -0.35,
-            color: ThemeCleanPremium.onSurface),
+          fontWeight: FontWeight.w700,
+          fontSize: 18,
+          letterSpacing: -0.35,
+          color: ThemeCleanPremium.onSurface,
+        ),
       ),
     );
   }
@@ -2570,14 +2676,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               border: Border.all(color: const Color(0xFFE8EEF5)),
               boxShadow: [
                 BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6)),
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
               ],
             ),
-            child: Icon(Icons.auto_awesome_rounded,
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.9),
-                size: 26),
+            child: Icon(
+              Icons.auto_awesome_rounded,
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.9),
+              size: 26,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -2587,25 +2696,30 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 Text(
                   'IDENTIDADE DA IGREJA',
                   style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.15,
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.65)),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.15,
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.65),
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Cadastro da igreja',
                   style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                      color: ThemeCleanPremium.onSurface),
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Nome, CPF/CNPJ, logo, endereço com CEP e links públicos. Sua ficha pessoal fica em Membros.',
                   style: TextStyle(
-                      fontSize: 13, color: Colors.grey.shade600, height: 1.45),
+                    fontSize: 13,
+                    color: Colors.grey.shade600,
+                    height: 1.45,
+                  ),
                 ),
               ],
             ),
@@ -2626,8 +2740,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.cloud_sync_rounded,
-                color: Colors.orange.shade800, size: 22),
+            Icon(
+              Icons.cloud_sync_rounded,
+              color: Colors.orange.shade800,
+              size: 22,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -2680,590 +2797,587 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         : (_operationalTenantId ?? widget.tenantId).trim();
 
     final padding = ThemeCleanPremium.pagePadding(context);
-            final fullWidth = MediaQuery.sizeOf(context).width;
-            final viewPadding = MediaQuery.viewPaddingOf(context);
-            final viewInsets = MediaQuery.viewInsetsOf(context);
-            final bottomPadding =
-                padding.bottom + viewPadding.bottom + viewInsets.bottom + 32;
-            return Scaffold(
-              backgroundColor: ThemeCleanPremium.surface,
-              appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-              body: SafeArea(
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: EdgeInsets.fromLTRB(
-                      padding.left, padding.top, padding.right, bottomPadding),
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: fullWidth > 1200 ? 1000 : fullWidth,
+    final fullWidth = MediaQuery.sizeOf(context).width;
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final bottomPadding =
+        padding.bottom + viewPadding.bottom + viewInsets.bottom + 32;
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surface,
+      appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(
+            padding.left,
+            padding.top,
+            padding.right,
+            bottomPadding,
+          ),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: fullWidth > 1200 ? 1000 : fullWidth,
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildPageIntroHeader(),
+                    if (_cadastroSoftSyncWarning != null)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          top: ThemeCleanPremium.spaceMd,
+                        ),
+                        child: _buildSoftSyncBanner(),
                       ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildPageIntroHeader(),
-                            if (_cadastroSoftSyncWarning != null)
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                    top: ThemeCleanPremium.spaceMd),
-                                child: _buildSoftSyncBanner(),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusLg,
+                        ),
+                        border: Border.all(color: const Color(0xFFF1F5F9)),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.08,
+                                  ),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.domain_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                  size: 24,
+                                ),
                               ),
-                            const SizedBox(height: ThemeCleanPremium.spaceMd),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusLg),
-                                border:
-                                    Border.all(color: const Color(0xFFF1F5F9)),
-                                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                              ),
-                              padding: const EdgeInsets.all(
-                                  ThemeCleanPremium.spaceLg),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm),
-                                        ),
-                                        child: Icon(Icons.domain_rounded,
-                                            color: ThemeCleanPremium.primary,
-                                            size: 24),
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Dados da igreja',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.w800,
-                                                letterSpacing: -0.4,
-                                                color:
-                                                    ThemeCleanPremium.onSurface,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              'Nome, logo, endereço e contatos no painel e no site público.',
-                                              style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey.shade600,
-                                                  height: 1.35),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  _buildChurchFirestoreIdBanner(resolvedId),
-                                  if (!_formHydrated)
-                                    _buildCadastroFormSkeleton(resolvedId)
-                                  else ...[
-                                  _buildCadastroJaExisteChip(),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  TextFormField(
-                                    controller: _nameCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Nome completo da igreja',
-                                      hintText:
-                                          'Ex.: Igreja Brasil para Cristo',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    validator: (v) {
-                                      if ((v ?? '').trim().isEmpty)
-                                        return 'Informe o nome da igreja.';
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceMd),
-                                  TextFormField(
-                                    controller: _cnpjIgrejaCtrl,
-                                    readOnly: !_canEdit,
-                                    keyboardType: TextInputType.text,
-                                    decoration: const InputDecoration(
-                                      labelText: 'CPF ou CNPJ da igreja',
-                                      hintText:
-                                          'Somente números ou com máscara',
-                                      helperText:
-                                          'Opcional no início; use o mesmo CPF se for MEI.',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    validator: (v) {
-                                      final d = (v ?? '')
-                                          .replaceAll(RegExp(r'\D'), '');
-                                      if (d.isEmpty) return null;
-                                      if (d.length != 11 && d.length != 14) {
-                                        return 'Informe 11 (CPF) ou 14 (CNPJ) dígitos.';
-                                      }
-                                      return null;
-                                    },
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  ChurchLogoEditor(
-                                    key: _logoEditorKey,
-                                    churchIdHint: resolvedId.isNotEmpty
-                                        ? resolvedId
-                                        : ChurchRepository.churchId(
-                                            widget.tenantId,
-                                          ),
-                                    canAdd: _canEdit,
-                                    canChange: _canEdit,
-                                    canRemove: _canEdit,
-                                    existingLogoUrl: _logoUrl,
-                                    existingStoragePath: _logoStoragePath,
-                                    tenantData: _tenantLiveData,
-                                    churchNameForInitials: _nameCtrl.text
-                                            .trim()
-                                            .isNotEmpty
-                                        ? _iniciaisFromChurchName(
-                                            _nameCtrl.text,
-                                          ).toUpperCase()
-                                        : null,
-                                    onChanged: (snap) => _logoSnap = snap,
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  Text(
-                                    'Endereço (Estado, Cidade, Bairro, CEP e localização)',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: ThemeCleanPremium.onSurface,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Use "Buscar por CEP" para preencher o endereço. Para o mapa no site, cole o link do Google Maps abaixo.',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade700),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        flex: 2,
-                                        child: TextFormField(
-                                          controller: _cepCtrl,
-                                          readOnly: !_canEdit,
-                                          keyboardType: TextInputType.number,
-                                          decoration: const InputDecoration(
-                                            labelText: 'CEP',
-                                            hintText: '00000-000',
-                                            border: OutlineInputBorder(),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      if (_canEdit)
-                                        Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 8),
-                                          child: SizedBox(
-                                            height: 48,
-                                            child: FilledButton.tonalIcon(
-                                              onPressed: _loadingCep
-                                                  ? null
-                                                  : _buscarCep,
-                                              icon: _loadingCep
-                                                  ? const SizedBox(
-                                                      width: 20,
-                                                      height: 20,
-                                                      child:
-                                                          CircularProgressIndicator(
-                                                              strokeWidth: 2),
-                                                    )
-                                                  : const Icon(
-                                                      Icons.search_rounded,
-                                                      size: 20),
-                                              label: Text(_loadingCep
-                                                  ? 'Buscando...'
-                                                  : 'Buscar por CEP'),
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceSm),
-                                  TextFormField(
-                                    controller: _ruaCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Rua / Logradouro',
-                                      hintText: 'Ex.: R. Bela Vista, 100',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceSm),
-                                  TextFormField(
-                                    controller: _quadraLoteNumeroCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Quadra, Lote e Número',
-                                      hintText: 'Qd 1, Lt 5, Nº 123',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceSm),
-                                  TextFormField(
-                                    controller: _bairroCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Bairro',
-                                      hintText: 'Ex.: São João',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceSm),
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      final isNarrow =
-                                          constraints.maxWidth < 400;
-                                      if (isNarrow) {
-                                        return Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          children: [
-                                            TextFormField(
-                                              controller: _cidadeCtrl,
-                                              readOnly: !_canEdit,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Cidade',
-                                                hintText: 'Ex.: Anápolis',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                            const SizedBox(
-                                                height:
-                                                    ThemeCleanPremium.spaceSm),
-                                            TextFormField(
-                                              controller: _estadoCtrl,
-                                              readOnly: !_canEdit,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Estado (UF)',
-                                                hintText: 'GO',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                          ],
-                                        );
-                                      }
-                                      return Row(
-                                        children: [
-                                          Expanded(
-                                            child: TextFormField(
-                                              controller: _cidadeCtrl,
-                                              readOnly: !_canEdit,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Cidade',
-                                                hintText: 'Ex.: Anápolis',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          SizedBox(
-                                            width: 100,
-                                            child: TextFormField(
-                                              controller: _estadoCtrl,
-                                              readOnly: !_canEdit,
-                                              decoration: const InputDecoration(
-                                                labelText: 'Estado (UF)',
-                                                hintText: 'GO',
-                                                border: OutlineInputBorder(),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  ),
-                                  if (_canEdit) ...[
-                                    const SizedBox(height: 12),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Text(
-                                      'Cole o link do Google Maps',
+                                      'Dados da igreja',
                                       style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: ThemeCleanPremium.onSurface),
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.4,
+                                        color: ThemeCleanPremium.onSurface,
+                                      ),
                                     ),
                                     const SizedBox(height: 6),
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: TextFormField(
-                                            controller: _linkMapsCtrl,
-                                            decoration: const InputDecoration(
-                                              hintText:
-                                                  'Ex.: https://maps.google.com/... ou https://goo.gl/maps/...',
-                                              border: OutlineInputBorder(),
-                                              isDense: true,
-                                            ),
-                                            maxLines: 1,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 2),
-                                          child: FilledButton.icon(
-                                            onPressed: _usarLinkGoogleMaps,
-                                            icon: const Icon(Icons.link,
-                                                size: 18),
-                                            label: const Text('Usar link'),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                  if (_latitude != null &&
-                                      _longitude != null) ...[
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.my_location_rounded,
-                                            size: 18,
-                                            color: Colors.green.shade700),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'Localização: ${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}',
-                                          style: TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey.shade700),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceSm),
-                                  TextFormField(
-                                    controller: _telefoneCtrl,
-                                    readOnly: !_canEdit,
-                                    keyboardType: TextInputType.phone,
-                                    inputFormatters: const [
-                                      BrPhoneInputFormatter(),
-                                    ],
-                                    decoration: const InputDecoration(
-                                      labelText: 'Telefone / WhatsApp contato',
-                                      hintText: '62 9.9170-5247',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  _cadastroSectionLabel(
-                                      'Carteirinha de membro — validade'),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Define a validade exibida em todas as carteirinhas. '
-                                    'Para prazos em anos, a data conta a partir da emissão ou assinatura de cada membro.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      height: 1.4,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  DropdownButtonFormField<CarteiraValidadeModo>(
-                                    value: _carteiraValidadeModo,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Validade da carteirinha',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(
-                                        value: CarteiraValidadeModo.permanente,
-                                        child: Text('Permanente'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CarteiraValidadeModo.anos2,
-                                        child: Text('02 anos'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CarteiraValidadeModo.anos3,
-                                        child: Text('03 anos'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CarteiraValidadeModo.anos5,
-                                        child: Text('05 anos'),
-                                      ),
-                                      DropdownMenuItem(
-                                        value: CarteiraValidadeModo.dataFixa,
-                                        child: Text('Data fixa (escolher)'),
-                                      ),
-                                    ],
-                                    onChanged: !_canEdit
-                                        ? null
-                                        : (v) {
-                                            if (v == null) return;
-                                            setState(() {
-                                              _carteiraValidadeModo = v;
-                                              if (v != CarteiraValidadeModo.dataFixa) {
-                                                _carteiraValidadeDataFixa = null;
-                                              }
-                                            });
-                                          },
-                                  ),
-                                  if (_carteiraValidadeModo ==
-                                      CarteiraValidadeModo.dataFixa) ...[
-                                    const SizedBox(height: 10),
-                                    OutlinedButton.icon(
-                                      onPressed: !_canEdit
-                                          ? null
-                                          : () async {
-                                              final now = DateTime.now();
-                                              final picked = await showDatePicker(
-                                                context: context,
-                                                locale: const Locale('pt', 'BR'),
-                                                initialDate:
-                                                    _carteiraValidadeDataFixa ??
-                                                        DateTime(
-                                                          now.year + 3,
-                                                          now.month,
-                                                          now.day,
-                                                        ),
-                                                firstDate: now,
-                                                lastDate: DateTime(now.year + 30),
-                                              );
-                                              if (picked != null && mounted) {
-                                                setState(() =>
-                                                    _carteiraValidadeDataFixa =
-                                                        picked);
-                                              }
-                                            },
-                                      icon: const Icon(Icons.event_rounded),
-                                      label: Text(
-                                        _carteiraValidadeDataFixa == null
-                                            ? 'Escolher data de validade'
-                                            : 'Validade até: ${_carteiraValidadeDataFixa!.day.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.month.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.year}',
+                                    Text(
+                                      'Nome, logo, endereço e contatos no painel e no site público.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade600,
+                                        height: 1.35,
                                       ),
                                     ),
                                   ],
-                                  const SizedBox(
-                                      height: ThemeCleanPremium.spaceLg),
-                                  _cadastroSectionLabel(
-                                      'Site público — redes sociais'),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Aparecem na área de contato do site público. Instagram, YouTube e Facebook: links completos (https://…). WhatsApp: apenas o número com DDI (ex.: 5562999999999), sem link.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      height: 1.4,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 14),
-                                  TextFormField(
-                                    controller: _instagramUrlCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: _premiumInputDeco(
-                                      'Instagram',
-                                      'https://instagram.com/suaigreja',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _youtubeUrlCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: _premiumInputDeco(
-                                      'YouTube',
-                                      'https://youtube.com/@canal',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _facebookUrlCtrl,
-                                    readOnly: !_canEdit,
-                                    decoration: _premiumInputDeco(
-                                      'Facebook',
-                                      'https://facebook.com/suaigreja',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _whatsappChatUrlCtrl,
-                                    readOnly: !_canEdit,
-                                    keyboardType: TextInputType.phone,
-                                    inputFormatters: const [
-                                      BrPhoneInputFormatter(),
-                                    ],
-                                    decoration: _premiumInputDeco(
-                                      'WhatsApp — telefone (opcional)',
-                                      '62 9.9170-5247',
-                                    ),
-                                  ),
-                                  if (_slugCtrl.text.trim().isNotEmpty) ...[
-                                    const SizedBox(
-                                        height: ThemeCleanPremium.spaceLg),
-                                    Builder(builder: (ctx) {
-                                      final slug = _slugCtrl.text.trim();
-                                      return ChurchPublicLinksCard(
-                                        slug: slug,
-                                        compact: true,
-                                        onOpenSite: () =>
-                                            openHttpsUrlInBrowser(
-                                          ctx,
-                                          ChurchPublicLinksCard.siteUrlForSlug(
-                                              slug),
-                                        ),
-                                        onOpenCadastro: () {
-                                          final cadUrl =
-                                              ChurchPublicLinksCard
-                                                  .signupUrlForSlug(slug);
-                                          if (!PublicMemberSignupNavigation
-                                              .tryOpenInAppFromUrl(
-                                                  ctx, cadUrl)) {
-                                            openHttpsUrlInBrowser(ctx, cadUrl);
-                                          }
-                                        },
-                                      );
-                                    }),
-                                  ],
-                                  ],
-                                ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          _buildChurchFirestoreIdBanner(resolvedId),
+                          if (!_formHydrated)
+                            _buildCadastroFormSkeleton(resolvedId)
+                          else ...[
+                            _buildCadastroJaExisteChip(),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            TextFormField(
+                              controller: _nameCtrl,
+                              readOnly: !_canEdit,
+                              decoration: const InputDecoration(
+                                labelText: 'Nome completo da igreja',
+                                hintText: 'Ex.: Igreja Brasil para Cristo',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (v) {
+                                if ((v ?? '').trim().isEmpty) {
+                                  return 'Informe o nome da igreja.';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceMd),
+                            TextFormField(
+                              controller: _cnpjIgrejaCtrl,
+                              readOnly: !_canEdit,
+                              keyboardType: TextInputType.text,
+                              decoration: const InputDecoration(
+                                labelText: 'CPF ou CNPJ da igreja',
+                                hintText: 'Somente números ou com máscara',
+                                helperText:
+                                    'Opcional no início; use o mesmo CPF se for MEI.',
+                                border: OutlineInputBorder(),
+                              ),
+                              validator: (v) {
+                                final d = (v ?? '').replaceAll(
+                                  RegExp(r'\D'),
+                                  '',
+                                );
+                                if (d.isEmpty) return null;
+                                if (d.length != 11 && d.length != 14) {
+                                  return 'Informe 11 (CPF) ou 14 (CNPJ) dígitos.';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            ChurchLogoEditor(
+                              key: _logoEditorKey,
+                              churchIdHint: resolvedId.isNotEmpty
+                                  ? resolvedId
+                                  : ChurchRepository.churchId(widget.tenantId),
+                              canAdd: _canEdit,
+                              canChange: _canEdit,
+                              canRemove: _canEdit,
+                              existingLogoUrl: _logoUrl,
+                              existingStoragePath: _logoStoragePath,
+                              tenantData: _tenantLiveData,
+                              churchNameForInitials:
+                                  _nameCtrl.text.trim().isNotEmpty
+                                  ? _iniciaisFromChurchName(
+                                      _nameCtrl.text,
+                                    ).toUpperCase()
+                                  : null,
+                              onChanged: (snap) => _logoSnap = snap,
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            Text(
+                              'Endereço (Estado, Cidade, Bairro, CEP e localização)',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: ThemeCleanPremium.onSurface,
                               ),
                             ),
-                            if (_formHydrated) ...[
-                            const SizedBox(height: ThemeCleanPremium.spaceMd),
-                            _buildChurchSaveFooter(),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Use "Buscar por CEP" para preencher o endereço. Para o mapa no site, cole o link do Google Maps abaixo.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    controller: _cepCtrl,
+                                    readOnly: !_canEdit,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'CEP',
+                                      hintText: '00000-000',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (_canEdit)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: FilledButton.tonalIcon(
+                                        onPressed: _loadingCep
+                                            ? null
+                                            : _buscarCep,
+                                        icon: _loadingCep
+                                            ? const SizedBox(
+                                                width: 20,
+                                                height: 20,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                    ),
+                                              )
+                                            : const Icon(
+                                                Icons.search_rounded,
+                                                size: 20,
+                                              ),
+                                        label: Text(
+                                          _loadingCep
+                                              ? 'Buscando...'
+                                              : 'Buscar por CEP',
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            TextFormField(
+                              controller: _ruaCtrl,
+                              readOnly: !_canEdit,
+                              decoration: const InputDecoration(
+                                labelText: 'Rua / Logradouro',
+                                hintText: 'Ex.: R. Bela Vista, 100',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            TextFormField(
+                              controller: _quadraLoteNumeroCtrl,
+                              readOnly: !_canEdit,
+                              decoration: const InputDecoration(
+                                labelText: 'Quadra, Lote e Número',
+                                hintText: 'Qd 1, Lt 5, Nº 123',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            TextFormField(
+                              controller: _bairroCtrl,
+                              readOnly: !_canEdit,
+                              decoration: const InputDecoration(
+                                labelText: 'Bairro',
+                                hintText: 'Ex.: São João',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isNarrow = constraints.maxWidth < 400;
+                                if (isNarrow) {
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      TextFormField(
+                                        controller: _cidadeCtrl,
+                                        readOnly: !_canEdit,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Cidade',
+                                          hintText: 'Ex.: Anápolis',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                      const SizedBox(
+                                        height: ThemeCleanPremium.spaceSm,
+                                      ),
+                                      TextFormField(
+                                        controller: _estadoCtrl,
+                                        readOnly: !_canEdit,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Estado (UF)',
+                                          hintText: 'GO',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: _cidadeCtrl,
+                                        readOnly: !_canEdit,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Cidade',
+                                          hintText: 'Ex.: Anápolis',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    SizedBox(
+                                      width: 100,
+                                      child: TextFormField(
+                                        controller: _estadoCtrl,
+                                        readOnly: !_canEdit,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Estado (UF)',
+                                          hintText: 'GO',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                            if (_canEdit) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Cole o link do Google Maps',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: ThemeCleanPremium.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      controller: _linkMapsCtrl,
+                                      decoration: const InputDecoration(
+                                        hintText:
+                                            'Ex.: https://maps.google.com/... ou https://goo.gl/maps/...',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
+                                      ),
+                                      maxLines: 1,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: FilledButton.icon(
+                                      onPressed: _usarLinkGoogleMaps,
+                                      icon: const Icon(Icons.link, size: 18),
+                                      label: const Text('Usar link'),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            if (_latitude != null && _longitude != null) ...[
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.my_location_rounded,
+                                    size: 18,
+                                    color: Colors.green.shade700,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Localização: ${_latitude!.toStringAsFixed(5)}, ${_longitude!.toStringAsFixed(5)}',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: ThemeCleanPremium.spaceSm),
+                            TextFormField(
+                              controller: _telefoneCtrl,
+                              readOnly: !_canEdit,
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: const [BrPhoneInputFormatter()],
+                              decoration: const InputDecoration(
+                                labelText: 'Telefone / WhatsApp contato',
+                                hintText: '62 9.9170-5247',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            _cadastroSectionLabel(
+                              'Carteirinha de membro — validade',
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Define a validade exibida em todas as carteirinhas. '
+                              'Para prazos em anos, a data conta a partir da emissão ou assinatura de cada membro.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<CarteiraValidadeModo>(
+                              initialValue: _carteiraValidadeModo,
+                              decoration: const InputDecoration(
+                                labelText: 'Validade da carteirinha',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: CarteiraValidadeModo.permanente,
+                                  child: Text('Permanente'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CarteiraValidadeModo.anos2,
+                                  child: Text('02 anos'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CarteiraValidadeModo.anos3,
+                                  child: Text('03 anos'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CarteiraValidadeModo.anos5,
+                                  child: Text('05 anos'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CarteiraValidadeModo.dataFixa,
+                                  child: Text('Data fixa (escolher)'),
+                                ),
+                              ],
+                              onChanged: !_canEdit
+                                  ? null
+                                  : (v) {
+                                      if (v == null) return;
+                                      setState(() {
+                                        _carteiraValidadeModo = v;
+                                        if (v !=
+                                            CarteiraValidadeModo.dataFixa) {
+                                          _carteiraValidadeDataFixa = null;
+                                        }
+                                      });
+                                    },
+                            ),
+                            if (_carteiraValidadeModo ==
+                                CarteiraValidadeModo.dataFixa) ...[
+                              const SizedBox(height: 10),
+                              OutlinedButton.icon(
+                                onPressed: !_canEdit
+                                    ? null
+                                    : () async {
+                                        final now = DateTime.now();
+                                        final picked = await showDatePicker(
+                                          context: context,
+                                          locale: const Locale('pt', 'BR'),
+                                          initialDate:
+                                              _carteiraValidadeDataFixa ??
+                                              DateTime(
+                                                now.year + 3,
+                                                now.month,
+                                                now.day,
+                                              ),
+                                          firstDate: now,
+                                          lastDate: DateTime(now.year + 30),
+                                        );
+                                        if (picked != null && mounted) {
+                                          setState(
+                                            () => _carteiraValidadeDataFixa =
+                                                picked,
+                                          );
+                                        }
+                                      },
+                                icon: const Icon(Icons.event_rounded),
+                                label: Text(
+                                  _carteiraValidadeDataFixa == null
+                                      ? 'Escolher data de validade'
+                                      : 'Validade até: ${_carteiraValidadeDataFixa!.day.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.month.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.year}',
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: ThemeCleanPremium.spaceLg),
+                            _cadastroSectionLabel(
+                              'Site público — redes sociais',
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Aparecem na área de contato do site público. Instagram, YouTube e Facebook: links completos (https://…). WhatsApp: apenas o número com DDI (ex.: 5562999999999), sem link.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.4,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              controller: _instagramUrlCtrl,
+                              readOnly: !_canEdit,
+                              decoration: _premiumInputDeco(
+                                'Instagram',
+                                'https://instagram.com/suaigreja',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _youtubeUrlCtrl,
+                              readOnly: !_canEdit,
+                              decoration: _premiumInputDeco(
+                                'YouTube',
+                                'https://youtube.com/@canal',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _facebookUrlCtrl,
+                              readOnly: !_canEdit,
+                              decoration: _premiumInputDeco(
+                                'Facebook',
+                                'https://facebook.com/suaigreja',
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _whatsappChatUrlCtrl,
+                              readOnly: !_canEdit,
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: const [BrPhoneInputFormatter()],
+                              decoration: _premiumInputDeco(
+                                'WhatsApp — telefone (opcional)',
+                                '62 9.9170-5247',
+                              ),
+                            ),
+                            if (_slugCtrl.text.trim().isNotEmpty) ...[
+                              const SizedBox(height: ThemeCleanPremium.spaceLg),
+                              Builder(
+                                builder: (ctx) {
+                                  final slug = _slugCtrl.text.trim();
+                                  return ChurchPublicLinksCard(
+                                    slug: slug,
+                                    compact: true,
+                                    onOpenSite: () => openHttpsUrlInBrowser(
+                                      ctx,
+                                      ChurchPublicLinksCard.siteUrlForSlug(
+                                        slug,
+                                      ),
+                                    ),
+                                    onOpenCadastro: () {
+                                      final cadUrl =
+                                          ChurchPublicLinksCard.signupUrlForSlug(
+                                            slug,
+                                          );
+                                      if (!PublicMemberSignupNavigation.tryOpenInAppFromUrl(
+                                        ctx,
+                                        cadUrl,
+                                      )) {
+                                        openHttpsUrlInBrowser(ctx, cadUrl);
+                                      }
+                                    },
+                                  );
+                                },
+                              ),
                             ],
                           ],
-                        ),
+                        ],
                       ),
                     ),
-                  ),
+                    if (_formHydrated) ...[
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                      _buildChurchSaveFooter(),
+                    ],
+                  ],
                 ),
               ),
-            );
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

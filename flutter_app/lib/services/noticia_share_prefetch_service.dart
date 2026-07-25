@@ -1,5 +1,10 @@
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart' show eventNoticiaPhotoUrls;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/noticia_share_photo_url.dart'
+    show preferShareFriendlyPhotoUrl;
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show dedupeImageRefsByStorageIdentity, imageRefDedupeKey, sanitizeImageUrl;
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 /// Pacote de URLs de mídia para partilha — gerado no servidor ([getNoticiaSharePack]).
@@ -30,14 +35,17 @@ class NoticiaSharePack {
         add(e);
       }
     }
+    // Capa só se ainda não veio em photoUrls (mesma foto ≠ 2 anexos).
     add(raw['feedCoverUrl']);
-    add(raw['videoThumbUrl']);
+    // Não incluir videoThumbUrl — miniatura, não segunda foto.
+
+    final deduped = dedupeImageRefsByStorageIdentity(urls);
 
     return NoticiaSharePack(
-      photoUrls: urls,
+      photoUrls: deduped,
       feedCoverUrl: (raw['feedCoverUrl'] ?? '').toString().trim().isNotEmpty
           ? (raw['feedCoverUrl'] ?? '').toString().trim()
-          : null,
+          : (deduped.isNotEmpty ? deduped.first : null),
       videoThumbUrl: (raw['videoThumbUrl'] ?? '').toString().trim().isNotEmpty
           ? (raw['videoThumbUrl'] ?? '').toString().trim()
           : null,
@@ -76,38 +84,30 @@ abstract final class NoticiaSharePrefetchService {
   }
 
   static List<String> httpPhotoUrlsFromPost(Map<String, dynamic> post) {
-    final seen = <String>{};
+    // Usa a mesma deduplicação do feed (capa + photoUrls + imageUrl = 1 slot).
+    // Preferir medium_800 quando existir (share rápido, sem full 1920).
     final out = <String>[];
-    void add(dynamic v) {
-      final s = (v ?? '').toString().trim();
-      if (!s.startsWith('http') || seen.contains(s)) return;
+    final seen = <String>{};
+    for (final raw in eventNoticiaPhotoUrls(post)) {
+      final s = preferShareFriendlyPhotoUrl(sanitizeImageUrl(raw));
+      if (s.isEmpty || !(s.startsWith('http://') || s.startsWith('https://'))) {
+        continue;
+      }
       final low = s.toLowerCase().split('?').first;
       if (low.contains('youtube.com') ||
           low.contains('youtu.be') ||
           low.contains('vimeo.com')) {
-        return;
+        continue;
       }
       if (RegExp(r'\.(mp4|webm|mov|m4v|m3u8)$').hasMatch(low) ||
           (low.contains('/videos/') &&
               !RegExp(r'\.(jpg|jpeg|png|webp|gif)$').hasMatch(low))) {
-        return;
+        continue;
       }
-      seen.add(s);
+      final key = imageRefDedupeKey(s) ?? s.toLowerCase();
+      if (!seen.add(key)) continue;
       out.add(s);
     }
-
-    final photos = post['photoUrls'];
-    if (photos is List) {
-      for (final e in photos) {
-        add(e);
-      }
-    }
-    add(post['feedCoverUrl']);
-    add(post['shareCoverUrl']);
-    add(post['imagem_url']);
-    add(post['imageUrl']);
-    add(post['defaultImageUrl']);
-    add(post['videoThumbUrl']);
     return out;
   }
 
@@ -200,7 +200,7 @@ abstract final class NoticiaSharePrefetchService {
         'postId': pid,
         'collection': col,
       })
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 8));
       final pack = NoticiaSharePack.fromMap(res.data);
       if (pack.photoUrls.isNotEmpty || pack.hostedVideoUrl != null) {
         _ram[_key(tid, col, pid)] = _RamHit(pack, DateTime.now());

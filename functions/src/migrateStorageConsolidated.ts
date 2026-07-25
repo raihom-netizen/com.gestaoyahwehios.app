@@ -23,7 +23,7 @@ async function isMasterPanelActor(
 }
 
 const db = admin.firestore();
-const bucket = admin.storage().bucket();
+function getBucket() { return admin.storage().bucket(); }
 
 const PROFILE_FULL = 1024;
 const PROFILE_THUMB = 200;
@@ -54,7 +54,7 @@ export interface StorageMigrationResult {
 
 async function downloadBuffer(path: string): Promise<Buffer | null> {
   try {
-    const file = bucket.file(path);
+    const file = getBucket().file(path);
     const [exists] = await file.exists();
     if (!exists) return null;
     const [buf] = await file.download();
@@ -66,7 +66,7 @@ async function downloadBuffer(path: string): Promise<Buffer | null> {
 
 async function saveWebp(path: string, buffer: Buffer): Promise<string> {
   const token = db.collection("_meta").doc().id;
-  await bucket.file(path).save(buffer, {
+  await getBucket().file(path).save(buffer, {
     metadata: {
       contentType: "image/webp",
       cacheControl: "public,max-age=31536000",
@@ -75,7 +75,7 @@ async function saveWebp(path: string, buffer: Buffer): Promise<string> {
     resumable: false,
   });
   const encoded = encodeURIComponent(path);
-  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${token}`;
+  return `https://firebasestorage.googleapis.com/v0/b/${getBucket().name}/o/${encoded}?alt=media&token=${token}`;
 }
 
 async function encodeMemberTiers(buf: Buffer): Promise<{ full: Buffer; thumb: Buffer }> {
@@ -184,8 +184,8 @@ async function migrateMemberDoc(
 
   const thumbPath = `igrejas/${tid}/membros/thumbs/${mid}.webp`;
   const fullPath = `igrejas/${tid}/membros/fotos/${mid}.webp`;
-  const hasThumb = (await bucket.file(thumbPath).exists())[0];
-  const hasFull = (await bucket.file(fullPath).exists())[0];
+  const hasThumb = (await getBucket().file(thumbPath).exists())[0];
+  const hasFull = (await getBucket().file(fullPath).exists())[0];
   const hasThumbUrl =
     typeof data.fotoThumbUrl === "string" && data.fotoThumbUrl.startsWith("http");
 
@@ -244,7 +244,7 @@ async function migratePatrimonioDoc(
     const n = String(slot + 1).padStart(2, "0");
     const canonImg = `igrejas/${tid}/patrimonio/imagens/${iid}_${n}.webp`;
     const canonThumb = `igrejas/${tid}/patrimonio/thumbs/${iid}_${n}.webp`;
-    if ((await bucket.file(canonImg).exists())[0]) continue;
+    if ((await getBucket().file(canonImg).exists())[0]) continue;
 
     const legacy = [
       `igrejas/${tid}/patrimonio/${iid}/galeria_${n}.webp`,
@@ -279,7 +279,7 @@ async function migrateLegacyFeedFolder(
   const tid = tenantId.trim();
   const prefix = `igrejas/${tid}/${module}/`;
   let migrated = 0;
-  const [files] = await bucket.getFiles({ prefix, maxResults: 500 });
+  const [files] = await getBucket().getFiles({ prefix, maxResults: 500 });
   for (const file of files) {
     const name = file.name;
     if (name.includes("/imagens/") || name.includes("/thumbs/") || name.includes("/videos/")) {
@@ -300,7 +300,7 @@ async function migrateLegacyFeedFolder(
         ? base.replace("capa_aviso", "capa").replace("banner_evento", "banner")
         : base;
     const dest = `igrejas/${tid}/${module}/imagens/${postId}_${suffix}.webp`;
-    if ((await bucket.file(dest).exists())[0]) continue;
+    if ((await getBucket().file(dest).exists())[0]) continue;
     const buf = await downloadBuffer(name);
     if (!buf) continue;
     if (dryRun) {
@@ -322,7 +322,7 @@ async function migrateEventVideoThumbs(tenantId: string, dryRun: boolean): Promi
   const tid = tenantId.trim();
   const prefix = `igrejas/${tid}/eventos/videos/`;
   let migrated = 0;
-  const [files] = await bucket.getFiles({ prefix, maxResults: 200 });
+  const [files] = await getBucket().getFiles({ prefix, maxResults: 200 });
   for (const file of files) {
     const m = file.name.match(/_v(\d)_thumb\.(jpg|jpeg|webp)$/i);
     if (!m) continue;
@@ -331,7 +331,7 @@ async function migrateEventVideoThumbs(tenantId: string, dryRun: boolean): Promi
     const postId = postM[1];
     const slot = m[1];
     const dest = `igrejas/${tid}/eventos/thumbs/${postId}_v${slot}.webp`;
-    if ((await bucket.file(dest).exists())[0]) continue;
+    if ((await getBucket().file(dest).exists())[0]) continue;
     const buf = await downloadBuffer(file.name);
     if (!buf) continue;
     if (dryRun) {

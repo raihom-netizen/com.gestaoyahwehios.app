@@ -63,12 +63,6 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
   bool _loading = true;
   bool _failed = false;
 
-  String _pickDisplayPath() {
-    final thumb = ChurchChatMessageFields.thumbStoragePath(widget.data);
-    if (thumb.isNotEmpty) return thumb;
-    return ChurchChatMessageFields.storagePath(widget.data);
-  }
-
   @override
   void initState() {
     super.initState();
@@ -86,15 +80,24 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
   }
 
   String _pathKey(Map<String, dynamic> d) {
+    final full = ChurchChatMessageFields.storagePath(d);
     final thumb = ChurchChatMessageFields.thumbStoragePath(d);
-    if (thumb.isNotEmpty) return thumb;
-    return ChurchChatMessageFields.storagePath(d);
+    final url = ChurchChatMessageFields.mediaUrl(d);
+    return '$full|$thumb|$url';
   }
 
   Future<void> _load() async {
-    final path = _pickDisplayPath();
+    final thumbPath = ChurchChatMessageFields.thumbStoragePath(widget.data);
+    final fullPath = ChurchChatMessageFields.storagePath(widget.data);
     final legacyUrl = ChurchChatMessageFields.mediaUrl(widget.data);
-    final cacheKey = path.isNotEmpty ? path : legacyUrl.trim();
+    // Preferir full path se thumb ainda não existe no Storage (race no envio).
+    final primaryPath = fullPath.isNotEmpty ? fullPath : thumbPath;
+    final secondaryPath = (thumbPath.isNotEmpty && thumbPath != fullPath)
+        ? thumbPath
+        : '';
+    final cacheKey = primaryPath.isNotEmpty
+        ? primaryPath
+        : (secondaryPath.isNotEmpty ? secondaryPath : legacyUrl.trim());
 
     if (cacheKey.isEmpty) {
       if (mounted) {
@@ -127,15 +130,21 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
       });
     }
 
-    Uint8List? data;
-    if (path.isNotEmpty) {
-      data = await ChurchChatMediaResolver.downloadBytes(
+    Future<Uint8List?> tryPath(String path) async {
+      if (path.isEmpty) return null;
+      return ChurchChatMediaResolver.downloadBytes(
         storagePath: path,
         maxBytes: 4 * 1024 * 1024,
       ).timeout(
         const Duration(seconds: 14),
         onTimeout: () => null,
       );
+    }
+
+    // 1) full → 2) thumb → 3) legacy URL
+    Uint8List? data = await tryPath(primaryPath);
+    if ((data == null || data.length < 32) && secondaryPath.isNotEmpty) {
+      data = await tryPath(secondaryPath);
     }
 
     if ((data == null || data.length < 32) && legacyUrl.isNotEmpty) {
@@ -154,7 +163,9 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
     String? resolvedUrl;
     if (data == null || data.length < 32) {
       resolvedUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
-        storagePath: path.isNotEmpty ? path : legacyUrl,
+        storagePath: primaryPath.isNotEmpty
+            ? primaryPath
+            : (secondaryPath.isNotEmpty ? secondaryPath : legacyUrl),
         tenantId: widget.tenantId,
         messageId: widget.messageId,
         fastPreview: true,

@@ -1,0 +1,4 @@
+- All Firebase resources (hosting, functions source, firestore rules, storage rules, emulators) are declared centrally in `firebase.json` rather than per-module config files.
+- CI secrets and credentials are passed through Codemagic groups (e.g. `appstore_credentials`, `firebase_ipa_upload`) and referenced as environment variables, never committed to the repo.
+- Build outputs follow a fixed layout: Flutter web to `flutter_app/build/web`, iOS IPA to `flutter_app/build/ios/ipa`, with dSYMs uploaded to Crashlytics before App Store Connect publishing.
+- Versioning is synchronized across platforms from a single Dart source (`lib/app_version.dart`), with iOS build numbers derived from App Store Connect floor plus an offset.

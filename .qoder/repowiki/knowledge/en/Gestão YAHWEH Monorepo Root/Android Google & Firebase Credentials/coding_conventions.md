@@ -1,0 +1,3 @@
+- Sensitive credentials (Firebase admin SDK JSONs and OAuth client secrets) are excluded from Git via wildcard patterns in `.gitignore` rather than moved elsewhere.
+- Non-sensitive app configuration (`google-services.json`) is committed alongside documentation explaining its limited scope and the need to refresh it after fingerprint changes.
+- Setup and deployment steps are captured as PowerShell scripts under `scripts/` and referenced from the README files instead of being embedded in code.

@@ -71,7 +71,6 @@ class FcmService {
     void Function(RemoteMessage message)? onForegroundMessage,
     bool forceRefresh = false,
   }) async {
-    if (kIsWeb) return;
     if (uid.trim().isEmpty) return;
 
     final tid = await resolvePushTenantId(
@@ -96,12 +95,7 @@ class FcmService {
     }
 
     try {
-      await _configureImpl(
-        uid: uid,
-        tenantId: tid,
-        cpf: cpf,
-        role: role,
-      );
+      await _configureImpl(uid: uid, tenantId: tid, cpf: cpf, role: role);
     } catch (e, st) {
       debugPrint('FcmService.configure: $e\n$st');
     }
@@ -113,12 +107,28 @@ class FcmService {
     required String cpf,
     required String role,
   }) async {
+    final messaging = FirebaseMessaging.instance;
+    await messaging.setAutoInitEnabled(true);
+
+    // Web: pede permissão de notificação do browser e obtém token.
+    if (kIsWeb) {
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      await _configureWebToken(messaging, uid: uid, tenantId: tenantId);
+      await _configureTopics(
+        messaging,
+        uid: uid,
+        tenantId: tenantId,
+        cpf: cpf,
+        role: role,
+      );
+      return;
+    }
+
+    // Mobile: canais Android + permissões iOS + APNs token.
     await PanelNotificationService.instance.registerAndroidChannelsForBoot();
     await PanelNotificationService.instance
         .ensureAndroidPostNotificationsPermission();
 
-    final messaging = FirebaseMessaging.instance;
-    await messaging.setAutoInitEnabled(true);
     await messaging.requestPermission(
       alert: true,
       badge: true,
@@ -136,7 +146,10 @@ class FcmService {
         badge: true,
         sound: true,
       );
-      await PanelNotificationService.instance.ensureIosLocalNotificationPermissions();
+      await PanelNotificationService.instance
+          .ensureIosLocalNotificationPermissions();
+      // Limpar badge ao abrir o app (paridade Controle Total).
+      await PanelNotificationService.instance.clearIosBadge();
       // Após permissão, esperar o token APNs (registerForRemoteNotifications no AppDelegate).
       for (var i = 0; i < 20; i++) {
         try {
@@ -148,7 +161,22 @@ class FcmService {
     }
 
     await _migratePushTopics(messaging, tenantId);
+    await _configureMobileToken(messaging, uid: uid, tenantId: tenantId);
+    await _configureTopics(
+      messaging,
+      uid: uid,
+      tenantId: tenantId,
+      cpf: cpf,
+      role: role,
+    );
+  }
 
+  /// Web: token FCM + persistência no Firestore + refresh listener.
+  Future<void> _configureWebToken(
+    FirebaseMessaging messaging, {
+    required String uid,
+    required String tenantId,
+  }) async {
     Future<void> persistToken(String token) async {
       if (token.isEmpty) return;
       try {
@@ -158,12 +186,60 @@ class FcmService {
             .collection('fcmTokens')
             .doc(token)
             .set({
-          'token': token,
-          'tenantId': tenantId,
-          'platform': defaultTargetPlatform.name,
-          'updatedAt': FieldValue.serverTimestamp(),
-          'createdAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+              'token': token,
+              'tenantId': tenantId,
+              'platform': 'web',
+              'updatedAt': FieldValue.serverTimestamp(),
+              'createdAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+      } catch (_) {}
+    }
+
+    try {
+      final token = await messaging.getToken(
+        vapidKey: null, // usa o default do Firebase Console
+      );
+      if (token != null) await persistToken(token);
+    } catch (_) {
+      // Web: permissão pode ser negada pelo browser — silencioso.
+    }
+
+    await _onTokenRefreshSub?.cancel();
+    _onTokenRefreshSub = messaging.onTokenRefresh.listen(persistToken);
+
+    // Foreground messages na web.
+    await _onMessageSub?.cancel();
+    await _onMessageOpenedSub?.cancel();
+    _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
+      YahwehPushCacheRefresh.handleMessage(message);
+      _foregroundHandler?.call(message);
+    });
+    _onMessageOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(
+      routeNotificationTap,
+    );
+  }
+
+  /// Mobile: token FCM + persistência + APNs.
+  Future<void> _configureMobileToken(
+    FirebaseMessaging messaging, {
+    required String uid,
+    required String tenantId,
+  }) async {
+    Future<void> persistToken(String token) async {
+      if (token.isEmpty) return;
+      try {
+        await firebaseDefaultFirestore
+            .collection('users')
+            .doc(uid)
+            .collection('fcmTokens')
+            .doc(token)
+            .set({
+              'token': token,
+              'tenantId': tenantId,
+              'platform': defaultTargetPlatform.name,
+              'updatedAt': FieldValue.serverTimestamp(),
+              'createdAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
       } catch (_) {}
     }
 
@@ -172,7 +248,16 @@ class FcmService {
 
     await _onTokenRefreshSub?.cancel();
     _onTokenRefreshSub = messaging.onTokenRefresh.listen(persistToken);
+  }
 
+  /// Tópicos FCM — partilhado entre web e mobile.
+  Future<void> _configureTopics(
+    FirebaseMessaging messaging, {
+    required String uid,
+    required String tenantId,
+    required String cpf,
+    required String role,
+  }) async {
     List<String> deptIds = <String>[];
     var cargoLabel = '';
     try {
@@ -190,7 +275,8 @@ class FcmService {
     ];
 
     final prefs = await SharedPreferences.getInstance();
-    final prevTopics = prefs.getStringList('church_fcm_topics') ??
+    final prevTopics =
+        prefs.getStringList('church_fcm_topics') ??
         prefs.getStringList('dept_topics') ??
         <String>[];
 
@@ -242,17 +328,21 @@ class FcmService {
       isCorporateStaff && pushFornecedorPref,
     );
 
-    await _onMessageSub?.cancel();
-    await _onMessageOpenedSub?.cancel();
-    _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
-      YahwehPushCacheRefresh.handleMessage(message);
-      _foregroundHandler?.call(message);
-    });
-    _onMessageOpenedSub =
-        FirebaseMessaging.onMessageOpenedApp.listen(routeNotificationTap);
-    final initialOpen = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialOpen != null) {
-      routeNotificationTap(initialOpen);
+    // Foreground messages (mobile — web já configurado em _configureWebToken).
+    if (!kIsWeb) {
+      await _onMessageSub?.cancel();
+      await _onMessageOpenedSub?.cancel();
+      _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
+        YahwehPushCacheRefresh.handleMessage(message);
+        _foregroundHandler?.call(message);
+      });
+      _onMessageOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(
+        routeNotificationTap,
+      );
+      final initialOpen = await FirebaseMessaging.instance.getInitialMessage();
+      if (initialOpen != null) {
+        routeNotificationTap(initialOpen);
+      }
     }
 
     await prefs.setStringList('church_fcm_topics', nextTopics);
@@ -327,7 +417,6 @@ class FcmService {
     required String tenantId,
     String? role,
   }) async {
-    if (kIsWeb) return;
     final tid = await resolvePushTenantId(tenantId, userUid: uid);
     if (tid.isEmpty) return;
 
@@ -349,8 +438,10 @@ class FcmService {
     var pushFornecedorAgenda = false;
 
     try {
-      final doc =
-          await firebaseDefaultFirestore.collection('users').doc(uid).get();
+      final doc = await firebaseDefaultFirestore
+          .collection('users')
+          .doc(uid)
+          .get();
       final d = doc.data();
       if (d != null) {
         if (d['pushAvisos'] is bool) pushAvisos = d['pushAvisos'] as bool;
@@ -378,8 +469,7 @@ class FcmService {
 
     final roleNorm = (role ?? '').trim().toLowerCase();
     final corporateEligible = _isCorporateStaffRole(roleNorm);
-    final fornecedorSubscribe =
-        corporateEligible && pushFornecedorAgenda;
+    final fornecedorSubscribe = corporateEligible && pushFornecedorAgenda;
 
     final flags = {
       'pushAvisos': pushAvisos,
@@ -405,10 +495,7 @@ class FcmService {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        'church_fcm_pref_topics',
-        subscribed,
-      );
+      await prefs.setStringList('church_fcm_pref_topics', subscribed);
       await prefs.setStringList(_prefGypushTopics, subscribed);
       await prefs.setString(_prefPushTenant, tid);
     } catch (_) {}
@@ -467,25 +554,29 @@ class FcmService {
     if (t == 'new_member') {
       final publicRaw = (message.data['publicSignup'] ?? '').toString().trim();
       if (publicRaw == '1') {
-        ChurchPanelNavigationBridge.instance
-            .requestNavigateToShellIndex(kChurchShellIndexAprovacoes);
+        ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+          kChurchShellIndexAprovacoes,
+        );
       } else {
-        ChurchPanelNavigationBridge.instance
-            .requestNavigateToShellIndex(kChurchShellIndexMembers);
+        ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+          kChurchShellIndexMembers,
+        );
       }
       return;
     }
 
     if (t == 'birthday_daily') {
-      ChurchPanelNavigationBridge.instance
-          .requestNavigateToShellIndex(kChurchShellIndexPainel);
+      ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+        kChurchShellIndexPainel,
+      );
       return;
     }
 
     if (t == 'financeiro_vencimento_digest' ||
         t == 'financeiro_vencimento_24h') {
-      ChurchPanelNavigationBridge.instance
-          .requestNavigateToShellIndex(kChurchShellIndexFinanceiro);
+      ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+        kChurchShellIndexFinanceiro,
+      );
       return;
     }
 
@@ -515,26 +606,25 @@ class FcmService {
     if (cpfDigits.isEmpty) return '';
 
     final op = await ChurchOperationalPaths.resolve(tenantId);
-    final members =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final members = ChurchOperationalPaths.churchDoc(op).collection('membros');
 
     final byId = await members.doc(cpfDigits).get();
     Map<String, dynamic>? data;
     if (byId.exists) {
       data = byId.data();
     } else {
-      final q =
-          await members.where('CPF', isEqualTo: cpfDigits).limit(1).get();
+      final q = await members.where('CPF', isEqualTo: cpfDigits).limit(1).get();
       if (q.docs.isNotEmpty) data = q.docs.first.data();
     }
     if (data == null) return '';
-    final v = (data['CARGO'] ??
-            data['cargo'] ??
-            data['FUNCAO'] ??
-            data['funcao'] ??
-            '')
-        .toString()
-        .trim();
+    final v =
+        (data['CARGO'] ??
+                data['cargo'] ??
+                data['FUNCAO'] ??
+                data['funcao'] ??
+                '')
+            .toString()
+            .trim();
     return v;
   }
 
@@ -546,8 +636,7 @@ class FcmService {
     if (cpfDigits.isEmpty) return <String>[];
 
     final op = await ChurchOperationalPaths.resolve(tenantId);
-    final members =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final members = ChurchOperationalPaths.churchDoc(op).collection('membros');
 
     final byId = await members.doc(cpfDigits).get();
     if (byId.exists) {

@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/chat_system
+title: Church Chat Cloud Functions (Purge, DM Normalization & Notifications)
+scope:
+    - functions/src/churchChatAdminPurge.ts
+    - functions/src/churchChatDmThreadNormalize.ts
+    - functions/src/churchChatNotify.ts
+source_files: []
+depends_on: []
+related_to: []

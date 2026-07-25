@@ -1,0 +1,1 @@
+Firebase Cloud Functions that purge church chat messages by admin role, normalize and backfill DM thread metadata, and push FCM notifications to chat participants respecting per-user alert preferences.

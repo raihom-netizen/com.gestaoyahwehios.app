@@ -35,6 +35,42 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class ChurchChatMediaSendService {
   ChurchChatMediaSendService._();
 
+  /// Extensão/MIME coerentes por tipo — nunca `media.webp` para áudio/vídeo/docs.
+  static String _storageFileNameForPending(ChurchChatOutboundPending pending) {
+    final raw = pending.fileName.trim();
+    final kind = pending.kind.trim().toLowerCase();
+    if (ChurchChatMessageFields.isDocumentType(kind)) {
+      return raw.isNotEmpty ? raw : 'documento.pdf';
+    }
+    String extForMime(String mime, String fallback) {
+      final m = mime.toLowerCase();
+      if (m.contains('png')) return '.png';
+      if (m.contains('jpeg') || m.contains('jpg')) return '.jpg';
+      if (m.contains('webp')) return '.webp';
+      if (m.contains('gif')) return '.gif';
+      if (m.contains('mp4') || m.contains('m4a')) return fallback;
+      if (m.contains('webm')) return '.webm';
+      if (m.contains('mpeg') || m.contains('mp3')) return '.mp3';
+      if (m.contains('ogg')) return '.ogg';
+      if (m.contains('wav')) return '.wav';
+      return fallback;
+    }
+
+    if (kind == 'audio') {
+      if (raw.isNotEmpty && raw.contains('.')) return raw;
+      return 'voice${extForMime(pending.mime, '.m4a')}';
+    }
+    if (kind == 'video') {
+      if (raw.isNotEmpty && raw.contains('.')) return raw;
+      return 'video${extForMime(pending.mime, '.mp4')}';
+    }
+    if (kind == 'image') {
+      if (raw.isNotEmpty && raw.contains('.')) return raw;
+      return 'foto${extForMime(pending.mime, '.webp')}';
+    }
+    return raw.isNotEmpty ? raw : 'ficheiro.bin';
+  }
+
   static Future<Uint8List> _readLocalPathBytes(String path) async {
     final p = path.trim();
     if (p.isEmpty) return Uint8List(0);
@@ -239,9 +275,7 @@ abstract final class ChurchChatMediaSendService {
     onProgress?.call(0.04);
     // Gate já feito em [send] — não repetir (atrasava «A confirmar envio»).
 
-    final displayName = ChurchChatMessageFields.isDocumentType(pending.kind)
-        ? (pending.fileName.isNotEmpty ? pending.fileName : 'file')
-        : 'media.webp';
+    final displayName = _storageFileNameForPending(pending);
 
     final messageId = (pending.firestoreMessageId ?? '').trim().isNotEmpty
         ? pending.firestoreMessageId!.trim()
@@ -343,26 +377,32 @@ abstract final class ChurchChatMediaSendService {
         );
         reportProgress(0.82);
 
-        // Thumb truly non-blocking — fire-and-forget; message goes immediately.
-        if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
-          thumbStoragePath =
+        // Thumb em background — NÃO gravar thumbStoragePath no 1.º write
+        // (UI preferia thumb inexistente → imagem quebrada). Patch depois.
+        final thumbBytes = prepared.thumbBytes;
+        String? pendingThumbPath;
+        if (thumbBytes != null && thumbBytes.isNotEmpty) {
+          pendingThumbPath =
               ChurchChatService.buildChatImageThumbStoragePathForMessage(
             tenantId: resolvedTenant,
             messageId: messageId,
           );
-          unawaited(
-            ChurchChatMediaStorage.putBytesFast(
-              storagePath: thumbStoragePath,
-              bytes: prepared.thumbBytes!,
-              contentType: 'image/webp',
-            ).timeout(kStorageThumbTimeout).then(
-              (url) => thumbUrl = url,
-              onError: (_) {
-                thumbStoragePath = null;
-                thumbUrl = null;
-              },
-            ),
-          );
+          unawaited(() async {
+            try {
+              final url = await ChurchChatMediaStorage.putBytesFast(
+                storagePath: pendingThumbPath!,
+                bytes: thumbBytes,
+                contentType: 'image/webp',
+              ).timeout(kStorageThumbTimeout);
+              await ChurchChatService.patchMediaThumbAfterUpload(
+                tenantId: resolvedTenant,
+                threadId: threadId,
+                messageId: messageId,
+                thumbStoragePath: pendingThumbPath,
+                thumbUrl: url,
+              );
+            } catch (_) {}
+          }());
         }
         reportProgress(0.88);
       } else if (pending.kind == 'video') {
@@ -415,24 +455,27 @@ abstract final class ChurchChatMediaSendService {
 
         final thumbBytes = preparedVideo?.thumbnailBytes;
         if (thumbBytes != null && thumbBytes.isNotEmpty) {
-          thumbStoragePath =
+          final videoThumbPath =
               ChurchChatService.buildChatVideoThumbStoragePathForMessage(
             tenantId: resolvedTenant,
             messageId: messageId,
           );
-          unawaited(
-            ChurchChatMediaStorage.putBytesFast(
-              storagePath: thumbStoragePath,
-              bytes: thumbBytes,
-              contentType: 'image/jpeg',
-            ).timeout(kStorageThumbTimeout).then(
-              (url) => thumbUrl = url,
-              onError: (_) {
-                thumbStoragePath = null;
-                thumbUrl = null;
-              },
-            ),
-          );
+          unawaited(() async {
+            try {
+              final url = await ChurchChatMediaStorage.putBytesFast(
+                storagePath: videoThumbPath,
+                bytes: thumbBytes,
+                contentType: 'image/jpeg',
+              ).timeout(kStorageThumbTimeout);
+              await ChurchChatService.patchMediaThumbAfterUpload(
+                tenantId: resolvedTenant,
+                threadId: threadId,
+                messageId: messageId,
+                thumbStoragePath: videoThumbPath,
+                thumbUrl: url,
+              );
+            } catch (_) {}
+          }());
         }
       } else if (pending.kind == 'audio') {
         final mime = pending.mime.isNotEmpty ? pending.mime : 'audio/mp4';

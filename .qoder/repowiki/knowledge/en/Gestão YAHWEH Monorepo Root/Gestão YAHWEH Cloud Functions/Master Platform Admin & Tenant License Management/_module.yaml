@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: cloud_functions/master_platform
+title: Master Platform Admin & Tenant License Management
+scope:
+    - functions/src/masterPlatformAuth.ts
+    - functions/src/masterTenantLicense.ts
+    - functions/src/masterChurchesListCache.ts
+source_files: []
+depends_on: []
+related_to: []
