@@ -1,8 +1,14 @@
-/// TDLib / Telegram — motor nativo YAHWEH Chat em mobile, stub na Web.
+﻿/// TDLib / Telegram — motor nativo YAHWEH Chat em mobile, stub na Web.
 ///
-/// O pacote `libtdjson` depende de binários nativos gerados por
-/// `dart run tool/setup_tdlib.dart` (Android + iOS). No CI iOS rode
-/// `--ios-only` antes do `pod install`. Na Web mantém stub.
+/// O pacote `libtdjson` esta DESATIVADO (removido do pubspec.yaml — pod iOS
+/// flutter_libtdjson falha ao linkar libtdjson.a no Xcode moderno).
+/// Fallback automatico para Firestore chat em todas as plataformas.
+///
+/// Para reativar: descomentar `libtdjson: 0.3.0` no pubspec.yaml e
+/// restaurar a linha de export condicional abaixo (if dart.library.io).
 library;
 
-export 'tdlib_service_stub.dart' if (dart.library.io) 'tdlib_service_io.dart';
+// libtdjson DESATIVADO: exportar sempre o stub (Firestore fallback).
+// Restaurar quando libtdjson for reativado no pubspec.yaml:
+// export 'tdlib_service_stub.dart' if (dart.library.io) 'tdlib_service_io.dart';
+export 'tdlib_service_stub.dart';
