@@ -107,9 +107,9 @@ dependencies:
   audio_waveforms: ^2.0.2
   package_info_plus: ^9.0.1
   # TDLib (Telegram) — motor nativo do YAHWEH Chat (Android/iOS).
-  # Reativado: executar `dart run tool/setup_tdlib.dart` localmente e no CI
-  # (`--ios-only` antes do `pod install`) para gerar os binários nativos.
-  libtdjson: 0.3.0
+  # DESATIVADO no iOS CI: flutter_libtdjson pod falha ao linkar libtdjson.a no Xcode.
+  # Para reativar: adicionar `libtdjson: 0.3.0` e rodar setup_tdlib.dart --ios-only.
+  # libtdjson: 0.3.0  # desativado — fallback automatico para Firestore chat
   flutter_dotenv: ^6.0.1
 flutter:
   # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.

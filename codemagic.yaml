@@ -280,14 +280,17 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_ensure_deployment_target_15.sh"
-      # TDLib iOS: baixa libtdjson-static.xcframework e patcha o Podfile (deve rodar ANTES do pod install).
-      # Sem este passo flutter_libtdjson falha: Build input file cannot be found: libtdjson.a
-      - name: Setup TDLib iOS (xcframework estatico, antes do CocoaPods)
+      # Limpa cache de Pods para invalidar versoes antigas (ex: flutter_libtdjson removido).
+      # Pode ser removido apos o primeiro build bem-sucedido para retomar caching.
+      - name: Limpar cache Pods (invalidar flutter_libtdjson removido)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          cd "$ROOT/flutter_app"
-          dart run tool/setup_tdlib.dart --ios-only
+          echo "Removendo Pods/ e Podfile.lock antigos para rebuild limpo..."
+          rm -rf "$ROOT/flutter_app/ios/Pods" || true
+          rm -f "$ROOT/flutter_app/ios/Podfile.lock" || true
+          pod cache clean --all || true
+          echo "OK: cache limpo"
       - name: CocoaPods
         script: |
           set -e
