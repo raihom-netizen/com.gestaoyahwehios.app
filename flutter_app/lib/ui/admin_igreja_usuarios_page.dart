@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_user_search.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -66,14 +65,18 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         try {
           final membrosSnap =
               await ChurchTenantResilientReads.membrosRecent(tid, limit: 2500);
-          for (final d in membrosSnap.docs) addDoc(d);
+          for (final d in membrosSnap.docs) {
+            addDoc(d);
+          }
         } catch (e, st) {
           debugPrint('AdminIgrejaUsuarios membrosRecent($tid): $e\n$st');
         }
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
           final usersInIgreja = await ChurchUiCollections.churchDoc(tid).collection('users').get();
-          for (final d in usersInIgreja.docs) addDoc(d);
+          for (final d in usersInIgreja.docs) {
+            addDoc(d);
+          }
         } catch (e, st) {
           debugPrint('AdminIgrejaUsuarios igreja/users($tid): $e\n$st');
         }
@@ -221,7 +224,7 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                                       children: [
                                         CircleAvatar(
                                           backgroundColor: ativo
-                                              ? ThemeCleanPremium.primary.withOpacity(0.15)
+                                              ? ThemeCleanPremium.primary.withValues(alpha: 0.15)
                                               : Colors.grey.shade300,
                                           child: Icon(
                                             Icons.person_rounded,

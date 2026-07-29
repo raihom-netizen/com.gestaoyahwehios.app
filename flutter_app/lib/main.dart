@@ -30,15 +30,12 @@ import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'ui/pages/login_page_novo.dart';
 import 'ui/login_page.dart';
 import 'ui/pages/cadastro_usuario_page.dart';
 import 'ui/pages/usuarios_permissoes_page.dart';
 import 'ui/pages/aprovar_membros_pendentes_page.dart';
 import 'ui/auth_gate.dart';
-import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'ui/church_public_page.dart';
 import 'ui/pages/public_member_signup_page.dart';
@@ -84,7 +81,6 @@ import 'package:gestao_yahweh/services/church_chat_alert_notification_service.da
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
-import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/sync_feedback_listener.dart';
 import 'package:gestao_yahweh/ui/widgets/web_session_expired_overlay.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_upload_progress_overlay.dart';
@@ -93,6 +89,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/public_web_route_parser.dart';
+import 'package:gestao_yahweh/services/notification_deep_link_router.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -107,11 +104,18 @@ bool _crashlyticsFlutterErrorLikelyBenign(FlutterErrorDetails details) {
   final msg = details.exceptionAsString().toLowerCase();
   if (msg.contains('http request failed')) return true;
   if (msg.contains('http request') && msg.contains('statuscode')) return true;
-  if (msg.contains('bad state:') && msg.contains('stream has already been listened')) {
+  if (msg.contains('bad state:') &&
+      msg.contains('stream has already been listened')) {
     return true;
   }
   if (msg.contains('sessão expirada')) return true;
   if (msg.contains('firebasebootstrapexception')) return true;
+  // Isolate serialization (compute boundary) — benigno.
+  if (msg.contains('converting object to an encodable object')) return true;
+  // Null-check em decode/dados de rede — tratado com fallback no código.
+  if (msg.contains('null check operator used on a null value')) return true;
+  // libflutter.so — ABI mismatch em devices antigos (não é crash do app).
+  if (msg.contains('libflutter.so')) return true;
   return false;
 }
 
@@ -189,12 +193,12 @@ class _LastRouteObserver extends NavigatorObserver {
     if (name == null || name.isEmpty) return;
     // Evita gravar rotas de login/entrada para não criar loops ao reabrir o app.
     if (name == '/' || name.startsWith('/login')) return;
-    if (name == '/login_admin' ||
-        name.startsWith('/igreja/login')) {
+    if (name == '/login_admin' || name.startsWith('/igreja/login')) {
       return;
     }
     // Focamos em estabilidade do painel principal.
-    final isPainel = name == '/painel' ||
+    final isPainel =
+        name == '/painel' ||
         name == '/admin' ||
         name.startsWith('/painel') ||
         name.startsWith('/admin');
@@ -236,9 +240,7 @@ class _MasterOnlyChildGuardState extends State<_MasterOnlyChildGuard> {
   Widget build(BuildContext context) {
     final level = _accessLevel;
     if (level == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (level < 2) {
       return Scaffold(
@@ -325,8 +327,10 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard>
         appBar: AppBar(
           backgroundColor: const Color(0xFF0A3D91),
           foregroundColor: Colors.white,
-          title: const Text('Painel Master',
-              style: TextStyle(fontWeight: FontWeight.w800)),
+          title: const Text(
+            'Painel Master',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
         ),
         body: Center(
           child: Column(
@@ -336,15 +340,18 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard>
                 width: 48,
                 height: 48,
                 child: CircularProgressIndicator(
-                    strokeWidth: 3, color: Color(0xFF0A3D91)),
+                  strokeWidth: 3,
+                  color: Color(0xFF0A3D91),
+                ),
               ),
               const SizedBox(height: 20),
               Text(
                 'Verificando acesso...',
                 style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey.shade700,
-                    fontWeight: FontWeight.w500),
+                  fontSize: 16,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
@@ -352,60 +359,65 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard>
       );
     }
     switch (level) {
-          case 0:
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (context.mounted) {
-                Navigator.of(context).pushReplacementNamed('/login_admin');
-              }
-            });
-            return Scaffold(
-              backgroundColor: const Color(0xFFF0F4FF),
-              body: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(strokeWidth: 2)),
-                    const SizedBox(height: 16),
-                    Text('Redirecionando para login...',
-                        style: TextStyle(
-                            fontSize: 14, color: Colors.grey.shade600)),
-                  ],
+      case 0:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) {
+            Navigator.of(context).pushReplacementNamed('/login_admin');
+          }
+        });
+        return Scaffold(
+          backgroundColor: const Color(0xFFF0F4FF),
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Redirecionando para login...',
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+        );
+      case 1:
+        return Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'Acesso restrito. Apenas administradores podem acessar o Painel Master.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            );
-          case 1:
-            return Scaffold(
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'Acesso restrito. Apenas administradores podem acessar o Painel Master.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-            );
+            ),
+          ),
+        );
       default:
-            return PopScope(
-              canPop: false,
-              onPopInvokedWithResult: (didPop, result) {
-                if (!didPop && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'Use o botão "Sair" no menu para encerrar a sessão.'),
-                      duration: Duration(seconds: 3),
-                    ),
-                  );
-                }
-              },
-              child: const AdminPanelPage(),
-            );
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Use o botão "Sair" no menu para encerrar a sessão.',
+                  ),
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+          },
+          child: const AdminPanelPage(),
+        );
     }
   }
 }
@@ -531,8 +543,9 @@ String _normalizeWebAppPath(String raw) {
 
 /// Rota inicial web **sem** SharedPreferences nem poll de sessão — 1.º frame rápido.
 String _resolveWebInitialRouteFast() {
-  var initialRoute =
-      Uri.base.path.isNotEmpty ? _normalizeWebAppPath(Uri.base.path) : '/';
+  var initialRoute = Uri.base.path.isNotEmpty
+      ? _normalizeWebAppPath(Uri.base.path)
+      : '/';
   if (initialRoute == '/' || initialRoute.isEmpty) {
     final subdomainSlug = _extractChurchSlugFromHost(Uri.base.host);
     if (subdomainSlug != null && subdomainSlug.isNotEmpty) {
@@ -566,8 +579,9 @@ Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
       final isPublicRoot = initialRoute == '/' || initialRoute.isEmpty;
       if (!isPublicRoot) {
         final keepCurrent = initialRoute != '/' && initialRoute != '';
-        final isPublicChurchDeep =
-            PublicWebRouteParser.isPublicChurchDeepRoute(initialRoute);
+        final isPublicChurchDeep = PublicWebRouteParser.isPublicChurchDeepRoute(
+          initialRoute,
+        );
         if (!keepCurrent && !isPublicChurchDeep) {
           if (hasSession) {
             initialRoute = '/painel';
@@ -582,9 +596,10 @@ Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
         !PublicWebOrigin.isMarketingPublicHomeRoute(initialRoute)) {
       initialRoute = '/painel';
     }
-    final autoPainel = await ChurchAutoSessionService
-        .painelRouteIfSessionRestored(initialRoute)
-        .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    final autoPainel =
+        await ChurchAutoSessionService.painelRouteIfSessionRestored(
+          initialRoute,
+        ).timeout(const Duration(seconds: 2), onTimeout: () => null);
     if (autoPainel != null) {
       initialRoute = autoPainel;
     }
@@ -614,9 +629,10 @@ Future<String> _resolveNativeInitialRouteWithSession(String bootRoute) async {
   var initialRoute = bootRoute;
   try {
     initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
-    final autoPainel = await ChurchAutoSessionService
-        .painelRouteIfSessionRestored(initialRoute)
-        .timeout(const Duration(seconds: 1), onTimeout: () => null);
+    final autoPainel =
+        await ChurchAutoSessionService.painelRouteIfSessionRestored(
+          initialRoute,
+        ).timeout(const Duration(seconds: 1), onTimeout: () => null);
     if (autoPainel != null) {
       initialRoute = autoPainel;
     }
@@ -636,8 +652,7 @@ Future<void> _finalizeNativeStartupAfterFirstFrame(String bootRoute) async {
   } catch (_) {}
 
   final resolved = await _resolveNativeInitialRouteWithSession(bootRoute);
-  final painelReopen =
-      resolved == '/painel' || resolved.startsWith('/painel/');
+  final painelReopen = resolved == '/painel' || resolved.startsWith('/painel/');
   if (painelReopen) {
     unawaited(
       PanelPreheatCoordinator.preheatOnce().timeout(
@@ -677,8 +692,7 @@ Future<void> _finalizeWebStartupAfterFirstFrame(String bootRoute) async {
   } catch (_) {}
 
   final resolved = await _resolveWebInitialRouteWithSession(bootRoute);
-  final painelReopen =
-      resolved == '/painel' || resolved.startsWith('/painel/');
+  final painelReopen = resolved == '/painel' || resolved.startsWith('/painel/');
   if (painelReopen) {
     unawaited(
       PanelPreheatCoordinator.preheatOnce().timeout(
@@ -713,16 +727,15 @@ Future<void> _finalizeWebStartupAfterFirstFrame(String bootRoute) async {
 /// Crashlytics nativo — pode correr após o 1.º frame (não bloquear [runApp]).
 Future<void> _bindNativeCrashlyticsHandlers() async {
   try {
-    await FirebaseCrashlytics.instance
-        .setCrashlyticsCollectionEnabled(kReleaseMode);
+    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+      kReleaseMode,
+    );
   } catch (_) {}
   FlutterError.onError = (FlutterErrorDetails details) {
     Future<void> fallbackChain(Object e, StackTrace st) async {
       try {
         await FirebaseCrashlytics.instance.recordError(
-          Exception(
-            '${details.exceptionAsString()} | crashlytics_report: $e',
-          ),
+          Exception('${details.exceptionAsString()} | crashlytics_report: $e'),
           details.stack ?? st,
           fatal: !_crashlyticsFlutterErrorLikelyBenign(details),
         );
@@ -734,14 +747,14 @@ Future<void> _bindNativeCrashlyticsHandlers() async {
         FirebaseCrashlytics.instance
             .recordFlutterError(details, fatal: false)
             .catchError((Object e, StackTrace st) {
-          unawaited(fallbackChain(e, st));
-        });
+              unawaited(fallbackChain(e, st));
+            });
       } else {
         FirebaseCrashlytics.instance
             .recordFlutterFatalError(details)
             .catchError((Object e, StackTrace st) {
-          unawaited(fallbackChain(e, st));
-        });
+              unawaited(fallbackChain(e, st));
+            });
       }
     } catch (e, st) {
       unawaited(fallbackChain(e, st));
@@ -750,11 +763,7 @@ Future<void> _bindNativeCrashlyticsHandlers() async {
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
     final benign = CrashlyticsBenignErrors.isBenign(error);
     try {
-      FirebaseCrashlytics.instance.recordError(
-        error,
-        stack,
-        fatal: !benign,
-      );
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: !benign);
     } catch (e) {
       try {
         FirebaseCrashlytics.instance.recordError(
@@ -812,28 +821,30 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       ChurchChatAlertNotificationService.instance
           .registerFcmChatAndroidChannelsForBoot()
           .catchError((Object e, StackTrace st) {
-        if (kDebugMode) {
-          debugPrint('FCM chat channels boot: $e\n$st');
-        }
-      }),
+            if (kDebugMode) {
+              debugPrint('FCM chat channels boot: $e\n$st');
+            }
+          }),
     );
   }
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
-    unawaited(
-      ensureAppGoogleSignInInitialized().catchError((_) {}),
-    );
+    unawaited(ensureAppGoogleSignInInitialized().catchError((_) {}));
   }
   ensureBrasiliaTimeZoneInitialized();
   unawaited(
-    YahwehObservability.ensureInitialized().catchError((Object e, StackTrace st) {
+    YahwehObservability.ensureInitialized().catchError((
+      Object e,
+      StackTrace st,
+    ) {
       if (kDebugMode) debugPrint('YahwehObservability: $e\n$st');
     }),
   );
   unawaited(LegalDocumentsService.warmCache());
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
-  final crashlyticsOk = !kIsWeb &&
+  final crashlyticsOk =
+      !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
 
@@ -841,20 +852,19 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     final initialRoute = _resolveNativeInitialRouteFast();
     AppDeepLink.registerWarmLinkHandler();
     unawaited(
-      initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+      initializeDateFormatting('pt_BR', null).catchError((
+        Object e,
+        StackTrace st,
+      ) {
         debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
       }),
     );
-    runApp(UpdateChecker(
-      child: _AppWithTheme(initialRoute: initialRoute),
-    ));
+    runApp(UpdateChecker(child: _AppWithTheme(initialRoute: initialRoute)));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (crashlyticsOk) {
         unawaited(_bindNativeCrashlyticsHandlers().catchError((_) {}));
       }
-      unawaited(
-        IosPaymentsGate.initialize().catchError((_) {}),
-      );
+      unawaited(IosPaymentsGate.initialize().catchError((_) {}));
       unawaited(_finalizeNativeStartupAfterFirstFrame(initialRoute));
     });
     return;
@@ -873,13 +883,14 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     final initialRoute = _resolveWebInitialRouteFast();
     AppDeepLink.registerWarmLinkHandler();
     unawaited(
-      initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+      initializeDateFormatting('pt_BR', null).catchError((
+        Object e,
+        StackTrace st,
+      ) {
         debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
       }),
     );
-    runApp(UpdateChecker(
-      child: _AppWithTheme(initialRoute: initialRoute),
-    ));
+    runApp(UpdateChecker(child: _AppWithTheme(initialRoute: initialRoute)));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_finalizeWebStartupAfterFirstFrame(initialRoute));
       unawaited(DomainDailyHitService.recordIfEligible());
@@ -917,7 +928,8 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
         final isPublicRoot =
             kIsWeb && (initialRoute == '/' || initialRoute.isEmpty);
         if (!isPublicRoot) {
-          final keepCurrent = kIsWeb && initialRoute != '/' && initialRoute != '';
+          final keepCurrent =
+              kIsWeb && initialRoute != '/' && initialRoute != '';
           final isPublicChurchDeep =
               PublicWebRouteParser.isPublicChurchDeepRoute(initialRoute);
           if (!keepCurrent && !isPublicChurchDeep) {
@@ -937,8 +949,8 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
         initialRoute = AuthService.hasActiveSession
             ? '/painel'
             : (defaultTargetPlatform == TargetPlatform.iOS
-                ? '/igreja/login'
-                : '/login');
+                  ? '/igreja/login'
+                  : '/login');
       }
       if (kIsWeb &&
           AuthService.hasActiveSession &&
@@ -946,9 +958,10 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
           !PublicWebOrigin.isMarketingPublicHomeRoute(initialRoute)) {
         initialRoute = '/painel';
       }
-      final autoPainel = await ChurchAutoSessionService
-          .painelRouteIfSessionRestored(initialRoute)
-          .timeout(const Duration(seconds: 3), onTimeout: () => null);
+      final autoPainel =
+          await ChurchAutoSessionService.painelRouteIfSessionRestored(
+            initialRoute,
+          ).timeout(const Duration(seconds: 3), onTimeout: () => null);
       if (autoPainel != null) {
         initialRoute = autoPainel;
       }
@@ -961,30 +974,31 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       initialRoute = AuthService.hasActiveSession
           ? '/painel'
           : (defaultTargetPlatform == TargetPlatform.iOS
-              ? '/igreja/login'
-              : '/login');
+                ? '/igreja/login'
+                : '/login');
     }
     if (AppStartupRoute.isNativeMobile) {
       initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
     }
-    final reopenUid = FirebaseAuth.instance.currentUser?.uid ??
+    final reopenUid =
+        FirebaseAuth.instance.currentUser?.uid ??
         AppShellSessionCache.cachedUidSync();
-    final shellFast = reopenUid != null &&
+    final shellFast =
+        reopenUid != null &&
         reopenUid.isNotEmpty &&
         AppShellSessionCache.isShellReadyForSync(reopenUid) &&
         (LoginPreferences.autoPainelLoginSync ||
             initialRoute == '/painel' ||
             initialRoute.startsWith('/painel/'));
-    final painelReopen = initialRoute == '/painel' ||
-        initialRoute.startsWith('/painel/');
+    final painelReopen =
+        initialRoute == '/painel' || initialRoute.startsWith('/painel/');
     if (shellFast && painelReopen && !kIsWeb) {
       unawaited(
-        PanelPreheatCoordinator.preheatOnce().timeout(
-          const Duration(seconds: 2),
-          onTimeout: () {},
-        ).catchError((Object e, StackTrace st) {
-          if (kDebugMode) debugPrint('PanelPreheatCoordinator: $e\n$st');
-        }),
+        PanelPreheatCoordinator.preheatOnce()
+            .timeout(const Duration(seconds: 2), onTimeout: () {})
+            .catchError((Object e, StackTrace st) {
+              if (kDebugMode) debugPrint('PanelPreheatCoordinator: $e\n$st');
+            }),
       );
     } else if (painelReopen &&
         (kIsWeb ||
@@ -1002,13 +1016,14 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     }
   }
   unawaited(
-    initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+    initializeDateFormatting('pt_BR', null).catchError((
+      Object e,
+      StackTrace st,
+    ) {
       debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
     }),
   );
-  runApp(UpdateChecker(
-    child: _AppWithTheme(initialRoute: initialRoute),
-  ));
+  runApp(UpdateChecker(child: _AppWithTheme(initialRoute: initialRoute)));
   if (kIsWeb) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(DomainDailyHitService.recordIfEligible());
@@ -1031,6 +1046,17 @@ class _AppWithThemeState extends State<_AppWithTheme>
   Timer? _webResumeRepaintDebounce;
   StreamSubscription<String>? _deepLinkSub;
   void _onThemeChanged() => setState(() {});
+
+  /// Roteia deep links de notificações (Android App Links / iOS Universal Links
+  /// / custom scheme). Notificações têm prioridade sobre rotas públicas genéricas.
+  void _handleDeepLinkPath(String path) {
+    if (NotificationDeepLinkRouter.route(path)) return;
+    final route = PublicWebRouteParser.inAppRouteFromPath(path);
+    if (route == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      appRootNavigatorKey.currentState?.pushNamed(route);
+    });
+  }
 
   /// Web/PWA (CanvasKit): ao voltar de outro app, o canvas pode ficar preto até recompositor.
   void _repaintAfterWebResume() {
@@ -1059,12 +1085,13 @@ class _AppWithThemeState extends State<_AppWithTheme>
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);
     if (!kIsWeb) {
-      _deepLinkSub = AppDeepLink.warmLinks.listen((path) {
-        final route = PublicWebRouteParser.inAppRouteFromPath(path);
-        if (route == null) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          appRootNavigatorKey.currentState?.pushNamed(route);
-        });
+      AppDeepLink.registerWarmLinkHandler();
+      _deepLinkSub = AppDeepLink.warmLinks.listen(_handleDeepLinkPath);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final initial = await AppDeepLink.initialPath();
+        if (initial != null && initial.isNotEmpty) {
+          _handleDeepLinkPath(initial);
+        }
       });
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1097,210 +1124,213 @@ class _AppWithThemeState extends State<_AppWithTheme>
   @override
   Widget build(BuildContext context) {
     return ThemeModeScope(
-        notifier: _themeProvider,
-        child: MaterialApp(
-          navigatorKey: appRootNavigatorKey,
-          scrollBehavior: const GestaoYahwehScrollBehavior(),
-          title: 'Gestão Yahweh - Igrejas',
-          theme: AppTheme.light,
-          darkTheme: AppTheme.dark,
-          themeMode: _themeProvider.mode,
-          locale: const Locale('pt', 'BR'),
-          supportedLocales: const [
-            Locale('pt', 'BR'),
-            Locale('en'),
-          ],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          home: _initialAppHome(widget.initialRoute),
-          debugShowCheckedModeBanner: false,
-          navigatorObservers: [
-            _LastRouteObserver(),
-            if (PublicSiteAnalytics.navigatorObserver != null)
-              PublicSiteAnalytics.navigatorObserver!,
-          ],
-          builder: (context, child) {
-            // Evita tela preta ao voltar de outro app ou ao abrir pelo ícone: fundo sempre visível
-            final c = child ?? const SizedBox.shrink();
-            final bg = Theme.of(context).scaffoldBackgroundColor;
-            return WebSessionExpiredOverlay(
-              child: SyncFeedbackListener(
-                child: WhatsAppUploadProgressOverlay(
-                  child: Container(
-                    color: bg,
-                    child: MediaQuery(
-                      data: MediaQuery.of(context)
-                          .copyWith(alwaysUse24HourFormat: true),
-                      child: GestaoYahwehSelectableScope(child: c),
-                    ),
+      notifier: _themeProvider,
+      child: MaterialApp(
+        navigatorKey: appRootNavigatorKey,
+        scrollBehavior: const GestaoYahwehScrollBehavior(),
+        title: 'Gestão Yahweh - Igrejas',
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: _themeProvider.mode,
+        locale: const Locale('pt', 'BR'),
+        supportedLocales: const [Locale('pt', 'BR'), Locale('en')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: _initialAppHome(widget.initialRoute),
+        debugShowCheckedModeBanner: false,
+        navigatorObservers: [
+          _LastRouteObserver(),
+          if (PublicSiteAnalytics.navigatorObserver != null)
+            PublicSiteAnalytics.navigatorObserver!,
+        ],
+        builder: (context, child) {
+          // Evita tela preta ao voltar de outro app ou ao abrir pelo ícone: fundo sempre visível
+          final c = child ?? const SizedBox.shrink();
+          final bg = Theme.of(context).scaffoldBackgroundColor;
+          return WebSessionExpiredOverlay(
+            child: SyncFeedbackListener(
+              child: WhatsAppUploadProgressOverlay(
+                child: Container(
+                  color: bg,
+                  child: MediaQuery(
+                    data: MediaQuery.of(
+                      context,
+                    ).copyWith(alwaysUse24HourFormat: true),
+                    child: GestaoYahwehSelectableScope(child: c),
                   ),
                 ),
               ),
-            );
-          },
-          onGenerateRoute: (settings) {
-            final nomeRota = (settings.name ?? '/');
-            final uri = Uri.parse(nomeRota);
-            String path = uri.path.isEmpty ? '/' : uri.path;
-            if (path != '/' && !path.startsWith('/')) path = '/$path';
-            if (path.length > 1 && path.endsWith('/')) {
-              path = path.replaceFirst(RegExp(r'/$'), '');
-            }
-            final lowPath = path.toLowerCase();
-            if (lowPath == '/index.html' || lowPath.endsWith('/index.html')) {
-              path = '/';
-            }
-            final pathSegments = path == '/'
-                ? <String>[]
-                : path.split('/').where((s) => s.isNotEmpty).toList();
+            ),
+          );
+        },
+        onGenerateRoute: (settings) {
+          final nomeRota = (settings.name ?? '/');
+          final uri = Uri.parse(nomeRota);
+          String path = uri.path.isEmpty ? '/' : uri.path;
+          if (path != '/' && !path.startsWith('/')) path = '/$path';
+          if (path.length > 1 && path.endsWith('/')) {
+            path = path.replaceFirst(RegExp(r'/$'), '');
+          }
+          final lowPath = path.toLowerCase();
+          if (lowPath == '/index.html' || lowPath.endsWith('/index.html')) {
+            path = '/';
+          }
+          final pathSegments = path == '/'
+              ? <String>[]
+              : path.split('/').where((s) => s.isNotEmpty).toList();
 
-            // ── iOS nativo: landing pública → login; planos/checkout = paridade Web/Android.
-            if (IosPaymentsGate.isIosNative) {
-              if (path == '/') {
-                final em = uri.queryParameters['email']?.trim();
-                return MaterialPageRoute(
-                  settings: settings,
-                  builder: (_) => LoginPage(
-                    title: 'Entrar com conta existente',
-                    afterLoginRoute: '/painel',
-                    showFleetBranding: false,
-                    backRoute: '/',
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
-                  ),
-                );
-              }
-              if (IosPaymentsGate.isOrganizationSignupPath(path, pathSegments)) {
-                return MaterialPageRoute(
-                  settings: settings,
-                  builder: (_) => const IosOrganizationSignupWebPage(),
-                );
-              }
+          // ── iOS nativo: landing pública → login; planos/checkout = paridade Web/Android.
+          if (IosPaymentsGate.isIosNative) {
+            if (path == '/') {
+              final em = uri.queryParameters['email']?.trim();
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => LoginPage(
+                  title: 'Entrar com conta existente',
+                  afterLoginRoute: '/painel',
+                  showFleetBranding: false,
+                  backRoute: '/',
+                  prefillEmail: (em != null && em.isNotEmpty) ? em : null,
+                ),
+              );
             }
+            if (IosPaymentsGate.isOrganizationSignupPath(path, pathSegments)) {
+              return MaterialPageRoute(
+                settings: settings,
+                builder: (_) => const IosOrganizationSignupWebPage(),
+              );
+            }
+          }
 
-            Widget pagina;
-            // Rota dinâmica para /igreja_<slug> ou /igreja-<slug> — exibe perfil público da igreja
-            final igrejaMatch =
-                RegExp(r'^/igreja[_-]([\w\d_-]+)').firstMatch(path);
-            if (igrejaMatch != null) {
-              final slug = igrejaMatch.group(1)!;
-              pagina = AppConstants.isMarketingBrandSlug(slug)
-                  ? const SitePublicPage()
-                  : ChurchPublicPage(slug: slug);
-            } else if (pathSegments.isNotEmpty &&
-                pathSegments[0] == 'i' &&
-                pathSegments.length >= 2) {
-              // Rota curta /i/<slug> — redireciona para site público da igreja
-              final slug = pathSegments[1];
-              pagina = AppConstants.isMarketingBrandSlug(slug)
-                  ? const SitePublicPage()
-                  : ChurchPublicPage(slug: slug);
-            } else if (pathSegments.isNotEmpty &&
-                pathSegments[0] == 'igreja' &&
-                pathSegments.length >= 2 &&
-                pathSegments[1] != 'login') {
-              // Rotas /igreja/<slug>, /igreja/<slug>/evento/<noticiaId>, cadastro, etc.
-              final slug = pathSegments[1];
-              if (AppConstants.isMarketingBrandSlug(slug)) {
-                pagina = const SitePublicPage();
-              } else if (pathSegments.length >= 4 &&
-                  pathSegments[2].toLowerCase() == 'evento') {
-                pagina = ChurchPublicPage(
-                  slug: slug,
-                  openNoticiaId: pathSegments[3],
-                );
-              } else if (pathSegments.length >= 3 &&
-                  pathSegments[2] == 'cadastro-membro') {
-                pagina = PublicMemberSignupPage(slug: slug);
-              } else if (pathSegments.length >= 3 &&
-                  pathSegments[2] == 'acompanhar-cadastro') {
-                pagina = PublicSignupStatusPage(
-                  slug: slug,
-                  protocolo: uri.queryParameters['protocolo'] ?? '',
-                );
-              } else if (pathSegments.length >= 3 &&
-                  pathSegments[2] == 'cadastro') {
-                pagina = IosPaymentsGate.isIosNative
-                    ? const IosOrganizationSignupWebPage()
-                    : SignupPage(
-                        initialEmail:
-                            uri.queryParameters['email']?.trim(),
-                      );
-              } else {
-                pagina = ChurchPublicPage(slug: slug);
-              }
-            } else if (pathSegments.length == 1 &&
-                pathSegments[0].isNotEmpty &&
-                !AppConstants.reservedChurchSlugs
-                    .contains(pathSegments[0].toLowerCase())) {
-              // Domínio único: /{slug}
-              pagina = ChurchPublicPage(slug: pathSegments[0]);
-            } else if (pathSegments.length == 2 &&
-                pathSegments[0].isNotEmpty &&
-                !AppConstants.reservedChurchSlugs
-                    .contains(pathSegments[0].toLowerCase())) {
-              final slug = pathSegments[0];
-              final second = pathSegments[1];
-              final low = second.toLowerCase();
-              if (low == 'cadastro-membro') {
-                pagina = PublicMemberSignupPage(slug: slug);
-              } else if (low == 'acompanhar-cadastro') {
-                pagina = PublicSignupStatusPage(
-                  slug: slug,
-                  protocolo: uri.queryParameters['protocolo'] ?? '',
-                );
-              } else if (low == 'cadastro') {
-                pagina = IosPaymentsGate.isIosNative
-                    ? const IosOrganizationSignupWebPage()
-                    : SignupPage(
-                        initialEmail:
-                            uri.queryParameters['email']?.trim(),
-                      );
-              } else {
-                pagina = ChurchPublicPage(slug: slug, openNoticiaId: second);
-              }
+          Widget pagina;
+          // Rota dinâmica para /igreja_<slug> ou /igreja-<slug> — exibe perfil público da igreja
+          final igrejaMatch = RegExp(
+            r'^/igreja[_-]([\w\d_-]+)',
+          ).firstMatch(path);
+          if (igrejaMatch != null) {
+            final slug = igrejaMatch.group(1)!;
+            pagina = AppConstants.isMarketingBrandSlug(slug)
+                ? const SitePublicPage()
+                : ChurchPublicPage(slug: slug);
+          } else if (pathSegments.isNotEmpty &&
+              pathSegments[0] == 'i' &&
+              pathSegments.length >= 2) {
+            // Rota curta /i/<slug> — redireciona para site público da igreja
+            final slug = pathSegments[1];
+            pagina = AppConstants.isMarketingBrandSlug(slug)
+                ? const SitePublicPage()
+                : ChurchPublicPage(slug: slug);
+          } else if (pathSegments.isNotEmpty &&
+              pathSegments[0] == 'igreja' &&
+              pathSegments.length >= 2 &&
+              pathSegments[1] != 'login') {
+            // Rotas /igreja/<slug>, /igreja/<slug>/evento/<noticiaId>, cadastro, etc.
+            final slug = pathSegments[1];
+            if (AppConstants.isMarketingBrandSlug(slug)) {
+              pagina = const SitePublicPage();
+            } else if (pathSegments.length >= 4 &&
+                pathSegments[2].toLowerCase() == 'evento') {
+              pagina = ChurchPublicPage(
+                slug: slug,
+                openNoticiaId: pathSegments[3],
+              );
+            } else if (pathSegments.length >= 3 &&
+                pathSegments[2] == 'cadastro-membro') {
+              pagina = PublicMemberSignupPage(slug: slug);
+            } else if (pathSegments.length >= 3 &&
+                pathSegments[2] == 'acompanhar-cadastro') {
+              pagina = PublicSignupStatusPage(
+                slug: slug,
+                protocolo: uri.queryParameters['protocolo'] ?? '',
+              );
+            } else if (pathSegments.length >= 3 &&
+                pathSegments[2] == 'cadastro') {
+              pagina = IosPaymentsGate.isIosNative
+                  ? const IosOrganizationSignupWebPage()
+                  : SignupPage(
+                      initialEmail: uri.queryParameters['email']?.trim(),
+                    );
             } else {
-              switch (path) {
-                case '/cadastro':
-                  pagina = IosPaymentsGate.isIosNative
-                      ? const IosOrganizationSignupWebPage()
-                      : const CadastroUsuarioPage();
-                  break;
-                case '/usuarios_permissoes':
-                  pagina = const UsuariosPermissoesPage(
-                      tenantId: 'TENANT_ID', gestorRole: 'admin');
-                  break;
-                case '/aprovar_membros_pendentes':
-                  pagina = const AprovarMembrosPendentesPage(
-                      tenantId: 'TENANT_ID', gestorRole: 'admin');
-                  break;
-                case '/admin':
-                  pagina = const _MasterPanelGuard();
-                  break;
-                case '/admin/firebase-saude':
-                  pagina = const _MasterOnlyChildGuard(
-                    child: SystemFirebaseHealthPage(),
-                  );
-                  break;
-                case '/login_admin':
-                  pagina = const LoginPage(
-                    title: 'Entrar no Painel Master',
-                    afterLoginRoute: '/admin',
-                    showFleetBranding: false,
-                  );
-                  break;
-                case '/login': {
+              pagina = ChurchPublicPage(slug: slug);
+            }
+          } else if (pathSegments.length == 1 &&
+              pathSegments[0].isNotEmpty &&
+              !AppConstants.reservedChurchSlugs.contains(
+                pathSegments[0].toLowerCase(),
+              )) {
+            // Domínio único: /{slug}
+            pagina = ChurchPublicPage(slug: pathSegments[0]);
+          } else if (pathSegments.length == 2 &&
+              pathSegments[0].isNotEmpty &&
+              !AppConstants.reservedChurchSlugs.contains(
+                pathSegments[0].toLowerCase(),
+              )) {
+            final slug = pathSegments[0];
+            final second = pathSegments[1];
+            final low = second.toLowerCase();
+            if (low == 'cadastro-membro') {
+              pagina = PublicMemberSignupPage(slug: slug);
+            } else if (low == 'acompanhar-cadastro') {
+              pagina = PublicSignupStatusPage(
+                slug: slug,
+                protocolo: uri.queryParameters['protocolo'] ?? '',
+              );
+            } else if (low == 'cadastro') {
+              pagina = IosPaymentsGate.isIosNative
+                  ? const IosOrganizationSignupWebPage()
+                  : SignupPage(
+                      initialEmail: uri.queryParameters['email']?.trim(),
+                    );
+            } else {
+              pagina = ChurchPublicPage(slug: slug, openNoticiaId: second);
+            }
+          } else {
+            switch (path) {
+              case '/cadastro':
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : const CadastroUsuarioPage();
+                break;
+              case '/usuarios_permissoes':
+                pagina = const UsuariosPermissoesPage(
+                  tenantId: 'TENANT_ID',
+                  gestorRole: 'admin',
+                );
+                break;
+              case '/aprovar_membros_pendentes':
+                pagina = const AprovarMembrosPendentesPage(
+                  tenantId: 'TENANT_ID',
+                  gestorRole: 'admin',
+                );
+                break;
+              case '/admin':
+                pagina = const _MasterPanelGuard();
+                break;
+              case '/admin/firebase-saude':
+                pagina = const _MasterOnlyChildGuard(
+                  child: SystemFirebaseHealthPage(),
+                );
+                break;
+              case '/login_admin':
+                pagina = const LoginPage(
+                  title: 'Entrar no Painel Master',
+                  afterLoginRoute: '/admin',
+                  showFleetBranding: false,
+                );
+                break;
+              case '/login':
+                {
                   final em = uri.queryParameters['email']?.trim();
                   pagina = LoginPageNovo(
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
+                    prefillEmail: (em != null && em.isNotEmpty) ? em : null,
                   );
                   break;
                 }
-                case '/igreja/login': {
+              case '/igreja/login':
+                {
                   final em = uri.queryParameters['email']?.trim();
                   // App iOS nativo: só login → painel; plano/licença no Safari (3.1.1).
                   final afterLogin = IosPaymentsGate.isIosNative
@@ -1314,12 +1344,12 @@ class _AppWithThemeState extends State<_AppWithTheme>
                     showFleetBranding: false,
                     backRoute: '/',
                     showSmartLoginFlow: false,
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
+                    prefillEmail: (em != null && em.isNotEmpty) ? em : null,
                   );
                   break;
                 }
-                case '/igreja/login/apple': {
+              case '/igreja/login/apple':
+                {
                   final em = uri.queryParameters['email']?.trim();
                   final afterLogin = IosPaymentsGate.isIosNative
                       ? '/painel'
@@ -1331,134 +1361,134 @@ class _AppWithThemeState extends State<_AppWithTheme>
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
+                    prefillEmail: (em != null && em.isNotEmpty) ? em : null,
                     // Só na web (Safari): fluxo expresso pós-login em /atualizar-plano.
                     churchWebAppleIosRenewEntry: kIsWeb,
                   );
                   break;
                 }
-                case '/onboarding':
-                case '/comecar':
-                  pagina = IosPaymentsGate.isIosNative
-                      ? const IosOrganizationSignupWebPage()
-                      : const WelcomePage();
-                  break;
-                case '/onboarding/plano':
-                  pagina = IosPaymentsGate.isIosNative
-                      ? const IosOrganizationSignupWebPage()
-                      : const PlanSelectPage();
-                  break;
-                case '/planos':
-                  pagina = const LandingPage();
-                  break;
-                case '/pagamento':
-                  // Mesmo gate que `/atualizar-plano`: exige login com claims da igreja.
-                  pagina = const ExpressRenewGatePage();
-                  break;
-                case '/atualizar-plano': {
+              case '/onboarding':
+              case '/comecar':
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : const WelcomePage();
+                break;
+              case '/onboarding/plano':
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : const PlanSelectPage();
+                break;
+              case '/planos':
+                pagina = const LandingPage();
+                break;
+              case '/pagamento':
+                // Mesmo gate que `/atualizar-plano`: exige login com claims da igreja.
+                pagina = const ExpressRenewGatePage();
+                break;
+              case '/atualizar-plano':
+                {
                   // Fluxo «Atualizar plano expresso» — login + checkout MP (Web/Android/iOS).
                   final em = uri.queryParameters['email']?.trim();
-                  final fromIos = uri.queryParameters['from']?.toLowerCase() ==
-                      'ios_app';
+                  final fromIos =
+                      uri.queryParameters['from']?.toLowerCase() == 'ios_app';
                   pagina = ExpressRenewGatePage(
-                    prefillEmail:
-                        (em != null && em.isNotEmpty) ? em : null,
+                    prefillEmail: (em != null && em.isNotEmpty) ? em : null,
                     openedFromIosApp: fromIos,
                   );
                   break;
                 }
-                case '/signup': {
+              case '/signup':
+                {
                   pagina = IosPaymentsGate.isIosNative
                       ? const IosOrganizationSignupWebPage()
                       : SignupPage(
-                          initialEmail:
-                              uri.queryParameters['email']?.trim(),
+                          initialEmail: uri.queryParameters['email']?.trim(),
                         );
                   break;
                 }
-                case '/signup/completar-dados':
-                  pagina = IosPaymentsGate.isIosNative
-                      ? const IosOrganizationSignupWebPage()
-                      : const SignupCompletarGestorPage();
-                  break;
-                case '/painel': {
+              case '/signup/completar-dados':
+                pagina = IosPaymentsGate.isIosNative
+                    ? const IosOrganizationSignupWebPage()
+                    : const SignupCompletarGestorPage();
+                break;
+              case '/painel':
+                {
                   final openMember =
                       uri.queryParameters['openMemberId']?.trim() ?? '';
                   final openMod =
                       uri.queryParameters['openModule']?.trim().toLowerCase() ??
-                          '';
+                      '';
                   int? shellFromQuery;
                   if (openMod == 'minha_escala' ||
                       openMod == 'my_schedules' ||
-                      openMod == 'minhaescala') {
-                    shellFromQuery = kChurchShellIndexMySchedules;
-                  } else if (openMod == 'escala_geral' ||
+                      openMod == 'minhaescala' ||
+                      openMod == 'escala_geral' ||
                       openMod == 'schedules' ||
                       openMod == 'escalas') {
-                    shellFromQuery = kChurchShellIndexEscalaGeral;
+                    shellFromQuery = kChurchShellIndexMySchedules;
                   }
                   pagina = AuthGate(
-                    initialOpenMemberDocId:
-                        openMember.isEmpty ? null : openMember,
+                    initialOpenMemberDocId: openMember.isEmpty
+                        ? null
+                        : openMember,
                     initialShellIndex: shellFromQuery,
                   );
                   break;
                 }
-                case '/':
-                  pagina = const SitePublicPage();
-                  break;
-                case '/s/evento':
-                  pagina = const SitePublicPage(isConviteRoute: true);
-                  break;
-                case '/carteirinha-validar':
-                  pagina = PublicCarteirinhaConsultaPage(
-                    tenantId: uri.queryParameters['tenantId'] ?? '',
-                    memberId: uri.queryParameters['memberId'] ?? '',
-                  );
-                  break;
-                case '/certificado-validar':
-                  pagina = PublicCertificadoConsultaPage(
-                    tenantId: uri.queryParameters['tenantId'] ?? '',
-                    memberId: uri.queryParameters['memberId'] ?? '',
-                    certTipoId: uri.queryParameters['tipo'] ?? '',
-                    issuedKey: uri.queryParameters['emitido'] ?? '',
-                  );
-                  break;
-                case '/validar':
-                  pagina = PublicCertificadoValidacaoPage(
-                    certificadoId: uri.queryParameters['cid'] ?? '',
-                  );
-                  break;
-                case '/convite-departamento':
-                  pagina = DepartmentInvitePage(
-                    tenantIdOrSlug: uri.queryParameters['tid'] ?? '',
-                    departmentId: uri.queryParameters['did'] ?? '',
-                  );
-                  break;
-                case '/termos-de-uso':
-                case '/termos':
-                case '/termodeuso':
-                  pagina = const TermosDeUsoPage();
-                  break;
-                case '/politica-de-privacidade':
-                case '/privacidade':
-                  pagina = const PoliticaPrivacidadePage();
-                  break;
-                case '/tdlib-login':
-                case '/telegram-tdlib':
-                  // Rota de teste do motor TDLib nativo (Android/iOS).
-                  pagina = const TelegramLoginScreen();
-                  break;
-                default:
-                  pagina = const SitePublicPage();
-                  break;
-              }
+              case '/':
+                pagina = const SitePublicPage();
+                break;
+              case '/s/evento':
+                pagina = const SitePublicPage(isConviteRoute: true);
+                break;
+              case '/carteirinha-validar':
+                pagina = PublicCarteirinhaConsultaPage(
+                  tenantId: uri.queryParameters['tenantId'] ?? '',
+                  memberId: uri.queryParameters['memberId'] ?? '',
+                );
+                break;
+              case '/certificado-validar':
+                pagina = PublicCertificadoConsultaPage(
+                  tenantId: uri.queryParameters['tenantId'] ?? '',
+                  memberId: uri.queryParameters['memberId'] ?? '',
+                  certTipoId: uri.queryParameters['tipo'] ?? '',
+                  issuedKey: uri.queryParameters['emitido'] ?? '',
+                );
+                break;
+              case '/validar':
+                pagina = PublicCertificadoValidacaoPage(
+                  certificadoId: uri.queryParameters['cid'] ?? '',
+                );
+                break;
+              case '/convite-departamento':
+                pagina = DepartmentInvitePage(
+                  tenantIdOrSlug: uri.queryParameters['tid'] ?? '',
+                  departmentId: uri.queryParameters['did'] ?? '',
+                );
+                break;
+              case '/termos-de-uso':
+              case '/termos':
+              case '/termodeuso':
+                pagina = const TermosDeUsoPage();
+                break;
+              case '/politica-de-privacidade':
+              case '/privacidade':
+                pagina = const PoliticaPrivacidadePage();
+                break;
+              case '/tdlib-login':
+              case '/telegram-tdlib':
+                // Rota de teste do motor TDLib nativo (Android/iOS).
+                pagina = const TelegramLoginScreen();
+                break;
+              default:
+                pagina = const SitePublicPage();
+                break;
             }
-            return MaterialPageRoute(
-                builder: (_) => pagina, settings: settings);
-          },
-        ));
+          }
+          return MaterialPageRoute(builder: (_) => pagina, settings: settings);
+        },
+      ),
+    );
   }
 }
 
@@ -1500,12 +1530,8 @@ Widget? _widgetForChurchPublicPath(Uri uri) {
       pathSegments[1] != 'login') {
     final slug = pathSegments[1];
     if (AppConstants.isMarketingBrandSlug(slug)) return const SitePublicPage();
-    if (pathSegments.length >= 4 &&
-        pathSegments[2].toLowerCase() == 'evento') {
-      return ChurchPublicPage(
-        slug: slug,
-        openNoticiaId: pathSegments[3],
-      );
+    if (pathSegments.length >= 4 && pathSegments[2].toLowerCase() == 'evento') {
+      return ChurchPublicPage(slug: slug, openNoticiaId: pathSegments[3]);
     }
     if (pathSegments.length >= 3 && pathSegments[2] == 'cadastro-membro') {
       return PublicMemberSignupPage(slug: slug);
@@ -1521,15 +1547,17 @@ Widget? _widgetForChurchPublicPath(Uri uri) {
 
   if (pathSegments.length == 1 &&
       pathSegments[0].isNotEmpty &&
-      !AppConstants.reservedChurchSlugs
-          .contains(pathSegments[0].toLowerCase())) {
+      !AppConstants.reservedChurchSlugs.contains(
+        pathSegments[0].toLowerCase(),
+      )) {
     return ChurchPublicPage(slug: pathSegments[0]);
   }
 
   if (pathSegments.length == 2 &&
       pathSegments[0].isNotEmpty &&
-      !AppConstants.reservedChurchSlugs
-          .contains(pathSegments[0].toLowerCase())) {
+      !AppConstants.reservedChurchSlugs.contains(
+        pathSegments[0].toLowerCase(),
+      )) {
     final slug = pathSegments[0];
     final second = pathSegments[1];
     final low = second.toLowerCase();
@@ -1567,12 +1595,11 @@ Widget? _explicitStartupPage(String rawRoute) {
       int? shellFromQuery;
       if (openMod == 'minha_escala' ||
           openMod == 'my_schedules' ||
-          openMod == 'minhaescala') {
-        shellFromQuery = kChurchShellIndexMySchedules;
-      } else if (openMod == 'escala_geral' ||
+          openMod == 'minhaescala' ||
+          openMod == 'escala_geral' ||
           openMod == 'schedules' ||
           openMod == 'escalas') {
-        shellFromQuery = kChurchShellIndexEscalaGeral;
+        shellFromQuery = kChurchShellIndexMySchedules;
       }
       return AuthGate(
         initialOpenMemberDocId: openMember.isEmpty ? null : openMember,
@@ -1644,8 +1671,9 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
     var route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
 
     if (AppStartupRoute.isNativeMobile) {
-      route = await AppStartupRoute.finalizeNativeRoute(route)
-          .timeout(const Duration(seconds: 2), onTimeout: () => route);
+      route = await AppStartupRoute.finalizeNativeRoute(
+        route,
+      ).timeout(const Duration(seconds: 2), onTimeout: () => route);
       if (route == '/painel' || route.startsWith('/painel/')) {
         if (!await AuthSessionService.hasSession()) {
           route = AppStartupRoute.nativeLoginRoute;

@@ -261,7 +261,7 @@ class _MuralCommentsSheetState extends State<MuralCommentsSheet> {
     }
     return ListView.separated(
       itemCount: _items.length,
-      separatorBuilder: (_, __) =>
+      separatorBuilder: (_, _) =>
           Divider(height: 12, color: Colors.grey.shade200),
       itemBuilder: (context, i) {
         final c = _items[i];

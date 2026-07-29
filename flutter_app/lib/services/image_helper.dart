@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/media_service.dart';
 
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
 import 'package:gestao_yahweh/services/member_profile_image_isolate.dart';
+import 'package:gestao_yahweh/services/yahweh_isolate_compress.dart';
 
 class ImageHelper {
   static const int _fallbackMinWidth = 800;
@@ -72,20 +73,28 @@ class ImageHelper {
     return compute(compressMemberProfileForUploadIsolate, list);
   }
 
-  /// Comprime em JPEG até o tamanho ficar em torno de [maxBytes] (várias passadas).
+  /// Comprime em JPEG até o tamanho ficar em torno de [maxBytes] — ISOLATE (Controle Total).
+  /// Usa [YahwehIsolateCompress] para não bloquear a UI no mobile.
   static Future<Uint8List> compressImageUnderMaxBytes(
     Uint8List list, {
     int? maxBytes,
   }) async {
     final targetMaxBytes = maxBytes ?? memberPhotoMaxUploadBytes;
     if (list.isEmpty) return list;
-    Uint8List current = list;
+    // Isolate compression — fast, no UI blocking.
+    final compressed = await YahwehIsolateCompress.compressWithTarget(
+      list,
+      maxEdge: 1600,
+      targetBytes: targetMaxBytes,
+    );
+    if (compressed.isNotEmpty && compressed.length <= targetMaxBytes) return compressed;
+    // Fallback: platform channel (legacy path).
+    Uint8List current = compressed.isNotEmpty ? compressed : list;
     var quality = 78;
     var minSide = 1600;
-    for (var i = 0; i < 22; i++) {
+    for (var i = 0; i < 12; i++) {
       if (current.length <= targetMaxBytes) return current;
       try {
-        // Platform channel — isolate principal apenas (Android/iOS = Web).
         final next = await FlutterImageCompress.compressWithList(
           current,
           minWidth: minSide,
@@ -120,17 +129,23 @@ class ImageHelper {
         list[1] == 0xD8) {
       return list;
     }
+    // Isolate compression (Controle Total pattern) — no UI blocking.
+    final compressed = await YahwehIsolateCompress.compressForPatrimonio(list);
+    if (compressed.isNotEmpty && compressed.length <= kPatrimonioMaxUploadBytes) {
+      return compressed;
+    }
+    // Web fallback.
     if (kIsWeb) {
       try {
-        final compressed = await MediaService.compressImageBytes(
+        final webCompressed = await MediaService.compressImageBytes(
           list,
           profile: MediaImageProfile.patrimonio,
         );
-        if (compressed.isNotEmpty) return compressed;
+        if (webCompressed.isNotEmpty) return webCompressed;
       } catch (_) {}
       return list;
     }
-    // FlutterImageCompress = platform channel — NÃO em isolate.
+    // Legacy platform channel fallback.
     var quality = kPatrimonioJpegQuality;
     Uint8List? best;
     for (var pass = 0; pass < 3; pass++) {

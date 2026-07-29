@@ -831,7 +831,7 @@ class _MemberCardPageState extends State<MemberCardPage>
           title: const Text('Gerando PDF…'),
           content: ValueListenableBuilder<int>(
             valueListenable: progress,
-            builder: (_, d, __) => Column(
+            builder: (_, d, _) => Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1107,7 +1107,7 @@ class _MemberCardPageState extends State<MemberCardPage>
                 title: const Text('Assinando carteirinhas…'),
                 content: ValueListenableBuilder<int>(
                   valueListenable: progress,
-                  builder: (_, done, __) {
+                  builder: (_, done, _) {
                     final pct =
                         totalSign > 0 ? (done / totalSign * 100).round() : 0;
                     return Column(

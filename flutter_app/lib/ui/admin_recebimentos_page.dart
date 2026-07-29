@@ -123,21 +123,25 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
         final raw = data['raw'];
         if (raw is Map) list.add({'amount': (raw['transaction_amount'] is num) ? (raw['transaction_amount'] as num).toDouble() : 0, 'createdAt': raw['date_approved']});
       }
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _payments = list;
         _loading = false;
         _loadError = null;
       });
+      }
     } catch (e) {
       final err = e.toString();
       final isPermissionDenied = err.contains('permission-denied') || err.contains('PERMISSION_DENIED');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _payments = [];
         _loading = false;
         _loadError = isPermissionDenied
             ? 'Sem permissão. Faça login como administrador e publique as regras do Firestore (firebase deploy --only firestore:rules).'
             : 'Falha ao carregar recebimentos. Atualize para tentar novamente.';
       });
+      }
     }
   }
 
@@ -650,7 +654,7 @@ class _ActionChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: ThemeCleanPremium.primary.withOpacity(0.08),
+      color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
       borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
       child: InkWell(
         onTap: onPressed,

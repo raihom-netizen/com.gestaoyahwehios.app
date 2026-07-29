@@ -151,8 +151,7 @@ abstract final class ChatLocalCacheEngine {
 /// Documento reconstruído do cache local (offline-first).
 // ignore: subtype_of_sealed_class
 class _CachedChatMessageDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  _CachedChatMessageDoc({required this.id, required Map<String, dynamic> data})
-      : _data = data;
+  _CachedChatMessageDoc({required this.id, required this._data});
 
   @override
   final String id;

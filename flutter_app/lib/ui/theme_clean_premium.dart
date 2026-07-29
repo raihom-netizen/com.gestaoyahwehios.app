@@ -52,7 +52,7 @@ class ThemeCleanPremium {
   static List<BoxShadow> get cardShadow => softUiCardShadow;
   static List<BoxShadow> get cardShadowHover => [
     BoxShadow(
-      color: primary.withOpacity(0.12),
+      color: primary.withValues(alpha: 0.12),
       blurRadius: 24,
       offset: const Offset(0, 12),
       spreadRadius: 0,
@@ -218,7 +218,7 @@ class ThemeCleanPremium {
       ),
       chipTheme: ChipThemeData(
         backgroundColor: Colors.white,
-        selectedColor: primary.withOpacity(0.12),
+        selectedColor: primary.withValues(alpha: 0.12),
         side: BorderSide(color: Colors.grey.shade200),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusSm)),
         labelStyle: const TextStyle(fontWeight: FontWeight.w600),
@@ -392,7 +392,7 @@ class ThemeCleanPremium {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 56, color: iconColor ?? primary.withOpacity(0.38)),
+                Icon(icon, size: 56, color: iconColor ?? primary.withValues(alpha: 0.38)),
                 const SizedBox(height: spaceMd),
                 Text(
                   title,

@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';

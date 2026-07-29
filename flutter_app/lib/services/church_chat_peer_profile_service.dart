@@ -41,7 +41,7 @@ class ChurchChatPeerProfileService {
       'authUid': authUid,
       'firebaseUid': authUid,
       'NOME_COMPLETO': (d['displayName'] ?? '').toString(),
-      if (rev != null) 'fotoUrlCacheRevision': rev,
+      'fotoUrlCacheRevision': ?rev,
     };
     for (final key in const [
       'photoStoragePath',

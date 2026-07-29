@@ -136,8 +136,8 @@ class YahwehPremiumFeedShimmer {
           scrollDirection: Axis.horizontal,
           padding: EdgeInsets.zero,
           itemCount: avatarCount,
-          separatorBuilder: (_, __) => const SizedBox(width: 14),
-          itemBuilder: (_, __) => SizedBox(
+          separatorBuilder: (_, _) => const SizedBox(width: 14),
+          itemBuilder: (_, _) => SizedBox(
             width: colW,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,

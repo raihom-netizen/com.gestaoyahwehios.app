@@ -243,10 +243,12 @@ abstract final class BankNotificationParser {
     if (h.contains('date') || h.contains('data')) s += 6;
     if (h.contains('movimen') ||
         h.contains('transac') ||
-        h.contains('transaction'))
+        h.contains('transaction')) {
       s += 8;
-    if (h.contains('posting') || h.contains('booked') || h.contains('realiz'))
+    }
+    if (h.contains('posting') || h.contains('booked') || h.contains('realiz')) {
       s += 6;
+    }
     if (h.contains('pagamento') && h.contains('data')) s += 5;
     if (h.contains('lançamento') || h.contains('lancamento')) s += 5;
     if (h.contains('venc') || h.contains('due')) s += 3;
@@ -296,29 +298,37 @@ abstract final class BankNotificationParser {
     if (h.contains('débito') ||
         h.contains('debito') ||
         h == 'debit' ||
-        h.contains(' debit'))
+        h.contains(' debit')) {
       s += 9;
+    }
     if (h.contains('crédito') ||
         h.contains('credito') ||
         h == 'credit' ||
-        h.contains(' credit'))
+        h.contains(' credit')) {
       s += 9;
-    if (h.contains('entrada') || h.contains('saidas') || h.contains('saídas'))
+    }
+    if (h.contains('entrada') || h.contains('saidas') || h.contains('saídas')) {
       s += 4;
+    }
     if (h.contains('brl') || h.contains('r\$')) s += 5;
     return s;
   }
 
   static int _csvHeaderScoreDebit(String h) {
     if (h.isEmpty) return 0;
-    if (h.contains('credito') || h.contains('crédito') || h.contains('credit'))
+    if (h.contains('credito') ||
+        h.contains('crédito') ||
+        h.contains('credit')) {
       return 0;
+    }
     if (h.contains('débito') ||
         h.contains('debito') ||
-        (h.contains('debit') && !h.contains('card')))
+        (h.contains('debit') && !h.contains('card'))) {
       return 10;
-    if (h.contains('saidas') || h.contains('saídas') || h.contains('saida'))
+    }
+    if (h.contains('saidas') || h.contains('saídas') || h.contains('saida')) {
       return 8;
+    }
     return 0;
   }
 
@@ -326,10 +336,14 @@ abstract final class BankNotificationParser {
     if (h.isEmpty) return 0;
     if (h.contains('débito') ||
         h.contains('debito') ||
-        (h.contains('debit') && !h.contains('card')))
+        (h.contains('debit') && !h.contains('card'))) {
       return 0;
-    if (h.contains('crédito') || h.contains('credito') || h.contains('credit'))
+    }
+    if (h.contains('crédito') ||
+        h.contains('credito') ||
+        h.contains('credit')) {
       return 10;
+    }
     if (h.contains('entradas') || h.contains('entrada')) return 7;
     return 0;
   }
@@ -340,16 +354,21 @@ abstract final class BankNotificationParser {
     if (h == 'memo' || h == 'notes' || h == 'nota' || h == 'notas') return 14;
     if (h.contains('memo') && !h.contains('memorando')) return 10;
     if (h.contains('notes') || h.contains('notas')) return 9;
-    if (h.contains('observa') || h.contains('coment') || h.contains('comment'))
+    if (h.contains('observa') ||
+        h.contains('coment') ||
+        h.contains('comment')) {
       return 8;
+    }
     if (h.contains('additional') ||
         h.contains('supplement') ||
-        h.contains('complemento'))
+        h.contains('complemento')) {
       return 7;
+    }
     if (h.contains('reference') ||
         h.contains('referência') ||
-        h.contains('referencia'))
+        h.contains('referencia')) {
       return 6;
+    }
     return 0;
   }
 
@@ -357,12 +376,14 @@ abstract final class BankNotificationParser {
   static int _csvHeaderScoreMerchant(String h) {
     if (h.isEmpty || _csvHeaderNoise.hasMatch(h)) return 0;
     if (h == 'merchant' || h == 'payee' || h == 'vendor') return 14;
-    if (h.contains('merchant') || h.contains('payee') || h.contains('vendor'))
+    if (h.contains('merchant') || h.contains('payee') || h.contains('vendor')) {
       return 12;
+    }
     if (h.contains('estabelec') ||
         h.contains('counterparty') ||
-        h.contains('benefici'))
+        h.contains('benefici')) {
       return 10;
+    }
     if (h.contains('favorecido') && !h.contains('conta')) return 9;
     if (h.contains('store') || h.contains('loja ') || h == 'loja') return 7;
     if (h.contains('nome fantasia') || h.contains('fantasia')) return 8;
@@ -377,8 +398,9 @@ abstract final class BankNotificationParser {
     if (h == 'class' || h.startsWith('class ') || h.contains(' mcc')) return 5;
     if (h.contains('budget') ||
         h.contains('orçamento') ||
-        h.contains('orcamento'))
+        h.contains('orcamento')) {
       return 6;
+    }
     return 0;
   }
 
@@ -1367,8 +1389,9 @@ abstract final class BankNotificationParser {
         u == 'R\$' ||
         u.startsWith('US\$') ||
         u == 'COTAÇÃO' ||
-        u == 'COTACAO')
+        u == 'COTACAO') {
       return null;
+    }
     if (u.contains('HISTÓRICO') && u.contains('LANÇAMENT')) return null;
     if (u.contains('HISTORICO') && u.contains('LANCAMENT')) return null;
 

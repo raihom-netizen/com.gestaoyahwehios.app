@@ -19,7 +19,7 @@
 ///
 /// 5. **Pré-carregar**: usar `preloadNetworkImages` (`ui/widgets/safe_network_image.dart`), não
 ///    `precacheImage(NetworkImage(...))` com URLs que possam ser Storage na web.
-library church_media_publish_policy;
+library;
 
 export 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 export 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';

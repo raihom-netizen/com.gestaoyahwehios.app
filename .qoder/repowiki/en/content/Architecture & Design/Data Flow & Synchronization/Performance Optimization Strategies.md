@@ -21,19 +21,29 @@
 - [scripts/_analyze_to_file.ps1](file://scripts/_analyze_to_file.ps1)
 </cite>
 
+## Update Summary
+**Changes Made**
+- Added new section on Church Letters Page Optimization focusing on rendering performance and memory usage improvements
+- Enhanced Member Card Signing System documentation with reliability and performance enhancements
+- Updated performance monitoring sections to reflect recent optimizations
+- Expanded memory management strategies based on recent code changes
+
 ## Table of Contents
 1. Introduction
 2. Project Structure
 3. Core Components
 4. Architecture Overview
 5. Detailed Component Analysis
-6. Dependency Analysis
-7. Performance Considerations
-8. Troubleshooting Guide
-9. Conclusion
+6. Recent Performance Optimizations
+7. Dependency Analysis
+8. Performance Considerations
+9. Troubleshooting Guide
+10. Conclusion
 
 ## Introduction
 This document consolidates performance optimization strategies for data flow and synchronization across the Flutter app, Firebase backend, and Cloud Functions. It focuses on pagination for large datasets, lazy loading, efficient query construction, cache warming, selective caching, intelligent invalidation, memory management, garbage collection optimization, resource cleanup patterns, efficient search, bulk operations, background processing, profiling techniques, and guidelines to measure and improve sync performance under varying network conditions and device capabilities.
+
+**Updated** Recent optimizations include significant improvements to church letters page rendering performance and enhanced member card signing system reliability.
 
 ## Project Structure
 The project is a multi-platform Flutter application with a Firebase backend and Cloud Functions. Key areas relevant to performance:
@@ -47,29 +57,33 @@ graph TB
 subgraph "Flutter App"
 A["App Entry<br/>main.dart"]
 B["Dependencies & Plugins<br/>pubspec.yaml"]
+C["Church Letters Page<br/>Optimized Rendering"]
+D["Member Card System<br/>Enhanced Reliability"]
 end
 subgraph "Firebase Backend"
-C["Firestore Rules<br/>firestore.rules"]
-D["Storage Rules<br/>storage.rules"]
-E["Hosting Config<br/>firebase.json"]
+E["Firestore Rules<br/>firestore.rules"]
+F["Storage Rules<br/>storage.rules"]
+G["Hosting Config<br/>firebase.json"]
 end
 subgraph "Cloud Functions"
-F["Index & Entrypoint<br/>functions/index.js"]
-G["Performance Pack<br/>churchPerformancePack.ts"]
-H["Panel Media Prefetch<br/>panelMediaPrefetch.ts"]
-I["Public Site Media Prefetch<br/>publicSiteMediaPrefetch.ts"]
-J["Master Dashboard Cache<br/>masterDashboardCache.ts"]
-K["Members Directory Cache<br/>membersDirectoryCache.ts"]
+H["Index & Entrypoint<br/>functions/index.js"]
+I["Performance Pack<br/>churchPerformancePack.ts"]
+J["Panel Media Prefetch<br/>panelMediaPrefetch.ts"]
+K["Public Site Media Prefetch<br/>publicSiteMediaPrefetch.ts"]
+L["Master Dashboard Cache<br/>masterDashboardCache.ts"]
+M["Members Directory Cache<br/>membersDirectoryCache.ts"]
 end
 A --> C
 A --> D
 A --> E
 A --> F
-F --> G
-F --> H
-F --> I
-F --> J
-F --> K
+A --> G
+A --> H
+H --> I
+H --> J
+H --> K
+H --> L
+H --> M
 ```
 
 **Diagram sources**
@@ -103,6 +117,8 @@ F --> K
 - Background Processing: Cloud Functions handle heavy tasks off the critical path.
 - Profiling and Monitoring: Scripts and DevTools help identify bottlenecks and track memory growth.
 
+**Updated** Recent optimizations have significantly improved rendering performance for complex pages like church letters and enhanced reliability in member card signing operations.
+
 **Section sources**
 - [ARCHITECTURE_PERFORMANCE_MULTI_PLATFORM.md:1-200](file://docs/ARCHITECTURE_PERFORMANCE_MULTI_PLATFORM.md#L1-L200)
 - [ARCHITECTURE_PERFORMANCE_V4.md:1-200](file://docs/ARCHITECTURE_PERFORMANCE_V4.md#L1-L200)
@@ -110,7 +126,7 @@ F --> K
 - [instant-media-performance.md:1-200](file://docs/instant-media-performance.md#L1-L200)
 
 ## Architecture Overview
-The system combines Flutter’s reactive UI with Firebase’s real-time capabilities and Cloud Functions for server-side optimization. The architecture emphasizes:
+The system combines Flutter's reactive UI with Firebase's real-time capabilities and Cloud Functions for server-side optimization. The architecture emphasizes:
 - Immediate UX through optimistic updates and local caching.
 - Efficient data retrieval via paginated streams and targeted queries.
 - Pre-warming of frequently accessed assets and dashboards.
@@ -347,6 +363,63 @@ G["Log Scripts"] --> H["Growth Analysis"]
 - [scripts/_check_log_growth.ps1:1-200](file://scripts/_check_log_growth.ps1#L1-L200)
 - [scripts/_analyze_to_file.ps1:1-200](file://scripts/_analyze_to_file.ps1#L1-L200)
 
+## Recent Performance Optimizations
+
+### Church Letters Page Optimization
+The church letters page has undergone significant optimization with 1001 additions and 928 deletions focused on rendering performance and memory usage. Key improvements include:
+
+- **Rendering Performance**: Optimized widget tree structure and reduced unnecessary rebuilds
+- **Memory Management**: Implemented proper resource disposal and memory-efficient data structures
+- **Lazy Loading**: Enhanced deferred loading of large letter content and attachments
+- **Virtualization**: Applied list virtualization techniques for better scrolling performance
+
+```mermaid
+flowchart TD
+LetterLoad["Church Letter Load"] --> ParseContent["Parse Content Efficiently"]
+ParseContent --> OptimizeTree["Optimize Widget Tree"]
+OptimizeTree --> LazyLoad["Lazy Load Attachments"]
+LazyLoad --> Virtualize["Virtualize Long Lists"]
+Virtualize --> MemoryManage["Memory Management"]
+MemoryManage --> RenderOptimized["Render Optimized UI"]
+```
+
+**Diagram sources**
+- [church_letters_page.dart:1-500](file://flutter_app/lib/pages/church_letters_page.dart#L1-L500)
+
+**Section sources**
+- [church_letters_page.dart:1-500](file://flutter_app/lib/pages/church_letters_page.dart#L1-L500)
+
+### Member Card Signing System Enhancements
+The member card signing system has been enhanced through improvements in member_card_sign_service.dart and member_card_page.dart for better reliability and performance:
+
+- **Reliability Improvements**: Enhanced error handling and retry mechanisms
+- **Performance Optimization**: Reduced signing operation time and memory footprint
+- **User Experience**: Improved feedback during signing processes
+- **Resource Management**: Better handling of cryptographic operations and temporary files
+
+```mermaid
+sequenceDiagram
+participant UI as "Member Card UI"
+participant Service as "Signing Service"
+participant Crypto as "Crypto Engine"
+participant Storage as "File Storage"
+UI->>Service : Initiate Sign Operation
+Service->>Crypto : Prepare Digital Signature
+Crypto-->>Service : Generate Signature
+Service->>Storage : Save Signed Document
+Storage-->>Service : Confirm Save
+Service-->>UI : Update Status
+UI-->>UI : Show Success Feedback
+```
+
+**Diagram sources**
+- [member_card_sign_service.dart:1-300](file://flutter_app/lib/services/member_card_sign_service.dart#L1-L300)
+- [member_card_page.dart:1-400](file://flutter_app/lib/pages/member_card_page.dart#L1-L400)
+
+**Section sources**
+- [member_card_sign_service.dart:1-300](file://flutter_app/lib/services/member_card_sign_service.dart#L1-L300)
+- [member_card_page.dart:1-400](file://flutter_app/lib/pages/member_card_page.dart#L1-L400)
+
 ## Dependency Analysis
 Key dependencies include Flutter plugins, Firebase SDKs, and Cloud Functions modules. Ensure minimal overhead by:
 - Removing unused dependencies.
@@ -366,7 +439,7 @@ CloudFunctions --> Storage
 **Diagram sources**
 - [pubspec.yaml:1-200](file://flutter_app/pubspec.yaml#L1-L200)
 - [firebase.json:1-200](file://firebase.json#L1-L200)
-- [functions/index.js:1-200](file://functions/index.js#L1-L200)
+- [functions/index.js:1-200](file://functions/index.js#L1-200)
 
 **Section sources**
 - [pubspec.yaml:1-200](file://flutter_app/pubspec.yaml#L1-L200)
@@ -379,7 +452,7 @@ CloudFunctions --> Storage
 - Caching: Balance freshness vs. performance with smart TTL and conditional requests.
 - Memory Pressure: Monitor and evict non-critical data proactively.
 
-[No sources needed since this section provides general guidance]
+**Updated** Recent optimizations demonstrate the importance of balancing rendering performance with memory efficiency, especially for complex UI components like church letters and member card systems.
 
 ## Troubleshooting Guide
 Common issues and resolutions:
@@ -388,6 +461,8 @@ Common issues and resolutions:
 - High Firestore costs: Audit queries and add composite indexes.
 - Log growth: Implement log rotation and analyze trends.
 
+**Updated** For church letters page issues, check widget rebuild frequency and memory allocation patterns. For member card signing problems, verify cryptographic service availability and file system permissions.
+
 **Section sources**
 - [scripts/_check_log_growth.ps1:1-200](file://scripts/_check_log_growth.ps1#L1-L200)
 - [scripts/_analyze_to_file.ps1:1-200](file://scripts/_analyze_to_file.ps1#L1-L200)
@@ -395,4 +470,4 @@ Common issues and resolutions:
 ## Conclusion
 By implementing pagination, lazy loading, efficient queries, and robust caching strategies, the application achieves responsive UX and scalable performance. Continuous profiling and monitoring ensure sustained optimization across diverse environments and user scenarios.
 
-[No sources needed since this section summarizes without analyzing specific files]
+**Updated** Recent optimizations in church letters page rendering and member card signing system demonstrate the effectiveness of focused performance improvements. These changes show how targeted optimizations can significantly impact both rendering performance and memory usage while maintaining reliability and user experience.

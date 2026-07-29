@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = void 0;
+exports.buildGyNotificationDeepLink = buildGyNotificationDeepLink;
 exports.topicPushNovo = topicPushNovo;
 exports.sendGyTopicPush = sendGyTopicPush;
 exports.sendGyTopicPushCluster = sendGyTopicPushCluster;
@@ -46,6 +47,19 @@ const admin = __importStar(require("firebase-admin"));
 const notificationBranding_1 = require("./notificationBranding");
 function safeTid(t) {
     return String(t || "").replace(/[^a-zA-Z0-9\-_.~%]/g, "_");
+}
+/** Deep link HTTPS usado nas notificações FCM para abrir o app na tela correta.
+ *  O app trata `/igreja/{tenantId}/...` via Android App Links / iOS Universal Links.
+ */
+function buildGyNotificationDeepLink(tenantId, path, query) {
+    const tid = String(tenantId || "").replace(/[^a-zA-Z0-9\-_.~%]/g, "_");
+    const cleanPath = path.replace(/^\/+/, "").replace(/\/+$/, "");
+    const params = query && Object.keys(query).length > 0
+        ? `?${Object.entries(query)
+            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+            .join("&")}`
+        : "";
+    return `https://gestaoyahweh.com.br/igreja/${tid}/${cleanPath}${params}`;
 }
 /** Mesmo formato usado no Flutter [FcmService.topicPushNovo]. */
 function topicPushNovo(tenantId, kind) {
@@ -231,6 +245,7 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
             tenantId: churchId,
             postId,
             click_action: "FLUTTER_NOTIFICATION_CLICK",
+            deepLink: buildGyNotificationDeepLink(churchId, `evento/${postId}`),
         },
         module: "evento",
     }));

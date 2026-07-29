@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// Evita OutOfMemory — comprime bytes na isolate principal (igual Web → putData).
 ///

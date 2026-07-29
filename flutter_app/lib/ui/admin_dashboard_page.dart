@@ -311,8 +311,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         final method = (data['payment_method'] ?? data['paymentMethod'] ?? data['payment_type'] ?? '').toString().toLowerCase();
         final amt = (data['amount'] ?? 0);
         final val = amt is num ? amt.toDouble() : double.tryParse(amt.toString()) ?? 0;
-        if (method.contains('pix')) receitaPix += val;
-        else if (method.contains('card') || method.contains('credit') || method.contains('cartão')) receitaCartao += val;
+        if (method.contains('pix')) {
+          receitaPix += val;
+        } else if (method.contains('card') || method.contains('credit') || method.contains('cartão')) receitaCartao += val;
         else receitaCartao += val;
       }
     } catch (e, st) {
@@ -350,8 +351,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         }
       }
       final sorted = byDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-      if (sorted.length > 14) acessosDia.addAll(sorted.sublist(sorted.length - 14));
-      else acessosDia.addAll(sorted);
+      if (sorted.length > 14) {
+        acessosDia.addAll(sorted.sublist(sorted.length - 14));
+      } else {
+        acessosDia.addAll(sorted);
+      }
     } catch (e, st) {
       debugPrint('AdminDashboard _carregarDados bloco analytics: $e\n$st');
     }
@@ -641,7 +645,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
                 barRods: [
                   BarChartRodData(
                     toY: (data[i]['valor'] is int) ? (data[i]['valor'] as int).toDouble() : (data[i]['valor'] as num?)?.toDouble() ?? 0,
-                    color: color.withOpacity(0.85),
+                    color: color.withValues(alpha: 0.85),
                     width: 12,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
                   ),
@@ -667,7 +671,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
               color: Colors.green.shade600,
               barWidth: 3,
               dotData: const FlDotData(show: true),
-              belowBarData: BarAreaData(show: true, color: Colors.green.withOpacity(0.12)),
+              belowBarData: BarAreaData(show: true, color: Colors.green.withValues(alpha: 0.12)),
             ),
           ],
           titlesData: FlTitlesData(
@@ -868,12 +872,12 @@ class _WelcomeStrip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg, vertical: ThemeCleanPremium.spaceMd),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [ThemeCleanPremium.primary.withOpacity(0.08), ThemeCleanPremium.primary.withOpacity(0.04)],
+          colors: [ThemeCleanPremium.primary.withValues(alpha: 0.08), ThemeCleanPremium.primary.withValues(alpha: 0.04)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.12)),
+        border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.12)),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Row(
@@ -881,7 +885,7 @@ class _WelcomeStrip extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withOpacity(0.12),
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
             ),
             child: const Icon(Icons.analytics_rounded, color: ThemeCleanPremium.primary, size: 28),
@@ -1117,7 +1121,7 @@ class _AcessosCard extends StatelessWidget {
                             Container(
                               height: (maxH > 0 ? (acessosPorDia[i].value / maxH) : 0) * 70 + 8,
                               decoration: BoxDecoration(
-                                color: Colors.purple.shade400.withOpacity(0.8),
+                                color: Colors.purple.shade400.withValues(alpha: 0.8),
                                 borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
                               ),
                             ),

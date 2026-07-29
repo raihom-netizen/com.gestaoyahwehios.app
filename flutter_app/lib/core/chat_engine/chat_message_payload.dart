@@ -31,7 +31,7 @@ abstract final class ChatMessagePayload {
       'deliveryStatus': delivery.firestoreValue,
       'createdAt': now,
       'uploadCompleted': true,
-      if (replyTo != null) 'replyTo': replyTo,
+      'replyTo': ?replyTo,
       'forwarded': forwarded,
       'edited': false,
       'deleted': false,
@@ -65,8 +65,8 @@ abstract final class ChatMessagePayload {
       'uploadCompleted': false,
       'storageVerified': false,
       'pendingMedia': true,
-      if (replyTo != null) 'replyTo': replyTo,
-      if (localId != null) 'localId': localId,
+      'replyTo': ?replyTo,
+      'localId': ?localId,
     };
     return ChurchChatMessageFields.withCanonicalAliases(patch);
   }
@@ -87,10 +87,10 @@ abstract final class ChatMessagePayload {
         'thumbnailUrl': thumbnailUrl,
         'thumbUrl': thumbnailUrl,
       },
-      if (thumbStoragePath != null) 'thumbStoragePath': thumbStoragePath,
-      if (fileName != null) 'fileName': fileName,
+      'thumbStoragePath': ?thumbStoragePath,
+      'fileName': ?fileName,
       if (fileSize != null) ...{'fileSize': fileSize, 'size': fileSize},
-      if (mimeType != null) 'mimeType': mimeType,
+      'mimeType': ?mimeType,
       'status': ChatDeliveryState.sent.firestoreValue,
       'deliveryStatus': ChatDeliveryState.sent.firestoreValue,
       'uploadCompleted': true,

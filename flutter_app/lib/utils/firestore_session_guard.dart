@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -75,9 +74,7 @@ class FirestoreSessionGuard {
   /// Antes de leituras/gravações — token alinhado às regras do Firestore.
   static Future<void> ensureWriteSession() async {
     var user = firebaseDefaultAuth.currentUser;
-    if (user == null) {
-      user = await waitForCurrentUser(timeout: const Duration(seconds: 3));
-    }
+    user ??= await waitForCurrentUser(timeout: const Duration(seconds: 3));
     if (user == null) return;
     try {
       await user.getIdToken(false);

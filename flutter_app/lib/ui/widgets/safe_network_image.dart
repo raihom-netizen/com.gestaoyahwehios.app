@@ -1485,7 +1485,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
       memCacheHeight: cacheH,
       fadeInDuration: const Duration(milliseconds: 100),
       fadeOutDuration: const Duration(milliseconds: 80),
-      placeholder: (_, __) => placeholder,
+      placeholder: (_, _) => placeholder,
       errorWidget: (context, failedUrl, error) {
         _reportLoadError(failedUrl, error);
         if (mounted) {
@@ -1623,7 +1623,7 @@ class _WebNetworkImageLastResortState extends State<_WebNetworkImageLastResort> 
         }
         return Stack(fit: StackFit.expand, children: [child, ph]);
       },
-      errorBuilder: (_, error, __) {
+      errorBuilder: (_, error, _) {
         _markComplete();
         widget.onDecodeError?.call(widget.url, error);
         return err;
@@ -2777,7 +2777,7 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
       filterQuality: filterQualityForMemCache(cache, cache),
       loadingBuilder: (_, child, progress) =>
           progress == null ? child : _placeholder,
-      errorBuilder: (_, __, ___) {
+      errorBuilder: (_, _, _) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _showFallback = true);
         });

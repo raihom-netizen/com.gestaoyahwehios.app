@@ -81,7 +81,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        ThemeCleanPremium.primary.withOpacity(0.12),
+                        ThemeCleanPremium.primary.withValues(alpha: 0.12),
                         const Color(0xFFFFF7ED),
                       ],
                       begin: Alignment.topLeft,
@@ -89,7 +89,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                     ),
                     borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
                     border: Border.all(
-                      color: ThemeCleanPremium.primary.withOpacity(0.35),
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
                     ),
                     boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
@@ -107,7 +107,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.15),
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Icon(

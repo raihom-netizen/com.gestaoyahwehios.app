@@ -185,12 +185,14 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
     } catch (e) {
       final msg = e.toString();
       final isPermissionDenied = msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED');
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _loading = false;
         _loadError = isPermissionDenied
             ? 'Sem permissão para ler config no Firebase. Verifique se seu usuário tem role ADMIN ou MASTER (custom claims ou documento users).'
             : msg;
       });
+      }
     }
   }
 
@@ -310,7 +312,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                                 Container(
                                   padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
-                                    color: ThemeCleanPremium.error.withOpacity(0.1),
+                                    color: ThemeCleanPremium.error.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Icon(Icons.warning_amber_rounded, color: ThemeCleanPremium.error, size: 24),
@@ -341,7 +343,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                                   Container(
                                     padding: const EdgeInsets.all(10),
                                     decoration: BoxDecoration(
-                                      color: ThemeCleanPremium.primary.withOpacity(0.08),
+                                      color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Icon(Icons.info_outline_rounded, color: ThemeCleanPremium.primary, size: 24),
@@ -568,7 +570,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
                                   Container(
                                     padding: const EdgeInsets.all(8),
                                     decoration: BoxDecoration(
-                                      color: ThemeCleanPremium.primary.withOpacity(0.08),
+                                      color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Icon(Icons.webhook_rounded, color: ThemeCleanPremium.primary, size: 22),

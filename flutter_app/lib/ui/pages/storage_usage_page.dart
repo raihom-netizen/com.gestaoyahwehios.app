@@ -1151,7 +1151,7 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
                 ),
                 sliver: SliverList.separated(
                   itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final church = filtered[i];
                     final row = _rows[church.id];

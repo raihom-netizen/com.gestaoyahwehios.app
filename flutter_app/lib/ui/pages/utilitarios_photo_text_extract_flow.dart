@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -150,7 +150,10 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+            e
+                .toString()
+                .replaceFirst('StateError: ', '')
+                .replaceFirst('Bad state: ', ''),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -172,7 +175,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     String name = 'foto.jpg';
     String? path;
     try {
-      if (source == ImageSource.camera || (!kIsWeb && source == ImageSource.gallery)) {
+      if (source == ImageSource.camera ||
+          (!kIsWeb && source == ImageSource.gallery)) {
         final x = await _picker.pickImage(
           source: source,
           // Sem maxWidth: evita 2º reencode no picker (demora no Android).
@@ -202,7 +206,10 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+            e
+                .toString()
+                .replaceFirst('StateError: ', '')
+                .replaceFirst('Bad state: ', ''),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -273,7 +280,10 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+            e
+                .toString()
+                .replaceFirst('StateError: ', '')
+                .replaceFirst('Bad state: ', ''),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -364,46 +374,11 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     required String mimeType,
     required String label,
   }) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Arquivo pronto',
-                style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '$label gerado localmente no aparelho.',
-                style: ModernModuleUI.moduleSubtitleStyle(ctx),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () => Navigator.pop(ctx, 'share'),
-                icon: const Icon(Icons.share_rounded),
-                label: const Text('Compartilhar'),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => Navigator.pop(ctx, 'save'),
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('Salvar no aparelho'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Fechar'),
-              ),
-            ],
-          ),
-        );
-      },
+    final action = await utilitariosShowShareSaveActionSheet(
+      context,
+      title: '$label pronto',
+      subtitle: 'Salve na pasta desejada ou compartilhe.',
+      fileName: fileName,
     );
     if (!mounted || action == null) return;
     final ok = await utilitariosSaveOrShareBytes(
@@ -412,6 +387,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
       fileName: fileName,
       mimeType: mimeType,
       preferShare: action == 'share',
+      chooseSaveLocation: action == 'save_folder',
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -420,7 +396,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
           ok
               ? (action == 'share'
                   ? 'Escolha WhatsApp, e-mail ou outro app.'
-                  : 'Arquivo salvo em Utilitarios_GestaoYahweh.')
+                  : 'Arquivo salvo na pasta escolhida.')
               : 'Não foi possível exportar.',
         ),
         behavior: SnackBarBehavior.floating,
@@ -540,7 +516,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
             gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
             icon: Icons.photo_library_rounded,
             label: 'Galeria',
-            onPressed: _busy ? null : () => _pickAndExtract(ImageSource.gallery),
+            onPressed:
+                _busy ? null : () => _pickAndExtract(ImageSource.gallery),
             secondary: true,
           ),
           if (kIsWeb) ...[
@@ -574,12 +551,14 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
               label: 'Título',
               active: _paraStyles.isNotEmpty &&
                   _paragraphIndexAtCursor() < _paraStyles.length &&
-                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                  _paraStyles[_paragraphIndexAtCursor()
+                          .clamp(0, _paraStyles.length - 1)]
                       .isHeading,
               onTap: _busy || !_hasText
                   ? null
                   : () => _applyParaStyle(
-                        (s) => s.copyWith(isHeading: !s.isHeading, isBold: false),
+                        (s) =>
+                            s.copyWith(isHeading: !s.isHeading, isBold: false),
                       ),
             ),
             _formatChip(
@@ -587,7 +566,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
               label: 'Negrito',
               active: _paraStyles.isNotEmpty &&
                   _paragraphIndexAtCursor() < _paraStyles.length &&
-                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                  _paraStyles[_paragraphIndexAtCursor()
+                          .clamp(0, _paraStyles.length - 1)]
                       .isBold,
               onTap: _busy || !_hasText
                   ? null
@@ -600,7 +580,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
               label: 'Lista',
               active: _paraStyles.isNotEmpty &&
                   _paragraphIndexAtCursor() < _paraStyles.length &&
-                  _paraStyles[_paragraphIndexAtCursor().clamp(0, _paraStyles.length - 1)]
+                  _paraStyles[_paragraphIndexAtCursor()
+                          .clamp(0, _paraStyles.length - 1)]
                       .isBullet,
               onTap: _busy || !_hasText
                   ? null
@@ -696,7 +677,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                 ),
               Expanded(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   color: _gradient.first.withValues(alpha: 0.07),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

@@ -235,7 +235,7 @@ class _AdminMultiTenantDiagnosticPageState
               padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, pad.bottom + 24),
               sliver: SliverList.separated(
                 itemCount: _checks.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder: (context, i) {
                   final c = _checks[i];
                   final color = _statusColor(c.status);

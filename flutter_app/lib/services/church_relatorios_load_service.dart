@@ -398,8 +398,7 @@ abstract final class ChurchRelatoriosLoadService {
 // ignore: subtype_of_sealed_class
 class _RelatoriosSyntheticDoc
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  _RelatoriosSyntheticDoc({required this.id, required Map<String, dynamic> data})
-      : _data = data;
+  _RelatoriosSyntheticDoc({required this.id, required this._data});
 
   @override
   final String id;

@@ -101,7 +101,7 @@ class ChurchChatTelegramMessageBody extends StatelessWidget {
           mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showCard && primary != null) ...[
+        if (showCard) ...[
           _TelegramLinkCard(
             url: primary,
             mine: mine,

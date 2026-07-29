@@ -480,7 +480,7 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
             child: SizedBox(
               width: widget.radius,
               height: widget.radius,
-              child: CircularProgressIndicator(strokeWidth: 2, color: iconColor.withOpacity(0.7)),
+              child: CircularProgressIndicator(strokeWidth: 2, color: iconColor.withValues(alpha: 0.7)),
             ),
           );
         }

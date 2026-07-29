@@ -21,5 +21,11 @@
 	<array>
 		<string>group.com.gestaoyahwehios.app.widget</string>
 	</array>
+	<!-- Universal Links para deep links de notificações (gestaoyahweh.com.br). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:gestaoyahweh.com.br</string>
+		<string>applinks:www.gestaoyahweh.com.br</string>
+	</array>
 </dict>
 </plist>

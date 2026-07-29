@@ -4,7 +4,7 @@
  */
 import * as admin from "firebase-admin";
 import { buildGyTopicMessage } from "./notificationBranding";
-import { topicPushNovo, sendGyTopicPush } from "./pushNovoConteudo";
+import { topicPushNovo, sendGyTopicPush, buildGyNotificationDeepLink } from "./pushNovoConteudo";
 
 function getDb(): admin.firestore.Firestore {
   return admin.firestore();
@@ -51,6 +51,11 @@ export async function notifyGestoresNewMember(params: {
         memberId: membroId,
         publicSignup: publicSignup ? "1" : "0",
         click_action: "FLUTTER_NOTIFICATION_CLICK",
+        deepLink: buildGyNotificationDeepLink(
+          churchId,
+          publicSignup ? "aprovacoes" : `membro/${membroId}`,
+          publicSignup ? { memberId: membroId } : undefined,
+        ),
       },
       module: "membro",
     }),

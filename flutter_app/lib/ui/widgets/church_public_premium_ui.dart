@@ -729,9 +729,9 @@ class _ScheduleWhenChips extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              if (c1 != null) c1,
-              if (c2 != null) c2,
-              if (c3 != null) c3,
+              ?c1,
+              ?c2,
+              ?c3,
             ],
           );
         }

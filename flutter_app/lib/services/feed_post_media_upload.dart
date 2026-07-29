@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -63,7 +62,7 @@ abstract final class FeedPostMediaUpload {
         progressLabel != null && progressLabel.isNotEmpty;
     if (startedProgress) {
       GlobalUploadProgress.instance.startBatch(
-        itemLabel: progressLabel!,
+        itemLabel: progressLabel,
         totalItems: count,
       );
     }

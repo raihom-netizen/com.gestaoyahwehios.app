@@ -189,7 +189,7 @@ class _PremiumFeedImageCropScreenState extends State<PremiumFeedImageCropScreen>
                         vertical: 4,
                       ),
                       itemCount: _ratios.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
                       itemBuilder: (context, i) {
                         final sel = i == _selectedRatioIndex;
                         return CupertinoButton(

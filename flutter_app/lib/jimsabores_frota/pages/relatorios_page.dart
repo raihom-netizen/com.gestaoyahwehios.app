@@ -161,10 +161,12 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                               firstDate: start,
                               lastDate: DateTime(2100),
                             );
-                            if (mounted && end != null) setState(() {
+                            if (mounted && end != null) {
+                              setState(() {
                               _dataInicial = start;
                               _dataFinal = end;
                             });
+                            }
                           },
                         ),
                       ],

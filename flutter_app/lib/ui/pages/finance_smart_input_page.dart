@@ -3,7 +3,6 @@ import 'dart:convert' show utf8;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -15,7 +14,6 @@ import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/services/finance_smart_batch_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 const _categoriasReceitaPadrao = <String>[
   'Dízimos',

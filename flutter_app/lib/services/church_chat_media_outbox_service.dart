@@ -503,7 +503,7 @@ abstract final class ChurchChatMediaOutboxService {
       try {
         final raw = await XFile(localPath).readAsBytes();
         if (raw.isNotEmpty) {
-          bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
+          bytes = raw;
         }
       } catch (_) {}
     }

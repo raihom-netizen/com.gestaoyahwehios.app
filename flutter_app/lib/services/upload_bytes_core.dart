@@ -6,7 +6,6 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -26,7 +25,7 @@ Future<String> uploadStoragePutDataWithRetry({
 
   String cacheControl = 'public, max-age=31536000',
 
-  int maxAttempts = 4,
+  int maxAttempts = 3,
 
   void Function(double progress)? onProgress,
 
@@ -76,7 +75,7 @@ Future<String> uploadStoragePutFileWithRetry({
   required File file,
   required String contentType,
   String cacheControl = 'public, max-age=31536000',
-  int maxAttempts = 4,
+  int maxAttempts = 3,
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
   bool useOfflineQueue = false,

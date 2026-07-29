@@ -314,7 +314,7 @@ class _ChurchLetterDepartmentFilterDropdownState
                       shrinkWrap: true,
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       itemCount: options.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 2),
+                      separatorBuilder: (_, _) => const SizedBox(height: 2),
                       itemBuilder: (context, i) {
                         final o = options[i];
                         final selected = widget.selectedId == o.id;
@@ -567,7 +567,7 @@ class _ChurchLetterSignerPickerSheetState
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                           itemCount: _filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, i) {
                             final e = _filtered[i];
                             final sel = e.id == widget.selectedId;

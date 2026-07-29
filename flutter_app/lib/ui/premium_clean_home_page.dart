@@ -1,10 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// ✅ Landing Premium Clean (fundo branco, logo grande, módulos modernos)
 /// - Campo CPF (11 dígitos) → consulta via Cloud Function `resolveCpfToEmail`
@@ -74,7 +72,7 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
       setState(() {
         _profile = {
           ...data,
-          if (tenant != null) 'tenant': tenant,
+          'tenant': ?tenant,
         };
       });
     } catch (e) {

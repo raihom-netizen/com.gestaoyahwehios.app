@@ -1,7 +1,6 @@
 import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -23,13 +22,11 @@ import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_report_premium_ui.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -44,7 +41,6 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
 import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart'
     hide sanitizeImageUrl;
 import '../../services/app_permissions.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
 abstract final class _RelatoriosMembersDataCache {
@@ -1020,10 +1016,10 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
             const SizedBox(height: ThemeCleanPremium.spaceMd),
             _FilterSection(title: 'Departamento', icon: Icons.business_rounded, color: color, child: _deptsLoaded
                 ? DropdownButtonFormField<String>(
-                    value: _filtroDepartamento,
+                    initialValue: _filtroDepartamento,
                     decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
-                    items: [const DropdownMenuItem(value: 'todos', child: Text('Todos'))]
-                        ..addAll(_departamentos.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name)))),
+                    items: [const DropdownMenuItem(value: 'todos', child: Text('Todos')), ..._departamentos.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name)))]
+                        ,
                     onChanged: (v) => setState(() => _filtroDepartamento = v ?? 'todos'),
                   )
                 : const Center(
@@ -2741,7 +2737,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       case _FinancePeriodMode.month:
         return DateFormat('MM/yyyy').format(p.inicio);
       case _FinancePeriodMode.fullYear:
-        return 'Ano ${_ano}';
+        return 'Ano $_ano';
       case _FinancePeriodMode.custom:
         return '${DateFormat('dd/MM/yyyy').format(p.inicio)} — ${DateFormat('dd/MM/yyyy').format(p.fim)}';
     }
@@ -2753,7 +2749,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       case _FinancePeriodMode.month:
         return 'fechamento_${_ano}_${_mes.toString().padLeft(2, '0')}.pdf';
       case _FinancePeriodMode.fullYear:
-        return 'fechamento_ano_${_ano}.pdf';
+        return 'fechamento_ano_$_ano.pdf';
       case _FinancePeriodMode.custom:
         return 'fechamento_${DateFormat('yyyyMMdd').format(p.inicio)}_${DateFormat('yyyyMMdd').format(p.fim)}.pdf';
     }
@@ -2889,7 +2885,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
             required ValueChanged<String?> onChanged,
           }) {
             return DropdownButtonFormField<String>(
-              value: value,
+              initialValue: value,
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: label,
@@ -3545,7 +3541,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               DropdownButtonFormField<int>(
-                                value: _mes,
+                                initialValue: _mes,
                                 decoration: InputDecoration(
                                   labelText: 'Mês',
                                   filled: true,
@@ -3561,7 +3557,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                               ),
                               const SizedBox(height: 10),
                               DropdownButtonFormField<int>(
-                                value: _ano,
+                                initialValue: _ano,
                                 decoration: InputDecoration(
                                   labelText: 'Ano',
                                   filled: true,
@@ -3580,7 +3576,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                             children: [
                               Expanded(
                                 child: DropdownButtonFormField<int>(
-                                  value: _mes,
+                                  initialValue: _mes,
                                   decoration: InputDecoration(
                                     labelText: 'Mês',
                                     filled: true,
@@ -3599,7 +3595,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: DropdownButtonFormField<int>(
-                                  value: _ano,
+                                  initialValue: _ano,
                                   decoration: InputDecoration(
                                     labelText: 'Ano',
                                     filled: true,
@@ -3618,7 +3614,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                           ),
                   if (_periodMode == _FinancePeriodMode.fullYear)
                     DropdownButtonFormField<int>(
-                      value: _ano,
+                      initialValue: _ano,
                       decoration: InputDecoration(
                         labelText: 'Ano (1 jan — 31 dez)',
                         filled: true,
@@ -3736,10 +3732,10 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
             const SizedBox(height: ThemeCleanPremium.spaceMd),
             _FilterSection(title: 'Categoria', icon: Icons.category_rounded, color: finEmerald, child: _initLoaded
                 ? DropdownButtonFormField<String>(
-                    value: _filtroCategoria,
+                    initialValue: _filtroCategoria,
                     decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
-                    items: [const DropdownMenuItem(value: 'todas', child: Text('Todas categorias'))]
-                        ..addAll(_categorias.map((c) => DropdownMenuItem(value: c, child: Text(c)))),
+                    items: [const DropdownMenuItem(value: 'todas', child: Text('Todas categorias')), ..._categorias.map((c) => DropdownMenuItem(value: c, child: Text(c)))]
+                        ,
                     onChanged: (v) => setState(() {
                       _filtroCategoria = v ?? 'todas';
                       _pageLancamentos = 0;
@@ -3754,10 +3750,10 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
             const SizedBox(height: ThemeCleanPremium.spaceMd),
             _FilterSection(title: 'Conta', icon: Icons.account_balance_rounded, color: finEmerald, child: _initLoaded
                 ? DropdownButtonFormField<String>(
-                    value: _filtroConta,
+                    initialValue: _filtroConta,
                     decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12)),
-                    items: [const DropdownMenuItem(value: 'todas', child: Text('Todas contas'))]
-                        ..addAll(_contas.map((c) => DropdownMenuItem(value: c.id, child: Text(c.nome)))),
+                    items: [const DropdownMenuItem(value: 'todas', child: Text('Todas contas')), ..._contas.map((c) => DropdownMenuItem(value: c.id, child: Text(c.nome)))]
+                        ,
                     onChanged: (v) => setState(() {
                       _filtroConta = v ?? 'todas';
                       _pageLancamentos = 0;
@@ -5002,8 +4998,11 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                             selected: selected,
                             accent: const Color(0xFF7C3AED),
                             onSelected: (v) => setState(() {
-                              if (v == true) _selectedFields.add(e.$1);
-                              else _selectedFields.remove(e.$1);
+                              if (v == true) {
+                                _selectedFields.add(e.$1);
+                              } else {
+                                _selectedFields.remove(e.$1);
+                              }
                             }),
                           );
                         }).toList(),
@@ -5367,7 +5366,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   Widget _chip(String text, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.4))),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withValues(alpha: 0.4))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: color), const SizedBox(width: 4), Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color))]),
     );
   }
@@ -5400,7 +5399,7 @@ class _SectionCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF7C3AED).withOpacity(0.12),
+                  color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                 ),
                 child: Icon(icon, color: const Color(0xFF7C3AED), size: 22),

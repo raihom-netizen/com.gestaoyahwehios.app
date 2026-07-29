@@ -190,7 +190,7 @@ class _AlbumTile extends StatelessWidget {
         width: width,
         height: height,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _placeholder(height),
+        errorBuilder: (_, _, _) => _placeholder(height),
       );
     } else if ((cell.url ?? '').trim().isNotEmpty) {
       img = SafeNetworkImage(

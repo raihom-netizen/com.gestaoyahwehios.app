@@ -20,7 +20,7 @@ Future<void> showMercadoPagoCheckoutFullscreen(
       opaque: true,
       fullscreenDialog: true,
       barrierDismissible: false,
-      pageBuilder: (ctx, _, __) => _MpCheckoutFullscreenScaffold(
+      pageBuilder: (ctx, _, _) => _MpCheckoutFullscreenScaffold(
         checkoutUrl: checkoutUrl,
         returnUrlHint: returnUrlHint,
         footerHint: footerHint,
@@ -29,7 +29,7 @@ Future<void> showMercadoPagoCheckoutFullscreen(
         subtitle: subtitle,
         onPaymentReturn: onPaymentReturn,
       ),
-      transitionsBuilder: (_, animation, __, child) {
+      transitionsBuilder: (_, animation, _, child) {
         return FadeTransition(opacity: animation, child: child);
       },
     ),

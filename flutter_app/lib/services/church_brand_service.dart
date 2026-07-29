@@ -1,5 +1,4 @@
 import 'dart:async' show unawaited;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -73,9 +72,7 @@ abstract final class ChurchBrandService {
     if (cid.isEmpty) return null;
 
     Map<String, dynamic>? data = tenantData;
-    if (data == null) {
-      data = await _loadTenantData(cid);
-    }
+    data ??= await _loadTenantData(cid);
 
     final path = logoPathFromData(data, churchId: cid);
     if (path == null || path.isEmpty) return null;
@@ -99,9 +96,7 @@ abstract final class ChurchBrandService {
     if (cid.isEmpty) return null;
 
     Map<String, dynamic>? data = tenantData;
-    if (data == null) {
-      data = await _loadTenantData(cid);
-    }
+    data ??= await _loadTenantData(cid);
 
     final key = _cacheKey(cid, data);
     final cached = _cache[key];
@@ -188,9 +183,7 @@ abstract final class ChurchBrandService {
     if (cid.isEmpty) return null;
 
     Map<String, dynamic>? data = tenantData;
-    if (data == null) {
-      data = await _loadTenantData(cid);
-    }
+    data ??= await _loadTenantData(cid);
 
     final key = _cacheKey(cid, data);
     final cached = _cache[key];

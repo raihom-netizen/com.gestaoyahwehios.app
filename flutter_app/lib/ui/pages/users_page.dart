@@ -1,11 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 
@@ -48,7 +46,7 @@ class _UsersPageState extends State<UsersPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Alterar perfil'),
         content: DropdownButtonFormField<String>(
-          value: selected,
+          initialValue: selected,
           items: roles
               .map((r) => DropdownMenuItem(value: r, child: Text(r)))
               .toList(),
@@ -154,7 +152,7 @@ class _UsersPageState extends State<UsersPage> {
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (context, i) {
                     final d = docs[i];
                     final data = d.data();

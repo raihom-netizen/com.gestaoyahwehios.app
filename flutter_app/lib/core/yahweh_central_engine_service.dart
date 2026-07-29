@@ -1,19 +1,16 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
-import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/yahweh_data_engine_fetcher.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
@@ -125,19 +122,18 @@ abstract final class YahwehCentralEngineService {
     required YahwehCentralModule module,
     required Uint8List bytes,
     String contentType = 'image/jpeg',
-  }) =>
-      YahwehMediaUploadPipeline.compressImageBytes(
-        module: _uploadModule(module),
-        bytes: bytes,
-        contentType: contentType,
-      );
+  }) => YahwehMediaUploadPipeline.compressImageBytes(
+    module: _uploadModule(module),
+    bytes: bytes,
+    contentType: contentType,
+  );
 
   static YahwehUploadModule _uploadModule(YahwehCentralModule m) => switch (m) {
-        YahwehCentralModule.avisos => YahwehUploadModule.aviso,
-        YahwehCentralModule.eventos => YahwehUploadModule.evento,
-        YahwehCentralModule.chat => YahwehUploadModule.chat,
-        _ => YahwehUploadModule.generic,
-      };
+    YahwehCentralModule.avisos => YahwehUploadModule.aviso,
+    YahwehCentralModule.eventos => YahwehUploadModule.evento,
+    YahwehCentralModule.chat => YahwehUploadModule.chat,
+    _ => YahwehUploadModule.generic,
+  };
 
   static DocumentReference<Map<String, dynamic>> docRef({
     required YahwehCentralModule module,
@@ -146,24 +142,38 @@ abstract final class YahwehCentralEngineService {
   }) {
     final cid = ChurchRepository.churchId(churchId);
     return switch (module) {
-      YahwehCentralModule.membros => ChurchUiCollections.membros(cid).doc(docId),
-      YahwehCentralModule.financeiro =>
-        ChurchUiCollections.financeiro(cid).doc(docId),
-      YahwehCentralModule.patrimonio =>
-        ChurchUiCollections.patrimonio(cid).doc(docId),
+      YahwehCentralModule.membros => ChurchUiCollections.membros(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.financeiro => ChurchUiCollections.financeiro(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.patrimonio => ChurchUiCollections.patrimonio(
+        cid,
+      ).doc(docId),
       YahwehCentralModule.avisos => ChurchUiCollections.avisos(cid).doc(docId),
-      YahwehCentralModule.eventos => ChurchUiCollections.eventos(cid).doc(docId),
-      YahwehCentralModule.pedidosOracao =>
-        ChurchUiCollections.pedidosOracao(cid).doc(docId),
-      YahwehCentralModule.certificados =>
-        ChurchUiCollections.certificados(cid).doc(docId),
-      YahwehCentralModule.transferencias =>
-        ChurchUiCollections.transferencias(cid).doc(docId),
-      YahwehCentralModule.fornecedores =>
-        ChurchUiCollections.fornecedores(cid).doc(docId),
-      YahwehCentralModule.escalas => ChurchUiCollections.escalas(cid).doc(docId),
-      YahwehCentralModule.aprovacoes =>
-        ChurchUiCollections.ref('aprovacoes', churchIdHint: cid).doc(docId),
+      YahwehCentralModule.eventos => ChurchUiCollections.eventos(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.pedidosOracao => ChurchUiCollections.pedidosOracao(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.certificados => ChurchUiCollections.certificados(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.transferencias => ChurchUiCollections.transferencias(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.fornecedores => ChurchUiCollections.fornecedores(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.escalas => ChurchUiCollections.escalas(
+        cid,
+      ).doc(docId),
+      YahwehCentralModule.aprovacoes => ChurchUiCollections.ref(
+        'aprovacoes',
+        churchIdHint: cid,
+      ).doc(docId),
       YahwehCentralModule.chat => ChurchUiCollections.chats(cid).doc(docId),
     };
   }
@@ -202,42 +212,40 @@ abstract final class YahwehCentralEngineService {
     required YahwehCentralModule module,
     required String churchIdHint,
     int limit = 20,
-  }) =>
-      YahwehDataEngineFetcher.readModuleCacheFirst(
-        collectionName: module.collectionSegment,
-        churchIdHint: churchIdHint,
-        limitCount: limit,
-      );
+  }) => YahwehDataEngineFetcher.readModuleCacheFirst(
+    collectionName: module.collectionSegment,
+    churchIdHint: churchIdHint,
+    limitCount: limit,
+  );
 
   /// Guia para o Cursor — serviço strict/outbox por módulo (não reinventar upload).
   static String moduleGuide(YahwehCentralModule module) => switch (module) {
-        YahwehCentralModule.membros =>
-          '${YahwehDataEngineFetcher.readGuide(module)} '
+    YahwehCentralModule.membros =>
+      '${YahwehDataEngineFetcher.readGuide(module)} '
           'Foto: executeSingleProfileSave → MemberProfilePhotoSaveService (path fixo foto_perfil.jpg + v=cb revision). '
           'Offline: EcoFireResilientPublish.queueMemberPhotoPublish.',
-        YahwehCentralModule.financeiro =>
-          'Comprovante: FinanceComprovantePublishService (PDF/imagem sem recompressão PDF). '
+    YahwehCentralModule.financeiro =>
+      'Comprovante: FinanceComprovantePublishService (PDF/imagem sem recompressão PDF). '
           'Offline: EcoFireResilientPublish.queueFinanceComprovante + ModuleMediaOutboxService.',
-        YahwehCentralModule.patrimonio =>
-          'PatrimonioStrictPublishService + ModuleMediaOutboxService.registerPatrimonio.',
-        YahwehCentralModule.avisos =>
-          'AvisoStrictPublishService / AvisoPublishService + MuralPublishOutboxService. '
+    YahwehCentralModule.patrimonio =>
+      'PatrimonioStrictPublishService + ModuleMediaOutboxService.registerPatrimonio.',
+    YahwehCentralModule.avisos =>
+      'AvisoStrictPublishService / AvisoPublishService + MuralPublishOutboxService. '
           'UI: EcofirePublishProgressUi.runInBackgroundNonBlocking.',
-        YahwehCentralModule.eventos =>
-          'EventoStrictPublishService + MuralPublishOutboxService. Vídeo ≤90s video/mp4.',
-        YahwehCentralModule.chat =>
-          'ChurchChatMediaSendService: Storage → URL https → Firestore (mediaUrl + storagePath).',
-        YahwehCentralModule.certificados ||
-        YahwehCentralModule.transferencias =>
-          'PDF/binário directo — StorageService + path canónico certificados/ ou transferencias/. '
+    YahwehCentralModule.eventos =>
+      'EventoStrictPublishService + MuralPublishOutboxService. Vídeo ≤90s video/mp4.',
+    YahwehCentralModule.chat =>
+      'ChurchChatMediaSendService: Storage → URL https → Firestore (mediaUrl + storagePath).',
+    YahwehCentralModule.certificados || YahwehCentralModule.transferencias =>
+      'PDF/binário directo — StorageService + path canónico certificados/ ou transferencias/. '
           'Ver extended_publish_verification_services.',
-        YahwehCentralModule.pedidosOracao ||
-        YahwehCentralModule.aprovacoes ||
-        YahwehCentralModule.escalas ||
-        YahwehCentralModule.fornecedores =>
-          'Sem mídia obrigatória: YahwehCentralEngineService.persistTextOnly. '
+    YahwehCentralModule.pedidosOracao ||
+    YahwehCentralModule.aprovacoes ||
+    YahwehCentralModule.escalas ||
+    YahwehCentralModule.fornecedores =>
+      'Sem mídia obrigatória: YahwehCentralEngineService.persistTextOnly. '
           'Com anexo pontual: YahwehMediaUploadPipeline + TenantOfflineWrite.',
-      };
+  };
 
   /// Foto de perfil única — sobrescreve `igrejas/{id}/membros/{folder}/foto_perfil.jpg`
   /// e grava URL com `v=cb{revision}` + [fotoUrlCacheRevision] no Firestore.
@@ -261,7 +269,8 @@ abstract final class YahwehCentralEngineService {
     final md = Map<String, dynamic>.from(memberDataHint ?? payloadFields);
     final textOnly = Map<String, dynamic>.from(payloadFields)
       ..removeWhere(
-        (k, _) => k.startsWith('foto') || k.startsWith('photo') || k == 'avatarUrl',
+        (k, _) =>
+            k.startsWith('foto') || k.startsWith('photo') || k == 'avatarUrl',
       );
     if (textOnly.isNotEmpty) {
       await persistTextOnly(
@@ -322,19 +331,20 @@ abstract final class YahwehCentralEngineService {
       throw StateError('Firebase indisponível para enviar logo da igreja.');
     }
     final path = ChurchStorageLayout.churchIdentityLogoPath(cid);
-    final upload = await MediaUploadService.uploadBytesDetailed(
+    // Fachada unificada: warmup token + Storage numa só chamada (performance).
+    final logoUrl = await ChurchMediaUploadFacade.uploadFromPipeline(
       storagePath: path,
       bytes: logoPngBytes,
-      contentType: 'image/png',
+      module: YahwehUploadModule.generic,
       onProgress: onProgress,
     );
     await ChurchBrandService.persistLogoPath(
       churchId: cid,
-      storagePath: upload.storagePath,
-      downloadUrl: upload.downloadUrl,
+      storagePath: path,
+      downloadUrl: logoUrl,
       cacheRevision: YahwehMediaCacheBust.freshRevisionMs(),
     );
     scheduleBackgroundSync(reason: 'logo_igreja');
-    return upload.storagePath;
+    return logoUrl;
   }
 }

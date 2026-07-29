@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 
 /// Botão «Compartilhar» — abre folha nativa (WhatsApp, etc.) via [share_plus].

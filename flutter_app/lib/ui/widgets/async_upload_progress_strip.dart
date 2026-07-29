@@ -24,10 +24,10 @@ class AsyncUploadProgressStrip extends StatelessWidget {
         final showLocal = localActive && !showGlobal;
         if (!showGlobal && !showLocal) return const SizedBox.shrink();
 
-        final label = showGlobal ? global!.displayLabel : localLabel;
+        final label = showGlobal ? global.displayLabel : localLabel;
         final progress = showGlobal
-            ? global!.progress
-            : (localProgress != null ? localProgress!.clamp(0.0, 1.0) : null);
+            ? global.progress
+            : (localProgress?.clamp(0.0, 1.0));
 
         return Material(
           elevation: 2,

@@ -11,6 +11,8 @@
 ///   dart run tool/download_tdlib.dart --ios-only
 ///
 /// Temporários: D:\TEMPORARIOS\tdlib_download (Windows) ou ./build/tdlib_download
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -157,10 +159,6 @@ Future<void> _publishAndroidLocalMaven(
   }
 
   final zipBytes = ZipEncoder().encode(archive);
-  if (zipBytes == null) {
-    stderr.writeln('Falha ao compactar AAR');
-    exit(4);
-  }
   final aarPath = p.join(mavenDir.path, 'td-$kTdlibVersion.aar');
   await File(aarPath).writeAsBytes(zipBytes, flush: true);
 

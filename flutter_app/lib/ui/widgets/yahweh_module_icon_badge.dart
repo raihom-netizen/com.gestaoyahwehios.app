@@ -38,7 +38,7 @@ class YahwehModuleIconBadge extends StatelessWidget {
             fit: BoxFit.cover,
             filterQuality: FilterQuality.medium,
             errorBuilder: fallbackToMaterial
-                ? (_, __, ___) => _MaterialFallback(
+                ? (_, _, _) => _MaterialFallback(
                       moduleKey: moduleKey,
                       size: size,
                       accent: a,

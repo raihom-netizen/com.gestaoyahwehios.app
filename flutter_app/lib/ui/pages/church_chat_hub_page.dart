@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
@@ -15,7 +13,6 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -24,7 +21,6 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
@@ -50,12 +46,10 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_broadcast_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_whatsapp_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
-import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/church_chat_hub_departments_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
-import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
@@ -69,7 +63,6 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 enum _HubConversasFilter { all, unread, favorites, groups, archived }
 
@@ -97,11 +90,10 @@ abstract final class _ChatHubDepartmentsRamCache {
   _ChatHubDepartmentsRamCache._();
 
   static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byTenant = {};
+    String,
+    ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})
+  >
+  _byTenant = {};
 
   static const Duration _ttl = Duration(minutes: 20);
 
@@ -169,7 +161,10 @@ String _chatHubFmtThreadTime(dynamic ts) {
 
 /// Gestor, pastoral, secretário, tesoureiro — vê todos os grupos (não líder de departamento).
 bool _chatHubSeesAllDepartmentGroups(String role, List<String>? permissions) =>
-    AppPermissions.chatHubSeesAllDepartmentGroups(role, permissions: permissions);
+    AppPermissions.chatHubSeesAllDepartmentGroups(
+      role,
+      permissions: permissions,
+    );
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (membro: só os seus; liderança: todos).
 /// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
@@ -180,6 +175,7 @@ class ChurchChatHubPage extends StatefulWidget {
   final String role;
   final bool embeddedInShell;
   final VoidCallback? onShellBack;
+
   /// Permissões granulares do painel (ex.: módulo `departamentos`), alinhadas a [AppPermissions.canEditDepartments].
   final List<String>? permissions;
 
@@ -204,8 +200,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   bool _departmentsLoading = false;
   String? _departmentsSoftError;
   int _deptSyncGeneration = 0;
+
   /// Stream único de `chat_threads` (reconexão automática em [ChatHubThreads]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
+
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
@@ -214,6 +212,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
+
   /// Pesquisa com debounce — evita reconstruir lista de conversas a cada tecla.
   final ValueNotifier<String> _debouncedConversasSearch = ValueNotifier('');
   final ValueNotifier<String> _debouncedDeptSearch = ValueNotifier('');
@@ -224,6 +223,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Timer? _conversasResyncDebounce;
   DateTime? _lastSilentConversasSync;
   static const Duration _conversasSilentSyncMinInterval = Duration(minutes: 2);
+
   /// Avatares no hub — `chat_peer_profiles` (sem stream de 600 `membros`).
   Map<String, ChurchChatMemberRef> _peerMemberByUid = {};
   Map<String, bool> _peerOnlineByUid = {};
@@ -248,7 +248,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     logYahwehModuleScreen('chat');
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+      unawaited(
+        PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded(),
+      );
     });
     // Skeleton timeout reduzido (1s) — UI mostra conteúdo mais rápido.
     _conversasSkeletonTimer = Timer(const Duration(seconds: 1), () {
@@ -265,8 +267,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _hubTabController.addListener(_hubTabListener);
     _searchCtrl.addListener(_onConversasSearchInput);
     _deptFilterCtrl.addListener(_onDeptSearchInput);
-    ChurchPanelNavigationBridge.instance
-        .registerChatOpenListener(_onChatPendingFromBridge);
+    ChurchPanelNavigationBridge.instance.registerChatOpenListener(
+      _onChatPendingFromBridge,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_tryConsumePendingChatThread());
     });
@@ -300,8 +303,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _debouncedConversasSearch.dispose();
     _debouncedDeptSearch.dispose();
     _presencePollTimer?.cancel();
-    ChurchPanelNavigationBridge.instance
-        .unregisterChatOpenListener(_onChatPendingFromBridge);
+    ChurchPanelNavigationBridge.instance.unregisterChatOpenListener(
+      _onChatPendingFromBridge,
+    );
     _hubTabController.removeListener(_hubTabListener);
     _hubTabController.dispose();
     _searchCtrl.dispose();
@@ -410,7 +414,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final out = <String>{};
     for (final d in docs) {
       if (_docIsDepartmentThread(d)) continue;
-      final peers = (d.data()['participantUids'] as List?)
+      final peers =
+          (d.data()['participantUids'] as List?)
               ?.map((e) => e.toString())
               .where((e) => e.isNotEmpty) ??
           [];
@@ -513,10 +518,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (missing.isEmpty) return;
     unawaited(() async {
       await ensureFirebaseReadyForPanelRead().catchError((_) {});
-      final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
-        tenantId: tenantId,
-        authUids: missing,
-      );
+      final loaded =
+          await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+            tenantId: tenantId,
+            authUids: missing,
+          );
       if (!mounted || _resolvedTenantId != tenantId) return;
       if (loaded.isEmpty) return;
       ChurchGalleryPhotoWarmup.warmBytesForChatRefs(tenantId, loaded.values);
@@ -558,8 +564,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _tryConsumePendingChatThread({int attempt = 0}) async {
     if (!mounted || !widget.embeddedInShell) return;
     const maxAttempts = 24;
-    final peek =
-        ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
+    final peek = ChurchPanelNavigationBridge.instance
+        .peekPendingChatThreadOpen();
     if (peek == null) return;
 
     // Tenant imediato (hint do shell) — não esperar bootstrap completo.
@@ -569,9 +575,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         : (tidHint.isNotEmpty ? tidHint : widget.tenantId.trim());
     if (tid.isEmpty) {
       if (attempt < maxAttempts) {
-        await Future<void>.delayed(
-          Duration(milliseconds: 50 + attempt * 40),
-        );
+        await Future<void>.delayed(Duration(milliseconds: 50 + attempt * 40));
         if (mounted) {
           return _tryConsumePendingChatThread(attempt: attempt + 1);
         }
@@ -586,9 +590,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           tidResolved.isNotEmpty &&
           peekResolved != tidResolved) {
         if (_resolvedTenantId == null && attempt < maxAttempts) {
-          await Future<void>.delayed(
-            Duration(milliseconds: 50 + attempt * 40),
-          );
+          await Future<void>.delayed(Duration(milliseconds: 50 + attempt * 40));
           if (mounted) {
             return _tryConsumePendingChatThread(attempt: attempt + 1);
           }
@@ -609,8 +611,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
     // DM com peer conhecido → abre a conversa na hora (estilo WhatsApp).
     if (isDmPending && pendingPeer.isNotEmpty) {
-      final pending =
-          ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+      final pending = ChurchPanelNavigationBridge.instance
+          .consumePendingChatThreadOpen();
       if (pending == null || pending.threadId != threadId) return;
       if (!mounted) return;
 
@@ -643,9 +645,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     // Sem peer / grupo: precisa do doc (com timeout curto).
     DocumentSnapshot<Map<String, dynamic>>? snap;
     try {
-      snap = await ChatHubOperations.threadRef(tid, threadId)
-          .get()
-          .timeout(const Duration(seconds: 4));
+      snap = await ChatHubOperations.threadRef(
+        tid,
+        threadId,
+      ).get().timeout(const Duration(seconds: 4));
     } catch (_) {
       snap = null;
     }
@@ -653,24 +656,23 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (isDmPending) {
       if ((snap == null || !snap.exists) && pendingPeer.isEmpty) {
         if (attempt < maxAttempts) {
-          await Future<void>.delayed(
-            Duration(milliseconds: 80 + attempt * 60),
-          );
+          await Future<void>.delayed(Duration(milliseconds: 80 + attempt * 60));
           if (mounted) {
             return _tryConsumePendingChatThread(attempt: attempt + 1);
           }
         }
         return;
       }
-      final pending =
-          ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+      final pending = ChurchPanelNavigationBridge.instance
+          .consumePendingChatThreadOpen();
       if (pending == null || pending.threadId != threadId) return;
       if (!mounted) return;
 
       final data = snap?.data() ?? <String, dynamic>{};
       var peer = pendingPeer;
       if (peer.isEmpty) {
-        final peerList = (data['participantUids'] as List?)
+        final peerList =
+            (data['participantUids'] as List?)
                 ?.map((e) => e.toString().trim())
                 .where((e) => e.isNotEmpty)
                 .toList() ??
@@ -708,8 +710,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     if (snap == null || !snap.exists) return;
-    final pending =
-        ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+    final pending = ChurchPanelNavigationBridge.instance
+        .consumePendingChatThreadOpen();
     if (pending == null || pending.threadId != threadId) return;
     final data = snap.data() ?? {};
     final type = (data['type'] ?? '').toString();
@@ -727,7 +729,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     if (type == 'dm') {
-      final peerList = (data['participantUids'] as List?)
+      final peerList =
+          (data['participantUids'] as List?)
               ?.map((e) => e.toString().trim())
               .where((e) => e.isNotEmpty)
               .toList() ??
@@ -774,10 +777,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _lastSilentConversasSync = now;
     try {
       await _primeConversasListFromFallback(tenantId);
-      await ChatHubOperations.syncDmThreadsIndex(tenantId).timeout(
-        const Duration(seconds: 20),
-        onTimeout: () => 0,
-      );
+      await ChatHubOperations.syncDmThreadsIndex(
+        tenantId,
+      ).timeout(const Duration(seconds: 20), onTimeout: () => 0);
       await _primeConversasListFromFallback(tenantId);
     } catch (e, st) {
       if (kDebugMode) {
@@ -827,7 +829,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fallback),
         );
       }
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       if (mounted) setState(() => _conversasListPrimed = true);
     }
   }
@@ -857,10 +860,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         if (n > 0) map[doc.id] = n;
       }
       if (!mounted) return;
-      final changed = map.length != _unreadCountByThreadId.length ||
-          map.entries.any(
-            (e) => _unreadCountByThreadId[e.key] != e.value,
-          );
+      final changed =
+          map.length != _unreadCountByThreadId.length ||
+          map.entries.any((e) => _unreadCountByThreadId[e.key] != e.value);
       if (!changed) return;
       setState(() {
         for (final id in threadIds) {
@@ -871,22 +873,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }());
   }
 
-  Widget _whatsappUnreadBadge(int count) {
+  Widget _telegramUnreadBadge(int count) {
     if (count <= 0) return const SizedBox.shrink();
     final label = count > 99 ? '99+' : '$count';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: const Color(0xFF25D366),
+        color: const Color(0xFFFF3B30),
         borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF25D366).withValues(alpha: 0.35),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
       ),
+      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+      alignment: Alignment.center,
       child: Text(
         label,
         style: const TextStyle(
@@ -896,6 +893,62 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ),
       ),
     );
+  }
+
+  Widget _telegramUnreadDot() {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: const BoxDecoration(
+        color: Color(0xFFFF3B30),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
+  InlineSpan _mentionHighlightSpan(
+    String text, {
+    required bool isUnread,
+    required bool isTyping,
+  }) {
+    if (isTyping || !text.contains('@')) {
+      return TextSpan(text: text);
+    }
+    final defaultStyle = TextStyle(
+      color: isUnread
+          ? ThemeCleanPremium.onSurface
+          : ThemeCleanPremium.onSurfaceVariant,
+      fontSize: 13,
+      fontWeight: isUnread ? FontWeight.w600 : FontWeight.w400,
+    );
+    final mentionStyle = TextStyle(
+      color: ThemeCleanPremium.primary,
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+    );
+    final spans = <InlineSpan>[];
+    var lastIndex = 0;
+    for (final match in RegExp(r'@\S+').allMatches(text)) {
+      if (match.start > lastIndex) {
+        spans.add(
+          TextSpan(
+            text: text.substring(lastIndex, match.start),
+            style: defaultStyle,
+          ),
+        );
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: mentionStyle,
+        ),
+      );
+      lastIndex = match.end;
+    }
+    if (lastIndex < text.length) {
+      spans.add(TextSpan(text: text.substring(lastIndex), style: defaultStyle));
+    }
+    return TextSpan(children: spans);
   }
 
   Future<void> _bootstrap() async {
@@ -911,8 +964,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     setState(() {
       _resolvedTenantId = effective;
       if (uid.isNotEmpty) {
-        _chatThreadsStream =
-            ChatHubThreads.watchForUser(churchId: effective, uid: uid);
+        _chatThreadsStream = ChatHubThreads.watchForUser(
+          churchId: effective,
+          uid: uid,
+        );
       }
     });
 
@@ -931,8 +986,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     QuerySnapshot<Map<String, dynamic>>? cachedList;
     if (uid.isNotEmpty) {
       try {
-        cachedList = await ChurchChatThreadsListCache.loadSnapshot(tid, uid: uid)
-            .timeout(const Duration(seconds: 2));
+        cachedList = await ChurchChatThreadsListCache.loadSnapshot(
+          tid,
+          uid: uid,
+        ).timeout(const Duration(seconds: 2));
       } catch (_) {}
     }
     if (!mounted) return;
@@ -943,7 +1000,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(_openGruposFast(tid));
     unawaited(_primeDepartmentsFromHive(tid));
 
-    unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
+    unawaited(
+      ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid),
+    );
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
     unawaited(ChurchChatAutoRecoveryService.recoverOnSessionStart());
@@ -954,8 +1013,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(_primeConversasListFromFallback(tid));
     unawaited(_reloadLocalConversations());
     unawaited(
-      ChurchChatHubDepartmentsService.loadDocs(seedTenantId: tid)
-          .catchError((_) => const <QueryDocumentSnapshot<Map<String, dynamic>>>[]),
+      ChurchChatHubDepartmentsService.loadDocs(seedTenantId: tid).catchError(
+        (_) => const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+      ),
     );
     unawaited(_syncMemberDepartments(tid));
     unawaited(_silentSyncConversasIndex(tid, force: true));
@@ -1030,15 +1090,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             ),
             subtitle: Text(subtitle),
             trailing: selected
-                ? Icon(Icons.check_circle_rounded, color: ThemeCleanPremium.primary)
+                ? Icon(
+                    Icons.check_circle_rounded,
+                    color: ThemeCleanPremium.primary,
+                  )
                 : null,
             onTap: () async {
               Navigator.pop(ctx);
               await ChurchChatNotificationPrefs.setChatAlertMode(mode: mode);
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Alerta do chat: $title')),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text('Alerta do chat: $title')));
             },
           );
         }
@@ -1085,9 +1148,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     Navigator.push<void>(
                       context,
                       MaterialPageRoute<void>(
-                        builder: (_) => ChurchChatNotificationSettingsPage(
-                          tenantId: tid,
-                        ),
+                        builder: (_) =>
+                            ChurchChatNotificationSettingsPage(tenantId: tid),
                       ),
                     );
                   },
@@ -1155,7 +1217,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return entries;
   }
 
-  Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(String tid) async {
+  Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(
+    String tid,
+  ) async {
     try {
       final docs = await ChurchChatHubDepartmentsService.loadDocs(
         seedTenantId: tid,
@@ -1218,11 +1282,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   /// 1.º frame: RAM/Hive + carga canónica; sync de threads em background.
   Future<void> _openGruposFast([String? tenantOverride]) async {
-    final seed = (tenantOverride ?? _resolvedTenantId ?? widget.tenantId).trim();
+    final seed = (tenantOverride ?? _resolvedTenantId ?? widget.tenantId)
+        .trim();
     if (seed.isEmpty) return;
 
-    final seesAll =
-        _chatHubSeesAllDepartmentGroups(widget.role, widget.permissions);
+    final seesAll = _chatHubSeesAllDepartmentGroups(
+      widget.role,
+      widget.permissions,
+    );
 
     if (!seesAll) {
       try {
@@ -1388,8 +1455,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           );
       QuerySnapshot<Map<String, dynamic>> snap;
       try {
-        snap = await read(source: Source.cache)
-            .timeout(const Duration(seconds: 3));
+        snap = await read(
+          source: Source.cache,
+        ).timeout(const Duration(seconds: 3));
       } catch (_) {
         snap = await read().timeout(const Duration(seconds: 14));
       }
@@ -1433,26 +1501,36 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     try {
       final op = ChurchContextService.panelChurchId(tid);
-      final snap = await           ChurchUiCollections.departamentos(op)
+      final snap = await ChurchUiCollections.departamentos(op)
           .limit(120)
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       for (final doc in snap.docs) {
         final data = doc.data();
-        if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(data, cpfDigits) ||
-            ChurchDepartmentLeaders.leaderUidsFromDepartmentData(data)
-                .contains(uid)) {
+        if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
+              data,
+              cpfDigits,
+            ) ||
+            ChurchDepartmentLeaders.leaderUidsFromDepartmentData(
+              data,
+            ).contains(uid)) {
           deptIds.add(doc.id);
         }
       }
       if (deptIds.isEmpty) {
-        final snapNet = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
-            .timeout(const Duration(seconds: 12));
+        final snapNet = await ChurchTenantResilientReads.departamentos(
+          tid,
+          limit: 120,
+        ).timeout(const Duration(seconds: 12));
         for (final doc in snapNet.docs) {
           final data = doc.data();
-          if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(data, cpfDigits) ||
-              ChurchDepartmentLeaders.leaderUidsFromDepartmentData(data)
-                  .contains(uid)) {
+          if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
+                data,
+                cpfDigits,
+              ) ||
+              ChurchDepartmentLeaders.leaderUidsFromDepartmentData(
+                data,
+              ).contains(uid)) {
             deptIds.add(doc.id);
           }
         }
@@ -1480,9 +1558,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         _departments = cached;
         _departmentsLoading = false;
       });
-    } else if (mounted &&
-        _departments.isEmpty &&
-        showLoadingIndicator) {
+    } else if (mounted && _departments.isEmpty && showLoadingIndicator) {
       setState(() => _departmentsLoading = true);
     }
 
@@ -1490,10 +1566,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     cap = Timer(
       kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 90),
       () {
-      if (mounted && syncGen == _deptSyncGeneration && _departmentsLoading) {
-        setState(() => _departmentsLoading = false);
-      }
-    },
+        if (mounted && syncGen == _deptSyncGeneration && _departmentsLoading) {
+          setState(() => _departmentsLoading = false);
+        }
+      },
     );
 
     try {
@@ -1555,16 +1631,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             .doc(uid)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 2));
-        if (membro != null && !membro.exists) {
+        if (!membro.exists) {
           if (digits.length == 11) {
-            final byCpfNet = await base.doc(digits).get().timeout(
-                  const Duration(seconds: 8),
-                );
+            final byCpfNet = await base
+                .doc(digits)
+                .get()
+                .timeout(const Duration(seconds: 8));
             if (byCpfNet.exists) membro = byCpfNet;
           }
-          membro ??= await base.doc(uid).get().timeout(
-                const Duration(seconds: 8),
-              );
+          membro ??= await base
+              .doc(uid)
+              .get()
+              .timeout(const Duration(seconds: 8));
           if (!membro.exists) {
             final q = await base
                 .where('authUid', isEqualTo: uid)
@@ -1584,7 +1662,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         final d = membro.data() ?? {};
         final raw = d['departamentosIds'];
         if (raw is List) {
-          deptIds.addAll(raw.map((e) => e.toString()).where((s) => s.isNotEmpty));
+          deptIds.addAll(
+            raw.map((e) => e.toString()).where((s) => s.isNotEmpty),
+          );
         }
         final depNames = d['DEPARTAMENTOS'];
         if (depNames is List) {
@@ -1708,9 +1788,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String myUid,
   ) {
     final data = doc.data();
-    final peers = (data['participantUids'] as List?)
-            ?.map((e) => e.toString())
-            .toList() ??
+    final peers =
+        (data['participantUids'] as List?)?.map((e) => e.toString()).toList() ??
         [];
     var peer = peers.firstWhere((p) => p != myUid, orElse: () => '');
     if (peer.isEmpty) {
@@ -1935,9 +2014,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Grupo excluído.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Grupo excluído.')));
   }
 
   Future<void> _commitBulkHideSelectedDmThreads(String tenantId) async {
@@ -1979,7 +2058,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     List<String> displayedThreadIds,
   ) {
     final n = _selectedDmThreadIds.length;
-    final allSelected = displayedThreadIds.isNotEmpty &&
+    final allSelected =
+        displayedThreadIds.isNotEmpty &&
         displayedThreadIds.every(_selectedDmThreadIds.contains);
     return Material(
       elevation: 12,
@@ -2040,12 +2120,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               FilledButton(
                 onPressed: n == 0
                     ? null
-                    : () => unawaited(_commitBulkHideSelectedDmThreads(tenantId)),
+                    : () =>
+                          unawaited(_commitBulkHideSelectedDmThreads(tenantId)),
                 style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.error,
                   foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                 ),
                 child: const Text(
                   'Excluir',
@@ -2101,7 +2184,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     Map<String, dynamic>? departmentDocData,
   }) async {
     final cpf = widget.cpf.replaceAll(RegExp(r'\D'), '');
-    final canDeleteGroup = isDepartment &&
+    final canDeleteGroup =
+        isDepartment &&
         ChurchChatModeration.canDeleteGroupConversation(
           memberRole,
           departmentData: departmentDocData,
@@ -2129,8 +2213,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: ThemeCleanPremium.onSurfaceVariant
-                          .withValues(alpha: 0.25),
+                      color: ThemeCleanPremium.onSurfaceVariant.withValues(
+                        alpha: 0.25,
+                      ),
                       borderRadius: BorderRadius.circular(99),
                     ),
                   ),
@@ -2344,9 +2429,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     );
                   },
                 ),
-                if (!isDepartment &&
-                    peerUid != null &&
-                    peerUid.isNotEmpty) ...[
+                if (!isDepartment && peerUid != null && peerUid.isNotEmpty) ...[
                   ListTile(
                     leading: Icon(
                       prefs.isBlockedPeer(peerUid)
@@ -2409,11 +2492,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (mounted) setState(() => _chatPushEnabled = next);
   }
 
-  bool get _canSendBroadcast =>
-      AppPermissions.canSendChurchBroadcast(
-        widget.role,
-        permissions: widget.permissions,
-      );
+  bool get _canSendBroadcast => AppPermissions.canSendChurchBroadcast(
+    widget.role,
+    permissions: widget.permissions,
+  );
 
   Future<void> _openBroadcastSheet(String tid) async {
     await showChurchChatBroadcastSheet(
@@ -2441,6 +2523,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String? departmentId,
     String? initialDraftText,
   }) {
+    unawaited(
+      ChurchChatMemberPrefs.clearThreadUnread(
+        tenantId: tid,
+        threadId: threadId,
+      ),
+    );
     if (_useWhatsAppSplitLayout(context)) {
       setState(() {
         _splitSelected = _SplitThreadSelection(
@@ -2528,9 +2616,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     final shellFullscreen = widget.onShellBack != null;
+
     /// Painel web embutido: ocupa toda a área útil (não simula telefone 440px).
     final webPanelEmbedded = kIsWeb && widget.embeddedInShell;
-    final webPhoneFrame = kIsWeb &&
+    final webPhoneFrame =
+        kIsWeb &&
         !widget.embeddedInShell &&
         MediaQuery.sizeOf(context).width >= 720;
 
@@ -2541,7 +2631,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ChurchEmbeddedModuleBar(
             title: YahwehContactButtonLabels.yahwehChat,
             icon: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].icon,
-            accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
+            accent:
+                kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
             onBack: widget.onShellBack!,
             subtitle: _chatHubModuleBarSubtitle(),
             actions: [
@@ -2550,24 +2641,30 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   visualDensity: VisualDensity.compact,
                   tooltip: 'Transmissão',
                   onPressed: () => _openBroadcastSheet(tid),
-                  icon: const Icon(Icons.campaign_rounded,
-                      color: Colors.white, size: 22),
+                  icon: const Icon(
+                    Icons.campaign_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Nova conversa',
                 onPressed: () => _openPickPeer(context, tid, uid),
-                icon: const Icon(Icons.add_comment_rounded,
-                    color: Colors.white, size: 22),
+                icon: const Icon(
+                  Icons.add_comment_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
               ),
               _ChatHubOverflowMenu(
                 chatPushEnabled: _chatPushEnabled,
                 onMuteTap: () => _onChatHubMuteTap(tid),
                 onAlertModeTap: _openChatAlertModeSheet,
-                onProfilePhotoTap: () =>
-                    _onChatHubProfilePhotoTap(tid, uid),
-                onBroadcastTap:
-                    _canSendBroadcast ? () => _openBroadcastSheet(tid) : null,
+                onProfilePhotoTap: () => _onChatHubProfilePhotoTap(tid, uid),
+                onBroadcastTap: _canSendBroadcast
+                    ? () => _openBroadcastSheet(tid)
+                    : null,
                 iconColor: Colors.white,
               ),
             ],
@@ -2579,8 +2676,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             onNewDm: () => _openPickPeer(context, tid, uid),
             onAlertModeTap: _openChatAlertModeSheet,
             onProfilePhotoTap: () => _onChatHubProfilePhotoTap(tid, uid),
-            onBroadcastTap:
-                _canSendBroadcast ? () => _openBroadcastSheet(tid) : null,
+            onBroadcastTap: _canSendBroadcast
+                ? () => _openBroadcastSheet(tid)
+                : null,
           ),
         ChurchChatPendingStatusBanner(
           tenantId: tid,
@@ -2591,10 +2689,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 2, 8, 0),
-          child: _PremiumHubTabBar(
-            controller: _hubTabController,
-            dense: true,
-          ),
+          child: _PremiumHubTabBar(controller: _hubTabController, dense: true),
         ),
         AnimatedBuilder(
           animation: _hubTabController,
@@ -2621,15 +2716,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           child: TabBarView(
             controller: _hubTabController,
             children: [
-              _KeepAliveHubTab(
-                child: _buildConversasTab(context, tid, uid),
-              ),
-              _KeepAliveHubTab(
-                child: _buildGruposTab(context, tid, uid),
-              ),
-              _KeepAliveHubTab(
-                child: _buildContatosTab(context, tid, uid),
-              ),
+              _KeepAliveHubTab(child: _buildConversasTab(context, tid, uid)),
+              _KeepAliveHubTab(child: _buildGruposTab(context, tid, uid)),
+              _KeepAliveHubTab(child: _buildContatosTab(context, tid, uid)),
             ],
           ),
         ),
@@ -2637,17 +2726,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
 
     if (webPanelEmbedded || webPhoneFrame) {
-      hubCore = Material(
-        color: const Color(0xFFF0F2F5),
-        child: hubCore,
-      );
+      hubCore = Material(color: const Color(0xFFF0F2F5), child: hubCore);
     }
 
     if (webPanelEmbedded) {
       if (_useWhatsAppSplitLayout(context)) {
-        return SizedBox.expand(
-          child: _buildWhatsAppWebSplit(tid, hubCore),
-        );
+        return SizedBox.expand(child: _buildWhatsAppWebSplit(tid, hubCore));
       }
       return SizedBox.expand(child: hubCore);
     }
@@ -2660,10 +2744,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ? Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  maxWidth: (MediaQuery.sizeOf(context).width * 0.92)
-                      .clamp(480.0, 720.0),
-                  maxHeight: (MediaQuery.sizeOf(context).height * 0.92)
-                      .clamp(640.0, 960.0),
+                  maxWidth: (MediaQuery.sizeOf(context).width * 0.92).clamp(
+                    480.0,
+                    720.0,
+                  ),
+                  maxHeight: (MediaQuery.sizeOf(context).height * 0.92).clamp(
+                    640.0,
+                    960.0,
+                  ),
                 ),
                 child: Material(
                   elevation: 8,
@@ -2729,50 +2817,50 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 if (e.value.photoUrl != null && e.value.photoUrl!.isNotEmpty)
                   e.key: e.value.photoUrl!,
             };
-                if (streamError != null && snapForList == null) {
-                  return RefreshIndicator(
-                    onRefresh: _pullRefreshConversas,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(24),
-                      children: [
-                        ChurchPanelResilientLoadBanner(
-                          hasLocalData: false,
-                          isSyncing: false,
-                          errorTitle:
-                              'Não foi possível carregar a lista de conversas',
-                          error: streamError,
-                          onRetry: _pullRefreshConversas,
-                        ),
-                      ],
+            if (streamError != null && snapForList == null) {
+              return RefreshIndicator(
+                onRefresh: _pullRefreshConversas,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(24),
+                  children: [
+                    ChurchPanelResilientLoadBanner(
+                      hasLocalData: false,
+                      isSyncing: false,
+                      errorTitle:
+                          'Não foi possível carregar a lista de conversas',
+                      error: streamError,
+                      onRetry: _pullRefreshConversas,
                     ),
-                  );
-                }
-                final hasInstantList = snapForList != null &&
-                    snapForList.docs.isNotEmpty;
-                final hasLocalFallback = _localConversations.isNotEmpty;
-                if (snap.connectionState == ConnectionState.waiting &&
-                    !hasInstantList &&
-                    !hasLocalFallback &&
-                    !_conversasListPrimed &&
-                    !_conversasSkeletonTimedOut) {
-                  return RefreshIndicator(
-                    onRefresh: _pullRefreshConversas,
-                    child: CustomScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: YahwehSkeletonLoading.chatThreads(),
-                        ),
-                      ],
+                  ],
+                ),
+              );
+            }
+            final hasInstantList =
+                snapForList != null && snapForList.docs.isNotEmpty;
+            final hasLocalFallback = _localConversations.isNotEmpty;
+            if (snap.connectionState == ConnectionState.waiting &&
+                !hasInstantList &&
+                !hasLocalFallback &&
+                !_conversasListPrimed &&
+                !_conversasSkeletonTimedOut) {
+              return RefreshIndicator(
+                onRefresh: _pullRefreshConversas,
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: YahwehSkeletonLoading.chatThreads(),
                     ),
-                  );
-                }
+                  ],
+                ),
+              );
+            }
 
-                return ValueListenableBuilder<String>(
-                  valueListenable: _debouncedConversasSearch,
-                  builder: (context, q, _) {
+            return ValueListenableBuilder<String>(
+              valueListenable: _debouncedConversasSearch,
+              builder: (context, q, _) {
                 final threads = <Widget>[];
                 final ql = q.toLowerCase();
 
@@ -2835,7 +2923,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   )) {
                     continue;
                   }
-                  final peers = (data['participantUids'] as List?)
+                  final peers =
+                      (data['participantUids'] as List?)
                           ?.map((e) => e.toString())
                           .where((e) => e.isNotEmpty)
                           .toList() ??
@@ -2872,9 +2961,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   final tb = _threadLastActivityMs(b.data());
                   final c = tb.compareTo(ta);
                   if (c != 0) return c;
-                  return _threadListSortTitle(a, uid)
-                      .toLowerCase()
-                      .compareTo(_threadListSortTitle(b, uid).toLowerCase());
+                  return _threadListSortTitle(a, uid).toLowerCase().compareTo(
+                    _threadListSortTitle(b, uid).toLowerCase(),
+                  );
                 });
                 _scheduleUnreadCountsLoad(
                   tid,
@@ -2887,7 +2976,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     conversasFiltered;
                 switch (_conversasFilter) {
                   case _HubConversasFilter.favorites:
-                    sel = conversasFiltered.where((d) => prefs.isFavorite(d.id));
+                    sel = conversasFiltered.where(
+                      (d) => prefs.isFavorite(d.id),
+                    );
                     break;
                   case _HubConversasFilter.unread:
                     sel = conversasFiltered.where(
@@ -2932,9 +3023,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   }
                 }
 
-                threads.add(_buildDmSelectionToolbar(
-                  displayed.length + localOnly.length + deptOnlyEntries.length,
-                ));
+                threads.add(
+                  _buildDmSelectionToolbar(
+                    displayed.length +
+                        localOnly.length +
+                        deptOnlyEntries.length,
+                  ),
+                );
 
                 if (displayed.isEmpty &&
                     localOnly.isEmpty &&
@@ -2942,23 +3037,25 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   threads.add(
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 24),
+                        horizontal: 20,
+                        vertical: 24,
+                      ),
                       child: Text(
                         q.isNotEmpty
                             ? 'Nenhuma conversa corresponde à pesquisa.'
                             : _conversasFilter == _HubConversasFilter.favorites
-                                ? 'Sem favoritas. Toque numa conversa e use Favoritar.'
-                                : _conversasFilter == _HubConversasFilter.archived
-                                    ? 'Sem conversas arquivadas.'
-                                    : _conversasFilter == _HubConversasFilter.groups
-                                        ? 'Sem grupos de departamento.'
-                                    : _conversasFilter == _HubConversasFilter.unread
-                                    ? 'Sem mensagens não lidas.'
-                                    : streamError != null &&
-                                            (snapForList?.docs.isEmpty ?? true) &&
-                                            !hasLocalFallback
-                                        ? 'Não foi possível carregar. Puxe para baixo para atualizar.'
-                                        : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
+                            ? 'Sem favoritas. Toque numa conversa e use Favoritar.'
+                            : _conversasFilter == _HubConversasFilter.archived
+                            ? 'Sem conversas arquivadas.'
+                            : _conversasFilter == _HubConversasFilter.groups
+                            ? 'Sem grupos de departamento.'
+                            : _conversasFilter == _HubConversasFilter.unread
+                            ? 'Sem mensagens não lidas.'
+                            : streamError != null &&
+                                  (snapForList?.docs.isEmpty ?? true) &&
+                                  !hasLocalFallback
+                            ? 'Não foi possível carregar. Puxe para baixo para atualizar.'
+                            : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,
@@ -2993,9 +3090,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     );
                   }
                   if (readDocs.isNotEmpty) {
-                    threads.add(_sectionHeader(
-                      unreadDocs.isNotEmpty ? 'Recentes' : 'Conversas',
-                    ));
+                    threads.add(
+                      _sectionHeader(
+                        unreadDocs.isNotEmpty ? 'Recentes' : 'Conversas',
+                      ),
+                    );
                     _appendFirestoreConversationRows(
                       threads,
                       context,
@@ -3023,13 +3122,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     threads.add(_sectionHeader('Grupos de departamento'));
                     for (final d in deptOnlyEntries) {
                       threads.add(
-                        _deptEntryOnlyChatRow(
-                          context,
-                          tid,
-                          uid,
-                          d,
-                          prefs,
-                        ),
+                        _deptEntryOnlyChatRow(context, tid, uid, d, prefs),
                       );
                     }
                   }
@@ -3053,12 +3146,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       _buildDmBulkSelectBar(tid, displayedDmThreadIds),
                   ],
                 );
-                  },
-                );
               },
             );
           },
         );
+      },
+    );
   }
 
   Widget _buildContatosTab(BuildContext context, String tid, String uid) {
@@ -3083,9 +3176,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final byId = {for (final e in filtered) e.id: e};
     if (!useSavedOrder || orderIds.isEmpty) {
       final list = byId.values.toList();
-      list.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+      list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       return list;
     }
     final ordered = <_DeptEntry>[];
@@ -3094,9 +3185,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       if (e != null) ordered.add(e);
     }
     final rest = byId.values.toList()
-      ..sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      );
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return [...ordered, ...rest];
   }
 
@@ -3135,262 +3224,272 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Widget _buildGruposTab(BuildContext context, String tid, String uid) {
     Widget buildPrefsAndList(Map<String, Map<String, dynamic>> deptThreadById) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatMemberPrefs.watch(tid),
-      builder: (context, prefSnap) {
-        final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return ValueListenableBuilder<String>(
-          valueListenable: _debouncedDeptSearch,
-          builder: (context, ql, _) {
-        final filtered = _departments.where((d) {
-          if (ql.isEmpty) {
-            return true;
-          }
-          return d.name.toLowerCase().contains(ql);
-        }).toList();
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: ChurchChatMemberPrefs.watch(tid),
+        builder: (context, prefSnap) {
+          final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
+          return ValueListenableBuilder<String>(
+            valueListenable: _debouncedDeptSearch,
+            builder: (context, ql, _) {
+              final filtered = _departments.where((d) {
+                if (ql.isEmpty) {
+                  return true;
+                }
+                return d.name.toLowerCase().contains(ql);
+              }).toList();
 
-        if (filtered.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: () => _syncMemberDepartments(tid, forceServer: true),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                SizedBox(height: MediaQuery.sizeOf(context).height * 0.14),
-                if (_departmentsLoading)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 28),
-                  child: Column(
+              if (filtered.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: () =>
+                      _syncMemberDepartments(tid, forceServer: true),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     children: [
-                      Icon(
-                        Icons.groups_rounded,
-                        size: 56,
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                      SizedBox(
+                        height: MediaQuery.sizeOf(context).height * 0.14,
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        _departmentsLoading
-                            ? 'A carregar grupos…'
-                            : _departments.isEmpty
-                                ? (_departmentsSoftError != null &&
-                                        _departmentsSoftError!
-                                            .trim()
-                                            .isNotEmpty
-                                    ? 'Não foi possível carregar os grupos. Verifique a rede e toque em Carregar grupos.'
-                                    : (_chatHubSeesAllDepartmentGroups(
-                                            widget.role, widget.permissions)
-                                        ? 'Nenhum departamento cadastrado ainda. Crie departamentos no módulo Departamentos para aparecerem aqui como grupos.'
-                                        : 'Sem grupos — faça parte de um departamento na sua ficha de membro.'))
-                                : 'Nenhum grupo corresponde à pesquisa.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                          height: 1.45,
-                          fontWeight: FontWeight.w600,
+                      if (_departmentsLoading)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.groups_rounded,
+                              size: 56,
+                              color: ThemeCleanPremium.primary.withValues(
+                                alpha: 0.45,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _departmentsLoading
+                                  ? 'A carregar grupos…'
+                                  : _departments.isEmpty
+                                  ? (_departmentsSoftError != null &&
+                                            _departmentsSoftError!
+                                                .trim()
+                                                .isNotEmpty
+                                        ? 'Não foi possível carregar os grupos. Verifique a rede e toque em Carregar grupos.'
+                                        : (_chatHubSeesAllDepartmentGroups(
+                                                widget.role,
+                                                widget.permissions,
+                                              )
+                                              ? 'Nenhum departamento cadastrado ainda. Crie departamentos no módulo Departamentos para aparecerem aqui como grupos.'
+                                              : 'Sem grupos — faça parte de um departamento na sua ficha de membro.'))
+                                  : 'Nenhum grupo corresponde à pesquisa.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                                height: 1.45,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (!_departmentsLoading &&
+                                _departments.isEmpty &&
+                                _departmentsSoftError != null &&
+                                _departmentsSoftError!.trim().isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                _departmentsSoftError!,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.red.shade700,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            if (!_departmentsLoading &&
+                                _departments.isEmpty) ...[
+                              const SizedBox(height: 20),
+                              FilledButton.icon(
+                                onPressed: () => _syncMemberDepartments(
+                                  tid,
+                                  forceServer: true,
+                                ),
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Carregar grupos'),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                      if (!_departmentsLoading &&
-                          _departments.isEmpty &&
-                          _departmentsSoftError != null &&
-                          _departmentsSoftError!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          _departmentsSoftError!,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.red.shade700,
-                            fontWeight: FontWeight.w600,
+                    ],
+                  ),
+                );
+              }
+
+              final useSavedOrder = ql.isEmpty;
+              final ordered = _orderedDepartmentGroupsForTab(
+                filtered,
+                prefs.departmentGroupOrderIds,
+                useSavedOrder: useSavedOrder,
+              );
+              final canReorder = useSavedOrder && ordered.length > 1;
+              final hasCustomOrder = prefs.departmentGroupOrderIds.isNotEmpty;
+
+              String helpPrimary;
+              if (!useSavedOrder) {
+                helpPrimary =
+                    'Pesquisa ativa — grupos em ordem alfabética. Limpe o campo para voltar à sua ordem.';
+              } else if (ordered.length > 1) {
+                helpPrimary =
+                    'Grupos em faixas. Arraste para definir a ordem neste aparelho. Toque na faixa para abrir o chat ou use Ver membros à direita.';
+              } else {
+                helpPrimary =
+                    'Grupos em faixas. Toque na linha para abrir o chat ou Ver membros à direita.';
+              }
+
+              Widget stripTile(_DeptEntry d, {int? reorderIndex}) {
+                final threadId = ChatHubOperations.deptThreadId(d.id);
+                return _DeptGroupPremiumStripCard(
+                  tenantId: tid,
+                  myUid: uid,
+                  entry: d,
+                  threadId: threadId,
+                  threadData: deptThreadById[threadId],
+                  reorderIndex: reorderIndex,
+                  onOpenChat: () {
+                    _openChatThreadPage(
+                      tid: tid,
+                      threadId: threadId,
+                      title: d.name,
+                      isDepartment: true,
+                      departmentId: d.id,
+                    );
+                  },
+                  onOpenMembers: () =>
+                      _showDepartmentMembersSheet(context, tid, uid, d),
+                );
+              }
+
+              return RefreshIndicator(
+                onRefresh: () => _syncMemberDepartments(tid),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
+                  child: CustomScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: LinearGradient(
+                                colors: [
+                                  ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                  ThemeCleanPremium.primaryLight.withValues(
+                                    alpha: 0.06,
+                                  ),
+                                ],
+                              ),
+                              border: Border.all(
+                                color: ThemeCleanPremium.primary.withValues(
+                                  alpha: 0.18,
+                                ),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.view_stream_rounded,
+                                      color: ThemeCleanPremium.primary,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        helpPrimary,
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.35,
+                                          color: ThemeCleanPremium.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (useSavedOrder && hasCustomOrder) ...[
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: () {
+                                        unawaited(
+                                          ChurchChatMemberPrefs.clearDepartmentGroupOrder(
+                                            tid,
+                                          ),
+                                        );
+                                      },
+                                      icon: Icon(
+                                        Icons.sort_by_alpha_rounded,
+                                        size: 18,
+                                        color: ThemeCleanPremium.primary,
+                                      ),
+                                      label: Text(
+                                        'Ordem alfabética (A-Z)',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: ThemeCleanPremium.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                      if (!_departmentsLoading && _departments.isEmpty) ...[
-                        const SizedBox(height: 20),
-                        FilledButton.icon(
-                          onPressed: () => _syncMemberDepartments(
-                            tid,
-                            forceServer: true,
-                          ),
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Carregar grupos'),
+                      ),
+                      if (canReorder)
+                        SliverReorderableList(
+                          itemCount: ordered.length,
+                          onReorder: (oldIndex, newIndex) {
+                            _onDepartmentGroupReorder(
+                              tid,
+                              ordered,
+                              oldIndex,
+                              newIndex,
+                            );
+                          },
+                          itemBuilder: (ctx, index) {
+                            final d = ordered[index];
+                            return KeyedSubtree(
+                              key: ValueKey<String>('deptgrp_${d.id}'),
+                              child: stripTile(d, reorderIndex: index),
+                            );
+                          },
+                        )
+                      else
+                        SliverList(
+                          delegate: SliverChildBuilderDelegate((ctx, i) {
+                            return stripTile(ordered[i], reorderIndex: null);
+                          }, childCount: ordered.length),
                         ),
-                      ],
                     ],
                   ),
                 ),
-              ],
-            ),
-          );
-        }
-
-        final useSavedOrder = ql.isEmpty;
-        final ordered = _orderedDepartmentGroupsForTab(
-          filtered,
-          prefs.departmentGroupOrderIds,
-          useSavedOrder: useSavedOrder,
-        );
-        final canReorder = useSavedOrder && ordered.length > 1;
-        final hasCustomOrder = prefs.departmentGroupOrderIds.isNotEmpty;
-
-        String helpPrimary;
-        if (!useSavedOrder) {
-          helpPrimary =
-              'Pesquisa ativa — grupos em ordem alfabética. Limpe o campo para voltar à sua ordem.';
-        } else if (ordered.length > 1) {
-          helpPrimary =
-              'Grupos em faixas. Arraste para definir a ordem neste aparelho. Toque na faixa para abrir o chat ou use Ver membros à direita.';
-        } else {
-          helpPrimary =
-              'Grupos em faixas. Toque na linha para abrir o chat ou Ver membros à direita.';
-        }
-
-        Widget stripTile(_DeptEntry d, {int? reorderIndex}) {
-          final threadId = ChatHubOperations.deptThreadId(d.id);
-          return _DeptGroupPremiumStripCard(
-            tenantId: tid,
-            myUid: uid,
-            entry: d,
-            threadId: threadId,
-            threadData: deptThreadById[threadId],
-            reorderIndex: reorderIndex,
-            onOpenChat: () {
-              _openChatThreadPage(
-                tid: tid,
-                threadId: threadId,
-                title: d.name,
-                isDepartment: true,
-                departmentId: d.id,
               );
             },
-            onOpenMembers: () =>
-                _showDepartmentMembersSheet(context, tid, uid, d),
           );
-        }
-
-        return RefreshIndicator(
-          onRefresh: () => _syncMemberDepartments(tid),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 28),
-            child: CustomScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      gradient: LinearGradient(
-                        colors: [
-                          ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                          ThemeCleanPremium.primaryLight.withValues(alpha: 0.06),
-                        ],
-                      ),
-                      border: Border.all(
-                        color:
-                            ThemeCleanPremium.primary.withValues(alpha: 0.18),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.view_stream_rounded,
-                              color: ThemeCleanPremium.primary,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                helpPrimary,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.35,
-                                  color: ThemeCleanPremium.onSurface,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (useSavedOrder && hasCustomOrder) ...[
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
-                              onPressed: () {
-                                unawaited(
-                                  ChurchChatMemberPrefs.clearDepartmentGroupOrder(
-                                    tid,
-                                  ),
-                                );
-                              },
-                              icon: Icon(
-                                Icons.sort_by_alpha_rounded,
-                                size: 18,
-                                color: ThemeCleanPremium.primary,
-                              ),
-                              label: Text(
-                                'Ordem alfabética (A-Z)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  color: ThemeCleanPremium.primary,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (canReorder)
-                SliverReorderableList(
-                  itemCount: ordered.length,
-                  onReorder: (oldIndex, newIndex) {
-                    _onDepartmentGroupReorder(
-                      tid,
-                      ordered,
-                      oldIndex,
-                      newIndex,
-                    );
-                  },
-                  itemBuilder: (ctx, index) {
-                    final d = ordered[index];
-                    return KeyedSubtree(
-                      key: ValueKey<String>('deptgrp_${d.id}'),
-                      child: stripTile(d, reorderIndex: index),
-                    );
-                  },
-                )
-              else
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (ctx, i) {
-                      return stripTile(ordered[i], reorderIndex: null);
-                    },
-                    childCount: ordered.length,
-                  ),
-                ),
-            ],
-          ),
-        ),
-        );
-          },
-        );
-      },
-    );
+        },
+      );
     }
 
     final threadStream = _chatThreadsStream;
@@ -3484,14 +3583,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       final doc = docs[i];
       out.add(
         _docIsDepartmentThread(doc)
-            ? _deptChatRow(
-                context,
-                tid,
-                uid,
-                doc,
-                prefs,
-                memberByPeerUid,
-              )
+            ? _deptChatRow(context, tid, uid, doc, prefs, memberByPeerUid)
             : _dmChatRow(
                 context,
                 tid,
@@ -3606,9 +3698,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final preview = loc.lastMessage;
     final memberRef = memberByPeerUid[peer];
     final online = _peerOnlineByUid[peer] ?? false;
+    final unreadCount = prefs.unreadCounts[loc.threadId] ?? 0;
+    final isUnread = unreadCount > 0;
     return _chatTile(
       title: rowTitle,
-      subtitle: preview,
+      subtitleSpan: _mentionHighlightSpan(
+        preview,
+        isUnread: isUnread,
+        isTyping: false,
+      ),
       subtitleMaxLines: 2,
       timeLabel: _fmtTimeMs(loc.lastMessageAtMs),
       photo: ChurchChatPeerAvatar(
@@ -3619,7 +3717,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       ),
       showPresence: true,
       online: online,
-      isUnread: false,
+      isUnread: isUnread,
+      unreadCount: unreadCount,
       isFavorite: prefs.isFavorite(loc.threadId),
       isPinned: prefs.isPinned(loc.threadId),
       isMuted: prefs.isMutedThread(loc.threadId),
@@ -3662,14 +3761,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               indent: 72,
             ),
           if (_docIsDepartmentThread(docs[i]))
-            _deptChatRow(
-              context,
-              tid,
-              uid,
-              docs[i],
-              prefs,
-              memberByPeerUid,
-            )
+            _deptChatRow(context, tid, uid, docs[i], prefs, memberByPeerUid)
           else
             _dmChatRow(
               context,
@@ -3701,7 +3793,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     VoidCallback? onToggleSelected,
   }) {
     final data = doc.data();
-    final peers = (data['participantUids'] as List?)
+    final peers =
+        (data['participantUids'] as List?)
             ?.map((e) => e.toString())
             .where((e) => e.isNotEmpty)
             .toList() ??
@@ -3711,8 +3804,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (peer == null || peer.isEmpty) return const SizedBox.shrink();
     final fullTitle = _dmDisplayTitle(doc, uid);
     final rowTitle = _firstNameForChatRow(fullTitle);
-    final rawPreview =
-        (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
+    final rawPreview = (data['lastMessagePreview'] ?? 'Toque para conversar')
+        .toString();
     final typingPreview = _chatHubActiveTypingPreview(data, uid);
     final isTyping = typingPreview != null;
     final preview = churchChatHubRowSubtitle(
@@ -3722,14 +3815,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
     final ts = data['lastMessageAt'];
     final memberRef = memberByPeerUid[peer];
-    final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
-    final unreadCount =
-        _unreadCountByThreadId[doc.id] ?? (isUnread ? 1 : 0);
+    final legacyUnread = _chatHubThreadIsUnreadForUser(data, uid);
+    final prefsCount = prefs.unreadCounts[doc.id] ?? 0;
+    final computedCount = _unreadCountByThreadId[doc.id] ?? 0;
+    final unreadCount = prefsCount > 0
+        ? prefsCount
+        : (computedCount > 0 ? computedCount : (legacyUnread ? 1 : 0));
+    final isUnread = unreadCount > 0 || legacyUnread;
 
     final online = _peerOnlineByUid[peer] ?? false;
     return _chatTile(
       title: rowTitle,
-      subtitle: preview,
+      subtitleSpan: _mentionHighlightSpan(
+        preview,
+        isUnread: isUnread,
+        isTyping: isTyping,
+      ),
       subtitleIsTyping: isTyping,
       subtitleMaxLines: 2,
       timeLabel: _fmtTime(ts),
@@ -3798,6 +3899,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     ChurchChatMemberPrefsModel prefs,
   ) {
     final threadId = ChatHubOperations.deptThreadId(entry.id);
+    final unreadCount = prefs.unreadCounts[threadId] ?? 0;
+    final isUnread = unreadCount > 0;
     return _chatTile(
       title: entry.name,
       subtitle: 'Toque para abrir o grupo',
@@ -3809,8 +3912,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         radius: 24,
       ),
       showPresence: false,
-      isUnread: false,
-      unreadCount: 0,
+      isUnread: isUnread,
+      unreadCount: unreadCount,
       isFavorite: prefs.isFavorite(threadId),
       isPinned: prefs.isPinned(threadId),
       isMuted: prefs.isMutedThread(threadId),
@@ -3860,8 +3963,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final fullTitle = _deptDisplayTitle(doc);
     final deptId = _departmentIdFromThreadDoc(doc);
     final deptEntry = _deptEntryById(deptId);
-    final rawPreview =
-        (data['lastMessagePreview'] ?? 'Toque para conversar').toString();
+    final rawPreview = (data['lastMessagePreview'] ?? 'Toque para conversar')
+        .toString();
     final typingPreview = _chatHubActiveTypingPreview(data, uid);
     final isTyping = typingPreview != null;
     var preview = churchChatHubRowSubtitle(
@@ -3883,13 +3986,21 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       );
     }
     final ts = data['lastMessageAt'];
-    final isUnread = _chatHubThreadIsUnreadForUser(data, uid);
-    final unreadCount =
-        _unreadCountByThreadId[doc.id] ?? (isUnread ? 1 : 0);
+    final legacyUnread = _chatHubThreadIsUnreadForUser(data, uid);
+    final prefsCount = prefs.unreadCounts[doc.id] ?? 0;
+    final computedCount = _unreadCountByThreadId[doc.id] ?? 0;
+    final unreadCount = prefsCount > 0
+        ? prefsCount
+        : (computedCount > 0 ? computedCount : (legacyUnread ? 1 : 0));
+    final isUnread = unreadCount > 0 || legacyUnread;
 
     return _chatTile(
       title: fullTitle,
-      subtitle: preview,
+      subtitleSpan: _mentionHighlightSpan(
+        preview,
+        isUnread: isUnread,
+        isTyping: isTyping,
+      ),
       subtitleIsTyping: isTyping,
       subtitleMaxLines: 2,
       timeLabel: _fmtTime(ts),
@@ -3941,7 +4052,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Widget _chatTile({
     required String title,
-    required String subtitle,
+    String subtitle = '',
+    InlineSpan? subtitleSpan,
     required String timeLabel,
     required Widget photo,
     required VoidCallback onTap,
@@ -3964,19 +4076,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final accent = isPinned
         ? ThemeCleanPremium.primary
         : isFavorite
-            ? const Color(0xFFF59E0B)
-            : isUnread
-                ? ThemeCleanPremium.primary
-                : Colors.transparent;
-  final rowBg = isActive
+        ? const Color(0xFFF59E0B)
+        : isUnread
+        ? ThemeCleanPremium.primary
+        : Colors.transparent;
+    final rowBg = isActive
         ? ChurchChatWhatsAppTheme.activeRowBackground
         : isUnread
         ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
         : isPinned
-            ? ThemeCleanPremium.primary.withValues(alpha: 0.04)
-            : isFavorite
-            ? const Color(0xFFFFFBEB)
-            : Colors.white;
+        ? ThemeCleanPremium.primary.withValues(alpha: 0.04)
+        : isFavorite
+        ? const Color(0xFFFFFBEB)
+        : Colors.white;
 
     return Material(
       color: rowBg,
@@ -4008,130 +4120,146 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   ),
                 ),
               Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      photo,
-                      if (showPresence)
-                        Positioned(
-                          right: -1,
-                          bottom: -1,
-                          child: Container(
-                            width: 14,
-                            height: 14,
-                            decoration: BoxDecoration(
-                              color: online
-                                  ? ThemeCleanPremium.success
-                                  : const Color(0xFF9CA3AF),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight:
-                                isUnread ? FontWeight.w800 : FontWeight.w700,
-                            fontSize: 16,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          subtitle,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: subtitleIsTyping
-                                ? ThemeCleanPremium.primary
-                                : isUnread
-                                    ? ThemeCleanPremium.onSurface
-                                    : ThemeCleanPremium.onSurfaceVariant,
-                            fontSize: 13,
-                            fontStyle: subtitleIsTyping
-                                ? FontStyle.italic
-                                : FontStyle.normal,
-                            fontWeight: subtitleIsTyping || isUnread
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                            height: subtitleMaxLines > 1 ? 1.25 : null,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (isFavorite)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 4),
-                          child: Icon(
-                            Icons.star_rounded,
-                            size: 18,
-                            color: const Color(0xFFF59E0B),
-                          ),
-                        ),
-                      if (isMuted)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: Icon(
-                            Icons.notifications_off_rounded,
-                            size: 17,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                        ),
-                      if (isUnread && unreadCount > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: _whatsappUnreadBadge(unreadCount),
-                        ),
-                      Text(
-                        timeLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                          fontWeight: FontWeight.w600,
+                clipBehavior: Clip.none,
+                children: [
+                  photo,
+                  if (showPresence)
+                    Positioned(
+                      right: -1,
+                      bottom: -1,
+                      child: Container(
+                        width: 14,
+                        height: 14,
+                        decoration: BoxDecoration(
+                          color: online
+                              ? ThemeCleanPremium.success
+                              : const Color(0xFF9CA3AF),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
-                      if (!selectionMode && onMoreTap != null)
-                        IconButton(
-                          tooltip: 'Opções da conversa',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                          icon: Icon(
-                            Icons.more_vert_rounded,
-                            size: 20,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                          onPressed: onMoreTap,
-                        ),
-                      if (trailing != null) trailing,
-                    ],
-                  ),
+                    ),
                 ],
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: isUnread
+                            ? FontWeight.w800
+                            : FontWeight.w700,
+                        fontSize: 16,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    if (subtitleSpan != null)
+                      Text.rich(
+                        subtitleSpan,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: subtitleMaxLines,
+                      )
+                    else
+                      Text(
+                        subtitle,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: subtitleIsTyping
+                              ? ThemeCleanPremium.primary
+                              : isUnread
+                              ? ThemeCleanPremium.onSurface
+                              : ThemeCleanPremium.onSurfaceVariant,
+                          fontSize: 13,
+                          fontStyle: subtitleIsTyping
+                              ? FontStyle.italic
+                              : FontStyle.normal,
+                          fontWeight: subtitleIsTyping || isUnread
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                          height: subtitleMaxLines > 1 ? 1.25 : null,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isFavorite)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(
+                        Icons.star_rounded,
+                        size: 18,
+                        color: const Color(0xFFF59E0B),
+                      ),
+                    ),
+                  if (isMuted)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(
+                        Icons.notifications_off_rounded,
+                        size: 17,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
+                  if (isUnread && unreadCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _telegramUnreadBadge(unreadCount),
+                    )
+                  else if (isUnread)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _telegramUnreadDot(),
+                    ),
+                  Text(
+                    timeLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (!selectionMode && onMoreTap != null)
+                    IconButton(
+                      tooltip: 'Opções da conversa',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 36,
+                        minHeight: 36,
+                      ),
+                      icon: Icon(
+                        Icons.more_vert_rounded,
+                        size: 20,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                      onPressed: onMoreTap,
+                    ),
+                  ?trailing,
+                ],
+              ),
+            ],
           ),
+        ),
+      ),
     );
   }
 
   String _fmtTime(dynamic ts) => _chatHubFmtThreadTime(ts);
 
   Future<void> _openPickPeer(
-      BuildContext context, String tid, String uid) async {
+    BuildContext context,
+    String tid,
+    String uid,
+  ) async {
     final prefs = await ChurchChatMemberPrefs.load(tid);
     final churchId = ChurchRepository.churchId(tid.trim());
     QuerySnapshot<Map<String, dynamic>>? q;
@@ -4147,13 +4275,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       q = null;
     }
     if (!context.mounted) return;
-    final docs = q?.docs
-            .where((d) {
-              final s =
-                  (d.data()['STATUS'] ?? d.data()['status'] ?? '').toString();
-              return s.toLowerCase() == 'ativo';
-            })
-            .toList() ??
+    final docs =
+        q?.docs.where((d) {
+          final s = (d.data()['STATUS'] ?? d.data()['status'] ?? '').toString();
+          return s.toLowerCase() == 'ativo';
+        }).toList() ??
         [];
     docs.sort((a, b) {
       final na = (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '')
@@ -4167,7 +4293,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (docs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Não foi possível carregar membros para nova conversa.')),
+          content: Text(
+            'Não foi possível carregar membros para nova conversa.',
+          ),
+        ),
       );
       return;
     }
@@ -4216,10 +4345,7 @@ class _ChatSearchBar extends StatefulWidget {
   final TextEditingController controller;
   final bool compact;
 
-  const _ChatSearchBar({
-    required this.controller,
-    this.compact = true,
-  });
+  const _ChatSearchBar({required this.controller}) : compact = true;
 
   @override
   State<_ChatSearchBar> createState() => _ChatSearchBarState();
@@ -4304,23 +4430,14 @@ class _PremiumHubTabBar extends StatelessWidget {
   final TabController controller;
   final bool dense;
 
-  const _PremiumHubTabBar({
-    required this.controller,
-    this.dense = false,
-  });
+  const _PremiumHubTabBar({required this.controller, this.dense = false});
 
   @override
   Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width < 380;
-    final labelSize = dense
-        ? (narrow ? 10.0 : 10.5)
-        : (narrow ? 10.5 : 11.5);
-    final iconSize = dense
-        ? (narrow ? 15.0 : 16.0)
-        : (narrow ? 16.0 : 17.0);
-    final tabH = dense
-        ? (narrow ? 30.0 : 32.0)
-        : (narrow ? 42.0 : 46.0);
+    final labelSize = dense ? (narrow ? 10.0 : 10.5) : (narrow ? 10.5 : 11.5);
+    final iconSize = dense ? (narrow ? 15.0 : 16.0) : (narrow ? 16.0 : 17.0);
+    final tabH = dense ? (narrow ? 30.0 : 32.0) : (narrow ? 42.0 : 46.0);
 
     Widget tabContent(IconData icon, String label) {
       return FittedBox(
@@ -4466,7 +4583,11 @@ class _HubScopedSearchBarState extends State<_HubScopedSearchBar> {
             color: ThemeCleanPremium.onSurfaceVariant,
             fontSize: 14,
           ),
-          prefixIcon: Icon(widget.icon, size: 20, color: const Color(0xFF128C7E)),
+          prefixIcon: Icon(
+            widget.icon,
+            size: 20,
+            color: const Color(0xFF128C7E),
+          ),
           suffixIcon: widget.controller.text.isNotEmpty
               ? IconButton(
                   tooltip: 'Limpar',
@@ -4485,8 +4606,10 @@ class _HubScopedSearchBarState extends State<_HubScopedSearchBar> {
           filled: true,
           fillColor: ThemeCleanPremium.cardBackground,
           isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 8,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: BorderSide(color: Colors.grey.shade300),
@@ -4605,8 +4728,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       _loading = false;
     }
     unawaited(_warmContatosFromModuleCache());
-    _directorySub =
-        MembersDirectorySnapshotService.watch(_churchId).listen((dir) {
+    _directorySub = MembersDirectorySnapshotService.watch(_churchId).listen((
+      dir,
+    ) {
       if (dir.hasEntries) _applyDirectoryRows(dir);
     });
     _loadCapTimer = Timer(const Duration(seconds: 10), () {
@@ -4643,11 +4767,11 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   /// Nomes + fotos do `_panel_cache/members_directory` — sem esperar `membrosRecent(600)`.
   Future<void> _loadInstantFromCache() async {
     try {
-      var directory =
-          await MembersDirectorySnapshotService.readOnce(_churchId);
+      var directory = await MembersDirectorySnapshotService.readOnce(_churchId);
       if (!directory.hasEntries) {
-        directory =
-            await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+        directory = await MembersDirectorySnapshotService.readOnce(
+          widget.tenantId,
+        );
       }
       if (!mounted || !directory.hasEntries) return;
       _applyDirectoryRows(directory);
@@ -4744,11 +4868,13 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       try {
-        var directory =
-            await MembersDirectorySnapshotService.readOnce(churchId);
+        var directory = await MembersDirectorySnapshotService.readOnce(
+          churchId,
+        );
         if (!directory.hasEntries) {
-          directory =
-              await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+          directory = await MembersDirectorySnapshotService.readOnce(
+            widget.tenantId,
+          );
         }
         if (directory.hasEntries) {
           rows = _rowsFromDirectory(directory);
@@ -4761,8 +4887,8 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
         try {
           final warmed =
               await MembersDirectorySnapshotService.warmFromCallableIfStale(
-            churchId,
-          ).timeout(const Duration(seconds: 18));
+                churchId,
+              ).timeout(const Duration(seconds: 18));
           if (warmed.hasEntries) {
             rows = _rowsFromDirectory(warmed);
           }
@@ -4782,7 +4908,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           ).timeout(PanelResilientLoad.queryCap);
           if (result.docs.isNotEmpty) {
             rows = result.docs
-                .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+                .map(
+                  (d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()),
+                )
                 .toList();
           }
         } catch (_) {
@@ -4793,10 +4921,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       if (rows.isEmpty) {
         try {
           final snap = await FirestoreWebGuard.runWithWebRecovery(
-            () => ChurchTenantResilientReads.membrosRecent(
-              churchId,
-              limit: 80,
-            ),
+            () => ChurchTenantResilientReads.membrosRecent(churchId, limit: 80),
             maxAttempts: 4,
           ).timeout(PanelResilientLoad.queryCap);
           rows = snap.docs
@@ -4828,10 +4953,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           })
           .whereType<ChurchChatMemberRef>()
           .toList();
-      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-        churchId,
-        refs,
-      );
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(churchId, refs);
     }
   }
 
@@ -4840,7 +4962,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     final out = <_ChatDirectoryMemberRow>[];
     for (final row in _rows) {
       final d = row.data;
-      final st = (d['STATUS'] ?? d['status'] ?? 'ativo').toString().toLowerCase();
+      final st = (d['STATUS'] ?? d['status'] ?? 'ativo')
+          .toString()
+          .toLowerCase();
       if (st != 'ativo') continue;
       final auth = _authUidFromMemberData(row.docId, d);
       if (auth == null || auth == widget.myUid) continue;
@@ -4891,8 +5015,10 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   }
 
   String? _cpfDigitsFromMembro(Map<String, dynamic> d) {
-    final raw =
-        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final raw = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
     return raw.length == 11 ? raw : null;
   }
 
@@ -4909,137 +5035,131 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     final cachePx = (40 * dpr).round().clamp(96, 240);
 
     return RefreshIndicator(
-          onRefresh: _load,
-          child: rows.isEmpty
-              ? ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(28),
-                  children: [
-                    SizedBox(
-                      height: MediaQuery.sizeOf(context).height * 0.15,
-                    ),
-                    Text(
-                      _loadFailed
-                          ? 'Não foi possível listar membros. Puxe para atualizar.'
-                          : _rows.isEmpty
-                              ? 'Nenhum membro ativo com acesso ao app.'
-                              : 'Nenhum membro corresponde ao filtro.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                        height: 1.45,
+      onRefresh: _load,
+      child: rows.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(28),
+              children: [
+                SizedBox(height: MediaQuery.sizeOf(context).height * 0.15),
+                Text(
+                  _loadFailed
+                      ? 'Não foi possível listar membros. Puxe para atualizar.'
+                      : _rows.isEmpty
+                      ? 'Nenhum membro ativo com acesso ao app.'
+                      : 'Nenhum membro corresponde ao filtro.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
+              itemCount: rows.length,
+              itemBuilder: (_, i) {
+                final row = rows[i];
+                final d = row.data;
+                final auth = _authUidFromMemberData(row.docId, d) ?? '';
+                final label = ChurchChatDisplayName.fromMemberData(
+                  d,
+                  authUid: auth,
+                  memberDocId: row.docId,
+                );
+                final on = _presenceOnlineByUid[auth] ?? false;
+                final photoUrl = imageUrlFromMap(d);
+                return Material(
+                  color: on
+                      ? ThemeCleanPremium.primary.withValues(alpha: 0.05)
+                      : Colors.white,
+                  child: InkWell(
+                    onTap: _openingDm
+                        ? null
+                        : () => unawaited(_onMemberTap(auth, label)),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
                       ),
-                    ),
-                  ],
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
-                  itemCount: rows.length,
-                  itemBuilder: (_, i) {
-                    final row = rows[i];
-                    final d = row.data;
-                    final auth = _authUidFromMemberData(row.docId, d) ?? '';
-                    final label = ChurchChatDisplayName.fromMemberData(
-                      d,
-                      authUid: auth,
-                      memberDocId: row.docId,
-                    );
-                    final on = _presenceOnlineByUid[auth] ?? false;
-                    final photoUrl = imageUrlFromMap(d);
-                    return Material(
-                      color: on
-                          ? ThemeCleanPremium.primary.withValues(alpha: 0.05)
-                          : Colors.white,
-                      child: InkWell(
-                        onTap: _openingDm
-                            ? null
-                            : () => unawaited(_onMemberTap(auth, label)),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          child: Row(
-                                children: [
-                                  Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      StableMemberAvatar(
-                                        imageUrl:
-                                            photoUrl.isEmpty ? null : photoUrl,
-                                        tenantId: widget.tenantId,
-                                        memberId: row.docId,
-                                        cpfDigits: _cpfDigitsFromMembro(d),
-                                        authUid:
-                                            auth.isNotEmpty ? auth : null,
-                                        memberData: d,
-                                        size: 40,
-                                        memCacheWidth: cachePx,
-                                        memCacheHeight: cachePx,
-                                      ),
-                                      Positioned(
-                                        right: -1,
-                                        bottom: -1,
-                                        child: Container(
-                                          width: 14,
-                                          height: 14,
-                                          decoration: BoxDecoration(
-                                            color: on
-                                                ? ThemeCleanPremium.success
-                                                : const Color(0xFF9CA3AF),
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                                color: Colors.white,
-                                                width: 2),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          label,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 16,
-                                            color:
-                                                ThemeCleanPremium.onSurface,
-                                          ),
-                                        ),
-                                        Text(
-                                          on ? 'Online' : 'Offline',
-                                          style: TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
-                                            color: on
-                                                ? const Color(0xFF16A34A)
-                                                : ThemeCleanPremium
-                                                    .onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ],
+                      child: Row(
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              StableMemberAvatar(
+                                imageUrl: photoUrl.isEmpty ? null : photoUrl,
+                                tenantId: widget.tenantId,
+                                memberId: row.docId,
+                                cpfDigits: _cpfDigitsFromMembro(d),
+                                authUid: auth.isNotEmpty ? auth : null,
+                                memberData: d,
+                                size: 40,
+                                memCacheWidth: cachePx,
+                                memCacheHeight: cachePx,
+                              ),
+                              Positioned(
+                                right: -1,
+                                bottom: -1,
+                                child: Container(
+                                  width: 14,
+                                  height: 14,
+                                  decoration: BoxDecoration(
+                                    color: on
+                                        ? ThemeCleanPremium.success
+                                        : const Color(0xFF9CA3AF),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2,
                                     ),
                                   ),
-                                  Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    color: ThemeCleanPremium.primary,
-                                    size: 22,
-                                  ),
-                                ],
+                                ),
                               ),
+                            ],
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 16,
+                                    color: ThemeCleanPremium.onSurface,
+                                  ),
+                                ),
+                                Text(
+                                  on ? 'Online' : 'Offline',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: on
+                                        ? const Color(0xFF16A34A)
+                                        : ThemeCleanPremium.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                    );
-                  },
-                ),
+                          Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -5054,6 +5174,7 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
   final Map<String, dynamic>? threadData;
   final VoidCallback onOpenChat;
   final VoidCallback onOpenMembers;
+
   /// Índice na [SliverReorderableList]; `null` = sem arrastar.
   final int? reorderIndex;
 
@@ -5077,8 +5198,7 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
     final preview = (data?['lastMessagePreview'] ?? 'Toque para abrir o grupo')
         .toString()
         .trim();
-    final safePreview =
-        preview.isEmpty ? 'Toque para abrir o grupo' : preview;
+    final safePreview = preview.isEmpty ? 'Toque para abrir o grupo' : preview;
     final lastMsgAt = data?['lastMessageAt'];
     final timeLabel = _chatHubFmtThreadTime(lastMsgAt);
     final participants = data?['participantUids'];
@@ -5086,185 +5206,184 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
 
     const stripRadius = 26.0;
     final stripBody = Material(
-            color: Colors.transparent,
-            child: ClipRRect(
+      color: Colors.transparent,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(stripRadius),
+        child: InkWell(
+          onTap: onOpenChat,
+          borderRadius: BorderRadius.circular(stripRadius),
+          child: Ink(
+            decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(stripRadius),
-              child: InkWell(
-                onTap: onOpenChat,
-                borderRadius: BorderRadius.circular(stripRadius),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(stripRadius),
-                    color: unreadFlag
-                        ? ThemeCleanPremium.primary.withValues(alpha: 0.07)
-                        : Colors.white,
-                    border: Border.all(
-                      color: unreadFlag
-                          ? ThemeCleanPremium.primary.withValues(alpha: 0.25)
-                          : Colors.grey.shade200,
+              color: unreadFlag
+                  ? ThemeCleanPremium.primary.withValues(alpha: 0.07)
+                  : Colors.white,
+              border: Border.all(
+                color: unreadFlag
+                    ? ThemeCleanPremium.primary.withValues(alpha: 0.25)
+                    : Colors.grey.shade200,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 12, 4, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10, top: 4),
+                    child: Container(
+                      width: 4,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        color: unreadFlag
+                            ? ThemeCleanPremium.primary
+                            : ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                      ),
                     ),
                   ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(10, 12, 4, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(right: 10, top: 4),
-                          child: Container(
-                            width: 4,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(999),
-                              color: unreadFlag
-                                  ? ThemeCleanPremium.primary
-                                  : ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.35),
-                            ),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      ChurchChatDepartmentAvatar(
+                        deptData: entry.deptData,
+                        fallbackName: entry.name,
+                        radius: 22,
+                      ),
+                      if (unreadFlag)
+                        Positioned(
+                          right: -4,
+                          top: -4,
+                          child: _GroupStripUnreadBadge(
+                            tenantId: tenantId,
+                            threadId: threadId,
+                            myUid: myUid,
+                            threadData: data,
                           ),
                         ),
-                        Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          ChurchChatDepartmentAvatar(
-                            deptData: entry.deptData,
-                            fallbackName: entry.name,
-                            radius: 22,
-                          ),
-                          if (unreadFlag)
-                            Positioned(
-                              right: -4,
-                              top: -4,
-                              child: _GroupStripUnreadBadge(
-                                tenantId: tenantId,
-                                threadId: threadId,
-                                myUid: myUid,
-                                threadData: data,
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    entry.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 15,
-                                      height: 1.2,
-                                      color: ThemeCleanPremium.onSurface,
-                                      letterSpacing: -0.25,
-                                    ),
-                                  ),
-                                ),
-                                if (timeLabel.isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    timeLabel,
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: ThemeCleanPremium.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                            if (nChatMembers > 0) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                '$nChatMembers no chat',
-                                maxLines: 1,
+                            Expanded(
+                              child: Text(
+                                entry.name,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: ThemeCleanPremium.primary,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15,
+                                  height: 1.2,
+                                  color: ThemeCleanPremium.onSurface,
+                                  letterSpacing: -0.25,
                                 ),
                               ),
-                            ],
-                            const SizedBox(height: 6),
-                            Text(
-                              safePreview,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.35,
-                                fontWeight: FontWeight.w600,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
                             ),
-                            if (unreadFlag) ...[
-                              const SizedBox(height: 8),
-                              _GroupStripUnreadBadge(
-                                tenantId: tenantId,
-                                threadId: threadId,
-                                myUid: myUid,
-                                threadData: data,
-                                showLabel: true,
+                            if (timeLabel.isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                timeLabel,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                ),
                               ),
                             ],
                           ],
                         ),
-                      ),
-                      IconButton(
-                        tooltip: 'Ver membros',
-                        onPressed: onOpenMembers,
-                        icon: Icon(
-                          Icons.groups_rounded,
-                          color: ThemeCleanPremium.primary,
+                        if (nChatMembers > 0) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '$nChatMembers no chat',
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Text(
+                          safePreview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Icon(
-                          Icons.chevron_right_rounded,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+                        if (unreadFlag) ...[
+                          const SizedBox(height: 8),
+                          _GroupStripUnreadBadge(
+                            tenantId: tenantId,
+                            threadId: threadId,
+                            myUid: myUid,
+                            threadData: data,
+                            showLabel: true,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Ver membros',
+                    onPressed: onOpenMembers,
+                    icon: Icon(
+                      Icons.groups_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Icon(
+                      Icons.chevron_right_rounded,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (reorderIndex != null)
+            ReorderableDragStartListener(
+              index: reorderIndex!,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.grab,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 4, top: 12, right: 2),
+                  child: Icon(
+                    Icons.drag_handle_rounded,
+                    size: 26,
+                    color: ThemeCleanPremium.onSurfaceVariant.withValues(
+                      alpha: 0.72,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (reorderIndex != null)
-                ReorderableDragStartListener(
-                  index: reorderIndex!,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.grab,
-                    child: Padding(
-                      padding:
-                          const EdgeInsets.only(left: 4, top: 12, right: 2),
-                      child: Icon(
-                        Icons.drag_handle_rounded,
-                        size: 26,
-                        color: ThemeCleanPremium.onSurfaceVariant
-                            .withValues(alpha: 0.72),
-                      ),
-                    ),
-                  ),
-                ),
-              Expanded(child: stripBody),
-            ],
-          ),
-        );
+          Expanded(child: stripBody),
+        ],
+      ),
+    );
   }
 }
 
@@ -5312,15 +5431,21 @@ class _WhatsAppStyleChatHubHeader extends StatelessWidget {
                   visualDensity: VisualDensity.compact,
                   tooltip: 'Transmissão',
                   onPressed: onBroadcastTap,
-                  icon: const Icon(Icons.campaign_rounded,
-                      color: Colors.white, size: 24),
+                  icon: const Icon(
+                    Icons.campaign_rounded,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Nova conversa',
                 onPressed: onNewDm,
-                icon: const Icon(Icons.add_comment_rounded,
-                    color: Colors.white, size: 24),
+                icon: const Icon(
+                  Icons.add_comment_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
               ),
               _ChatHubOverflowMenu(
                 chatPushEnabled: chatPushEnabled,
@@ -5453,8 +5578,10 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   Timer? _presencePollTimer;
 
   String? _cpfDigitsForMember(Map<String, dynamic> d, String docId) {
-    final fromField =
-        (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final fromField = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
     if (fromField.length >= 11) return fromField;
     final fromId = docId.replaceAll(RegExp(r'\D'), '');
     if (fromId.length >= 11) return fromId;
@@ -5477,9 +5604,10 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
 
   Future<void> _pollPresence() async {
     final uids = _eligible
-        .map((doc) =>
-            (doc.data()['authUid'] ?? doc.data()['firebaseUid'] ?? '')
-                .toString())
+        .map(
+          (doc) => (doc.data()['authUid'] ?? doc.data()['firebaseUid'] ?? '')
+              .toString(),
+        )
         .where((e) => e.isNotEmpty)
         .toSet();
     if (uids.isEmpty) return;
@@ -5542,8 +5670,9 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
           .toString()
           .trim()
           .toLowerCase();
-      final auth =
-          (d['authUid'] ?? d['firebaseUid'] ?? '').toString().toLowerCase();
+      final auth = (d['authUid'] ?? d['firebaseUid'] ?? '')
+          .toString()
+          .toLowerCase();
       return nome.contains(q) || auth.contains(q);
     }).toList();
   }
@@ -5658,15 +5787,13 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color:
-                          ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
                     ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide: BorderSide(
-                      color:
-                          ThemeCleanPremium.primary.withValues(alpha: 0.28),
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
                       width: 1.15,
                     ),
                   ),
@@ -5716,8 +5843,8 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                       itemBuilder: (_, i) {
                         final doc = filtered[i];
                         final d = doc.data();
-                        final auth =
-                            (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+                        final auth = (d['authUid'] ?? d['firebaseUid'] ?? '')
+                            .toString();
                         final nome = ChurchChatDisplayName.fromMemberData(
                           d,
                           authUid: auth,
@@ -5729,168 +5856,160 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                         final cpfOpt = _cpfDigitsForMember(d, doc.id);
                         final on = _presenceOnlineByUid[auth] ?? false;
                         return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => Navigator.pop(
+                                context,
+                                _PickResult(uid: auth, name: nome),
+                              ),
+                              child: Ink(
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.cardBackground,
                                   borderRadius: BorderRadius.circular(16),
-                                  onTap: () => Navigator.pop(
-                                    context,
-                                    _PickResult(uid: auth, name: nome),
+                                  border: Border.all(
+                                    color: ThemeCleanPremium.primary.withValues(
+                                      alpha: 0.22,
+                                    ),
+                                    width: 1.1,
                                   ),
-                                  child: Ink(
-                                    decoration: BoxDecoration(
-                                      color: ThemeCleanPremium.cardBackground,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.22),
-                                        width: 1.1,
-                                      ),
-                                      boxShadow:
-                                          ThemeCleanPremium.softUiCardShadow,
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          SizedBox(
-                                            width: 54,
-                                            height: 54,
-                                            child: Stack(
-                                              clipBehavior: Clip.none,
-                                              alignment: Alignment.center,
-                                              children: [
-                                                ClipOval(
-                                                  child: FotoMembroWidget(
-                                                    size: 50,
-                                                    tenantId: widget.tid,
-                                                    memberId: doc.id,
-                                                    memberData: d,
-                                                    authUid: auth.isNotEmpty
-                                                        ? auth
-                                                        : null,
-                                                    cpfDigits: cpfOpt,
-                                                    memCacheWidth: 160,
-                                                    memCacheHeight: 160,
-                                                    fallbackChild:
-                                                        CircleAvatar(
-                                                      radius: 25,
-                                                      backgroundColor:
-                                                          ThemeCleanPremium
-                                                              .primary
-                                                              .withValues(
-                                                                  alpha: 0.14),
-                                                      foregroundColor:
-                                                          ThemeCleanPremium
-                                                              .primary,
-                                                      child: Text(
-                                                        letter,
-                                                        style: const TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w900,
-                                                          fontSize: 20,
-                                                        ),
-                                                      ),
+                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 54,
+                                        height: 54,
+                                        child: Stack(
+                                          clipBehavior: Clip.none,
+                                          alignment: Alignment.center,
+                                          children: [
+                                            ClipOval(
+                                              child: FotoMembroWidget(
+                                                size: 50,
+                                                tenantId: widget.tid,
+                                                memberId: doc.id,
+                                                memberData: d,
+                                                authUid: auth.isNotEmpty
+                                                    ? auth
+                                                    : null,
+                                                cpfDigits: cpfOpt,
+                                                memCacheWidth: 160,
+                                                memCacheHeight: 160,
+                                                fallbackChild: CircleAvatar(
+                                                  radius: 25,
+                                                  backgroundColor:
+                                                      ThemeCleanPremium.primary
+                                                          .withValues(
+                                                            alpha: 0.14,
+                                                          ),
+                                                  foregroundColor:
+                                                      ThemeCleanPremium.primary,
+                                                  child: Text(
+                                                    letter,
+                                                    style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 20,
                                                     ),
                                                   ),
                                                 ),
-                                                Positioned(
-                                                  right: 0,
-                                                  bottom: 0,
-                                                  child: Container(
-                                                    width: 14,
-                                                    height: 14,
-                                                    decoration: BoxDecoration(
-                                                      color: on
-                                                          ? ThemeCleanPremium
-                                                              .success
-                                                          : const Color(
-                                                              0xFF9CA3AF),
-                                                      shape: BoxShape.circle,
-                                                      border: Border.all(
-                                                        color: ThemeCleanPremium
-                                                            .cardBackground,
-                                                        width: 2,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  nome,
-                                                  maxLines: 2,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 15,
-                                                    height: 1.25,
+                                            Positioned(
+                                              right: 0,
+                                              bottom: 0,
+                                              child: Container(
+                                                width: 14,
+                                                height: 14,
+                                                decoration: BoxDecoration(
+                                                  color: on
+                                                      ? ThemeCleanPremium
+                                                            .success
+                                                      : const Color(0xFF9CA3AF),
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(
                                                     color: ThemeCleanPremium
-                                                        .onSurface,
+                                                        .cardBackground,
+                                                    width: 2,
                                                   ),
                                                 ),
-                                                const SizedBox(height: 4),
-                                                Row(
-                                                  children: [
-                                                    Icon(
-                                                      on
-                                                          ? Icons
-                                                              .circle_rounded
-                                                          : Icons
-                                                              .trip_origin_rounded,
-                                                      size: 12,
-                                                      color: on
-                                                          ? ThemeCleanPremium
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              nome,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 15,
+                                                height: 1.25,
+                                                color:
+                                                    ThemeCleanPremium.onSurface,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  on
+                                                      ? Icons.circle_rounded
+                                                      : Icons
+                                                            .trip_origin_rounded,
+                                                  size: 12,
+                                                  color: on
+                                                      ? ThemeCleanPremium
+                                                            .success
+                                                      : ThemeCleanPremium
+                                                            .onSurfaceVariant,
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  on ? 'Online' : 'Offline',
+                                                  style: TextStyle(
+                                                    fontSize: 12.5,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: on
+                                                        ? ThemeCleanPremium
                                                               .success
-                                                          : ThemeCleanPremium
+                                                        : ThemeCleanPremium
                                                               .onSurfaceVariant,
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      on
-                                                          ? 'Online'
-                                                          : 'Offline',
-                                                      style: TextStyle(
-                                                        fontSize: 12.5,
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        color: on
-                                                            ? ThemeCleanPremium
-                                                                .success
-                                                            : ThemeCleanPremium
-                                                                .onSurfaceVariant,
-                                                      ),
-                                                    ),
-                                                  ],
+                                                  ),
                                                 ),
                                               ],
                                             ),
-                                          ),
-                                          Icon(
-                                            Icons.chat_rounded,
-                                            color: ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.65),
-                                            size: 22,
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
+                                      Icon(
+                                        Icons.chat_rounded,
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.65),
+                                        size: 22,
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
-                            );
+                            ),
+                          ),
+                        );
                       },
                     ),
             ),
@@ -6010,7 +6129,9 @@ class _GroupStripUnreadBadgeState extends State<_GroupStripUnreadBadge> {
             ),
             const SizedBox(width: 6),
             Text(
-              _count == 1 ? '1 mensagem não lida' : '$label mensagens não lidas',
+              _count == 1
+                  ? '1 mensagem não lida'
+                  : '$label mensagens não lidas',
               style: TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 12,

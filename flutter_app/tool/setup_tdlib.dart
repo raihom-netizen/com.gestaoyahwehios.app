@@ -8,6 +8,8 @@
 ///
 /// Na raiz do repo:
 ///   .\scripts\setup_tdlib.ps1
+library;
+
 import 'download_tdlib.dart' as download;
 
 Future<void> main(List<String> args) async {

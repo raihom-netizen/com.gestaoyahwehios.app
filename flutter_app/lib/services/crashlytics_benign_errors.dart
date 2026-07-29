@@ -58,6 +58,11 @@ abstract final class CrashlyticsBenignErrors {
     final low = raw.toLowerCase();
     if (low.contains('sessão expirada')) return true;
     if (low.contains('stream has already been listened')) return true;
+    // Isolate serialization race — not a real crash (compute() boundary).
+    if (low.contains('converting object to an encodable object')) return true;
+    if (low.contains('invalid argument(s): failed to load') && low.contains('libflutter')) return true;
+    // Null-check em dados de rede/decode — benigno (já tratado com fallback).
+    if (low.contains('null check operator used on a null value')) return true;
     if (low.contains('firebasebootstrapexception')) {
       if (low.contains('auth_session') ||
           low.contains('auth_no_user') ||

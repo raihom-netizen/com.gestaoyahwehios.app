@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Escolha enviada ao chat (logo institucional ou figurinha da biblioteca).
@@ -303,7 +302,7 @@ class _EmojiTabState extends State<_EmojiTab> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: recent.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
                       itemBuilder: (_, i) {
                         return Material(
                           color: ThemeCleanPremium.cardBackground,
@@ -550,7 +549,7 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: recent.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      separatorBuilder: (_, _) => const SizedBox(width: 10),
                       itemBuilder: (_, i) {
                         final m = recent[i];
                         final url = (m['mediaUrl'] ?? '').toString().trim();

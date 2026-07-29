@@ -3249,12 +3249,13 @@ class _ScaleEventCard extends StatelessWidget {
                                       );
                                     },
                                   );
-                                  if (reason != null)
+                                  if (reason != null) {
                                     await onConfirm(
                                       doc,
                                       'indisponivel',
                                       reason.isNotEmpty ? reason : null,
                                     );
+                                  }
                                 },
                               ),
                             ),

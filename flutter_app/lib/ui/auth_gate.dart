@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
@@ -33,12 +32,10 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import '../services/church_panel_access_bootstrap.dart';
-import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
 import '../services/church_auto_session_service.dart';
 import '../services/persistent_auth_session_service.dart';
-import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
 import '../services/app_session_stability.dart';
 import '../services/web_panel_stability.dart';
@@ -46,7 +43,6 @@ import '../core/firebase_auth_token_guard.dart';
 import '../core/roles_permissions.dart';
 import '../core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/auth_gate_panel_role.dart';
 import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
 import 'package:gestao_yahweh/services/auth_gate_panel_access_service.dart';
@@ -1681,7 +1677,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     _biometricFuture = kIsWeb
         ? Future.value(false)
         : AuthService.shouldRequireBiometricUnlock()
-            .catchError((_, __) => false);
+            .catchError((_, _) => false);
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
         .timeout(

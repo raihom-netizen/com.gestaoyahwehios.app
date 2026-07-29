@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
 import 'package:gestao_yahweh/core/chat_engine/tdlib_chat_adapter.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';

@@ -73,7 +73,7 @@ class _LoginPageState extends State<LoginPage> {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    cs.primary.withOpacity(0.10),
+                    cs.primary.withValues(alpha: 0.10),
                     const Color(0xFFF6F8FC),
                   ],
                 ),

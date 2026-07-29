@@ -131,7 +131,7 @@ class FotoMembroWidget extends StatelessWidget {
     );
     final tid = tenantId?.trim();
     final mid = memberId?.trim();
-    final bg = backgroundColor ?? ThemeCleanPremium.primary.withOpacity(0.15);
+    final bg = backgroundColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.15);
     final err = fallbackChild ??
         CircleAvatar(
           radius: size / 2,

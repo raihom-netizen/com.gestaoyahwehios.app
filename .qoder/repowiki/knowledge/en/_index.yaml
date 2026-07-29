@@ -3,11 +3,11 @@ schema_version: 1
 locale: en-US
 branch: main
 nodes_managed: true
-exported_at: "2026-07-25T03:17:27Z"
+exported_at: "2026-07-25T12:56:33Z"
 modules:
     "":
-        dir_name: Gestão YAHWEH Monorepo Root
-        title: Gestão YAHWEH Monorepo Root
+        dir_name: Gestão YAHWEH Monorepo
+        title: Gestão YAHWEH Monorepo
         scope:
             - README.md
             - CONTRIBUTING.md
@@ -39,8 +39,8 @@ modules:
         depends_on: []
         related_to: []
     cloud_functions:
-        dir_name: Gestão YAHWEH Cloud Functions
-        title: Gestão YAHWEH Cloud Functions
+        dir_name: Gestão YAHWEH Cloud Functions Backend
+        title: Gestão YAHWEH Cloud Functions Backend
         scope:
             - functions/
         source_files: []
@@ -204,8 +204,8 @@ modules:
         depends_on: []
         related_to: []
     deployment_scripts:
-        dir_name: Deployment & CI_CD Automation Scripts
-        title: Deployment & CI/CD Automation Scripts
+        dir_name: Gestao YAHWEH Deployment & Build Automation Scripts
+        title: Gestao YAHWEH Deployment & Build Automation Scripts
         scope:
             - scripts/
         source_files: []
@@ -222,8 +222,8 @@ modules:
         depends_on: []
         related_to: []
     flutter_app:
-        dir_name: Gestão Yahweh Flutter Mobile App
-        title: Gestão Yahweh Flutter Mobile App
+        dir_name: Gestão Yahweh Flutter App (Church Management)
+        title: Gestão Yahweh Flutter App (Church Management)
         scope:
             - flutter_app/
         source_files: []

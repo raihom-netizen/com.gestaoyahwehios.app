@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/installed_app_build.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -349,7 +348,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                     ),
                     value: _forceUpdate,
                     onChanged: (v) => setState(() => _forceUpdate = v),
-                    activeColor: ThemeCleanPremium.primary,
+                    activeThumbColor: ThemeCleanPremium.primary,
                   ),
                   const SizedBox(height: 8),
                   TextField(
@@ -407,7 +406,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
                     ),
                     value: _webRefresh,
                     onChanged: (v) => setState(() => _webRefresh = v),
-                    activeColor: ThemeCleanPremium.primary,
+                    activeThumbColor: ThemeCleanPremium.primary,
                   ),
                   const SizedBox(height: 12),
                   TextField(

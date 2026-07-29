@@ -32,7 +32,7 @@ class GraficoUltraModerno extends StatelessWidget {
                       color: Colors.cyan,
                       barWidth: 5,
                       dotData: FlDotData(show: true),
-                      belowBarData: BarAreaData(show: true, color: Colors.cyan.withOpacity(0.18)),
+                      belowBarData: BarAreaData(show: true, color: Colors.cyan.withValues(alpha: 0.18)),
                       shadow: const Shadow(color: Colors.black26, blurRadius: 8),
                     ),
                   ],

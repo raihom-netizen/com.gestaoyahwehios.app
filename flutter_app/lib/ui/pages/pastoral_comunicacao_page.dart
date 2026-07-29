@@ -10,7 +10,6 @@ import 'package:gestao_yahweh/utils/church_department_list.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 InputDecoration _pastoralInputDecoration(
   String label, {
@@ -1466,7 +1465,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     decoration: const InputDecoration(labelText: 'Mês'),
-                    value: m,
+                    initialValue: m,
                     items: List.generate(
                       12,
                       (i) => DropdownMenuItem(value: i + 1, child: Text('${i + 1}')),
@@ -1478,7 +1477,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     decoration: const InputDecoration(labelText: 'Ano'),
-                    value: y,
+                    initialValue: y,
                     items: List.generate(
                       8,
                       (i) {
@@ -2056,7 +2055,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: docs.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final d = docs[index];
                       final data = d.data();

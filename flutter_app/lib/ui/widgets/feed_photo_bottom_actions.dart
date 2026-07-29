@@ -57,7 +57,7 @@ class FeedPhotoBottomActions extends StatelessWidget {
                   ),
                 ),
               ),
-              if (center != null) center!,
+              ?center,
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 4),

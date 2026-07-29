@@ -11,7 +11,6 @@ import 'package:flutter/foundation.dart'
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
-import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';

@@ -161,7 +161,7 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
 
     final payload = <String, dynamic>{
       'priceMonthly': valorM,
-      if (valorA != null) 'priceAnnual': valorA,
+      'priceAnnual': ?valorA,
       if (nameText.isEmpty || nameText == base.name)
         'name': FieldValue.delete()
       else

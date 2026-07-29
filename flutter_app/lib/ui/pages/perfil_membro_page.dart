@@ -10,7 +10,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/church_department_list.dart' show churchDepartmentNameFromData;
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class PerfilMembroPage extends StatefulWidget {
   final String tenantId;
@@ -373,7 +372,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         decoration: BoxDecoration(
-                          color: ThemeCleanPremium.success.withOpacity(0.1),
+                          color: ThemeCleanPremium.success.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -600,7 +599,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
   Widget _sectionTitle(BuildContext context, IconData icon, String title) {
     return Row(
       children: [
-        Icon(icon, size: 22, color: ThemeCleanPremium.primary.withOpacity(0.85)),
+        Icon(icon, size: 22, color: ThemeCleanPremium.primary.withValues(alpha: 0.85)),
         const SizedBox(width: 10),
         Text(
           title,
@@ -632,8 +631,8 @@ class _DepartmentCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 22,
-            backgroundColor: ThemeCleanPremium.primary.withOpacity(0.12),
-            child: Icon(Icons.groups_2_rounded, color: ThemeCleanPremium.primary.withOpacity(0.9)),
+            backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            child: Icon(Icons.groups_2_rounded, color: ThemeCleanPremium.primary.withValues(alpha: 0.9)),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -661,8 +660,8 @@ class _LegacyDeptWrap extends StatelessWidget {
           .map(
             (n) => Chip(
               label: Text(n),
-              backgroundColor: ThemeCleanPremium.success.withOpacity(0.08),
-              side: BorderSide(color: ThemeCleanPremium.success.withOpacity(0.25)),
+              backgroundColor: ThemeCleanPremium.success.withValues(alpha: 0.08),
+              side: BorderSide(color: ThemeCleanPremium.success.withValues(alpha: 0.25)),
             ),
           )
           .toList(),
@@ -723,7 +722,7 @@ class _ScheduleCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: statusColor.withOpacity(0.15)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.15)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -735,7 +734,7 @@ class _ScheduleCard extends StatelessWidget {
                 width: 4,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: ThemeCleanPremium.primary.withOpacity(0.35),
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
@@ -764,7 +763,7 @@ class _ScheduleCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: statusColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -835,7 +834,7 @@ class _InfoRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: ThemeCleanPremium.primary.withOpacity(0.6)),
+          Icon(icon, size: 20, color: ThemeCleanPremium.primary.withValues(alpha: 0.6)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

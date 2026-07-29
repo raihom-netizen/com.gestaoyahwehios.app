@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
@@ -48,9 +47,10 @@ class PanelHomeMemberLite {
       return v.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
     }
 
-    final photo = (raw['photoUrl'] ?? raw['fotoUrl'] ?? raw['fotoThumbUrl'] ?? '')
-        .toString()
-        .trim();
+    final photo =
+        (raw['photoUrl'] ?? raw['fotoUrl'] ?? raw['fotoThumbUrl'] ?? '')
+            .toString()
+            .trim();
     return PanelHomeMemberLite(
       memberDocId: (raw['memberDocId'] ?? '').toString(),
       displayName: (raw['displayName'] ?? 'Membro').toString(),
@@ -207,9 +207,9 @@ class PanelDashboardSnapshot {
       birthdaysMonth: members(raw['birthdaysMonth']),
       homeLeaders: members(raw['homeLeaders']),
       homeCorpoAdmin: members(raw['homeCorpoAdmin']),
-      homeAvisos: list(raw['recentAvisos'])
-          .map(PanelHomeAvisoLite.fromMap)
-          .toList(),
+      homeAvisos: list(
+        raw['recentAvisos'],
+      ).map(PanelHomeAvisoLite.fromMap).toList(),
       cacheUpdatedAt: raw['updatedAt'] is Timestamp
           ? raw['updatedAt'] as Timestamp
           : null,
@@ -218,8 +218,10 @@ class PanelDashboardSnapshot {
 }
 
 class PanelDashboardSnapshotService {
-  static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
+  static final _functions = FirebaseFunctions.instanceFor(
+    app: firebaseDefaultApp,
+    region: 'us-central1',
+  );
 
   /// Doc único da sessão — só `igrejas/{churchId}` (sem cluster/irmãos).
   static Future<List<String>> clusterDocIdsForPanel(String seed) async {
@@ -227,8 +229,8 @@ class PanelDashboardSnapshotService {
     final id = bound.isNotEmpty
         ? bound
         : ChurchRepository.churchId(seed).trim().isNotEmpty
-            ? ChurchRepository.churchId(seed).trim()
-            : seed.trim();
+        ? ChurchRepository.churchId(seed).trim()
+        : seed.trim();
     if (id.isEmpty) return const [];
     return [id];
   }
@@ -278,17 +280,17 @@ class PanelDashboardSnapshotService {
   /// Cache pré-processado — 1 leitura para todo o Dashboard.
   /// Canónico CF: `dashboard_summary`; alias spec: `dashboard`.
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return ChurchOperationalPaths.churchDoc(tenantId.trim())
-        .collection('_panel_cache')
-        .doc('dashboard_summary');
+    return ChurchOperationalPaths.churchDoc(
+      tenantId.trim(),
+    ).collection('_panel_cache').doc('dashboard_summary');
   }
 
   static DocumentReference<Map<String, dynamic>> cacheRefAlias(
     String tenantId,
   ) {
-    return ChurchOperationalPaths.churchDoc(tenantId.trim())
-        .collection('_panel_cache')
-        .doc('dashboard');
+    return ChurchOperationalPaths.churchDoc(
+      tenantId.trim(),
+    ).collection('_panel_cache').doc('dashboard');
   }
 
   /// Alias opcional se existir no tenant (`igrejas/{id}/dashboard_stats/summary`).
@@ -297,9 +299,9 @@ class PanelDashboardSnapshotService {
   ) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
-    return         ChurchOperationalPaths.churchDoc(tid)
-        .collection('dashboard_stats')
-        .doc('summary');
+    return ChurchOperationalPaths.churchDoc(
+      tid,
+    ).collection('dashboard_stats').doc('summary');
   }
 
   static Stream<PanelDashboardSnapshot> watch(String tenantId) {
@@ -308,22 +310,21 @@ class PanelDashboardSnapshotService {
       return Stream.value(const PanelDashboardSnapshot());
     }
     return Stream.fromFuture(_moduleReadTenantId(tid)).asyncExpand(
-      (readId) => FirestoreStreamUtils.documentWatchBootstrap(
-        cacheRef(_panelCacheWriteTenantId(readId)),
-      ).map(
-        (snap) {
-          final data = snap.data();
-          if (data == null) return const PanelDashboardSnapshot();
-          final summary = data['summary'];
-          final base = summary is Map
-              ? Map<String, dynamic>.from(summary)
-              : Map<String, dynamic>.from(data);
-          if (data['updatedAt'] is Timestamp) {
-            base['updatedAt'] = data['updatedAt'];
-          }
-          return PanelDashboardSnapshot.fromMap(base);
-        },
-      ),
+      (readId) =>
+          FirestoreStreamUtils.documentWatchBootstrap(
+            cacheRef(_panelCacheWriteTenantId(readId)),
+          ).map((snap) {
+            final data = snap.data();
+            if (data == null) return const PanelDashboardSnapshot();
+            final summary = data['summary'];
+            final base = summary is Map
+                ? Map<String, dynamic>.from(summary)
+                : Map<String, dynamic>.from(data);
+            if (data['updatedAt'] is Timestamp) {
+              base['updatedAt'] = data['updatedAt'];
+            }
+            return PanelDashboardSnapshot.fromMap(base);
+          }),
     );
   }
 
@@ -458,5 +459,22 @@ class PanelDashboardSnapshotService {
     } catch (_) {}
     return const PanelDashboardSnapshot();
   }
-}
 
+  /// Força recomputação completa do painel (usar após publicar evento/aviso).
+  /// Recomputa `_panel_cache/dashboard_summary`, estatísticas, media prefetch e site público.
+  static Future<PanelDashboardSnapshot> forceRecomputeFromCallable({
+    String? tenantId,
+  }) async {
+    final tid = (tenantId ?? '').trim();
+    if (tid.isEmpty) return const PanelDashboardSnapshot();
+    try {
+      final callable = _functions.httpsCallable(
+        'warmChurchTenantCaches',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
+      );
+      await callable.call<Map<String, dynamic>>({'tenantId': tid});
+    } catch (_) {}
+    // Lê o cache recém-gerado (ou o melhor disponível).
+    return warmFromCallable(tenantId: tid);
+  }
+}

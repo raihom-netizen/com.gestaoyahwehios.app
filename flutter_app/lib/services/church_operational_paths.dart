@@ -60,9 +60,7 @@ abstract final class ChurchOperationalPaths {
   }
 
   static Future<String> _resolveOperational(
-    String seed, {
-    String? userUid,
-  }) async {
+    String seed) async {
     final id = ChurchRepository.churchId(seed);
     if (id.isNotEmpty) return id;
     return seed.trim();

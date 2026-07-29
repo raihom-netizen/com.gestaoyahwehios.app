@@ -1,1 +1,0 @@
-PowerShell (primary orchestrator), Bash (CI helper scripts under `codemagic_ios_*`), Node.js/ESM modules (`.mjs` data scripts), Python (`.py` utilities), and Firebase CLI + Flutter CLI as external toolchains. Node dependencies limited to `firebase-admin` ^12.7.0 and `csv-parse` ^5.5.6.

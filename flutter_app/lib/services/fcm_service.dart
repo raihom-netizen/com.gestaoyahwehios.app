@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/services/notification_deep_link_router.dart';
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/yahweh_push_cache_refresh.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -535,6 +536,17 @@ class FcmService {
   }
 
   void routeNotificationTap(RemoteMessage message) {
+    // Prioridade ao deepLink explícito enviado pelas Cloud Functions.
+    final deepLinkRaw = message.data['deepLink'];
+    final deepLink = deepLinkRaw is String
+        ? deepLinkRaw
+        : deepLinkRaw?.toString();
+    if (deepLink != null && deepLink.trim().isNotEmpty) {
+      if (NotificationDeepLinkRouter.route(deepLink.trim())) {
+        return;
+      }
+    }
+
     final raw = message.data['type'];
     final type = raw is String ? raw : raw?.toString();
     final t = (type ?? '').trim();

@@ -39,7 +39,7 @@ class DefaultChurchLogoAsset extends StatelessWidget {
       filterQuality: FilterQuality.high,
       isAntiAlias: true,
       gaplessPlayback: true,
-      errorBuilder: (_, __, ___) => Icon(
+      errorBuilder: (_, _, _) => Icon(
         Icons.shield_rounded,
         size: side * 0.45,
         color: Colors.grey.shade400,

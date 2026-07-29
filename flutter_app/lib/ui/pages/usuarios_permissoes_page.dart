@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Item exibido na lista: `igrejas/{churchId}/users` ou `igrejas/{churchId}/membros`.
 class _UserOrMemberRow {

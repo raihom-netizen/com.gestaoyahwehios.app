@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -13,7 +12,6 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Torre de comando SaaS — clientes (igrejas), licenças, white-label e visão de negócio.
@@ -497,7 +495,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),
-                      value: _filterUf,
+                      initialValue: _filterUf,
                       items: [
                         const DropdownMenuItem(value: _all, child: Text('Todas')),
                         ...['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO']
@@ -525,7 +523,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                         border: OutlineInputBorder(),
                         isDense: true,
                       ),
-                      value: _filterSaasTier,
+                      initialValue: _filterSaasTier,
                       items: [
                         const DropdownMenuItem(value: _all, child: Text('Todos')),
                         const DropdownMenuItem(value: SaasPlanLimits.kBronze, child: Text('Bronze')),
@@ -609,7 +607,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                             children: [
                               Expanded(
                                 child: Text(
-                                  'ID: ${docId}',
+                                  'ID: $docId',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w800,
@@ -634,8 +632,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                             ],
                           ),
                           Text(
-                            [cidade, uf].where((s) => s.isNotEmpty).join(' · ') +
-                                ' · ${guard.masterBadgeLabel} · ${SaasPlanLimits.labelForTier(tier)}',
+                            '${[cidade, uf].where((s) => s.isNotEmpty).join(' · ')} · ${guard.masterBadgeLabel} · ${SaasPlanLimits.labelForTier(tier)}',
                             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                           ),
                         ],
@@ -703,7 +700,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                       border: OutlineInputBorder(),
                                       isDense: true,
                                     ),
-                                    value: (tier != null &&
+                                    initialValue: (tier != null &&
                                             [SaasPlanLimits.kBronze, SaasPlanLimits.kPrata, SaasPlanLimits.kOuro]
                                                 .contains(tier))
                                         ? tier

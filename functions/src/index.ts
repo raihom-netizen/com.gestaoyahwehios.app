@@ -7221,3 +7221,9 @@ export {
 export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
 export { scheduledCleanupOrphanFiles } from "./cleanupOrphanFiles";
 
+export {
+  telegramBotWebhook,
+  telegramOutgoingMessage,
+  telegramSetWebhook,
+} from "./telegramBotBridge";
+

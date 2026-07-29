@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
@@ -18,13 +17,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 
 /// Período do relatório fornecedores/prestadores.
@@ -288,7 +284,7 @@ class _RelatorioGastosFornecedoresPageState
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 DropdownButtonFormField<String>(
-                  value: leftId,
+                  initialValue: leftId,
                   isExpanded: true,
                   decoration: InputDecoration(
                     labelText: 'Assinante esquerdo',
@@ -315,7 +311,7 @@ class _RelatorioGastosFornecedoresPageState
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: rightId,
+                  initialValue: rightId,
                   isExpanded: true,
                   decoration: InputDecoration(
                     labelText: 'Assinante direito',

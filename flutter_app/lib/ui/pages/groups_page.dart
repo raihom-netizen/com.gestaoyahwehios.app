@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 class GroupsPage extends StatefulWidget {
@@ -278,7 +277,7 @@ class _GroupsPageState extends State<GroupsPage> {
               label: Text(f),
               selected: selected,
               onSelected: (_) => setState(() => _filter = f),
-              selectedColor: ThemeCleanPremium.primaryLight.withOpacity(0.15),
+              selectedColor: ThemeCleanPremium.primaryLight.withValues(alpha: 0.15),
               checkmarkColor: ThemeCleanPremium.primary,
               labelStyle: TextStyle(
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
@@ -371,7 +370,7 @@ class _GroupsPageState extends State<GroupsPage> {
                         children: [
                           CircleAvatar(
                             radius: 20,
-                            backgroundColor: dayColor.withOpacity(0.12),
+                            backgroundColor: dayColor.withValues(alpha: 0.12),
                             child: Text(
                               liderNome.isNotEmpty
                                   ? liderNome[0].toUpperCase()
@@ -723,7 +722,7 @@ class _SummaryCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -950,7 +949,7 @@ class _GroupFormPageState extends State<_GroupFormPage> {
           ),
           const SizedBox(height: ThemeCleanPremium.spaceSm),
           DropdownButtonFormField<String>(
-            value: _GroupsPageState._diasSemana.contains(_diaSemana)
+            initialValue: _GroupsPageState._diasSemana.contains(_diaSemana)
                 ? _diaSemana
                 : 'Quarta',
             decoration: const InputDecoration(
@@ -992,7 +991,7 @@ class _GroupFormPageState extends State<_GroupFormPage> {
           ),
           const SizedBox(height: ThemeCleanPremium.spaceSm),
           DropdownButtonFormField<String>(
-            value: _status,
+            initialValue: _status,
             decoration: const InputDecoration(
               labelText: 'Status',
               prefixIcon: Icon(Icons.toggle_on_rounded),
@@ -1119,7 +1118,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
             children: [
               CircleAvatar(
                 radius: 36,
-                backgroundColor: dayColor.withOpacity(0.12),
+                backgroundColor: dayColor.withValues(alpha: 0.12),
                 child: Text(
                   nome.isNotEmpty ? nome[0].toUpperCase() : 'G',
                   style: TextStyle(
@@ -1232,7 +1231,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
               : ListView.separated(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceSm),
                   itemCount: membros.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const SizedBox(height: ThemeCleanPremium.spaceXs),
                   itemBuilder: (_, i) {
                     final m = membros[i];
@@ -1248,7 +1247,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                         leading: CircleAvatar(
                           radius: 18,
                           backgroundColor:
-                              ThemeCleanPremium.primaryLight.withOpacity(0.12),
+                              ThemeCleanPremium.primaryLight.withValues(alpha: 0.12),
                           child: Text(
                             nome.isNotEmpty ? nome[0].toUpperCase() : '?',
                             style: const TextStyle(
@@ -1375,7 +1374,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                             leading: CircleAvatar(
                               radius: 18,
                               backgroundColor: ThemeCleanPremium.primaryLight
-                                  .withOpacity(0.12),
+                                  .withValues(alpha: 0.12),
                               child: Text(
                                 nome.isNotEmpty
                                     ? nome[0].toUpperCase()
@@ -1518,7 +1517,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
               return ListView.separated(
                 padding: const EdgeInsets.all(ThemeCleanPremium.spaceSm),
                 itemCount: docs.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     const SizedBox(height: ThemeCleanPremium.spaceXs),
                 itemBuilder: (_, i) {
                   final d = docs[i].data();
@@ -1549,7 +1548,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                                   horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                 color: ThemeCleanPremium.primaryLight
-                                    .withOpacity(0.1),
+                                    .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Text(
@@ -1567,7 +1566,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                                   horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
                                 color: ThemeCleanPremium.success
-                                    .withOpacity(0.1),
+                                    .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Row(

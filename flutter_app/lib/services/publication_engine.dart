@@ -27,19 +27,10 @@ import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Tipos de conteúdo publicável — **único motor** (avisos, eventos, mural, feed público).
-enum PublicationKind {
-  aviso,
-  evento,
-  noticia,
-  mural,
-  feedPublico,
-}
+enum PublicationKind { aviso, evento, noticia, mural, feedPublico }
 
 /// Fase da distribuição (Firestore já gravado — nunca cancelar publicação).
-enum PublicationDistributionPhase {
-  afterFirestoreSave,
-  afterMediaFinalized,
-}
+enum PublicationDistributionPhase { afterFirestoreSave, afterMediaFinalized }
 
 /// Pedido de gravação Firestore (fase obrigatória).
 class PublicationSaveRequest {
@@ -129,7 +120,7 @@ abstract final class PublicationEngine {
     await ensureFirebaseCore(requireAuth: true);
     final patch = _buildFirestorePatch(request);
     final merge = request.merge ?? !request.isNewDoc;
-    
+
     logFirebasePublishPhase(
       'firestore_save_start',
       '${request.postType} path=${request.docRef.path} tenant=${request.tenantId.trim()}',
@@ -194,15 +185,15 @@ abstract final class PublicationEngine {
     return request.docRef.id;
   }
 
-  static Map<String, dynamic> _buildFirestorePatch(PublicationSaveRequest request) {
+  static Map<String, dynamic> _buildFirestorePatch(
+    PublicationSaveRequest request,
+  ) {
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(request.payload),
     );
     final hasPendingPhotos = request.pendingPhotoCount > 0;
     patch['publishState'] = hasPendingPhotos
-        ? (request.isNewDoc
-            ? EntityPublishStatus.creating
-            : statusProcessing)
+        ? (request.isNewDoc ? EntityPublishStatus.creating : statusProcessing)
         : statusPublished;
     if (request.kind == PublicationKind.aviso ||
         request.kind == PublicationKind.mural ||
@@ -246,7 +237,7 @@ abstract final class PublicationEngine {
       payload: patch,
       isNewDoc: isNewDoc,
     );
-    
+
     logFirebasePublishPhase(
       'firestore_save_start',
       '${request.postType} strict path=${docRef.path} tenant=${tenantId.trim()}',
@@ -307,7 +298,8 @@ abstract final class PublicationEngine {
     // Site público: query Firestore exige bool true (string "true" não entra).
     if (patch.containsKey('publicSite')) {
       final v = patch['publicSite'];
-      patch['publicSite'] = v == true ||
+      patch['publicSite'] =
+          v == true ||
           v == 1 ||
           (v is String && v.trim().toLowerCase() == 'true');
     }
@@ -328,15 +320,14 @@ abstract final class PublicationEngine {
     required bool publicSite,
     PublicationDistributionPhase phase =
         PublicationDistributionPhase.afterMediaFinalized,
-  }) =>
-      _runDistribution(
-        tenantId: tenantId.trim(),
-        kind: kind,
-        postId: postId,
-        isNewDoc: isNewDoc,
-        publicSite: publicSite,
-        phase: phase,
-      );
+  }) => _runDistribution(
+    tenantId: tenantId.trim(),
+    kind: kind,
+    postId: postId,
+    isNewDoc: isNewDoc,
+    publicSite: publicSite,
+    phase: phase,
+  );
 
   /// Grava Firestore e dispara distribuição em background (não bloqueia UI).
   static Future<String> publishFirestoreFirst({
@@ -364,17 +355,16 @@ abstract final class PublicationEngine {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
     bool publicSite = true,
-  }) =>
-      publishFirestoreFirst(
-        request: PublicationSaveRequest(
-          docRef: docRef,
-          tenantId: tenantId,
-          kind: kind,
-          payload: payload,
-          isNewDoc: isNewDoc,
-          publicSite: publicSite,
-        ),
-      );
+  }) => publishFirestoreFirst(
+    request: PublicationSaveRequest(
+      docRef: docRef,
+      tenantId: tenantId,
+      kind: kind,
+      payload: payload,
+      isNewDoc: isNewDoc,
+      publicSite: publicSite,
+    ),
+  );
 
   /// Upload → Storage → Firestore (linear). Aviso/evento/notícia nunca usam stub Firestore-first.
   static Future<String> publishWithPhotosInBackground({
@@ -455,7 +445,10 @@ abstract final class PublicationEngine {
       );
     }
 
-    ChurchTenantWriteLog.publishBackgroundStart(docRef.path, module: request.postType);
+    ChurchTenantWriteLog.publishBackgroundStart(
+      docRef.path,
+      module: request.postType,
+    );
     ChurchPublishFlowLog.uploadStart('${request.postType} $postId');
 
     final postType = request.postType;
@@ -475,14 +468,15 @@ abstract final class PublicationEngine {
         existingUrls: existingUrls,
         startSlotIndex: startSlotIndex,
         hasVideo: hasVideo,
-        uploadSlot: (bytes, slot, report) => MuralPostMediaPayload.uploadPhotoSlot(
-          tenantId: tenantId,
-          postType: postType,
-          postId: postId,
-          bytes: bytes,
-          slotIndex: slot,
-          onProgress: report,
-        ),
+        uploadSlot: (bytes, slot, report) =>
+            MuralPostMediaPayload.uploadPhotoSlot(
+              tenantId: tenantId,
+              postType: postType,
+              postId: postId,
+              bytes: bytes,
+              slotIndex: slot,
+              onProgress: report,
+            ),
         buildMediaFields: MuralPostMediaPayload.buildMediaFields,
         onPublished: onMediaDone,
       );
@@ -494,7 +488,8 @@ abstract final class PublicationEngine {
     }
 
     // Legado: paths → bytes → mesmo finalize da Web (sem scheduleBackgroundImageFinalizeFromPaths).
-    final paths = newImagePaths
+    final paths =
+        newImagePaths
             ?.map((p) => p.trim())
             .where((p) => p.isNotEmpty)
             .toList() ??
@@ -521,14 +516,15 @@ abstract final class PublicationEngine {
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
-      uploadSlot: (bytes, slot, report) => MuralPostMediaPayload.uploadPhotoSlot(
-        tenantId: tenantId,
-        postType: postType,
-        postId: postId,
-        bytes: bytes,
-        slotIndex: slot,
-        onProgress: report,
-      ),
+      uploadSlot: (bytes, slot, report) =>
+          MuralPostMediaPayload.uploadPhotoSlot(
+            tenantId: tenantId,
+            postType: postType,
+            postId: postId,
+            bytes: bytes,
+            slotIndex: slot,
+            onProgress: report,
+          ),
       buildMediaFields: MuralPostMediaPayload.buildMediaFields,
       onPublished: onMediaDone,
     );
@@ -574,20 +570,25 @@ abstract final class PublicationEngine {
       if (!isNewDoc) return;
       await ChurchTenantDashboardDocService.mergeCounters(
         tenantId,
-        avisosDelta: kind == PublicationKind.aviso ||
+        avisosDelta:
+            kind == PublicationKind.aviso ||
                 kind == PublicationKind.mural ||
                 kind == PublicationKind.feedPublico
             ? 1
             : null,
-        eventosDelta: kind == PublicationKind.evento ||
-                kind == PublicationKind.noticia
+        eventosDelta:
+            kind == PublicationKind.evento || kind == PublicationKind.noticia
             ? 1
             : null,
       );
     });
 
     await _distStep('panel', () async {
-      await PanelDashboardSnapshotService.warmFromCallableIfStale(tenantId);
+      // Após publicação, força recomputação para que evento/aviso apareça
+      // imediatamente no painel inicial (em vez de esperar 6 min de stale).
+      await PanelDashboardSnapshotService.forceRecomputeFromCallable(
+        tenantId: tenantId,
+      );
     });
 
     await _distStep('feed', () async {

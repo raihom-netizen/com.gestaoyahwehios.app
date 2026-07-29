@@ -119,7 +119,7 @@ abstract final class ChurchStorageLayout {
     final dt = referenceDate ?? DateTime.now();
     final ym = '${dt.year}_${dt.month.toString().padLeft(2, '0')}';
     final safeExt = ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
-    return '${churchRoot(tid)}/$kSegFinanceiro/${ym}/$id.$safeExt';
+    return '${churchRoot(tid)}/$kSegFinanceiro/$ym/$id.$safeExt';
   }
 
   /// Legado: comprovantes por tipo em subpastas de `financeiro/`.

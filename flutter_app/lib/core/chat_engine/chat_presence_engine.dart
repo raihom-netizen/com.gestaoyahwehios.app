@@ -172,7 +172,7 @@ abstract final class ChatPresenceEngine {
       stopAppWideHeartbeat();
       return;
     }
-    final uid = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (uid.isEmpty) {
       stopAppWideHeartbeat();
       return;
@@ -195,7 +195,7 @@ abstract final class ChatPresenceEngine {
 
   static Future<void> pingAppWideHeartbeatIfActive() async {
     final id = _appChurchId;
-    final uid = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    final uid = FirebaseAuth.instance.currentUser?.uid.trim() ?? '';
     if (id == null || id.isEmpty || uid.isEmpty) return;
     await setOnline(churchId: id, uid: uid);
   }

@@ -4,7 +4,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import { topicPushNovo } from "./pushNovoConteudo";
+import { topicPushNovo, buildGyNotificationDeepLink } from "./pushNovoConteudo";
 import { buildGyTopicMessage } from "./notificationBranding";
 
 const db = admin.firestore();
@@ -79,6 +79,7 @@ export const scheduledEventoReminders = functions
                   tenantId,
                   eventoId: doc.id,
                   click_action: "FLUTTER_NOTIFICATION_CLICK",
+                  deepLink: buildGyNotificationDeepLink(tenantId, `evento/${doc.id}`),
                 },
                 module: "evento",
               }),
@@ -107,6 +108,7 @@ export const scheduledEventoReminders = functions
                   tenantId,
                   eventoId: doc.id,
                   click_action: "FLUTTER_NOTIFICATION_CLICK",
+                  deepLink: buildGyNotificationDeepLink(tenantId, `evento/${doc.id}`),
                 },
                 module: "evento",
               }),

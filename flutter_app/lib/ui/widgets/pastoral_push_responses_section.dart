@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel na aba Push: mensagens recentes e subcoleção `leituras` (confirmação + texto de resposta).
@@ -431,7 +430,7 @@ class _PastoralPushResponsesSectionState
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: docs.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                 itemBuilder: (context, i) {
                   final doc = docs[i];

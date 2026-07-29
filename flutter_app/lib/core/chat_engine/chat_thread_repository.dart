@@ -86,7 +86,7 @@ abstract final class ChatThreadRepository {
       'type': 'group',
       'nome': nome,
       'name': nome,
-      if (foto != null) 'foto': foto,
+      'foto': ?foto,
       'participants': participants,
       'participantUids': participants,
       'admins': admins,

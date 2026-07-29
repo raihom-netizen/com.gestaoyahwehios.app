@@ -247,7 +247,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _filtroStatus,
+                          initialValue: _filtroStatus,
                           decoration: InputDecoration(
                             labelText: 'Status',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -265,7 +265,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
                       const SizedBox(width: ThemeCleanPremium.spaceSm),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _filtroPeriodo,
+                          initialValue: _filtroPeriodo,
                           decoration: InputDecoration(
                             labelText: 'Período',
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -400,8 +400,8 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
                   height: 44,
                   decoration: BoxDecoration(
                     color: isRespondido
-                        ? ThemeCleanPremium.success.withOpacity(0.12)
-                        : ThemeCleanPremium.primary.withOpacity(0.12),
+                        ? ThemeCleanPremium.success.withValues(alpha: 0.12)
+                        : ThemeCleanPremium.primary.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -465,9 +465,9 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
                 width: double.infinity,
                 padding: EdgeInsets.all(ThemeCleanPremium.spaceSm),
                 decoration: BoxDecoration(
-                  color: ThemeCleanPremium.success.withOpacity(0.08),
+                  color: ThemeCleanPremium.success.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  border: Border.all(color: ThemeCleanPremium.success.withOpacity(0.3)),
+                  border: Border.all(color: ThemeCleanPremium.success.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

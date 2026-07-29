@@ -31,10 +31,19 @@ List<DateTime> expandTemplateOccurrencesInRange({
 
   var cursor = nextWeekdayOnOrAfter(rangeStart, w);
   final out = <DateTime>[];
-  final endDay = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day, 23, 59, 59);
+  final endDay = DateTime(
+    rangeEnd.year,
+    rangeEnd.month,
+    rangeEnd.day,
+    23,
+    59,
+    59,
+  );
 
   while (!cursor.isAfter(endDay)) {
-    if (!cursor.isBefore(DateTime(rangeStart.year, rangeStart.month, rangeStart.day))) {
+    if (!cursor.isBefore(
+      DateTime(rangeStart.year, rangeStart.month, rangeStart.day),
+    )) {
       final dt = DateTime(cursor.year, cursor.month, cursor.day, hh, mm);
       if (!dt.isAfter(rangeEnd)) {
         out.add(dt);
@@ -60,11 +69,42 @@ String weekdayShortPt(DateTime d) {
   return names[d.weekday - 1];
 }
 
-String weekdayLongPt(DateTime d) =>
-    DateFormat('EEEE', 'pt_BR').format(d);
+String weekdayLongPt(DateTime d) => DateFormat('EEEE', 'pt_BR').format(d);
 
 /// Nome do dia em português (ex.: domingo) para [weekday] ISO 1–7 (segunda a domingo), como em [event_templates.weekday].
 String weekdayLongNameFromIsoWeekday(int weekday) {
   final w = weekday.clamp(1, 7);
   return DateFormat('EEEE', 'pt_BR').format(DateTime(2024, 1, w));
+}
+
+/// Próxima ocorrência de um template a partir de [from] (inclusive).
+///
+/// [weekday]: 1–7 (seg–dom), [timeHHmm]: "HH:MM".
+DateTime? nextTemplateOccurrenceOnOrAfter({
+  required int weekday,
+  required String timeHHmm,
+  required String recurrence,
+  required DateTime from,
+}) {
+  final occurrences = expandTemplateOccurrencesInRange(
+    weekday: weekday,
+    timeHHmm: timeHHmm,
+    recurrence: recurrence,
+    rangeStart: from,
+    rangeEnd: from.add(const Duration(days: 366)),
+  );
+  return occurrences.isNotEmpty ? occurrences.first : null;
+}
+
+/// Texto legível da recorrência de um template (ex.: "Toda segunda às 19:30").
+String formatTemplateSchedulePt({
+  required int weekday,
+  required String timeHHmm,
+  required String recurrence,
+}) {
+  final day = weekdayLongNameFromIsoWeekday(weekday);
+  final rec = recurrence.toLowerCase().trim();
+  if (rec == 'biweekly') return 'A cada 15 dias às $timeHHmm';
+  if (rec == 'monthly') return 'Mensalmente às $timeHHmm';
+  return 'Toda $day às $timeHHmm';
 }

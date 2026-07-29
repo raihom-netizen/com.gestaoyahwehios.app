@@ -40,8 +40,8 @@ class _FinanceiroIgrejaPageState extends State<FinanceiroIgrejaPage> {
     List<Map<String, dynamic>> get _despesasLancadas => _despesasLancamentos ?? [];
 
     // Simulação de lançamentos (substitua pelo seu backend ou lista real)
-    List<Map<String, dynamic>>? _receitasLancamentos = [];
-    List<Map<String, dynamic>>? _despesasLancamentos = [];
+    final List<Map<String, dynamic>> _receitasLancamentos = [];
+    final List<Map<String, dynamic>> _despesasLancamentos = [];
   final List<Map<String, dynamic>> _receitas = [
     {'descricao': 'Dízimos', 'ativo': true},
     {'descricao': 'Ofertas', 'ativo': true},

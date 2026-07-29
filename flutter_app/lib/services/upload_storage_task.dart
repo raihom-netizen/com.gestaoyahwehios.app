@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatUploadErrorForUser;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 export 'package:gestao_yahweh/core/firebase_user_facing_error.dart'

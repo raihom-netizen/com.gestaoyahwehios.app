@@ -6,9 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_firestore_meta.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
@@ -133,7 +131,7 @@ abstract final class YahwehMediaUploadPipeline {
     String? pendingUploadId,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
   }) async {
     if (EcoFireFlow.directStorageUpload) {
       final mod = module ?? moduleFromStoragePath(storagePath);
@@ -312,7 +310,7 @@ abstract final class YahwehMediaUploadPipeline {
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
     bool requireAuth = true,
@@ -364,10 +362,9 @@ abstract final class YahwehMediaUploadPipeline {
     required String storagePath,
     required Uint8List bytes,
     required String contentType,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onTaskStarted,
-    String cacheControl = 'public, max-age=31536000',
     bool skipBootstrap = false,
     bool requireAuth = true,
   }) async {

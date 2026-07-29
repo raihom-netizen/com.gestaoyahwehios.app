@@ -214,7 +214,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.45),
+      barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (ctx) {
         final maxH = MediaQuery.sizeOf(ctx).height * 0.52;
         final bodyStyle = GoogleFonts.inter(
@@ -233,10 +233,10 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
             child: Material(
               color: ThemeCleanPremium.cardBackground,
               elevation: 28,
-              shadowColor: Colors.black.withOpacity(0.22),
+              shadowColor: Colors.black.withValues(alpha: 0.22),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(26),
-                side: BorderSide(color: Colors.white.withOpacity(0.65), width: 1.2),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.65), width: 1.2),
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -258,7 +258,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: style.c1.withOpacity(0.35),
+                          color: style.c1.withValues(alpha: 0.35),
                           blurRadius: 20,
                           offset: const Offset(0, 10),
                         ),
@@ -270,9 +270,9 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                         Container(
                           padding: const EdgeInsets.all(11),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.22),
+                            color: Colors.white.withValues(alpha: 0.22),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withOpacity(0.35)),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
                           ),
                           child: Icon(style.icon, color: Colors.white, size: 30),
                         ),
@@ -300,10 +300,10 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                         width: double.infinity,
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
                         decoration: BoxDecoration(
-                          color: ThemeCleanPremium.surfaceVariant.withOpacity(0.85),
+                          color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.85),
                           borderRadius: BorderRadius.circular(18),
                           border: Border.all(
-                            color: ThemeCleanPremium.primary.withOpacity(0.08),
+                            color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
                           ),
                         ),
                         // [Linkify] (não Selectable): toque no link funciona de forma mais
@@ -319,7 +319,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                             color: linkAccent,
                             fontWeight: FontWeight.w800,
                             decoration: TextDecoration.underline,
-                            decorationColor: linkAccent.withOpacity(0.9),
+                            decorationColor: linkAccent.withValues(alpha: 0.9),
                             decorationThickness: 1.4,
                           ),
                           textAlign: TextAlign.start,
@@ -347,7 +347,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                               backgroundColor: style.c1,
                               foregroundColor: Colors.white,
                               elevation: 2,
-                              shadowColor: style.c1.withOpacity(0.45),
+                              shadowColor: style.c1.withValues(alpha: 0.45),
                               padding: const EdgeInsets.symmetric(
                                   vertical: 15, horizontal: 16),
                               shape: RoundedRectangleBorder(
@@ -374,7 +374,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                             style: OutlinedButton.styleFrom(
                               foregroundColor: style.c1,
                               side: BorderSide(
-                                color: style.c1.withOpacity(0.55),
+                                color: style.c1.withValues(alpha: 0.55),
                                 width: 1.4,
                               ),
                               padding: const EdgeInsets.symmetric(
@@ -427,7 +427,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: style.c1,
                                 side: BorderSide(
-                                  color: style.c1.withOpacity(0.55),
+                                  color: style.c1.withValues(alpha: 0.55),
                                   width: 1.4,
                                 ),
                                 padding: const EdgeInsets.symmetric(
@@ -465,7 +465,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor:
-                            ThemeCleanPremium.onSurface.withOpacity(0.9),
+                            ThemeCleanPremium.onSurface.withValues(alpha: 0.9),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 15),
                         shape: RoundedRectangleBorder(

@@ -96,8 +96,7 @@ abstract final class ChurchChatThreadsListCache {
 /// Documento só-leitura reconstruído do disco (lista estável ao abrir o hub).
 // ignore: subtype_of_sealed_class
 class _CachedChatThreadDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  _CachedChatThreadDoc({required this.id, required Map<String, dynamic> data})
-      : _data = data;
+  _CachedChatThreadDoc({required this.id, required this._data});
 
   @override
   final String id;

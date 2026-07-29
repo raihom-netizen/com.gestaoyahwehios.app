@@ -78,7 +78,7 @@ class AdminNiveisAcessoPage extends StatelessWidget {
                 color: const Color(0xFFE3F2FD),
                 borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
                 boxShadow: ThemeCleanPremium.softUiCardShadow,
-                border: Border.all(color: menuBlue.withOpacity(0.3)),
+                border: Border.all(color: menuBlue.withValues(alpha: 0.3)),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(ThemeCleanPremium.spaceSm),

@@ -19,7 +19,7 @@ abstract final class SyncEngine {
   static final LocalRepository _local = HiveLocalStore.instance;
   static final FirebaseRemoteRepository _remote =
       FirebaseRemoteRepository.instance;
-  static late final SyncRepository _syncRepo = SyncRepository(
+  static final SyncRepository _syncRepo = SyncRepository(
     local: _local,
     remote: _remote,
   );

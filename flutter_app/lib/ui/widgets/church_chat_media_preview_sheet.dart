@@ -278,14 +278,14 @@ Widget _previewImage(
     return Image.file(
       File(item.localPath!),
       fit: fit,
-      errorBuilder: (_, __, ___) => _placeholder(item.isVideo),
+      errorBuilder: (_, _, _) => _placeholder(item.isVideo),
     );
   }
   if (item.previewBytes != null && item.previewBytes!.isNotEmpty) {
     return Image.memory(
       item.previewBytes!,
       fit: fit,
-      errorBuilder: (_, __, ___) => _placeholder(item.isVideo),
+      errorBuilder: (_, _, _) => _placeholder(item.isVideo),
     );
   }
   return _placeholder(item.isVideo);

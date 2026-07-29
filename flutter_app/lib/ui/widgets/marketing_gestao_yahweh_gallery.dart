@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:http/http.dart' as http;
 import 'package:photo_view/photo_view.dart';
 import 'package:shimmer/shimmer.dart';
@@ -1190,7 +1189,7 @@ class _MarketingImageLightboxDialogState
                     minScale: PhotoViewComputedScale.contained,
                     maxScale: PhotoViewComputedScale.covered * 2.5,
                     backgroundDecoration: const BoxDecoration(color: Colors.black),
-                    loadingBuilder: (_, __) => const Center(
+                    loadingBuilder: (_, _) => const Center(
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Colors.white,

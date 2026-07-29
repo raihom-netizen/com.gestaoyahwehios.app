@@ -4,13 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
@@ -25,13 +23,9 @@ import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
-import 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
-import 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
@@ -53,10 +47,9 @@ import 'pages/member_card_page.dart';
 import 'pages/church_avisos_page.dart';
 import 'pages/events_manager_page.dart';
 import 'pages/members_page.dart';
-import 'pages/my_schedules_page.dart';
+import 'pages/church_schedules_unified_page.dart';
 import 'pages/plans/renew_plan_page.dart';
 import 'pages/subscription_expired_page.dart';
-import 'pages/schedules_page.dart';
 import 'pages/certificados_page.dart';
 import 'pages/church_letters_page.dart';
 import 'pages/prayer_requests_page.dart';
@@ -99,7 +92,6 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/church_shell_tenant_load_service.dart';
-import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
@@ -294,8 +286,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (op.isNotEmpty) {
       return ChurchPanelTenant.resolve(_forceCanonicalTenantId(op));
     }
-    final fromWidget =
-        ChurchPanelTenant.resolve(_forceCanonicalTenantId(widget.tenantId));
+    final fromWidget = ChurchPanelTenant.resolve(
+      _forceCanonicalTenantId(widget.tenantId),
+    );
     if (fromWidget.isNotEmpty) return fromWidget;
     final ctx = ChurchContextService.currentChurchId?.trim() ?? '';
     if (ctx.isNotEmpty) return _forceCanonicalTenantId(ctx);
@@ -352,9 +345,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     unawaited(ExpressRenewBootstrap.instance.warmUp());
     Navigator.push(
       context,
-      ThemeCleanPremium.fadeSlideRoute(
-        RenewPlanPage(panelRole: _panelRole),
-      ),
+      ThemeCleanPremium.fadeSlideRoute(RenewPlanPage(panelRole: _panelRole)),
     );
   }
 
@@ -432,31 +423,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // Depois do Telegram — atalhos extras na MESMA linha (rolável).
     final extras = <_ChurchShellFooterShortcut>[
       for (final s in [
-        (
-          ChurchShellIndices.doacao,
-          'Dízimos',
-        ),
-        (
-          ChurchShellIndices.visitantes,
-          'Visitantes',
-        ),
-        (
-          ChurchShellIndices.pedidosOracao,
-          'Orações',
-        ),
-        (
-          ChurchShellIndices.minhaEscala,
-          'Escala',
-        ),
-        (
-          ChurchShellIndices.utilitarios,
-          'Utilitários',
-        ),
+        (ChurchShellIndices.doacao, 'Dízimos'),
+        (ChurchShellIndices.visitantes, 'Visitantes'),
+        (ChurchShellIndices.pedidosOracao, 'Orações'),
+        (ChurchShellIndices.minhaEscala, 'Escala'),
+        (ChurchShellIndices.utilitarios, 'Utilitários'),
         // Config saiu da barra superior — última opção do rodapé (pedido).
-        (
-          ChurchShellIndices.configuracoes,
-          'Config',
-        ),
+        (ChurchShellIndices.configuracoes, 'Config'),
       ])
         if (_canAccessItem(s.$1))
           _ChurchShellFooterShortcut(
@@ -559,10 +532,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   onNotification: (n) {
                     if (!_footerScrollController.hasClients) return false;
                     final p = _footerScrollController.position;
-                    final snapped =
-                        (p.pixels / slotW).round() * slotW;
-                    final target =
-                        snapped.clamp(p.minScrollExtent, p.maxScrollExtent);
+                    final snapped = (p.pixels / slotW).round() * slotW;
+                    final target = snapped.clamp(
+                      p.minScrollExtent,
+                      p.maxScrollExtent,
+                    );
                     if ((target - p.pixels).abs() > 0.8) {
                       unawaited(
                         _footerScrollController.animateTo(
@@ -742,14 +716,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
     _lastPaymentTick = PaymentUiFeedbackService.paymentConfirmedTick.value;
-    PaymentUiFeedbackService.paymentConfirmedTick
-        .addListener(_onPaymentConfirmedTick);
+    PaymentUiFeedbackService.paymentConfirmedTick.addListener(
+      _onPaymentConfirmedTick,
+    );
     // Migração automática members → membros (servidor Admin SDK + fallback cliente)
     ChurchPanelNavigationBridge.instance.registerShellNavigator((idx) {
       if (!mounted) return;
       if (!_canAccessItem(idx)) {
         _showPanelSnack(
-              idx == ChurchShellIndices.chatIgreja
+          idx == ChurchShellIndices.chatIgreja
               ? 'Sem acesso ao Yahweh Chat nesta conta.'
               : 'Sem acesso a este módulo.',
           isError: true,
@@ -763,6 +738,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           if (!mounted) return;
           ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
         }
+
         WidgetsBinding.instance.addPostFrameCallback((_) => renotifyChat());
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Future<void>.delayed(const Duration(milliseconds: 280), renotifyChat);
@@ -770,58 +746,62 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited((() async {
-        // Padrão Controle Total: Auth + vínculo igreja ANTES de montar módulos.
-        await _prepareAuthAndChurchBindingBeforeModules(forceRepair: kIsWeb);
-        try {
-          await _resolveOperationalTenant(forceRefresh: false).timeout(
-            const Duration(seconds: 8),
-            onTimeout: () {},
+      unawaited(
+        (() async {
+          // Padrão Controle Total: Auth + vínculo igreja ANTES de montar módulos.
+          await _prepareAuthAndChurchBindingBeforeModules(forceRepair: kIsWeb);
+          try {
+            await _resolveOperationalTenant(
+              forceRefresh: false,
+            ).timeout(const Duration(seconds: 8), onTimeout: () {});
+            await _bootstrapShellTenantDoc(
+              forceRefresh: false,
+            ).timeout(const Duration(seconds: 12), onTimeout: () {});
+          } catch (_) {}
+          // Só agora libera o conteúdo dos módulos (Web + mobile alinhados).
+          if (mounted) setState(() => _tenantResolveComplete = true);
+          ChurchTenantConsolidationService.ensureConsolidated(
+            _moduleTenantId,
+            source: 'igreja_clean_shell',
           );
-          await _bootstrapShellTenantDoc(forceRefresh: false).timeout(
-            const Duration(seconds: 12),
-            onTimeout: () {},
+          unawaited(reportChurchClientSessionToUserDoc());
+          _runMembersToMembrosMigration();
+          _schedulePostTenantWarmups();
+          // Home widget — sync agenda/escalas (Android + iOS).
+          unawaited(WidgetUpdateService.updateWidgetData(_moduleTenantId));
+          unawaited(_bindHomeWidgetLaunchListener());
+          YahwehPerformanceMonitor.markScreenStart('church_shell');
+          YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame(
+            'church_shell',
           );
-        } catch (_) {}
-        // Só agora libera o conteúdo dos módulos (Web + mobile alinhados).
-        if (mounted) setState(() => _tenantResolveComplete = true);
-        ChurchTenantConsolidationService.ensureConsolidated(
-          _moduleTenantId,
-          source: 'igreja_clean_shell',
-        );
-        unawaited(reportChurchClientSessionToUserDoc());
-        _runMembersToMembrosMigration();
-        _schedulePostTenantWarmups();
-        // Home widget — sync agenda/escalas (Android + iOS).
-        unawaited(WidgetUpdateService.updateWidgetData(_moduleTenantId));
-        unawaited(_bindHomeWidgetLaunchListener());
-        YahwehPerformanceMonitor.markScreenStart('church_shell');
-        YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
-        Future<void>.delayed(const Duration(seconds: 12), () {
-          if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
-        });
-        if (_shellBootstrapOpenMemberId != null && mounted) {
-          setState(() => _selectedIndex = ChurchShellIndices.membros);
-        } else {
-          // Sempre painel inicial ao entrar — sem restaurar aba/chat/módulo anterior.
-          if (widget.initialShellIndex != null &&
-              mounted &&
-              _canAccessItem(widget.initialShellIndex!)) {
-            setState(() => _selectedIndex = widget.initialShellIndex!);
+          Future<void>.delayed(const Duration(seconds: 12), () {
+            if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
+          });
+          if (_shellBootstrapOpenMemberId != null && mounted) {
+            setState(() => _selectedIndex = ChurchShellIndices.membros);
+          } else {
+            // Sempre painel inicial ao entrar — sem restaurar aba/chat/módulo anterior.
+            if (widget.initialShellIndex != null &&
+                mounted &&
+                _canAccessItem(widget.initialShellIndex!)) {
+              setState(() => _selectedIndex = widget.initialShellIndex!);
+            }
           }
-        }
-        unawaited(
-          AppResumeStateService.saveShellContext(
-            tenantId: _moduleTenantId,
-            shellIndex: 0,
-          ),
-        );
-        unawaited(GestorWelcomeDialog.tryShowIfNeeded(
-          context: context,
-          tenantId: _moduleTenantId,
-          role: _panelRole,
-        ));
-      })());
+          unawaited(
+            AppResumeStateService.saveShellContext(
+              tenantId: _moduleTenantId,
+              shellIndex: 0,
+            ),
+          );
+          unawaited(
+            GestorWelcomeDialog.tryShowIfNeeded(
+              context: context,
+              tenantId: _moduleTenantId,
+              role: _panelRole,
+            ),
+          );
+        })(),
+      );
     });
   }
 
@@ -925,8 +905,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     ChatPresenceEngine.stopAppWideHeartbeat();
     ChurchPanelNavigationBridge.instance.unregisterShellNavigator();
     HardwareKeyboard.instance.removeHandler(_onShellHardwareKey);
-    PaymentUiFeedbackService.paymentConfirmedTick
-        .removeListener(_onPaymentConfirmedTick);
+    PaymentUiFeedbackService.paymentConfirmedTick.removeListener(
+      _onPaymentConfirmedTick,
+    );
     _footerScrollController.removeListener(_onFooterScroll);
     _footerScrollController.dispose();
     super.dispose();
@@ -939,7 +920,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _openModuleFromWidgetUri(uri);
     } catch (_) {}
     _homeWidgetClickSub?.cancel();
-    _homeWidgetClickSub = HomeWidget.widgetClicked.listen(_openModuleFromWidgetUri);
+    _homeWidgetClickSub = HomeWidget.widgetClicked.listen(
+      _openModuleFromWidgetUri,
+    );
     await _consumeAndroidWidgetPendingModule();
   }
 
@@ -1009,7 +992,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     } catch (_) {
       if (!mounted) return;
-      if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
+      if (_operationalTenantId == null ||
+          _operationalTenantId!.trim().isEmpty) {
         final fallback = ChurchPanelTenant.resolve(
           ChurchContextService.currentChurchId ?? raw,
         );
@@ -1088,8 +1072,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         _storeTenantDocSnapshot(result.churchId, result.data);
         await ChurchShellTenantLoadService.persistAfterLoad(result);
       } else {
-        _shellTenantLastError = result.softError ??
-            'Não foi possível carregar igrejas/$tid.';
+        _shellTenantLastError =
+            result.softError ?? 'Não foi possível carregar igrejas/$tid.';
         if (result.data.isNotEmpty) {
           _storeTenantDocSnapshot(
             result.churchId.isNotEmpty ? result.churchId : tid,
@@ -1193,10 +1177,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // (Evita OfflineWarmup + FullPrefetch + footer a saturar Firestore Web.)
     YahwehCacheBootstrap.scheduleTenantWarm(tid);
     TenantIntelligentPreload.scheduleAfterDashboard(tid);
-    unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
-      context,
-      tid,
-    ));
+    unawaited(
+      ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(context, tid),
+    );
   }
 
   Widget _buildShellGateBody() {
@@ -1212,18 +1195,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
     if (_shellTenantBootstrapRunning && !hasCachedTenant) {
       return _buildTenantBootstrapScaffold(
-        child: const Center(
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
+        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       );
     }
 
     if (!hasCachedTenant) {
       if (!_tenantFallbackHydrateScheduled) {
         _tenantFallbackHydrateScheduled = true;
-        unawaited(_bootstrapShellTenantDoc().then((_) {
-          if (mounted) setState(() {});
-        }));
+        unawaited(
+          _bootstrapShellTenantDoc().then((_) {
+            if (mounted) setState(() {});
+          }),
+        );
         return _buildTenantBootstrapScaffold(
           child: ChurchPanelResilientLoadBanner(
             hasLocalData: false,
@@ -1237,9 +1220,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           hasLocalData: false,
           isSyncing: false,
           errorTitle: 'Não foi possível carregar os dados da igreja',
-          error: _shellTenantLastError ??
+          error:
+              _shellTenantLastError ??
               'Verifique sua conexão ou tente novamente. '
-              'Path: igrejas/$tid',
+                  'Path: igrejas/$tid',
           onRetry: _retryTenantDocLoad,
         ),
       );
@@ -1252,10 +1236,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return _buildCompleteCadastroObrigatorio();
     }
     final guard = SubscriptionGuard.evaluate(
-        church: churchLive, subscription: widget.subscription);
+      church: churchLive,
+      subscription: widget.subscription,
+    );
     final bool legacyBlocked = churchLive != null
         ? LicenseAccessPolicy.licenseAccessBlocked(
-            subscription: widget.subscription, church: churchLive)
+            subscription: widget.subscription,
+            church: churchLive,
+          )
         : widget.trialExpired;
     final bool licenseBlocked = guard.isFree
         ? guard.adminBlocked
@@ -1286,8 +1274,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
     // Full screen em telemóvel / web estreita; desktop mantém sidebar + botão Voltar.
     final shellModuleFullBleed = !_isDesktop && _selectedIndex != 0;
-    final void Function()? moduleBack =
-        _selectedIndex != 0 ? () => setState(() => _selectedIndex = 0) : null;
+    final void Function()? moduleBack = _selectedIndex != 0
+        ? () => setState(() => _selectedIndex = 0)
+        : null;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -1326,9 +1315,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               title: _items[_selectedIndex].label,
                               icon: _items[_selectedIndex].icon,
                               accent: _items[_selectedIndex].accent,
-                              subtitle: _items[_selectedIndex].subtitle.isNotEmpty
+                              subtitle:
+                                  _items[_selectedIndex].subtitle.isNotEmpty
                                   ? _items[_selectedIndex].subtitle
-                                  : (_isMobile ? _shellUserGreetingName() : null),
+                                  : (_isMobile
+                                        ? _shellUserGreetingName()
+                                        : null),
                               onPainelBack: moduleBack,
                               variant: moduleBack != null
                                   ? ModuleHeaderVariant.wisdomGradient
@@ -1345,7 +1337,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                   resetToken: _selectedIndex,
                                   bottom: _isMobile ? 12 : 16,
                                   child: SaaSContentViewport(
-                                    maxWidthOverride: _selectedIndex ==
+                                    maxWidthOverride:
+                                        _selectedIndex ==
                                                 ChurchShellIndices.patrimonio ||
                                             _selectedIndex ==
                                                 ChurchShellIndices.chatIgreja
@@ -1407,28 +1400,32 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       unawaited(OfflineFirstCoordinator.onAppResumed());
       unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
       unawaited(_resolveOperationalTenant(forceRefresh: false));
-      ChurchTenantOfflineWarmupService.instance
-          .scheduleLightRefreshOnResume(_moduleTenantId);
+      ChurchTenantOfflineWarmupService.instance.scheduleLightRefreshOnResume(
+        _moduleTenantId,
+      );
       WidgetUpdateService.scheduleWidgetRefresh(_moduleTenantId);
       unawaited(_consumeAndroidWidgetPendingModule());
     }
   }
 
   void _onGlobalSessionResume() {
-    unawaited((() async {
-      await FirestoreSessionGuard.stabilizeAfterAppResume();
-      await OfflineFirstCoordinator.onAppResumed();
-      if (kIsWeb) {
-        await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
-          churchIdHint: _moduleTenantId,
-          force: false,
-        ).catchError((_) {});
-      }
-      ChurchTenantOfflineWarmupService.instance
-          .scheduleLightRefreshOnResume(_moduleTenantId);
-      await _resolveOperationalTenant(forceRefresh: false);
-      await ChatPresenceEngine.pingAppWideHeartbeatIfActive();
-    })());
+    unawaited(
+      (() async {
+        await FirestoreSessionGuard.stabilizeAfterAppResume();
+        await OfflineFirstCoordinator.onAppResumed();
+        if (kIsWeb) {
+          await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
+            churchIdHint: _moduleTenantId,
+            force: false,
+          ).catchError((_) {});
+        }
+        ChurchTenantOfflineWarmupService.instance.scheduleLightRefreshOnResume(
+          _moduleTenantId,
+        );
+        await _resolveOperationalTenant(forceRefresh: false);
+        await ChatPresenceEngine.pingAppWideHeartbeatIfActive();
+      })(),
+    );
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
@@ -1439,9 +1436,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     try {
       final tid = ChurchRepository.churchId(raw);
       if (!mounted) return;
-      ChatPresenceEngine.startAppWideHeartbeat(
-        tid.isNotEmpty ? tid : raw,
-      );
+      ChatPresenceEngine.startAppWideHeartbeat(tid.isNotEmpty ? tid : raw);
     } catch (_) {
       if (!mounted) return;
       ChatPresenceEngine.startAppWideHeartbeat(raw);
@@ -1468,9 +1463,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
     if (event.logicalKey != LogicalKeyboardKey.keyK) return false;
     final pressed = HardwareKeyboard.instance.logicalKeysPressed;
-    final meta = pressed.contains(LogicalKeyboardKey.metaLeft) ||
+    final meta =
+        pressed.contains(LogicalKeyboardKey.metaLeft) ||
         pressed.contains(LogicalKeyboardKey.metaRight);
-    final ctrl = pressed.contains(LogicalKeyboardKey.controlLeft) ||
+    final ctrl =
+        pressed.contains(LogicalKeyboardKey.controlLeft) ||
         pressed.contains(LogicalKeyboardKey.controlRight);
     if (!meta && !ctrl) return false;
     _openChurchGlobalSearch();
@@ -1507,10 +1504,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     if (s.shellIndex == kChurchShellIndexEvents) {
-      _applyGlobalSearchNavigation(
-        shellIndex: s.shellIndex,
-        query: s.query,
-      );
+      _applyGlobalSearchNavigation(shellIndex: s.shellIndex, query: s.query);
       return;
     }
     _applyGlobalSearchNavigation(shellIndex: s.shellIndex, query: s.query);
@@ -1561,19 +1555,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Copia `members` → `membros` no Firestore (Cloud Function com Admin SDK). Gestor/master.
   Future<void> _runMembersToMembrosMigration() async {
     final r = _panelRole.toUpperCase().trim();
-    final canTrigger = r == 'GESTOR' ||
+    final canTrigger =
+        r == 'GESTOR' ||
         r == 'ADMIN' ||
         r == 'ADM' ||
         r == 'MASTER' ||
         r == 'ADMINISTRADOR';
     if (!canTrigger || widget.tenantId.isEmpty) {
-      await MigrateMembersToMembrosService.instance
-          .runIfNeeded(widget.tenantId);
+      await MigrateMembersToMembrosService.instance.runIfNeeded(
+        widget.tenantId,
+      );
       return;
     }
     try {
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('ensureMigrateMembersToMembros');
+      final fn = FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('ensureMigrateMembersToMembros');
       final res = await fn.call({'tenantId': widget.tenantId});
       final data = Map<String, dynamic>.from(res.data as Map);
       final copied = (data['copied'] as num?)?.toInt() ?? 0;
@@ -1584,8 +1581,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       }
     } catch (_) {
-      await MigrateMembersToMembrosService.instance
-          .runIfNeeded(widget.tenantId);
+      await MigrateMembersToMembrosService.instance.runIfNeeded(
+        widget.tenantId,
+      );
     }
   }
 
@@ -1601,8 +1599,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             fontSize: 14,
           ),
         ),
-        backgroundColor:
-            isError ? const Color(0xFF1E293B) : ThemeCleanPremium.success,
+        backgroundColor: isError
+            ? const Color(0xFF1E293B)
+            : ThemeCleanPremium.success,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
@@ -1624,7 +1623,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Lista só módulos que o utilizador pode abrir — membro básico não vê entradas bloqueadas
   /// (evita cinza + "Liberado pelo gestor"; o que aparece é utilizável).
-  bool _shouldListNavIndex(int i) => _canAccessItem(i);
+  /// O índice 12 (Escala Geral) foi unificado ao 11 e fica oculto do menu.
+  bool _shouldListNavIndex(int i) {
+    if (i == ChurchShellIndices.escalaGeral) return false;
+    return _canAccessItem(i);
+  }
 
   void _selectShellIndex(int index) {
     if (!_canAccessItem(index)) {
@@ -1761,8 +1764,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               borderRadius: BorderRadius.circular(4),
               boxShadow: [
                 BoxShadow(
-                  color:
-                      ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.35),
+                  color: ThemeCleanPremium.navSidebarAccent.withValues(
+                    alpha: 0.35,
+                  ),
                   blurRadius: 6,
                   offset: const Offset(0, 1),
                 ),
@@ -1812,14 +1816,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           color: Colors.transparent,
           child: InkWell(
             onTap: onTap,
-            borderRadius:
-                BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12),
               decoration: BoxDecoration(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
                 gradient: const LinearGradient(
                   colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
                   begin: Alignment.topLeft,
@@ -1845,8 +1847,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
-              borderRadius:
-                  BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               gradient: const LinearGradient(
                 colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
                 begin: Alignment.topLeft,
@@ -1854,7 +1855,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
               boxShadow: [
                 BoxShadow(
-                  color: ThemeCleanPremium.navSidebar.withOpacity(0.35),
+                  color: ThemeCleanPremium.navSidebar.withValues(alpha: 0.35),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -1948,7 +1949,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   vertical: 5,
                 ),
                 child: compact
-                    ? Center(child: _navMenuIconChip(i, selected, compact: true))
+                    ? Center(
+                        child: _navMenuIconChip(i, selected, compact: true),
+                      )
                     : Row(
                         children: [
                           _navMenuIconChip(i, selected),
@@ -1957,8 +1960,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                             child: Text(
                               item.label,
                               style: GoogleFonts.inter(
-                                color: Colors.white
-                                    .withValues(alpha: selected ? 1.0 : 0.82),
+                                color: Colors.white.withValues(
+                                  alpha: selected ? 1.0 : 0.82,
+                                ),
                                 fontWeight: selected
                                     ? FontWeight.w700
                                     : FontWeight.w500,
@@ -1991,7 +1995,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     (title: 'Início e conta', indices: [0, 1, 2, 22]),
     (title: 'Pessoas', indices: [3, 4, 5, 6]),
     (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 23]),
-    (title: 'Agenda e escalas', indices: [11, 12]),
+    (title: 'Agenda e escalas', indices: [11]),
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Relatórios e suporte', indices: [16, 17]),
     (title: 'Gestão financeira', indices: [19, 20, 21]),
@@ -2001,19 +2005,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   List<({String title, List<int> indices})> _menuSectionsForRole(String role) {
     if (!AppPermissions.isRestrictedMember(role)) return _menuSections;
     return [
-      (
-        title: 'Minha conta',
-        indices: [ChurchShellIndices.configuracoes],
-      ),
+      (title: 'Minha conta', indices: [ChurchShellIndices.configuracoes]),
       (title: 'Geral', indices: [0, 22]),
       (title: 'Pessoas', indices: [3]),
       (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
-      (title: 'Agenda', indices: [11, 12]),
+      (title: 'Agenda', indices: [11]),
       (title: 'Documentos', indices: [13]),
-      (
-        title: 'Utilitários',
-        indices: [ChurchShellIndices.utilitarios],
-      ),
+      (title: 'Utilitários', indices: [ChurchShellIndices.utilitarios]),
     ];
   }
 
@@ -2031,15 +2029,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Nome da igreja para a barra superior (abaixo do nome do usuário).
   String _shellChurchNameForHeader() {
-    final live = _lastGoodTenantDoc?.data() ??
-        ChurchContextService.currentChurchData;
-    final raw = (live?['nome'] ??
-            live?['name'] ??
-            live?['NOME'] ??
-            live?['NOME_IGREJA'] ??
-            '')
-        .toString()
-        .trim();
+    final live =
+        _lastGoodTenantDoc?.data() ?? ChurchContextService.currentChurchData;
+    final raw =
+        (live?['nome'] ??
+                live?['name'] ??
+                live?['NOME'] ??
+                live?['NOME_IGREJA'] ??
+                '')
+            .toString()
+            .trim();
     return raw;
   }
 
@@ -2061,15 +2060,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final periodo = hora < 12
         ? 'Bom dia'
         : hora < 18
-            ? 'Boa tarde'
-            : 'Boa noite';
+        ? 'Boa tarde'
+        : 'Boa noite';
     final sidePad = _isDesktop
         ? ThemeCleanPremium.spaceMd
         : (_isPhone ? ThemeCleanPremium.spaceSm : ThemeCleanPremium.spaceMd);
     final verticalPad = _isDesktop ? 4.0 : 6.0;
     return Material(
       elevation: 2,
-      shadowColor: Colors.black.withOpacity(0.18),
+      shadowColor: Colors.black.withValues(alpha: 0.18),
       color: ThemeCleanPremium.primary,
       child: SafeArea(
         bottom: false,
@@ -2118,8 +2117,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     }
                   },
                   style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                  tooltip:
-                      _selectedIndex != 0 ? 'Voltar ao Painel' : 'Abrir menu',
+                  tooltip: _selectedIndex != 0
+                      ? 'Voltar ao Painel'
+                      : 'Abrir menu',
                 ),
               SizedBox(width: _isDesktop ? 6 : 4),
               Expanded(
@@ -2153,7 +2153,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                             Icon(
                               Icons.edit_rounded,
                               size: 14,
-                              color: Colors.white.withOpacity(0.85),
+                              color: Colors.white.withValues(alpha: 0.85),
                             ),
                           ],
                         ),
@@ -2169,22 +2169,26 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           style: TextStyle(
                             fontSize: _isDesktop ? 11 : 11.5,
                             fontWeight: FontWeight.w600,
-                            color: Colors.white.withOpacity(0.88),
+                            color: Colors.white.withValues(alpha: 0.88),
                             letterSpacing: 0.1,
                           ),
                         ),
                       ),
                     if (_moduleTenantId.trim().isNotEmpty &&
-                        DiagnosticAccessPolicy.isMasterDiagnosticRole(_panelRole))
+                        DiagnosticAccessPolicy.isMasterDiagnosticRole(
+                          _panelRole,
+                        ))
                       Material(
                         color: Colors.transparent,
                         child: InkWell(
                           onTap: () {
                             Clipboard.setData(
-                                ClipboardData(text: _moduleTenantId.trim()));
+                              ClipboardData(text: _moduleTenantId.trim()),
+                            );
                             ScaffoldMessenger.of(context).showSnackBar(
                               ThemeCleanPremium.successSnackBar(
-                                  'ID da igreja copiado.'),
+                                'ID da igreja copiado.',
+                              ),
                             );
                           },
                           borderRadius: BorderRadius.circular(6),
@@ -2201,7 +2205,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w600,
-                                      color: Colors.white.withOpacity(0.85),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
                                       fontFamily: 'monospace',
                                     ),
                                   ),
@@ -2210,7 +2216,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 Icon(
                                   Icons.copy_rounded,
                                   size: 12,
-                                  color: Colors.white.withOpacity(0.8),
+                                  color: Colors.white.withValues(alpha: 0.8),
                                 ),
                               ],
                             ),
@@ -2233,7 +2239,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: _HeaderVencimento(
-                            tenantId: _moduleTenantId, light: true),
+                          tenantId: _moduleTenantId,
+                          light: true,
+                        ),
                       ),
                   ],
                 ),
@@ -2263,7 +2271,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     width: 1,
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.22),
+                        color: Colors.white.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(1),
                       ),
                     ),
@@ -2271,10 +2279,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ),
               IconButton(
                 tooltip: 'Sair',
-                icon: const Icon(Icons.logout_rounded,
-                    color: Colors.white, size: 22),
-                onPressed: () =>
-                    unawaited(ChurchSignOutNavigation.signOutForAccountSwitch()),
+                icon: const Icon(
+                  Icons.logout_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+                onPressed: () => unawaited(
+                  ChurchSignOutNavigation.signOutForAccountSwitch(),
+                ),
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
               ),
             ],
@@ -2309,8 +2321,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.verified_rounded,
-                      color: Color(0xFF047857), size: 22),
+                  const Icon(
+                    Icons.verified_rounded,
+                    color: Color(0xFF047857),
+                    size: 22,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -2329,7 +2344,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           borderRadius: BorderRadius.circular(999),
                           child: TweenAnimationBuilder<double>(
                             key: ValueKey(
-                                'payment_banner_progress_$_paymentBannerAnimSeed'),
+                              'payment_banner_progress_$_paymentBannerAnimSeed',
+                            ),
                             tween: Tween<double>(begin: 1, end: 0),
                             duration: const Duration(seconds: 4),
                             curve: Curves.linear,
@@ -2337,7 +2353,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               if (!mounted) return;
                               if (_showPaymentConfirmedBanner) {
                                 setState(
-                                    () => _showPaymentConfirmedBanner = false);
+                                  () => _showPaymentConfirmedBanner = false,
+                                );
                               }
                             },
                             builder: (context, value, _) {
@@ -2346,7 +2363,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 minHeight: 4,
                                 backgroundColor: const Color(0xFFA7F3D0),
                                 valueColor: const AlwaysStoppedAnimation<Color>(
-                                    Color(0xFF047857)),
+                                  Color(0xFF047857),
+                                ),
                               );
                             },
                           ),
@@ -2375,13 +2393,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         ThemeCleanPremium.minTouchTarget,
                       ),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       foregroundColor: const Color(0xFF065F46),
                     ),
                     child: const Text(
                       'Fechar agora',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -2413,9 +2435,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _lastSubscriptionSyncMs = nowMs;
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      await           ChurchUiCollections.churchDoc(op)
-          .set(SubscriptionGuard.normalizedChurchFields(guard),
-              SetOptions(merge: true));
+      await ChurchUiCollections.churchDoc(op).set(
+        SubscriptionGuard.normalizedChurchFields(guard),
+        SetOptions(merge: true),
+      );
     } catch (_) {
       // Sem falha visível no cliente: a proteção continua local.
     }
@@ -2544,8 +2567,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           Expanded(
             child: ListView(
               padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 6 : ThemeCleanPremium.spaceMd,
-                  vertical: 10),
+                horizontal: compact ? 6 : ThemeCleanPremium.spaceMd,
+                vertical: 10,
+              ),
               children: [
                 for (final section in _menuSectionsForRole(_panelRole)) ...[
                   if (section.indices.any(_shouldListNavIndex)) ...[
@@ -2555,10 +2579,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                         Padding(
                           key: ValueKey('nav_$i'),
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: _buildNavTile(
-                            i,
-                            compact: compact,
-                          ),
+                          child: _buildNavTile(i, compact: compact),
                         ),
                   ],
                 ],
@@ -2576,8 +2597,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     return Drawer(
       width: _isMobile
           ? (MediaQuery.sizeOf(context).width * 0.88)
-              .clamp(280.0, 360.0)
-              .toDouble()
+                .clamp(280.0, 360.0)
+                .toDouble()
           : null,
       child: Container(
         decoration: BoxDecoration(
@@ -2587,8 +2608,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             colors: [
               Color.lerp(ThemeCleanPremium.navSidebar, Colors.white, 0.07)!,
               ThemeCleanPremium.navSidebar,
-              Color.lerp(ThemeCleanPremium.navSidebar, const Color(0xFF020617),
-                  0.18)!,
+              Color.lerp(
+                ThemeCleanPremium.navSidebar,
+                const Color(0xFF020617),
+                0.18,
+              )!,
             ],
             stops: const [0.0, 0.42, 1.0],
           ),
@@ -2632,7 +2656,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: ThemeCleanPremium.spaceSm, vertical: 10),
+                    horizontal: ThemeCleanPremium.spaceSm,
+                    vertical: 10,
+                  ),
                   children: [
                     for (final section in _menuSectionsForRole(_panelRole)) ...[
                       if (section.indices.any(_shouldListNavIndex)) ...[
@@ -2656,8 +2682,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                       _items[i].label,
                                       style: GoogleFonts.inter(
                                         color: Colors.white.withValues(
-                                          alpha:
-                                              _selectedIndex == i ? 1.0 : 0.85,
+                                          alpha: _selectedIndex == i
+                                              ? 1.0
+                                              : 0.85,
                                         ),
                                         fontWeight: _selectedIndex == i
                                             ? FontWeight.w700
@@ -2683,8 +2710,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                           )
                                         : null,
                                     selected: _selectedIndex == i,
-                                    selectedTileColor:
-                                        Colors.white.withValues(alpha: 0.08),
+                                    selectedTileColor: Colors.white.withValues(
+                                      alpha: 0.08,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
@@ -2711,15 +2739,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
               if (ThemeModeScope.of(context) != null)
                 ListTile(
-                  leading: Icon(Icons.dark_mode_rounded,
-                      color: Colors.white70, size: 22),
-                  title: const Text('Modo escuro',
-                      style: TextStyle(color: Colors.white, fontSize: 14)),
+                  leading: Icon(
+                    Icons.dark_mode_rounded,
+                    color: Colors.white70,
+                    size: 22,
+                  ),
+                  title: const Text(
+                    'Modo escuro',
+                    style: TextStyle(color: Colors.white, fontSize: 14),
+                  ),
                   trailing: Switch(
                     value: ThemeModeScope.of(context)!.mode == ThemeMode.dark,
-                    onChanged: (v) => ThemeModeScope.of(context)!
-                        .setMode(v ? ThemeMode.dark : ThemeMode.light),
-                    activeColor: ThemeCleanPremium.navSidebarAccent,
+                    onChanged: (v) => ThemeModeScope.of(
+                      context,
+                    )!.setMode(v ? ThemeMode.dark : ThemeMode.light),
+                    activeThumbColor: ThemeCleanPremium.navSidebarAccent,
                   ),
                 ),
             ],
@@ -2733,7 +2767,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   Widget _wrapShellModuleGradient(int index, Widget child) {
     if (index == ChurchShellIndices.painel) return child;
     return DecoratedBox(
-      decoration: churchModuleBodyGradient(kChurchShellNavEntries[index].accent),
+      decoration: churchModuleBodyGradient(
+        kChurchShellNavEntries[index].accent,
+      ),
       child: child,
     );
   }
@@ -2760,10 +2796,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 1:
         return IgrejaCadastroPage(
-            key: _shellPageKey(1),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            embeddedInShell: true);
+          key: _shellPageKey(1),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          embeddedInShell: true,
+        );
       case 2:
         return ConfiguracoesPage(
           key: _shellPageKey(2),
@@ -2782,7 +2819,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             }
           });
         }
-        final bootOpenId = _shellBootstrapOpenMemberId;
+        final bootOpenId =
+            _shellBootstrapOpenMemberId ??
+            ChurchPanelNavigationBridge.instance
+                .consumePendingOpenMemberDocId();
         if (bootOpenId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -2803,29 +2843,32 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 4:
         return DepartmentsPage(
-            key: _shellPageKey(4),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            permissions: widget.permissions,
-            embeddedInShell: true);
+          key: _shellPageKey(4),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          permissions: widget.permissions,
+          embeddedInShell: true,
+        );
       case 5:
         return VisitorsPage(
-            key: _shellPageKey(5),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            embeddedInShell: true);
+          key: _shellPageKey(5),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          embeddedInShell: true,
+        );
       case 6:
         return CargosPage(
-            key: _shellPageKey(6),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            embeddedInShell: true,
-            onOpenPanelCorpoAdministrativo: () {
-              setState(() => _selectedIndex = 0);
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                PanelScrollBridge.scrollToCorpoAdministrativo?.call();
-              });
+          key: _shellPageKey(6),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          embeddedInShell: true,
+          onOpenPanelCorpoAdministrativo: () {
+            setState(() => _selectedIndex = 0);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              PanelScrollBridge.scrollToCorpoAdministrativo?.call();
             });
+          },
+        );
       case 7:
         return ChurchAvisosPage(
           key: _shellPageKey(7),
@@ -2836,7 +2879,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 8:
         final bootEvent = _shellBootstrapEventSearch;
-        final bootOpenEventId = _shellBootstrapOpenEventDocId;
+        final bootOpenEventId =
+            _shellBootstrapOpenEventDocId ??
+            ChurchPanelNavigationBridge.instance.consumePendingOpenEventDocId();
         if (bootEvent != null || bootOpenEventId != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -2858,31 +2903,28 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 9:
         return PrayerRequestsPage(
-            key: _shellPageKey(9),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            embeddedInShell: true);
+          key: _shellPageKey(9),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          embeddedInShell: true,
+        );
       case 10:
         return CalendarPage(
-            key: _shellPageKey(10),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            permissions: widget.permissions,
-            embeddedInShell: true);
+          key: _shellPageKey(10),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          permissions: widget.permissions,
+          embeddedInShell: true,
+        );
       case 11:
-        return MySchedulesPage(
-            key: _shellPageKey(11),
-            tenantId: _moduleTenantId,
-            cpf: widget.cpf,
-            role: _panelRole,
-            embeddedInShell: true);
       case 12:
-        return SchedulesPage(
-            key: _shellPageKey(12),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            cpf: widget.cpf,
-            embeddedInShell: true);
+        return ChurchSchedulesUnifiedPage(
+          key: _shellPageKey(index),
+          tenantId: _moduleTenantId,
+          cpf: widget.cpf,
+          role: _panelRole,
+          embeddedInShell: true,
+        );
       case 13:
         final selfOnlyCard = AppPermissions.isSelfOnlyMemberAccess(
           _panelRole,
@@ -2899,16 +2941,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           cnhFullscreenOnly: selfOnlyCard,
           onNavigateToMembers: selfOnlyCard
               ? null
-              : () => setState(
-                    () => _selectedIndex = ChurchShellIndices.membros,
-                  ),
+              : () =>
+                    setState(() => _selectedIndex = ChurchShellIndices.membros),
         );
       case 14:
         return CertificadosPage(
-            key: _shellPageKey(14),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            embeddedInShell: true);
+          key: _shellPageKey(14),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          embeddedInShell: true,
+        );
       case 15:
         return ChurchLettersPage(
           key: _shellPageKey(15),
@@ -2931,10 +2973,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 17:
         return SistemaInformacoesPage(
-            key: _shellPageKey(17),
-            tenantId: _moduleTenantId,
-            embeddedInShell: true,
-            onNavigateToShellModule: _navigateToShellModuleFromDashboard);
+          key: _shellPageKey(17),
+          tenantId: _moduleTenantId,
+          embeddedInShell: true,
+          onNavigateToShellModule: _navigateToShellModuleFromDashboard,
+        );
       case 18:
         return AprovarMembrosPendentesPage(
           key: _shellPageKey(18),
@@ -3016,17 +3059,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       default:
         return IgrejaDashboardModerno(
-            key: ValueKey('page_$index'),
-            tenantId: _moduleTenantId,
-            role: _panelRole,
-            cpf: widget.cpf,
-            podeVerFinanceiro: widget.podeVerFinanceiro,
-            podeVerPatrimonio: widget.podeVerPatrimonio,
-            podeVerFornecedores: widget.podeVerFornecedores,
-            permissions: widget.permissions,
-            onNavigateToMembers: () =>
+          key: ValueKey('page_$index'),
+          tenantId: _moduleTenantId,
+          role: _panelRole,
+          cpf: widget.cpf,
+          podeVerFinanceiro: widget.podeVerFinanceiro,
+          podeVerPatrimonio: widget.podeVerPatrimonio,
+          podeVerFornecedores: widget.podeVerFornecedores,
+          permissions: widget.permissions,
+          onNavigateToMembers: () =>
               setState(() => _selectedIndex = ChurchShellIndices.membros),
-            onNavigateToShellModule: _navigateToShellModuleFromDashboard);
+          onNavigateToShellModule: _navigateToShellModuleFromDashboard,
+        );
     }
   }
 
@@ -3115,8 +3159,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               child: Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusLg,
+                  ),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(28),
                   child: ConstrainedBox(
@@ -3125,16 +3171,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        Icon(Icons.business_rounded,
-                            size: 56,
-                            color: Theme.of(context).colorScheme.primary),
+                        Icon(
+                          Icons.business_rounded,
+                          size: 56,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                         const SizedBox(height: 20),
                         Text(
                           'Cadastre sua igreja',
                           textAlign: TextAlign.center,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
+                          style: Theme.of(context).textTheme.titleLarge
                               ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 12),
@@ -3142,19 +3188,23 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           'Para usar o painel e fazer lançamentos, complete o cadastro da igreja: nome, CPF/CNPJ (se tiver), logo, endereço e link do site. Sua ficha pessoal (foto, CPF, etc.) fica em Membros.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade700,
-                              height: 1.4),
+                            fontSize: 14,
+                            color: Colors.grey.shade700,
+                            height: 1.4,
+                          ),
                         ),
                         const SizedBox(height: 24),
                         FilledButton.icon(
                           onPressed: () {
                             Navigator.push(
                               context,
-                              ThemeCleanPremium.fadeSlideRoute(IgrejaCadastroPage(
+                              ThemeCleanPremium.fadeSlideRoute(
+                                IgrejaCadastroPage(
                                   tenantId: _moduleTenantId,
                                   role: _panelRole,
-                                  embeddedInShell: false)),
+                                  embeddedInShell: false,
+                                ),
+                              ),
                             );
                           },
                           icon: const Icon(Icons.store_rounded),
@@ -3221,9 +3271,7 @@ class _ChurchShellNavMaterialIconsKeepalive extends StatelessWidget {
       ...kChurchShellNavMaterialIconExtras,
     ];
     return Offstage(
-      child: Wrap(
-        children: [for (final id in icons) Icon(id, size: 1)],
-      ),
+      child: Wrap(children: [for (final id in icons) Icon(id, size: 1)]),
     );
   }
 }
@@ -3248,8 +3296,10 @@ class _HeaderVencimento extends StatelessWidget {
     // Fallback: último doc do shell mesmo se o id do contexto ainda não bater.
     data ??= ChurchContextService.currentChurchData;
     if (data == null || data.isEmpty) {
-      return Text('Vencimento: —',
-          style: TextStyle(fontSize: 11, color: textColor));
+      return Text(
+        'Vencimento: —',
+        style: TextStyle(fontSize: 11, color: textColor),
+      );
     }
     if (LicenseAccessPolicy.churchIsFree(data)) {
       return Text(
@@ -3263,16 +3313,21 @@ class _HeaderVencimento extends StatelessWidget {
     }
     final end = LicenseAccessPolicy.churchAccessEnd(data);
     if (end == null) {
-      return Text('Vencimento: —',
-          style: TextStyle(fontSize: 11, color: textColor));
+      return Text(
+        'Vencimento: —',
+        style: TextStyle(fontSize: 11, color: textColor),
+      );
     }
     final s =
         '${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
-    return Text('Vencimento: $s',
-        style: TextStyle(
-            fontSize: 11,
-            color: light ? Colors.white : Colors.blue.shade800,
-            fontWeight: FontWeight.w600));
+    return Text(
+      'Vencimento: $s',
+      style: TextStyle(
+        fontSize: 11,
+        color: light ? Colors.white : Colors.blue.shade800,
+        fontWeight: FontWeight.w600,
+      ),
+    );
   }
 }
 

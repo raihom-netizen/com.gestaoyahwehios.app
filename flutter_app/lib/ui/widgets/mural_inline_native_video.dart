@@ -34,7 +34,7 @@ class MuralInlineNativeVideo extends StatelessWidget {
         thumb.startsWith('http://') || thumb.startsWith('https://');
 
     return VisibilityDetector(
-      key: Key('native-vid-${visibilityKey}'),
+      key: Key('native-vid-$visibilityKey'),
       onVisibilityChanged: (info) {
         if (info.visibleFraction >= 0.45) {
           onMostlyVisible?.call();

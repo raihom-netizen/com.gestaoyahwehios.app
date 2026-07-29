@@ -28,11 +28,11 @@ abstract final class InternalNotificationInboxService {
         'type': type,
         'title': title,
         if (body != null && body.isNotEmpty) 'body': body,
-        if (tenantId != null) 'tenantId': tenantId,
-        if (deepLink != null) 'deepLink': deepLink,
+        'tenantId': ?tenantId,
+        'deepLink': ?deepLink,
         'read': false,
         'createdAt': FieldValue.serverTimestamp(),
-        if (meta != null) 'meta': meta,
+        'meta': ?meta,
       });
     } catch (_) {}
   }

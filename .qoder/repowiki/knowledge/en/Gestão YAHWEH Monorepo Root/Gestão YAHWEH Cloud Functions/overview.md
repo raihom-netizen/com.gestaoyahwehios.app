@@ -1,1 +1,0 @@
-Firebase Cloud Functions monorepo that implements the serverless backend for the Gestão YAHWEH multi-tenant church management platform, organized into domain-specific function groups sharing a common TypeScript build and Firebase Admin SDK runtime.

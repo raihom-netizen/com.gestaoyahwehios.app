@@ -56,9 +56,7 @@ import 'widgets/connectivity_offline_strip.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -292,7 +290,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     // Admin/master mantém acesso total por padrão.
     if (_masterRole == 'adm' ||
         _masterRole == 'admin' ||
-        _masterRole == 'master') return true;
+        _masterRole == 'master') {
+      return true;
+    }
     if (item == AdminMenuItem.sistemaHome ||
         item == AdminMenuItem.commandCenter) {
       return true;
@@ -718,8 +718,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       details: 'Navegação no painel master',
     ));
     setState(() => _selectedItem = item);
-    if (_scaffoldKey.currentState?.isDrawerOpen ?? false)
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.of(context).pop();
+    }
   }
 
   Widget _buildDrawer(BuildContext context, bool isAdmin) {
@@ -1145,7 +1146,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                                   ),
                                 Expanded(
                                   child: LayoutBuilder(
-                                    builder: (_, __) {
+                                    builder: (_, _) {
                                       return Container(
                                         margin: EdgeInsets.zero,
                                         decoration: BoxDecoration(
@@ -1699,11 +1700,12 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
         .toLowerCase()
         .replaceAll(RegExp(r'[^a-z0-9_-]'), '_')
         .replaceAll(RegExp(r'_+'), '_');
-    if (slug.isEmpty)
+    if (slug.isEmpty) {
       slug = nome
           .toLowerCase()
           .replaceAll(RegExp(r'[^a-z0-9]'), '_')
           .replaceAll(RegExp(r'_+'), '_');
+    }
     if (slug.isEmpty) slug = 'igreja_${DateTime.now().millisecondsSinceEpoch}';
     if (isForbiddenTestChurchId(slug)) {
       if (!mounted) return;
@@ -1789,7 +1791,7 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _plano,
+              initialValue: _plano,
               decoration: InputDecoration(
                 labelText: 'Plano',
                 border: OutlineInputBorder(
@@ -1967,12 +1969,12 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('$nome',
+            Text(nome,
                 style:
                     const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
-              value: _plano == 'premium' ? 'premium' : 'free',
+              initialValue: _plano == 'premium' ? 'premium' : 'free',
               decoration: InputDecoration(
                 labelText: 'Plano',
                 border: OutlineInputBorder(

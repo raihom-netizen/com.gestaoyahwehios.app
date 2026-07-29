@@ -3,16 +3,14 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart'
-    show kEventoAvisoFeedEncodeMaxEdgePx, kEventoAvisoFeedWebpQuality;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveFeedEncodeMaxEdgePx, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/web_image_compress_service.dart';
-import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:gestao_yahweh/services/yahweh_isolate_compress.dart';
 import 'package:video_compress/video_compress.dart';
 
 /// Perfil de compressão — nitidez alta em telas mobile, ficheiros leves para upload rápido.
@@ -179,7 +177,11 @@ abstract final class MediaService {
     if (profile == MediaImageProfile.feed && bytesLookLikeWebp(input)) {
       return input;
     }
-
+    // Isolate compression (Controle Total pattern) — no UI blocking.
+    final isolateProfile = _isolateProfileFor(profile);
+    final compressed = await YahwehIsolateCompress.compress(input, profile: isolateProfile);
+    if (compressed.isNotEmpty && compressed.length < input.length) return compressed;
+    // Fallback: platform channel (legacy path).
     final edge = _edgeFor(profile);
     final quality = _qualityFor(profile);
     final formats = <CompressFormat>[
@@ -199,6 +201,16 @@ abstract final class MediaService {
       } catch (_) {}
     }
     return input;
+  }
+
+  /// Maps MediaImageProfile to YahwehCompressProfile for isolate compression.
+  static YahwehCompressProfile _isolateProfileFor(MediaImageProfile profile) {
+    return switch (profile) {
+      MediaImageProfile.chat => YahwehCompressProfile.chat,
+      MediaImageProfile.feed => YahwehCompressProfile.feed,
+      MediaImageProfile.thumb => YahwehCompressProfile.thumb,
+      MediaImageProfile.patrimonio => YahwehCompressProfile.patrimonio,
+    };
   }
 
   /// Comprime ficheiro de imagem no disco → bytes (chat/upload).

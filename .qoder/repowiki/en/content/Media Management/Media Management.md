@@ -18,7 +18,18 @@
 - [scripts/apply_storage_cors.ps1](file://scripts/apply_storage_cors.ps1)
 - [scripts/ffmpeg_faststart_public_videos.ps1](file://scripts/ffmpeg_faststart_public_videos.ps1)
 - [scripts/cleanup_bpc_keep_membros_only.cjs](file://scripts/cleanup_bpc_keep_membros_only.cjs)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+- [flutter_app/lib/services/firebase_storage_service.dart](file://flutter_app/lib/services/firebase_storage_service.dart)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated Image Processing section to reflect enhanced ecofire_image_process.dart improvements
+- Enhanced Storage Operations section with better firebase_storage_service.dart functionality
+- Added Web-based Image Compression section for web_image_compress_service.dart
+- Updated Performance Considerations to include bandwidth optimization improvements
+- Revised Upload Pipeline section with improved client-side processing capabilities
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -33,11 +44,11 @@
 10. [Appendices](#appendices)
 
 ## Introduction
-This document provides comprehensive media management documentation for the Gestão Yahweh Premium application. It covers the end-to-end file upload pipeline, image optimization, video processing, thumbnail generation, CDN integration, storage organization, access control, caching strategies, and metadata management. It also includes implementation details for handling various file formats, background processing jobs, and storage cleanup operations. Practical examples are provided for uploading files, optimizing images, streaming videos, and managing media libraries. Security, bandwidth optimization, and retention policies are addressed to ensure a robust and scalable media system.
+This document provides comprehensive media management documentation for the Gestão Yahweh Premium application. It covers the end-to-end file upload pipeline, image optimization, video processing, thumbnail generation, CDN integration, storage organization, access control, caching strategies, and metadata management. The system has been enhanced with improved image processing capabilities, better storage operations, and web-based image compression to optimize media handling performance and reduce bandwidth usage. It also includes implementation details for handling various file formats, background processing jobs, and storage cleanup operations. Practical examples are provided for uploading files, optimizing images, streaming videos, and managing media libraries. Security, bandwidth optimization, and retention policies are addressed to ensure a robust and scalable media system.
 
 ## Project Structure
-The media subsystem spans multiple layers:
-- Flutter app layer handles user interactions, uploads, previews, and caching.
+The media subsystem spans multiple layers with enhanced client-side processing:
+- Flutter app layer handles user interactions, uploads, previews, and caching with improved image processing services.
 - Firebase Storage stores binary assets with rules enforcing tenant-scoped access.
 - Cloud Functions process media (optimization, thumbnails, prefetching), orchestrate cleanup, and maintain metadata.
 - Scripts automate CORS configuration, video fast-start optimization, and bulk maintenance tasks.
@@ -48,6 +59,8 @@ subgraph "Flutter App"
 UI["Upload UI"]
 Cache["Local Cache"]
 Prefetch["Prefetch Jobs"]
+ImageProc["Enhanced Image Processing"]
+WebCompress["Web Image Compression"]
 end
 subgraph "Firebase Platform"
 Storage["Cloud Storage"]
@@ -66,6 +79,8 @@ UI --> Storage
 UI --> Firestore
 Cache --> UI
 Prefetch --> Firestore
+ImageProc --> Storage
+WebCompress --> Storage
 Storage --> Proc
 Proc --> Storage
 Proc --> Firestore
@@ -86,14 +101,16 @@ Hosting --> UI
 - [functions/storageCleanupOnFirestoreDelete.js](file://functions/storageCleanupOnFirestoreDelete.js)
 - [functions/panelMediaPrefetch.js](file://functions/panelMediaPrefetch.js)
 - [functions/publicSiteMediaPrefetch.js](file://functions/publicSiteMediaPrefetch.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 **Section sources**
 - [firebase.json](file://firebase.json)
 - [flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md](file://flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md)
 
 ## Core Components
-- Upload Pipeline: Client-side validation, chunked or direct uploads to Firebase Storage, then triggers server-side processing.
-- Image Optimization: Resize, format conversion, quality tuning via Cloud Functions; generates optimized variants and thumbnails.
+- Upload Pipeline: Client-side validation, chunked or direct uploads to Firebase Storage, then triggers server-side processing with enhanced preprocessing.
+- Image Optimization: Resize, format conversion, quality tuning via Cloud Functions; generates optimized variants and thumbnails with improved client-side processing.
 - Video Processing: Transcoding, adaptive bitrate preparation, fast-start optimization for streaming.
 - Thumbnail Generation: Extract frames or generate static thumbnails for images and videos.
 - CDN Integration: Hosting configuration and cache headers for global delivery.
@@ -101,28 +118,35 @@ Hosting --> UI
 - Access Control: Fine-grained rules per tenant/user, role-based read/write permissions.
 - Caching Strategies: Browser/CDN caching, client-side caching, and pre-warming via prefetch functions.
 - Metadata Management: Firestore documents store media attributes, processing status, URLs, and relationships.
+- **Enhanced Web Compression**: Client-side image compression for web platforms to reduce upload bandwidth.
 
 **Section sources**
 - [flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md](file://flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md)
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
 - [functions/panelMediaPrefetch.js](file://functions/panelMediaPrefetch.js)
 - [functions/publicSiteMediaPrefetch.js](file://functions/publicSiteMediaPrefetch.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 ## Architecture Overview
-The media architecture follows an event-driven pattern:
-- Uploads trigger Storage events.
+The media architecture follows an event-driven pattern with enhanced client-side processing:
+- Uploads trigger Storage events with pre-processed images when available.
 - Cloud Functions consume events to optimize, transcode, and update metadata.
 - Hosting serves optimized assets through CDN with appropriate cache policies.
 - Prefetch functions proactively prepare content for panels and public sites.
+- Web-based compression reduces bandwidth usage before upload.
 
 ```mermaid
 sequenceDiagram
 participant Client as "Flutter Client"
+participant WebComp as "Web Image Compression"
 participant Storage as "Firebase Storage"
 participant FuncProc as "processChurchStorageMedia"
 participant DB as "Firestore"
 participant Hosting as "Hosting/CDN"
-Client->>Storage : Upload file
+Client->>WebComp : Compress image (web only)
+WebComp-->>Client : Optimized image data
+Client->>Storage : Upload compressed file
 Storage-->>FuncProc : onWrite/onFinalize event
 FuncProc->>FuncProc : Validate & classify media
 FuncProc->>Storage : Generate optimized/thumbnail variants
@@ -134,12 +158,14 @@ Hosting-->>Client : Serve optimized asset
 - [functions/index.js](file://functions/index.js)
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
 - [firebase.json](file://firebase.json)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 ## Detailed Component Analysis
 
 ### Upload Pipeline
 - Client Validation: File type, size limits, and tenant context validated before upload.
-- Direct Upload: Uses Firebase Storage SDK for secure, resumable uploads.
+- **Enhanced Preprocessing**: Improved image processing with ecofire_image_process.dart for better quality and performance.
+- Direct Upload: Uses Firebase Storage SDK for secure, resumable uploads with better error handling.
 - Event Trigger: Storage write triggers Cloud Function for processing.
 - Error Handling: Retries, dead-letter logging, and rollback on failure.
 
@@ -148,7 +174,8 @@ flowchart TD
 Start(["Start Upload"]) --> Validate["Validate file type & size"]
 Validate --> Valid{"Valid?"}
 Valid --> |No| Abort["Abort with error"]
-Valid --> |Yes| Upload["Upload to Storage"]
+Valid --> |Yes| PreProcess["Enhanced Image Processing"]
+PreProcess --> Upload["Upload to Storage"]
 Upload --> Event["Trigger Storage event"]
 Event --> Process["Invoke processChurchStorageMedia"]
 Process --> Done(["Complete"])
@@ -156,20 +183,25 @@ Abort --> End(["End"])
 Done --> End
 ```
 
+**Updated** Enhanced preprocessing capabilities with improved image processing service
+
 **Section sources**
 - [flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md](file://flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md)
 - [functions/index.js](file://functions/index.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
 
 ### Image Optimization
 - Supported Formats: JPEG, PNG, WebP, AVIF where applicable.
 - Processing Steps: Detect orientation, resize to target dimensions, convert to optimal format, adjust quality.
 - Output Variants: Original, optimized, and thumbnail versions stored under tenant-specific paths.
 - Metadata Updates: Store width, height, format, size, and CDN URL in Firestore.
+- **Enhanced Processing**: Improved image processing algorithms with better quality preservation and performance optimization.
 
 ```mermaid
 flowchart TD
 ImgStart(["Image Received"]) --> Detect["Detect format & orientation"]
-Detect --> Resize["Resize to target sizes"]
+Detect --> Enhance["Enhanced Processing"]
+Enhance --> Resize["Resize to target sizes"]
 Resize --> Convert["Convert to optimal format"]
 Convert --> Thumb["Generate thumbnail"]
 Thumb --> Save["Save variants to Storage"]
@@ -177,8 +209,11 @@ Save --> Meta["Update Firestore metadata"]
 Meta --> ImgEnd(["Optimized Ready"])
 ```
 
+**Updated** Enhanced image processing with improved algorithms and quality preservation
+
 **Section sources**
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
 
 ### Video Processing
 - Input Formats: MP4, MOV, MKV, etc., with transcoding to MP4/H.264 for broad compatibility.
@@ -200,6 +235,30 @@ Meta --> VidEnd(["Streaming Ready"])
 **Section sources**
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
 - [scripts/ffmpeg_faststart_public_videos.ps1](file://scripts/ffmpeg_faststart_public_videos.ps1)
+
+### Web-based Image Compression
+- **New Feature**: Client-side image compression for web platforms using JavaScript-based compression libraries.
+- Compression Algorithms: Multiple compression options including lossless and lossy compression modes.
+- Quality Settings: Configurable compression quality levels to balance file size and image quality.
+- Format Support: Automatic format detection and conversion to optimal web formats.
+- Bandwidth Reduction: Significant reduction in upload bandwidth usage for large images.
+
+```mermaid
+flowchart TD
+WebReq["Web Platform Request"] --> Detect["Detect platform capability"]
+Detect --> Compress{"Web Platform?"}
+Compress --> |Yes| CompressImg["Compress image client-side"]
+Compress --> |No| Skip["Skip compression"]
+CompressImg --> Optimize["Optimize for web formats"]
+Optimize --> Upload["Upload compressed image"]
+Skip --> Upload
+Upload --> Complete["Upload complete"]
+```
+
+**New Section** Added web-based image compression for bandwidth optimization
+
+**Section sources**
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 ### Thumbnail Generation
 - Static Thumbnails: For images and selected frames from videos.
@@ -239,6 +298,7 @@ CDN -- "Cache-Control" --> Client
 - Tenant Scoping: All assets under tenant-specific folders to isolate data.
 - Naming Convention: UUID-based filenames with prefixes indicating type and purpose.
 - Metadata Indexing: Firestore collections link assets to entities (events, members, announcements).
+- **Enhanced Storage Operations**: Improved storage service with better error handling and retry mechanisms.
 
 ```mermaid
 erDiagram
@@ -267,8 +327,11 @@ TENANT ||--o{ MEDIA_ASSET : owns
 MEDIA_ASSET ||--o{ ENTITY_MEDIA : referenced_by
 ```
 
+**Updated** Enhanced storage operations with improved reliability and error handling
+
 **Section sources**
 - [flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md](file://flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md)
+- [flutter_app/lib/services/firebase_storage_service.dart](file://flutter_app/lib/services/firebase_storage_service.dart)
 
 ### Access Control
 - Storage Rules: Enforce tenant ownership and role-based access.
@@ -389,21 +452,28 @@ Key dependencies include:
 - FFmpeg for video processing.
 - Image libraries for optimization and thumbnails.
 - Hosting configuration for CDN behavior.
+- **Enhanced Dependencies**: Improved image processing libraries and web compression utilities.
 
 ```mermaid
 graph TB
 App["Flutter App"] --> StorageSDK["Firebase Storage SDK"]
 App --> FirestoreSDK["Firebase Firestore SDK"]
+App --> ImageLib["Enhanced Image Libraries"]
+App --> WebComp["Web Compression Utils"]
 Functions["Cloud Functions"] --> StorageSDK
 Functions --> FirestoreSDK
 Functions --> FFmpeg["FFmpeg"]
-Functions --> ImageLib["Image Libraries"]
+Functions --> ImageLib
 Hosting["Firebase Hosting"] --> CDN["CDN"]
 ```
+
+**Updated** Added enhanced image processing and web compression dependencies
 
 **Section sources**
 - [functions/package.json](file://functions/package.json)
 - [firebase.json](file://firebase.json)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 ## Performance Considerations
 - Optimize Asset Sizes: Use modern formats (WebP, AVIF) and appropriate compression levels.
@@ -411,6 +481,11 @@ Hosting["Firebase Hosting"] --> CDN["CDN"]
 - Batch Operations: Group metadata updates to reduce Firestore writes.
 - Monitor Bandwidth: Track usage and set quotas to prevent abuse.
 - Prefetch Critical Content: Proactively load high-demand assets.
+- **Enhanced Client-side Processing**: Improved image processing reduces server load and improves upload speed.
+- **Web Compression Benefits**: Client-side compression significantly reduces bandwidth usage for web platforms.
+- **Better Storage Operations**: Enhanced storage service provides more reliable uploads with better error handling.
+
+**Updated** Added performance benefits from enhanced image processing, web compression, and improved storage operations
 
 [No sources needed since this section provides general guidance]
 
@@ -421,13 +496,21 @@ Common issues and resolutions:
 - Missing Thumbnails: Verify generation jobs and CDN cache invalidation.
 - Access Denied: Audit Storage and Firestore rules for correct tenant scoping.
 - Stale Cache: Invalidate CDN cache or use cache-busting URLs.
+- **Web Compression Issues**: Verify browser compatibility and compression settings.
+- **Image Processing Errors**: Check ecofire_image_process.dart logs for processing failures.
+- **Storage Service Problems**: Review firebase_storage_service.dart error handling and retry logic.
+
+**Updated** Added troubleshooting guidance for new image processing and web compression features
 
 **Section sources**
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
 - [functions/cleanupOrphanFiles.js](file://functions/cleanupOrphanFiles.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
+- [flutter_app/lib/services/firebase_storage_service.dart](file://flutter_app/lib/services/firebase_storage_service.dart)
 
 ## Conclusion
-The media management system in Gestão Yahweh Premium is designed for scalability, security, and performance. By leveraging Firebase Storage, Cloud Functions, and Hosting, it delivers optimized assets globally with robust access control and caching. The modular architecture supports diverse file formats, background processing, and automated cleanup, ensuring a reliable and efficient media experience.
+The media management system in Gestão Yahweh Premium is designed for scalability, security, and performance. By leveraging Firebase Storage, Cloud Functions, and Hosting, it delivers optimized assets globally with robust access control and caching. The modular architecture supports diverse file formats, background processing, and automated cleanup, ensuring a reliable and efficient media experience. Recent enhancements include improved image processing capabilities, better storage operations, and web-based image compression that significantly improve media handling performance and reduce bandwidth usage.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -439,17 +522,36 @@ The media management system in Gestão Yahweh Premium is designed for scalabilit
 - Validate file type and size in the Flutter app.
 - Use Firebase Storage SDK to upload directly with tenant context.
 - Handle progress and errors gracefully.
+- **Enhanced**: Utilize improved image processing for better quality and performance.
+
+**Updated** Added reference to enhanced image processing capabilities
 
 **Section sources**
 - [flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md](file://flutter_app/MIDIA_STORAGE_PADRAO_ECOFIRE.md)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
 
 #### Optimizing Images
 - Trigger Cloud Function on Storage write.
 - Generate optimized variants and thumbnails.
 - Update Firestore metadata with new URLs.
+- **Enhanced**: Improved processing algorithms provide better quality and performance.
+
+**Updated** Added information about enhanced image processing improvements
 
 **Section sources**
 - [functions/processChurchStorageMedia.js](file://functions/processChurchStorageMedia.js)
+- [flutter_app/lib/services/eco_fire_image_process.dart](file://flutter_app/lib/services/eco_fire_image_process.dart)
+
+#### Web-based Image Compression
+- Implement client-side compression for web platforms.
+- Configure compression quality settings based on requirements.
+- Handle compression errors gracefully with fallback mechanisms.
+- Monitor bandwidth savings and compression effectiveness.
+
+**New Section** Added web-based image compression example
+
+**Section sources**
+- [flutter_app/lib/services/web_image_compress_service.dart](file://flutter_app/lib/services/web_image_compress_service.dart)
 
 #### Streaming Videos
 - Transcode to H.264/AAC with fast-start optimization.
@@ -464,9 +566,13 @@ The media management system in Gestão Yahweh Premium is designed for scalabilit
 - Query Firestore for tenant-scoped assets.
 - Display thumbnails and metadata in UI.
 - Implement delete cascade to remove Storage files.
+- **Enhanced**: Better storage operations provide more reliable file management.
+
+**Updated** Added reference to enhanced storage operations
 
 **Section sources**
 - [functions/storageCleanupOnFirestoreDelete.js](file://functions/storageCleanupOnFirestoreDelete.js)
+- [flutter_app/lib/services/firebase_storage_service.dart](file://flutter_app/lib/services/firebase_storage_service.dart)
 
 ### Security Best Practices
 - Enforce tenant isolation with Storage rules.
@@ -481,6 +587,10 @@ The media management system in Gestão Yahweh Premium is designed for scalabilit
 - Compress assets aggressively.
 - Use CDN caching effectively.
 - Monitor and limit excessive downloads.
+- **Enhanced**: Client-side web compression significantly reduces upload bandwidth.
+- **Improved Processing**: Better image processing algorithms reduce file sizes while maintaining quality.
+
+**Updated** Added bandwidth optimization benefits from new compression and processing features
 
 [No sources needed since this section provides general guidance]
 

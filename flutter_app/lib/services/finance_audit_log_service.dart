@@ -37,7 +37,7 @@ Future<void> logFinanceiroAuditoria({
       'uid': u?.uid,
       'email': u?.email,
       'criadoEm': FieldValue.serverTimestamp(),
-      if (slim != null) 'dadosAntes': slim,
+      'dadosAntes': ?slim,
     });
     await TenantAuditService.log(
       tenantId: tenantId,

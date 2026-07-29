@@ -11,7 +11,6 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Exibida quando o membro entra no app com mustCompleteRegistration = true.
 /// Permite completar/alterar dados do cadastro e opcionalmente trocar a senha provisória.
@@ -160,7 +159,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
   }
 
   String _formatDate(DateTime d) {
-    final two = (int n) => n.toString().padLeft(2, '0');
+    String two(int n) => n.toString().padLeft(2, '0');
     return '${two(d.day)}/${two(d.month)}/${d.year}';
   }
 
@@ -478,7 +477,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
                           ),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
-                            value: _sexo,
+                            initialValue: _sexo,
                             decoration: const InputDecoration(
                               labelText: 'Sexo',
                               border: OutlineInputBorder(),

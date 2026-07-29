@@ -321,7 +321,7 @@ final class ChurchDataService {
         'status': 'sent',
         'deliveryStatus': 'sent',
         'createdAt': FieldValue.serverTimestamp(),
-        if (extra != null) ...extra,
+        ...?extra,
       });
       ChurchTenantWriteLog.firestoreSetOk(ref.path, module: 'chat_text');
       return ref.id;

@@ -39,7 +39,7 @@ class IgrejaMenuLateralDinamico extends StatelessWidget {
                     const SizedBox(height: 28),
                     Container(
                       padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(14)),
+                      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(14)),
                       child: Icon(Icons.church, color: Colors.white, size: isCollapsed ? 28 : 40),
                     ),
                     if (!isCollapsed) ...[
@@ -51,7 +51,7 @@ class IgrejaMenuLateralDinamico extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                         child: Material(
-                          color: selectedIndex == i ? Colors.white.withOpacity(0.18) : Colors.transparent,
+                          color: selectedIndex == i ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
                           borderRadius: BorderRadius.circular(12),
                           child: ListTile(
                             leading: Icon(items[i]['icon'] as IconData, color: Colors.white, size: 22),

@@ -942,7 +942,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
       ).then(useIfRealLogo),
       loadReportPdfBranding(tid)
           .then((br) => useIfRealLogo(br.logoBytes))
-          .catchError((Object _, StackTrace __) => null),
+          .catchError((Object _, StackTrace _) => null),
     ];
     final triedFb = await Future.wait(fallbackFutures);
     for (final u in triedFb) {

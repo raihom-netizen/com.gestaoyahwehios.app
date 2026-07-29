@@ -76,6 +76,7 @@ async function notifyGestoresNewMember(params) {
             memberId: membroId,
             publicSignup: publicSignup ? "1" : "0",
             click_action: "FLUTTER_NOTIFICATION_CLICK",
+            deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(churchId, publicSignup ? "aprovacoes" : `membro/${membroId}`, publicSignup ? { memberId: membroId } : undefined),
         },
         module: "membro",
     }));

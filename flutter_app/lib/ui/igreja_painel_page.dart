@@ -2,12 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
     show MergedFirestoreQuerySnapshot;
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
@@ -193,13 +191,13 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
 
     _tenantId = tenantId;
 
-    final op = ChurchRepository.churchId(tenantId!);
+    final op = ChurchRepository.churchId(tenantId);
     if (op.isNotEmpty) {
       tenantId = op;
       _tenantId = op;
     }
 
-    final tid = tenantId!;
+    final tid = tenantId;
     try {
       final snaps = await Future.wait([
         ChurchTenantResilientReads.membrosRecent(tid, limit: 500),
@@ -267,7 +265,7 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
           child: ListView.separated(
             shrinkWrap: true,
             itemCount: labels.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (_, i) {
               final (icon, title, index) = labels[i];
               return ListTile(

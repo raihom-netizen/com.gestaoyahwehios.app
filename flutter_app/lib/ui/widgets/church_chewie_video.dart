@@ -68,7 +68,7 @@ Future<void> openChurchHostedVideoImmersive(
     PageRouteBuilder<void>(
       opaque: true,
       fullscreenDialog: true,
-      pageBuilder: (ctx, _, __) => _ChurchVideoImmersivePage(
+      pageBuilder: (ctx, _, _) => _ChurchVideoImmersivePage(
         videoUrl: videoUrl,
         thumbnailUrl: thumbnailUrl,
         title: title,

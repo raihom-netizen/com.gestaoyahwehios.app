@@ -70,7 +70,7 @@ class LicenseAccessPolicy {
     if (church == null) return false;
     final lic = church['license'];
     final licMap =
-        lic is Map ? Map<String, dynamic>.from(lic as Map) : null;
+        lic is Map ? Map<String, dynamic>.from(lic) : null;
     final billing = church['billing'] is Map
         ? Map<String, dynamic>.from(church['billing'] as Map)
         : null;

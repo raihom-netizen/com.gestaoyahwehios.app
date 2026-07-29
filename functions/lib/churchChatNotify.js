@@ -37,6 +37,7 @@ exports.onChurchChatMessageCreated = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const notificationBranding_1 = require("./notificationBranding");
+const pushNovoConteudo_1 = require("./pushNovoConteudo");
 const db = admin.firestore();
 /** Alinhado a `ChurchChatAlertNotificationService` (Flutter) — canais para FCM em segundo plano. */
 const FCM_CHAT_ANDROID_SOUND = "gy_fcm_chat_sound";
@@ -190,6 +191,30 @@ async function sendEachInBatches(messages) {
         }
     }
 }
+/// Incrementa o contador de não lidas por conversa em `chat_member_prefs/{uid}`.
+/// O Flutter zera ao abrir o thread (`lastReadMessageIds` + `unreadCounts`).
+async function incrementUnreadCounts(tenantId, threadId, uids) {
+    const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
+    if (!unique.length)
+        return;
+    const step = 500;
+    for (let i = 0; i < unique.length; i += step) {
+        const batch = db.batch();
+        for (const uid of unique.slice(i, i + step)) {
+            const ref = db.collection("igrejas").doc(tenantId).collection("chat_member_prefs").doc(uid);
+            batch.set(ref, {
+                [`unreadCounts.${threadId}`]: admin.firestore.FieldValue.increment(1),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+        }
+        try {
+            await batch.commit();
+        }
+        catch (e) {
+            functions.logger.error("churchChatNotify incrementUnreadCounts", e);
+        }
+    }
+}
 function previewFromMessage(msg) {
     const mtype = String(msg.type || "text");
     if (mtype === "text")
@@ -307,13 +332,16 @@ exports.onChurchChatMessageCreated = functions
                         ? { departmentId: departmentIdForPush }
                         : {}),
                 click_action: "FLUTTER_NOTIFICATION_CLICK",
-                ...(wasMentioned ? { chatMention: "1" } : {}),
+                deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, `chat/${threadId}`),
+                ...(wasMentioned ? { chatMention: "1", mentionCount: "1" } : {}),
             },
             module: "chat",
             chatDelivery,
         }));
     }
     await sendEachInBatches(messages);
+    // Contador de não lidas em background (badge estilo Telegram no hub).
+    await incrementUnreadCounts(tenantId, threadId, recipientPushOn);
     return null;
 });
 //# sourceMappingURL=churchChatNotify.js.map

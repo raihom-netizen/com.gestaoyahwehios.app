@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -9,7 +8,6 @@ import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
 /// ✅ Painel Master (Super Admin)
 /// - Lista todas as igrejas (collection: igrejas)
@@ -402,7 +400,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 DropdownButtonFormField<String>(
-                  value: selectedPlan,
+                  initialValue: selectedPlan,
                   decoration: const InputDecoration(labelText: 'Plano ativo'),
                   items: plans
                       .map(
@@ -416,7 +414,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: selectedStatus,
+                  initialValue: selectedStatus,
                   decoration:
                       const InputDecoration(labelText: 'Status da licenca'),
                   items: const [
@@ -456,7 +454,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 ),
                 const Divider(height: 24),
                 DropdownButtonFormField<String>(
-                  value: selectedPay,
+                  initialValue: selectedPay,
                   decoration:
                       const InputDecoration(labelText: 'Status do pagamento'),
                   items: const [
@@ -521,15 +519,15 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                     'status': selectedStatus,
                     'active': active,
                     'isFree': isFree,
-                    if (trialEnds != null) 'trialEndsAt': trialEnds,
+                    'trialEndsAt': ?trialEnds,
                     'updatedAt': FieldValue.serverTimestamp(),
                   },
                   'billing': {
                     'status': selectedPay,
                     'provider': providerCtrl.text.trim(),
                     'subscriptionId': subscriptionCtrl.text.trim(),
-                    if (lastPaid != null) 'lastPaymentAt': lastPaid,
-                    if (nextCharge != null) 'nextChargeAt': nextCharge,
+                    'lastPaymentAt': ?lastPaid,
+                    'nextChargeAt': ?nextCharge,
                     'updatedAt': FieldValue.serverTimestamp(),
                   },
                   'updatedAt': FieldValue.serverTimestamp(),
@@ -748,11 +746,13 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                             _plans.orderBy('order'),
                           ),
                           builder: (context, snap) {
-                            if (snap.hasError)
+                            if (snap.hasError) {
                               return Center(child: Text('Erro: ${snap.error}'));
-                            if (!snap.hasData)
+                            }
+                            if (!snap.hasData) {
                               return const Center(
                                   child: CircularProgressIndicator());
+                            }
                             final docs = snap.data!.docs;
                             if (docs.isEmpty) {
                               return const Center(
@@ -762,7 +762,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
                             return ListView.separated(
                               itemCount: docs.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 10),
                               itemBuilder: (context, i) {
                                 final d = docs[i];
@@ -889,8 +889,9 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                                                     },
                                                     SetOptions(merge: true),
                                                   );
-                                                  if (mounted)
+                                                  if (mounted) {
                                                     Navigator.pop(context);
+                                                  }
                                                 },
                                                 child: const Text('Salvar'),
                                               ),
@@ -911,12 +912,14 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                             _plans.orderBy('order'),
                           ),
                           builder: (context, plansSnap) {
-                            if (plansSnap.hasError)
+                            if (plansSnap.hasError) {
                               return Center(
                                   child: Text('Erro: ${plansSnap.error}'));
-                            if (!plansSnap.hasData)
+                            }
+                            if (!plansSnap.hasData) {
                               return const Center(
                                   child: CircularProgressIndicator());
+                            }
                             final plans = plansSnap.data!.docs;
 
                             return StreamBuilder<
@@ -957,16 +960,17 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
 
                                 String planName(String id) {
                                   for (final p in plans) {
-                                    if (p.id == id)
+                                    if (p.id == id) {
                                       return (p.data()['name'] ?? p.id)
                                           .toString();
+                                    }
                                   }
                                   return id;
                                 }
 
                                 return ListView.separated(
                                   itemCount: docs.length,
-                                  separatorBuilder: (_, __) =>
+                                  separatorBuilder: (_, _) =>
                                       const SizedBox(height: 10),
                                   itemBuilder: (context, i) {
                                     final d = docs[i];
@@ -1180,10 +1184,11 @@ class _SalesSummary extends StatelessWidget {
               final planId =
                   (data['planId'] ?? data['plan'] ?? 'inicial').toString();
 
-              if (isActive)
+              if (isActive) {
                 active += 1;
-              else
+              } else {
                 blocked += 1;
+              }
               if (isFree) free += 1;
               if (status == 'trial') trial += 1;
               if (status == 'blocked') blocked += 1;
@@ -1289,7 +1294,7 @@ class _StatCard extends StatelessWidget {
       width: 160,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Column(

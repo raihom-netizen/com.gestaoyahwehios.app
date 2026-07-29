@@ -660,8 +660,8 @@ class _DirectoryMemberQueryDocumentSnapshot
   _DirectoryMemberQueryDocumentSnapshot({
     required this.reference,
     required this.docId,
-    required Map<String, dynamic> data,
-  }) : _data = data;
+    required this._data,
+  });
 
   @override
   final DocumentReference<Map<String, dynamic>> reference;

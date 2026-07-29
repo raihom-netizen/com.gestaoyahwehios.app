@@ -5,7 +5,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Calendário para o membro marcar dias em que não pode servir (viagem, etc.).
 class MemberScheduleAvailabilityPage extends StatefulWidget {

@@ -554,7 +554,7 @@ class SafeMemberCircleAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = backgroundColor ?? ThemeCleanPremium.primary.withOpacity(0.15);
+    final bg = backgroundColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.15);
     return SafeMemberProfilePhoto(
       imageUrl: imageUrl,
       tenantId: tenantId,

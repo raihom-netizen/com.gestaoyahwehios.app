@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 enum _PeriodPreset { last30, last90, last365, custom }
 
@@ -504,7 +503,7 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
         .toList();
     return DropdownButtonFormField<String>(
       isExpanded: true,
-      value: value != null && items.any((d) => d.id == value) ? value : null,
+      initialValue: value != null && items.any((d) => d.id == value) ? value : null,
       decoration: InputDecoration(
         filled: true,
         fillColor: Colors.white,

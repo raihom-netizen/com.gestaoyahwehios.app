@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -55,6 +54,13 @@ class ChurchChatMemberPrefsModel {
   /// Mensagens favoritas por conversa (`threadId` → ids de mensagem).
   final Map<String, List<String>> starredMessageIdsByThread;
 
+  /// Contadores de não lidas por conversa (`threadId` → count).
+  /// Atualizado pelas Cloud Functions e zerado no Flutter ao abrir o thread.
+  final Map<String, int> unreadCounts;
+
+  /// Última mensagem lida por conversa (`threadId` → messageId).
+  final Map<String, String> lastReadMessageIds;
+
   const ChurchChatMemberPrefsModel({
     this.favoriteThreadIds = const [],
     this.mutedThreadIds = const [],
@@ -69,6 +75,8 @@ class ChurchChatMemberPrefsModel {
     this.archivedThreadIds = const [],
     this.departmentGroupOrderIds = const [],
     this.starredMessageIdsByThread = const {},
+    this.unreadCounts = const {},
+    this.lastReadMessageIds = const {},
   });
 
   bool isFavorite(String threadId) => favoriteThreadIds.contains(threadId);
@@ -133,14 +141,15 @@ class ChurchChatMemberPrefs {
     String uid,
   ) {
     final churchId = ChurchRepository.churchId(tenantId.trim());
-    return ChurchUiCollections.churchDoc(churchId)
-        .collection('chat_member_prefs')
-        .doc(uid);
+    return ChurchUiCollections.churchDoc(
+      churchId,
+    ).collection('chat_member_prefs').doc(uid);
   }
 
   /// Nunca [Stream.empty] — alguns [StreamBuilder] ficavam sem snapshot útil (área cinza).
   static Stream<DocumentSnapshot<Map<String, dynamic>>> watch(
-      String tenantId) async* {
+    String tenantId,
+  ) async* {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       return;
@@ -165,7 +174,11 @@ class ChurchChatMemberPrefs {
       pinnedThreadIds: _stringList(d?['pinnedThreadIds']),
       archivedThreadIds: _stringList(d?['archivedThreadIds']),
       departmentGroupOrderIds: _stringList(d?['departmentGroupOrderIds']),
-      starredMessageIdsByThread: _starredMessagesMap(d?['starredMessageIdsByThread']),
+      starredMessageIdsByThread: _starredMessagesMap(
+        d?['starredMessageIdsByThread'],
+      ),
+      unreadCounts: _intMap(d?['unreadCounts']),
+      lastReadMessageIds: _stringMap(d?['lastReadMessageIds']),
     );
   }
 
@@ -203,6 +216,36 @@ class ChurchChatMemberPrefs {
     return raw.map((e) => e.toString()).where((s) => s.isNotEmpty).toList();
   }
 
+  static Map<String, int> _intMap(dynamic raw) {
+    if (raw is! Map) return {};
+    final out = <String, int>{};
+    raw.forEach((k, v) {
+      final id = k.toString().trim();
+      if (id.isEmpty) return;
+      if (v is int) {
+        out[id] = v;
+      } else if (v is num) {
+        out[id] = v.toInt();
+      } else {
+        final parsed = int.tryParse(v?.toString() ?? '');
+        if (parsed != null) out[id] = parsed;
+      }
+    });
+    return out;
+  }
+
+  static Map<String, String> _stringMap(dynamic raw) {
+    if (raw is! Map) return {};
+    final out = <String, String>{};
+    raw.forEach((k, v) {
+      final id = k.toString().trim();
+      final value = v?.toString().trim() ?? '';
+      if (id.isEmpty || value.isEmpty) return;
+      out[id] = value;
+    });
+    return out;
+  }
+
   static Future<ChurchChatMemberPrefsModel> load(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return const ChurchChatMemberPrefsModel();
@@ -211,7 +254,9 @@ class ChurchChatMemberPrefs {
   }
 
   /// Leitura com recuperação Web (painel) — evita prefs vazias por falha transitória do SDK.
-  static Future<ChurchChatMemberPrefsModel> loadResilient(String tenantId) async {
+  static Future<ChurchChatMemberPrefsModel> loadResilient(
+    String tenantId,
+  ) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       return const ChurchChatMemberPrefsModel();
@@ -266,20 +311,19 @@ class ChurchChatMemberPrefs {
       }
     }
 
-    await docRef(tenantId, uid).set(
-      {
-        'starredMessageIdsByThread': next,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'starredMessageIdsByThread': next,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     if (value) {
-      unawaited(_markMessagePreserveMedia(
-        tenantId: tenantId,
-        threadId: tid,
-        messageId: mid,
-      ));
+      unawaited(
+        _markMessagePreserveMedia(
+          tenantId: tenantId,
+          threadId: tid,
+          messageId: mid,
+        ),
+      );
     }
     return true;
   }
@@ -312,15 +356,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set(
-      {
-        'favoriteThreadIds': value
-            ? FieldValue.arrayUnion([threadId])
-            : FieldValue.arrayRemove([threadId]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'favoriteThreadIds': value
+          ? FieldValue.arrayUnion([threadId])
+          : FieldValue.arrayRemove([threadId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -330,15 +371,12 @@ class ChurchChatMemberPrefs {
     required bool value,
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set(
-      {
-        'mutedThreadIds': value
-            ? FieldValue.arrayUnion([threadId])
-            : FieldValue.arrayRemove([threadId]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'mutedThreadIds': value
+          ? FieldValue.arrayUnion([threadId])
+          : FieldValue.arrayRemove([threadId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   static Future<void> setBlockedPeer({
@@ -347,15 +385,12 @@ class ChurchChatMemberPrefs {
     required bool value,
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set(
-      {
-        'blockedPeerUids': value
-            ? FieldValue.arrayUnion([peerUid])
-            : FieldValue.arrayRemove([peerUid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'blockedPeerUids': value
+          ? FieldValue.arrayUnion([peerUid])
+          : FieldValue.arrayRemove([peerUid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Oculta ou repõe uma conversa direta na lista (não apaga mensagens nem o thread).
@@ -374,15 +409,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set(
-      {
-        'hiddenDmThreadIds': hide
-            ? FieldValue.arrayUnion([tid])
-            : FieldValue.arrayRemove([tid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'hiddenDmThreadIds': hide
+          ? FieldValue.arrayUnion([tid])
+          : FieldValue.arrayRemove([tid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -411,13 +443,10 @@ class ChurchChatMemberPrefs {
       hitLimit = true;
     }
 
-    await docRef(tenantId, uid).set(
-      {
-        'hiddenDmThreadIds': FieldValue.arrayUnion(toAdd),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'hiddenDmThreadIds': FieldValue.arrayUnion(toAdd),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return (hidden: toAdd.length, hitLimit: hitLimit);
   }
 
@@ -456,15 +485,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set(
-      {
-        'pinnedThreadIds': value
-            ? FieldValue.arrayUnion([tid])
-            : FieldValue.arrayRemove([tid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'pinnedThreadIds': value
+          ? FieldValue.arrayUnion([tid])
+          : FieldValue.arrayRemove([tid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -483,16 +509,13 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set(
-      {
-        'archivedThreadIds': value
-            ? FieldValue.arrayUnion([tid])
-            : FieldValue.arrayRemove([tid]),
-        if (value) 'pinnedThreadIds': FieldValue.arrayRemove([tid]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'archivedThreadIds': value
+          ? FieldValue.arrayUnion([tid])
+          : FieldValue.arrayRemove([tid]),
+      if (value) 'pinnedThreadIds': FieldValue.arrayRemove([tid]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -502,22 +525,16 @@ class ChurchChatMemberPrefs {
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
-      await docRef(tenantId, uid).set(
-        {
-          'dmNotificationStyle': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await docRef(tenantId, uid).set({
+        'dmNotificationStyle': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       return;
     }
-    await docRef(tenantId, uid).set(
-      {
-        'dmNotificationStyle': _normalizeChatAlertMode(mode),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'dmNotificationStyle': _normalizeChatAlertMode(mode),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   static Future<void> setGroupNotificationStyle({
@@ -526,22 +543,16 @@ class ChurchChatMemberPrefs {
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
-      await docRef(tenantId, uid).set(
-        {
-          'groupNotificationStyle': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await docRef(tenantId, uid).set({
+        'groupNotificationStyle': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       return;
     }
-    await docRef(tenantId, uid).set(
-      {
-        'groupNotificationStyle': _normalizeChatAlertMode(mode),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'groupNotificationStyle': _normalizeChatAlertMode(mode),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// `mode == null` remove a entrada. `false` se o mapa já está no limite.
@@ -556,19 +567,15 @@ class ChurchChatMemberPrefs {
     if (mode == null) {
       map.remove(threadId);
     } else {
-      if (!map.containsKey(threadId) &&
-          map.length >= maxThreadNotifOverrides) {
+      if (!map.containsKey(threadId) && map.length >= maxThreadNotifOverrides) {
         return false;
       }
       map[threadId] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set(
-      {
-        'threadNotifModes': map,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'threadNotifModes': map,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -591,13 +598,10 @@ class ChurchChatMemberPrefs {
       }
       map[id] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set(
-      {
-        'departmentAlertModes': map,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'departmentAlertModes': map,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -620,13 +624,10 @@ class ChurchChatMemberPrefs {
       }
       map[pid] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set(
-      {
-        'dmPeerAlertModes': map,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'dmPeerAlertModes': map,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return true;
   }
 
@@ -641,33 +642,44 @@ class ChurchChatMemberPrefs {
         .where((e) => e.isNotEmpty)
         .take(maxDepartmentGroupOrderIds)
         .toList();
-    await docRef(tenantId, uid).set(
-      {
-        'departmentGroupOrderIds': cleaned,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'departmentGroupOrderIds': cleaned,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// Volta à ordenação alfabética na aba Grupos.
   static Future<void> clearDepartmentGroupOrder(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set(
-      {
-        'departmentGroupOrderIds': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await docRef(tenantId, uid).set({
+      'departmentGroupOrderIds': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Zera o contador de não lidas de uma conversa quando o utilizador a abre.
+  static Future<void> clearThreadUnread({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return;
+    final tid = threadId.trim();
+    if (tid.isEmpty) return;
+    await docRef(tenantId, uid).set({
+      'unreadCounts.$tid': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   /// DM: não enviar se bloqueou o interlocutor.
   static final Map<String, ({bool allowed, DateTime at})> _canSendCache = {};
   static final Map<String, ({ChurchChatMemberPrefsModel prefs, DateTime at})>
-      _prefsHotCache = {};
+  _prefsHotCache = {};
 
-  static Future<ChurchChatMemberPrefsModel> _loadPrefsHot(String tenantId) async {
+  static Future<ChurchChatMemberPrefsModel> _loadPrefsHot(
+    String tenantId,
+  ) async {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final key = '${tenantId.trim()}#$uid';
     final hit = _prefsHotCache[key];
@@ -711,9 +723,8 @@ class ChurchChatMemberPrefs {
             return false;
           }
         }
-        final looksLikeTwoUids = parts.length == 3 &&
-            parts[1].isNotEmpty &&
-            parts[2].isNotEmpty;
+        final looksLikeTwoUids =
+            parts.length == 3 && parts[1].isNotEmpty && parts[2].isNotEmpty;
         if (looksLikeTwoUids) {
           _canSendCache[cacheKey] = (allowed: true, at: DateTime.now());
           return true;
@@ -748,4 +759,3 @@ class ChurchChatMemberPrefs {
     }
   }
 }
-

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -46,14 +46,18 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
   DateTime? _lightUnlockAt;
   DateTime? _heavyUnlockAt;
 
+  // Estado da barra de resultado padronizada (Compartilhar / Escolher pasta).
+  Uint8List? _resultBytes;
+  String? _resultFileName;
+  String? _resultMime;
+  String? _resultMessage;
+
   String get _quotaUid => widget.uid.trim();
   bool get _isAdmin => widget.isAdmin;
   bool get _lightLocked =>
-      !_isAdmin &&
-      _lightUsed >= UtilitariosDailyQuotaService.kLightLimitPerDay;
+      !_isAdmin && _lightUsed >= UtilitariosDailyQuotaService.kLightLimitPerDay;
   bool get _heavyLocked =>
-      !_isAdmin &&
-      _heavyUsed >= UtilitariosDailyQuotaService.kHeavyLimitPerDay;
+      !_isAdmin && _heavyUsed >= UtilitariosDailyQuotaService.kHeavyLimitPerDay;
 
   @override
   void initState() {
@@ -174,148 +178,152 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     String shareButtonLabel = 'Compartilhar (WhatsApp e outros)',
   }) async {
     if (!mounted || _cancelBusy) return;
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Pronto',
-                style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
+    // Exibe barra de resultado sem salvar automaticamente.
+    // O usuário escolhe se compartilha ou seleciona pasta.
+    setState(() {
+      _resultBytes = bytes;
+      _resultFileName = fileName;
+      _resultMime = mimeType;
+      _resultMessage = okMessage;
+    });
+  }
+
+  void _dismissResultBar() {
+    setState(() {
+      _resultBytes = null;
+      _resultFileName = null;
+      _resultMime = null;
+      _resultMessage = null;
+    });
+  }
+
+  Widget _buildResultBar() {
+    final bytes = _resultBytes;
+    final fileName = _resultFileName;
+    final mime = _resultMime;
+    if (bytes == null || fileName == null || mime == null) {
+      return const SizedBox.shrink();
+    }
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Material(
+        elevation: 12,
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
+              begin: Alignment.bottomCenter,
+              end: Alignment.topCenter,
+            ),
+            border: Border(
+              top: BorderSide(
+                color: const Color(0xFF22C55E).withValues(alpha: 0.4),
+                width: 1.5,
               ),
-              const SizedBox(height: 6),
-              Text(
-                okMessage,
-                style: ModernModuleUI.moduleSubtitleStyle(ctx),
-              ),
-              const SizedBox(height: 16),
-              if (preferShareFirst) ...[
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'share'),
-                  icon: const Icon(Icons.share_rounded),
-                  label: Text(shareButtonLabel),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'save'),
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('Baixar local'),
-                ),
-              ] else ...[
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'share'),
-                  icon: const Icon(Icons.share_rounded),
-                  label: Text(shareButtonLabel),
-                ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'save'),
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('Baixar local'),
-                ),
-              ],
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Fechar'),
-              ),
-            ],
+            ),
           ),
-        );
-      },
-    );
-    if (!mounted || action == null) return;
-    final ok = await utilitariosSaveOrShareBytes(
-      context: context,
-      bytes: bytes,
-      fileName: fileName,
-      mimeType: mimeType,
-      preferShare: action == 'share',
-    );
-    if (!mounted) return;
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            action == 'share'
-                ? 'Arquivo pronto — escolha WhatsApp, e-mail ou outro app.'
-                : 'Download iniciado — arquivo no aparelho.',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } else if (action == 'share') {
-      // Web: se share falhar, ofereceere baixar (arquivo já está pronto).
-      final retry = await showModalBottomSheet<String>(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) {
-          return Container(
-            decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: SafeArea(
+            top: false,
+            child: Row(
               children: [
-                Text(
-                  'Compartilhar neste navegador',
-                  style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 17),
+                // Success icon + message
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Color(0xFF22C55E),
+                  size: 22,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'O Chrome às vezes bloqueia WhatsApp com Excel/PowerPoint. '
-                  'Baixe o arquivo e abra no WhatsApp, ou tente de novo.',
-                  style: ModernModuleUI.moduleSubtitleStyle(ctx),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Pronto!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (_resultMessage != null)
+                        Text(
+                          _resultMessage!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'save'),
-                  icon: const Icon(Icons.download_rounded),
-                  label: const Text('Baixar e abrir no WhatsApp'),
+                // Compartilhar
+                Expanded(
+                  child: ModernModuleUI.gradientFilledButton(
+                    onPressed: () async {
+                      _dismissResultBar();
+                      await utilitariosSaveOrShareBytes(
+                        context: context,
+                        bytes: bytes,
+                        fileName: fileName,
+                        mimeType: mime,
+                        preferShare: true,
+                      );
+                    },
+                    icon: Icons.share_rounded,
+                    label: 'Compartilhar',
+                    gradient: const [Color(0xFF22C55E), Color(0xFF16A34A)],
+                    height: 42,
+                    fontSize: 13,
+                  ),
                 ),
-                const SizedBox(height: 10),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(ctx, 'share'),
-                  icon: const Icon(Icons.share_rounded),
-                  label: const Text('Tentar compartilhar de novo'),
+                const SizedBox(width: 8),
+                // Salvar com escolha de pasta
+                Expanded(
+                  child: ModernModuleUI.gradientFilledButton(
+                    onPressed: () async {
+                      _dismissResultBar();
+                      await utilitariosSaveOrShareBytes(
+                        context: context,
+                        bytes: bytes,
+                        fileName: fileName,
+                        mimeType: mime,
+                        preferShare: false,
+                        chooseSaveLocation: true,
+                      );
+                    },
+                    icon: Icons.folder_open_rounded,
+                    label: 'Escolher pasta',
+                    gradient: const [Color(0xFF2563EB), Color(0xFF3B82F6)],
+                    height: 42,
+                    fontSize: 13,
+                  ),
                 ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
+                const SizedBox(width: 4),
+                // Close icon
+                IconButton(
+                  onPressed: _dismissResultBar,
+                  icon: Icon(
+                    Icons.close_rounded,
+                    color: Colors.white.withValues(alpha: 0.5),
+                    size: 18,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
                 ),
               ],
             ),
-          );
-        },
-      );
-      if (!mounted || retry == null) return;
-      final ok2 = await utilitariosSaveOrShareBytes(
-        context: context,
-        bytes: bytes,
-        fileName: fileName,
-        mimeType: mimeType,
-        preferShare: retry == 'share',
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ok2
-                ? (retry == 'share'
-                    ? 'Arquivo pronto — escolha WhatsApp ou outro app.'
-                    : 'Download iniciado — abra o arquivo no WhatsApp.')
-                : 'Não foi possível concluir. Tente Baixar local.',
           ),
-          behavior: SnackBarBehavior.floating,
         ),
-      );
-    }
+      ),
+    );
   }
 
   Future<void> _pdfToWord() async {
@@ -326,7 +334,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToDocx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base =
           picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
       await _afterResult(
@@ -348,7 +357,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       );
       if (picked == null) return;
       final pages = await UtilitariosLocalService.pdfToJpegs(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base =
           picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
       final stem = base.isEmpty ? 'pagina' : base;
@@ -383,7 +393,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       );
       if (picked == null) return;
       final pages = await UtilitariosLocalService.pdfToPngs(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base =
           picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
       final stem = base.isEmpty ? 'pagina' : base;
@@ -427,7 +438,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         throw StateError('Nenhuma imagem válida selecionada.');
       }
       final out = await UtilitariosLocalService.imagesToPdf(images);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       await _afterResult(
         bytes: out,
         fileName: 'imagens_controle_total.pdf',
@@ -447,9 +459,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         allowedExtensions: const ['docx', 'txt', 'rtf'],
       );
       if (picked == null) return;
-      final out =
-          await UtilitariosLocalService.documentToPdf(picked.bytes, picked.name);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      final out = await UtilitariosLocalService.documentToPdf(
+          picked.bytes, picked.name);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base = picked.name
           .replaceAll(RegExp(r'\.(docx|txt|rtf)$', caseSensitive: false), '');
       await _afterResult(
@@ -469,7 +482,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToXlsx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base =
           picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
       await _afterResult(
@@ -494,7 +508,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (picked == null) return;
       final out =
           await UtilitariosLocalService.excelToPdf(picked.bytes, picked.name);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base = picked.name
           .replaceAll(RegExp(r'\.(xlsx|csv)$', caseSensitive: false), '');
       await _afterResult(
@@ -516,7 +531,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToPptx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid, isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
+          isAdmin: _isAdmin);
       final base =
           picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
       await _afterResult(
@@ -524,8 +540,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         fileName: '${base.isEmpty ? 'apresentacao' : base}.pptx',
         mimeType:
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        okMessage:
-            'PowerPoint gerado localmente (1 slide por página do PDF).',
+        okMessage: 'PowerPoint gerado localmente (1 slide por página do PDF).',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar (WhatsApp e outros)',
       );
@@ -576,7 +591,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               ),
               child: Container(
                 constraints: BoxConstraints(maxHeight: maxH),
-                decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+                decoration:
+                    ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
                 child: SafeArea(
                   top: false,
                   child: SingleChildScrollView(
@@ -585,176 +601,192 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                  Text(
-                    'Vídeo → MP4',
-                    style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Escolha a resolução. Opcional: comprimir para arquivo menor.',
-                    style: ModernModuleUI.moduleSubtitleStyle(ctx),
-                  ),
-                  const SizedBox(height: 14),
-                  for (final res in UtilitariosVideoExportResolution.values) ...[
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(16),
-                        onTap: () => setModal(() => resolution = res),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: resolution == res
-                                  ? const Color(0xFF7C3AED)
-                                  : const Color(0xFF64748B).withValues(alpha: 0.25),
-                              width: resolution == res ? 2 : 1,
-                            ),
-                            color: resolution == res
-                                ? const Color(0xFF7C3AED).withValues(alpha: 0.10)
-                                : Theme.of(ctx)
-                                    .colorScheme
-                                    .surfaceContainerHighest
-                                    .withValues(alpha: 0.35),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                resolution == res
-                                    ? Icons.radio_button_checked_rounded
-                                    : Icons.radio_button_off_rounded,
-                                color: resolution == res
-                                    ? const Color(0xFF7C3AED)
-                                    : const Color(0xFF64748B),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                        Text(
+                          'Vídeo → MP4',
+                          style: ModernModuleUI.moduleTitleStyle(ctx,
+                              fontSize: 18),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Escolha a resolução. Opcional: comprimir para arquivo menor.',
+                          style: ModernModuleUI.moduleSubtitleStyle(ctx),
+                        ),
+                        const SizedBox(height: 14),
+                        for (final res
+                            in UtilitariosVideoExportResolution.values) ...[
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => setModal(() => resolution = res),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: resolution == res
+                                        ? const Color(0xFF7C3AED)
+                                        : const Color(0xFF64748B)
+                                            .withValues(alpha: 0.25),
+                                    width: resolution == res ? 2 : 1,
+                                  ),
+                                  color: resolution == res
+                                      ? const Color(0xFF7C3AED)
+                                          .withValues(alpha: 0.10)
+                                      : Theme.of(ctx)
+                                          .colorScheme
+                                          .surfaceContainerHighest
+                                          .withValues(alpha: 0.35),
+                                ),
+                                child: Row(
                                   children: [
-                                    Text(
-                                      res.label,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 15,
-                                        color: Theme.of(ctx).colorScheme.onSurface,
-                                      ),
+                                    Icon(
+                                      resolution == res
+                                          ? Icons.radio_button_checked_rounded
+                                          : Icons.radio_button_off_rounded,
+                                      color: resolution == res
+                                          ? const Color(0xFF7C3AED)
+                                          : const Color(0xFF64748B),
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      res.subtitle,
-                                      style: ModernModuleUI.moduleSubtitleStyle(
-                                        ctx,
-                                        fontSize: 12,
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            res.label,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 15,
+                                              color: Theme.of(ctx)
+                                                  .colorScheme
+                                                  .onSurface,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            res.subtitle,
+                                            style: ModernModuleUI
+                                                .moduleSubtitleStyle(
+                                              ctx,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
+                          const SizedBox(height: 8),
+                        ],
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text(
+                            'Comprimir também',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          subtitle: Text(
+                            'Reduz tamanho após converter',
+                            style: ModernModuleUI.moduleSubtitleStyle(ctx,
+                                fontSize: 12),
+                          ),
+                          value: compressAlso,
+                          onChanged: (v) => setModal(() => compressAlso = v),
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Comprimir também',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(
-                      'Reduz tamanho após converter',
-                      style: ModernModuleUI.moduleSubtitleStyle(ctx, fontSize: 12),
-                    ),
-                    value: compressAlso,
-                    onChanged: (v) => setModal(() => compressAlso = v),
-                  ),
-                  if (compressAlso) ...[
-                    const SizedBox(height: 4),
-                    for (final level in UtilitariosCompressLevel.values) ...[
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: () => setModal(() => compressLevel = level),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  compressLevel == level
-                                      ? Icons.check_circle_rounded
-                                      : Icons.circle_outlined,
-                                  size: 20,
-                                  color: compressLevel == level
-                                      ? const Color(0xFF7C3AED)
-                                      : const Color(0xFF94A3B8),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                        if (compressAlso) ...[
+                          const SizedBox(height: 4),
+                          for (final level
+                              in UtilitariosCompressLevel.values) ...[
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () =>
+                                    setModal(() => compressLevel = level),
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        '${level.label} · ${level.reductionBadge}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 13,
-                                          color: Theme.of(ctx).colorScheme.onSurface,
-                                        ),
+                                      Icon(
+                                        compressLevel == level
+                                            ? Icons.check_circle_rounded
+                                            : Icons.circle_outlined,
+                                        size: 20,
+                                        color: compressLevel == level
+                                            ? const Color(0xFF7C3AED)
+                                            : const Color(0xFF94A3B8),
                                       ),
-                                      Text(
-                                        level.subtitle,
-                                        style: ModernModuleUI.moduleSubtitleStyle(
-                                          ctx,
-                                          fontSize: 11,
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${level.label} · ${level.reductionBadge}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 13,
+                                                color: Theme.of(ctx)
+                                                    .colorScheme
+                                                    .onSurface,
+                                              ),
+                                            ),
+                                            Text(
+                                              level.subtitle,
+                                              style: ModernModuleUI
+                                                  .moduleSubtitleStyle(
+                                                ctx,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-                              ],
+                              ),
+                            ),
+                          ],
+                        ],
+                        const SizedBox(height: 10),
+                        FilledButton.icon(
+                          onPressed: () => Navigator.pop(
+                            ctx,
+                            UtilitariosVideoConvertOptions(
+                              resolution: resolution,
+                              compressAlso: compressAlso,
+                              compressLevel: compressLevel,
                             ),
                           ),
+                          icon: const Icon(Icons.movie_creation_rounded),
+                          label: Text(
+                            compressAlso
+                                ? 'Converter · ${resolution.label} · ${compressLevel.label}'
+                                : 'Converter · ${resolution.label}',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(50),
+                          ),
                         ),
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.pop(
-                      ctx,
-                      UtilitariosVideoConvertOptions(
-                        resolution: resolution,
-                        compressAlso: compressAlso,
-                        compressLevel: compressLevel,
-                      ),
-                    ),
-                    icon: const Icon(Icons.movie_creation_rounded),
-                    label: Text(
-                      compressAlso
-                          ? 'Converter · ${resolution.label} · ${compressLevel.label}'
-                          : 'Converter · ${resolution.label}',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancelar'),
-                  ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancelar'),
+                        ),
                       ],
                     ),
                   ),
@@ -777,7 +809,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         return StatefulBuilder(
           builder: (ctx, setModal) {
             return Container(
-              decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+              decoration:
+                  ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -810,11 +843,13 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                             border: Border.all(
                               color: selected == fmt
                                   ? const Color(0xFFDB2777)
-                                  : const Color(0xFF64748B).withValues(alpha: 0.25),
+                                  : const Color(0xFF64748B)
+                                      .withValues(alpha: 0.25),
                               width: selected == fmt ? 2 : 1,
                             ),
                             color: selected == fmt
-                                ? const Color(0xFFDB2777).withValues(alpha: 0.10)
+                                ? const Color(0xFFDB2777)
+                                    .withValues(alpha: 0.10)
                                 : Theme.of(ctx)
                                     .colorScheme
                                     .surfaceContainerHighest
@@ -840,7 +875,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 15,
-                                        color: Theme.of(ctx).colorScheme.onSurface,
+                                        color:
+                                            Theme.of(ctx).colorScheme.onSurface,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -886,7 +922,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Conversão de vídeo disponível no app Android e iPhone.'),
+          content:
+              Text('Conversão de vídeo disponível no app Android e iPhone.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -940,7 +977,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Extração de áudio disponível no app Android e iPhone.'),
+          content:
+              Text('Extração de áudio disponível no app Android e iPhone.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1017,7 +1055,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               ),
               child: Container(
                 constraints: BoxConstraints(maxHeight: maxH),
-                decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+                decoration:
+                    ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
                 child: SafeArea(
                   top: false,
                   child: SingleChildScrollView(
@@ -1026,222 +1065,266 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF4F46E5), Color(0xFF06B6D4)],
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: const Icon(
-                          Icons.compress_rounded,
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        Row(
                           children: [
-                            Text(
-                              'Smart Compress Pro',
-                              style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
-                            ),
-                            Text(
-                              '100% no aparelho · imagem, PDF e vídeo',
-                              style: ModernModuleUI.moduleSubtitleStyle(ctx, fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  for (final level in UtilitariosCompressLevel.values) ...[
-                    Builder(
-                      builder: (ctx) {
-                        final accent = _compressLevelAccent(level);
-                        final isSelected = selected == level;
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () => setModal(() => selected = level),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 160),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 12,
-                              ),
+                            Container(
+                              padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? accent
-                                      : const Color(0xFF64748B).withValues(alpha: 0.25),
-                                  width: isSelected ? 2 : 1,
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF4F46E5),
+                                    Color(0xFF06B6D4)
+                                  ],
                                 ),
-                                color: isSelected
-                                    ? accent.withValues(alpha: 0.10)
-                                    : Theme.of(ctx)
-                                        .colorScheme
-                                        .surfaceContainerHighest
-                                        .withValues(alpha: 0.35),
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              child: Row(
+                              child: const Icon(
+                                Icons.compress_rounded,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: accent.withValues(alpha: 0.16),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Icon(
-                                      _compressLevelIcon(level),
-                                      color: accent,
-                                      size: 22,
-                                    ),
+                                  Text(
+                                    'Smart Compress Pro',
+                                    style: ModernModuleUI.moduleTitleStyle(ctx,
+                                        fontSize: 18),
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 4,
-                                          crossAxisAlignment: WrapCrossAlignment.center,
-                                          children: [
-                                            Text(
-                                              level.label,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: 15,
-                                                color: Theme.of(ctx).colorScheme.onSurface,
-                                              ),
-                                            ),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 3,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: accent.withValues(alpha: 0.18),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Text(
-                                                level.reductionBadge,
-                                                style: TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w900,
-                                                  color: accent,
-                                                ),
-                                              ),
-                                            ),
-                                            if (level == UtilitariosCompressLevel.media)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 3,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFF4F46E5)
-                                                      .withValues(alpha: 0.15),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
-                                                child: const Text(
-                                                  'Padrão',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF4F46E5),
-                                                  ),
-                                                ),
-                                              ),
-                                            if (level == UtilitariosCompressLevel.alta)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 3,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFF7C3AED)
-                                                      .withValues(alpha: 0.15),
-                                                  borderRadius: BorderRadius.circular(8),
-                                                ),
-                                                child: const Text(
-                                                  'Máxima redução',
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF7C3AED),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          level.subtitle,
-                                          style: ModernModuleUI.moduleSubtitleStyle(
-                                            ctx,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          level.techSummary,
-                                          style: ModernModuleUI.moduleSubtitleStyle(
-                                            ctx,
-                                            fontSize: 11,
-                                          ).copyWith(
-                                            fontStyle: FontStyle.italic,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    isSelected
-                                        ? Icons.radio_button_checked_rounded
-                                        : Icons.radio_button_off_rounded,
-                                    color: isSelected ? accent : const Color(0xFF64748B),
+                                  Text(
+                                    '100% no aparelho · imagem, PDF e vídeo',
+                                    style: ModernModuleUI.moduleSubtitleStyle(
+                                        ctx,
+                                        fontSize: 12),
                                   ),
                                 ],
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        for (final level
+                            in UtilitariosCompressLevel.values) ...[
+                          Builder(
+                            builder: (ctx) {
+                              final accent = _compressLevelAccent(level);
+                              final isSelected = selected == level;
+                              return Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(16),
+                                  onTap: () => setModal(() => selected = level),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 160),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? accent
+                                            : const Color(0xFF64748B)
+                                                .withValues(alpha: 0.25),
+                                        width: isSelected ? 2 : 1,
+                                      ),
+                                      color: isSelected
+                                          ? accent.withValues(alpha: 0.10)
+                                          : Theme.of(ctx)
+                                              .colorScheme
+                                              .surfaceContainerHighest
+                                              .withValues(alpha: 0.35),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color:
+                                                accent.withValues(alpha: 0.16),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                          child: Icon(
+                                            _compressLevelIcon(level),
+                                            color: accent,
+                                            size: 22,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 4,
+                                                crossAxisAlignment:
+                                                    WrapCrossAlignment.center,
+                                                children: [
+                                                  Text(
+                                                    level.label,
+                                                    style: TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w900,
+                                                      fontSize: 15,
+                                                      color: Theme.of(ctx)
+                                                          .colorScheme
+                                                          .onSurface,
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
+                                                    ),
+                                                    decoration: BoxDecoration(
+                                                      color: accent.withValues(
+                                                          alpha: 0.18),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              8),
+                                                    ),
+                                                    child: Text(
+                                                      level.reductionBadge,
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                        color: accent,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  if (level ==
+                                                      UtilitariosCompressLevel
+                                                          .media)
+                                                    Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 3,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                                0xFF4F46E5)
+                                                            .withValues(
+                                                                alpha: 0.15),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(8),
+                                                      ),
+                                                      child: const Text(
+                                                        'Padrão',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color:
+                                                              Color(0xFF4F46E5),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  if (level ==
+                                                      UtilitariosCompressLevel
+                                                          .alta)
+                                                    Container(
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 3,
+                                                      ),
+                                                      decoration: BoxDecoration(
+                                                        color: const Color(
+                                                                0xFF7C3AED)
+                                                            .withValues(
+                                                                alpha: 0.15),
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(8),
+                                                      ),
+                                                      child: const Text(
+                                                        'Máxima redução',
+                                                        style: TextStyle(
+                                                          fontSize: 10,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color:
+                                                              Color(0xFF7C3AED),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                level.subtitle,
+                                                style: ModernModuleUI
+                                                    .moduleSubtitleStyle(
+                                                  ctx,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                level.techSummary,
+                                                style: ModernModuleUI
+                                                    .moduleSubtitleStyle(
+                                                  ctx,
+                                                  fontSize: 11,
+                                                ).copyWith(
+                                                  fontStyle: FontStyle.italic,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(
+                                          isSelected
+                                              ? Icons
+                                                  .radio_button_checked_rounded
+                                              : Icons.radio_button_off_rounded,
+                                          color: isSelected
+                                              ? accent
+                                              : const Color(0xFF64748B),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.pop(ctx, selected),
-                    icon: const Icon(Icons.compress_rounded),
-                    label: Text(
-                      'Comprimir · ${selected.reductionBadge} (${selected.label})',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(52),
-                      backgroundColor: _compressLevelAccent(selected),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text('Cancelar'),
-                  ),
+                          const SizedBox(height: 8),
+                        ],
+                        const SizedBox(height: 8),
+                        FilledButton.icon(
+                          onPressed: () => Navigator.pop(ctx, selected),
+                          icon: const Icon(Icons.compress_rounded),
+                          label: Text(
+                            'Comprimir · ${selected.reductionBadge} (${selected.label})',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52),
+                            backgroundColor: _compressLevelAccent(selected),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: const Text('Cancelar'),
+                        ),
                       ],
                     ),
                   ),
@@ -1394,7 +1477,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                subtitle ?? '${level.reductionBadge} · ${level.label} · ${level.techSummary}',
+                subtitle ??
+                    '${level.reductionBadge} · ${level.label} · ${level.techSummary}',
                 style: ModernModuleUI.moduleSubtitleStyle(ctx),
               ),
               const SizedBox(height: 16),
@@ -1407,8 +1491,16 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: dark
-                        ? const [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF0F766E)]
-                        : const [Color(0xFFEEF2FF), Color(0xFFE0E7FF), Color(0xFFCCFBF1)],
+                        ? const [
+                            Color(0xFF1E1B4B),
+                            Color(0xFF312E81),
+                            Color(0xFF0F766E)
+                          ]
+                        : const [
+                            Color(0xFFEEF2FF),
+                            Color(0xFFE0E7FF),
+                            Color(0xFFCCFBF1)
+                          ],
                   ),
                   border: Border.all(
                     color: dark
@@ -1434,9 +1526,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Icon(
                             Icons.arrow_forward_rounded,
-                            color: dark
-                                ? Colors.white70
-                                : const Color(0xFF6366F1),
+                            color:
+                                dark ? Colors.white70 : const Color(0xFF6366F1),
                           ),
                         ),
                         Expanded(
@@ -1500,9 +1591,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       child: LinearProgressIndicator(
                         value: grew ? 1 : (1 - (pct / 100)).clamp(0.08, 1.0),
                         minHeight: 8,
-                        backgroundColor: dark
-                            ? Colors.white12
-                            : const Color(0xFFCBD5E1),
+                        backgroundColor:
+                            dark ? Colors.white12 : const Color(0xFFCBD5E1),
                         color: grew
                             ? const Color(0xFFF87171)
                             : (dark
@@ -1591,7 +1681,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         return StatefulBuilder(
           builder: (ctx, setModal) {
             return Container(
-              decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+              decoration:
+                  ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1624,11 +1715,13 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                             border: Border.all(
                               color: selected == f
                                   ? const Color(0xFF0EA5E9)
-                                  : const Color(0xFF64748B).withValues(alpha: 0.25),
+                                  : const Color(0xFF64748B)
+                                      .withValues(alpha: 0.25),
                               width: selected == f ? 2 : 1,
                             ),
                             color: selected == f
-                                ? const Color(0xFF0EA5E9).withValues(alpha: 0.10)
+                                ? const Color(0xFF0EA5E9)
+                                    .withValues(alpha: 0.10)
                                 : Theme.of(ctx)
                                     .colorScheme
                                     .surfaceContainerHighest
@@ -1652,7 +1745,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 15,
-                                        color: Theme.of(ctx).colorScheme.onSurface,
+                                        color:
+                                            Theme.of(ctx).colorScheme.onSurface,
                                       ),
                                     ),
                                     Text(
@@ -1756,8 +1850,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         bytes: pdf,
         fileName: 'foto_camera_controle_total.pdf',
         mimeType: 'application/pdf',
-        okMessage:
-            'PDF com $pageCount página(s) — pronto para compartilhar.',
+        okMessage: 'PDF com $pageCount página(s) — pronto para compartilhar.',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
       );
@@ -1999,7 +2092,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   if (narrow) {
                     return Column(
                       children: [
-                        for (final w in videoTools) ...[w, const SizedBox(height: 8)],
+                        for (final w in videoTools) ...[
+                          w,
+                          const SizedBox(height: 8)
+                        ],
                       ],
                     );
                   }
@@ -2057,7 +2153,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   if (narrow) {
                     return Column(
                       children: [
-                        for (final w in pdfTools) ...[w, const SizedBox(height: 8)],
+                        for (final w in pdfTools) ...[
+                          w,
+                          const SizedBox(height: 8)
+                        ],
                       ],
                     );
                   }
@@ -2129,7 +2228,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               const SizedBox(height: 12),
               Text(
                 _footerQuotaText(),
-                style: ModernModuleUI.moduleSubtitleStyle(context, fontSize: 11.5),
+                style:
+                    ModernModuleUI.moduleSubtitleStyle(context, fontSize: 11.5),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -2174,6 +2274,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                 ),
               ),
             ),
+          _buildResultBar(),
         ],
       ),
     );
@@ -2483,7 +2584,8 @@ class _ToolTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
               child: Row(
                 children: [
-                  ModernModuleUI.iconBadge(icon: icon, gradient: gradient, size: 40),
+                  ModernModuleUI.iconBadge(
+                      icon: icon, gradient: gradient, size: 40),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(

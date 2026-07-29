@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
-import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
@@ -282,8 +281,7 @@ abstract final class MuralPublishOutboxService {
     final hasVideo = json['hasVideo'] == true;
 
     // Não gravar Firestore «uploading» antes do Storage — só upload + finalize.
-    final buildMedia =
-        ({required allUrls, required aspectRatio, required hasVideo}) =>
+    Map<String, dynamic> buildMedia({required allUrls, required aspectRatio, required hasVideo}) =>
             MuralPostMediaPayload.buildMediaFields(
       allUrls: allUrls,
       aspectRatio: aspectRatio,

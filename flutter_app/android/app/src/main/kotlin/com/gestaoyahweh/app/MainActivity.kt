@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import java.util.Locale
 import androidx.activity.enableEdgeToEdge
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -154,7 +155,15 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun extractPath(intent: Intent?): String? {
         val data: Uri = intent?.data ?: return null
-        val path = data.encodedPath ?: "/"
+        val scheme = data.scheme?.lowercase(Locale.getDefault()) ?: ""
+        val host = data.host?.lowercase(Locale.getDefault()) ?: ""
+        val rawPath = data.encodedPath ?: "/"
+        // Custom scheme gestaoyahweh://igreja/{tenantId}/... → normaliza para /igreja/...
+        val path = if (scheme == "gestaoyahweh" && host == "igreja") {
+            if (rawPath == "/") "/igreja" else "/igreja$rawPath"
+        } else {
+            rawPath
+        }
         val query = data.encodedQuery
         return if (query.isNullOrEmpty()) path else "$path?$query"
     }

@@ -37,8 +37,7 @@ abstract final class YahwehLocalSnapshotStore {
       final prefs = await SharedPreferences.getInstance();
       final ts = prefs.getInt('${_key(tenantId, bucket)}_ts');
       if (ts != null &&
-          DateTime.now().millisecondsSinceEpoch - ts >
-              maxAge.inMilliseconds) {
+          DateTime.now().millisecondsSinceEpoch - ts > maxAge.inMilliseconds) {
         return const [];
       }
       final raw = prefs.getString(_key(tenantId, bucket));
@@ -52,5 +51,14 @@ abstract final class YahwehLocalSnapshotStore {
     } catch (_) {
       return const [];
     }
+  }
+
+  static Future<void> deleteJsonList(String tenantId, String bucket) async {
+    if (tenantId.trim().isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key(tenantId, bucket));
+      await prefs.remove('${_key(tenantId, bucket)}_ts');
+    } catch (_) {}
   }
 }

@@ -316,7 +316,7 @@ pw.Widget _normaCultaSignatureBlock(
   final sigBytesOk = digitalStamp == null &&
       signatureImageBytes != null &&
       signatureImageBytes.length > 24;
-  final sigImage = sigBytesOk ? pw.MemoryImage(signatureImageBytes!) : null;
+  final sigImage = sigBytesOk ? pw.MemoryImage(signatureImageBytes) : null;
   final nameStyle = bodyStyle.copyWith(
     fontSize: (bodyStyle.fontSize ?? 10.5) - 0.2,
     fontWeight: pw.FontWeight.bold,

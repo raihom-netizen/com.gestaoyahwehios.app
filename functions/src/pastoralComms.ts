@@ -9,7 +9,7 @@ import {
   sendGestaoYahwehHtmlEmail,
 } from "./memberNotificationEmail";
 import { buildGyTopicMessage, buildGyTokenMessage } from "./notificationBranding";
-import { topicPushNovo } from "./pushNovoConteudo";
+import { topicPushNovo, buildGyNotificationDeepLink } from "./pushNovoConteudo";
 const db = admin.firestore();
 
 function normalizeRole(value: unknown): string {
@@ -1100,6 +1100,7 @@ export const dailyBirthdayTopicPush = functions
               tenantId,
               type: "birthday_daily",
               click_action: "FLUTTER_NOTIFICATION_CLICK",
+              deepLink: buildGyNotificationDeepLink(tenantId, "aniversariantes"),
             },
             module: "aniversario",
           })

@@ -13,8 +13,6 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Personalização de alertas (foreground) por conta, DM, grupo, departamento, pessoa e conversa — estilo Super Premium.
 class ChurchChatNotificationSettingsPage extends StatefulWidget {
@@ -883,7 +881,7 @@ class _ChurchChatNotificationSettingsPageState
                               padding:
                                   const EdgeInsets.fromLTRB(16, 0, 16, 32),
                               itemCount: dfiltered.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (context, i) {
                                 final doc = dfiltered[i];
@@ -1099,7 +1097,7 @@ class _ChurchChatNotificationSettingsPageState
                               padding:
                                   const EdgeInsets.fromLTRB(16, 0, 16, 32),
                               itemCount: entries.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 8),
                               itemBuilder: (context, i) {
                                 final e = entries[i];
@@ -1231,7 +1229,7 @@ class _ChurchChatNotificationSettingsPageState
                             physics: const NeverScrollableScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
                             itemCount: filtered.length,
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 const SizedBox(height: 8),
                             itemBuilder: (context, i) {
                               final doc = filtered[i];

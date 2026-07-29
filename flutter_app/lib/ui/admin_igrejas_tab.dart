@@ -495,11 +495,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: _paymentChipColor(previewGuard).withOpacity(0.08),
+                          color: _paymentChipColor(previewGuard).withValues(alpha: 0.08),
                           borderRadius:
                               BorderRadius.circular(ThemeCleanPremium.radiusMd),
                           border: Border.all(
-                            color: _paymentChipColor(previewGuard).withOpacity(0.25),
+                            color: _paymentChipColor(previewGuard).withValues(alpha: 0.25),
                           ),
                         ),
                         child: Row(
@@ -611,7 +611,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
-                          value: planoSel,
+                          initialValue: planoSel,
                           decoration: InputDecoration(
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(
@@ -1040,7 +1040,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 final guard = SubscriptionGuard.evaluate(church: d.data);
                 if (guard.blocked ||
                     guard.inGrace ||
-                    guard.statusAssinatura == 'overdue') return true;
+                    guard.statusAssinatura == 'overdue') {
+                  return true;
+                }
                 final exp = guard.dataVencimento;
                 if (exp == null) return false;
                 final days = exp.difference(now).inDays;
@@ -1353,7 +1355,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   ),
                                   const SizedBox(height: 12),
                                   DropdownButtonFormField<String>(
-                                    value: _filterStatus.isEmpty
+                                    initialValue: _filterStatus.isEmpty
                                         ? null
                                         : _filterStatus,
                                     decoration: const InputDecoration(
@@ -1372,7 +1374,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   ),
                                   const SizedBox(height: 8),
                                   DropdownButtonFormField<String>(
-                                    value: _filterPlano.isEmpty
+                                    initialValue: _filterPlano.isEmpty
                                         ? null
                                         : _filterPlano,
                                     decoration: const InputDecoration(
@@ -1459,7 +1461,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     children: [
                                       Expanded(
                                         child: DropdownButtonFormField<String>(
-                                          value: _filterStatus.isEmpty
+                                          initialValue: _filterStatus.isEmpty
                                               ? null
                                               : _filterStatus,
                                           decoration: const InputDecoration(
@@ -1482,7 +1484,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: DropdownButtonFormField<String>(
-                                          value: _filterPlano.isEmpty
+                                          initialValue: _filterPlano.isEmpty
                                               ? null
                                               : _filterPlano,
                                           decoration: const InputDecoration(
@@ -1596,15 +1598,14 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                               ig['license'] is Map) {
                             final lic = ig['license'] as Map;
                             final exp = lic['expiresAt'];
-                            if (exp is Timestamp)
+                            if (exp is Timestamp) {
                               licenseExpiresAt = exp.toDate();
+                            }
                           }
                           final now = DateTime.now();
                           final hasActiveLicense = licenseExpiresAt != null &&
                               licenseExpiresAt.isAfter(now);
-                          final daysLeft = licenseExpiresAt != null
-                              ? licenseExpiresAt.difference(now).inDays
-                              : null;
+                          final daysLeft = licenseExpiresAt?.difference(now).inDays;
                           final guard = SubscriptionGuard.evaluate(church: ig);
                           final plano =
                               (ig['plano'] ?? ig['planId'] ?? '—').toString();
@@ -1617,8 +1618,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                           if (licenseExpiresAt != null) {
                             validadeStr =
                                 'Venc.: ${DateFormat('dd/MM/yyyy').format(licenseExpiresAt)}';
-                            if (hasActiveLicense && daysLeft != null)
+                            if (hasActiveLicense && daysLeft != null) {
                               validadeStr += ' (${daysLeft}d)';
+                            }
                           } else {
                             validadeStr = plano == 'free' ? 'FREE' : '—';
                           }
@@ -1772,12 +1774,12 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                               horizontal: 10, vertical: 5),
                                           decoration: BoxDecoration(
                                             color: _paymentChipColor(guard)
-                                                .withOpacity(0.12),
+                                                .withValues(alpha: 0.12),
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
                                                 color: _paymentChipColor(guard)
-                                                    .withOpacity(0.35)),
+                                                    .withValues(alpha: 0.35)),
                                           ),
                                           child: Text(
                                             'Pagamento: ${guard.masterBadgeLabel}',
@@ -1806,12 +1808,12 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                               horizontal: 10, vertical: 5),
                                           decoration: BoxDecoration(
                                             color: _paymentChipColor(guard)
-                                                .withOpacity(0.12),
+                                                .withValues(alpha: 0.12),
                                             borderRadius:
                                                 BorderRadius.circular(999),
                                             border: Border.all(
                                                 color: _paymentChipColor(guard)
-                                                    .withOpacity(0.35)),
+                                                    .withValues(alpha: 0.35)),
                                           ),
                                           child: Text(
                                             'Pagamento: ${guard.masterBadgeLabel}',

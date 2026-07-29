@@ -1,4 +1,3 @@
-/// Matriz de permissões por papel (chave normalizada — [FUNCAO_PERMISSOES], `users.role`, templates).
 /// Use [snapshotFor] no menu lateral e em [AppPermissions].
 class ChurchRolePermissionSnapshot {
   const ChurchRolePermissionSnapshot({
@@ -116,126 +115,134 @@ class ChurchRolePermissions {
     return n == ChurchRoleKeys.liderDepartamento || n == ChurchRoleKeys.lider;
   }
 
-  static const ChurchRolePermissionSnapshot _full = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: false,
-    viewPatrimonio: true,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: true,
-    editDepartments: true,
-    editSchedulesAll: true,
-    manageVisitors: true,
-    manageCargosCatalog: true,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF1565C0,
-  );
+  static const ChurchRolePermissionSnapshot _full =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: true,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: true,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: true,
+        manageCargosCatalog: true,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF1565C0,
+      );
 
-  static const ChurchRolePermissionSnapshot _pastorAux = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: false,
-    viewPatrimonio: false,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: true,
-    editDepartments: true,
-    editSchedulesAll: true,
-    manageVisitors: true,
-    manageCargosCatalog: false,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF5E35B1,
-  );
+  static const ChurchRolePermissionSnapshot _pastorAux =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: false,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: true,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: true,
+        manageCargosCatalog: false,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF5E35B1,
+      );
 
-  static const ChurchRolePermissionSnapshot _secretario = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: false,
-    viewPatrimonio: true,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: true,
-    editDepartments: true,
-    editSchedulesAll: true,
-    manageVisitors: true,
-    manageCargosCatalog: true,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF00897B,
-  );
+  static const ChurchRolePermissionSnapshot _secretario =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: true,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: true,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: true,
+        manageCargosCatalog: true,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF00897B,
+      );
 
-  static const ChurchRolePermissionSnapshot _tesoureiro = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: true,
-    viewPatrimonio: true,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: false,
-    editDepartments: true,
-    editSchedulesAll: true,
-    manageVisitors: false,
-    manageCargosCatalog: false,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF2E7D32,
-  );
+  static const ChurchRolePermissionSnapshot _tesoureiro =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: true,
+        viewPatrimonio: true,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: false,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: false,
+        manageCargosCatalog: false,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF2E7D32,
+      );
 
-  static const ChurchRolePermissionSnapshot _liderDept = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: false,
-    viewPatrimonio: false,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: false,
-    editDepartments: true,
-    editSchedulesAll: false,
-    manageVisitors: false,
-    manageCargosCatalog: false,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF6A1B9A,
-  );
+  static const ChurchRolePermissionSnapshot _liderDept =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: false,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: false,
+        editDepartments: true,
+        editSchedulesAll: false,
+        manageVisitors: false,
+        manageCargosCatalog: false,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF6A1B9A,
+      );
 
-  static const ChurchRolePermissionSnapshot _obreiroLeve = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: false,
-    viewPatrimonio: false,
-    editAnyMember: false,
-    viewMemberDirectory: true,
-    editChurchProfile: false,
-    editDepartments: false,
-    editSchedulesAll: true,
-    manageVisitors: false,
-    manageCargosCatalog: false,
-    approvePendingMembers: false,
-    badgeColorArgb: 0xFF546E7A,
-  );
+  static const ChurchRolePermissionSnapshot _obreiroLeve =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: false,
+        editAnyMember: false,
+        viewMemberDirectory: true,
+        editChurchProfile: false,
+        editDepartments: false,
+        editSchedulesAll: true,
+        manageVisitors: false,
+        manageCargosCatalog: false,
+        approvePendingMembers: false,
+        badgeColorArgb: 0xFF546E7A,
+      );
 
-  static const ChurchRolePermissionSnapshot _membro = ChurchRolePermissionSnapshot(
-    restrictedNav: true,
-    viewFinance: false,
-    viewPatrimonio: false,
-    editAnyMember: false,
-    viewMemberDirectory: false,
-    editChurchProfile: false,
-    editDepartments: false,
-    editSchedulesAll: false,
-    manageVisitors: false,
-    manageCargosCatalog: false,
-    approvePendingMembers: false,
-    badgeColorArgb: 0xFF78909C,
-  );
+  static const ChurchRolePermissionSnapshot _membro =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: true,
+        viewFinance: false,
+        viewPatrimonio: false,
+        editAnyMember: false,
+        viewMemberDirectory: false,
+        editChurchProfile: false,
+        editDepartments: false,
+        editSchedulesAll: false,
+        manageVisitors: false,
+        manageCargosCatalog: false,
+        approvePendingMembers: false,
+        badgeColorArgb: 0xFF78909C,
+      );
 
   /// Pastor “clássico” no sistema: amplo acesso (compatibilidade com igrejas já cadastradas).
-  static const ChurchRolePermissionSnapshot _pastorLegacy = ChurchRolePermissionSnapshot(
-    restrictedNav: false,
-    viewFinance: true,
-    viewPatrimonio: true,
-    editAnyMember: true,
-    viewMemberDirectory: true,
-    editChurchProfile: true,
-    editDepartments: true,
-    editSchedulesAll: true,
-    manageVisitors: true,
-    manageCargosCatalog: true,
-    approvePendingMembers: true,
-    badgeColorArgb: 0xFF3949AB,
-  );
+  static const ChurchRolePermissionSnapshot _pastorLegacy =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: true,
+        viewPatrimonio: true,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: true,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: true,
+        manageCargosCatalog: true,
+        approvePendingMembers: true,
+        badgeColorArgb: 0xFF3949AB,
+      );
 
   static final Map<String, ChurchRolePermissionSnapshot> _byKey = {
     ChurchRoleKeys.master: _full,
@@ -266,13 +273,13 @@ class ChurchRolePermissions {
   /// Chaves sem doc em [funcoesControle] / cargos novos — aproximação segura.
   static ChurchRolePermissionSnapshot legacySnapshotForUnknownKey(String n) {
     if (const {
-          'adm',
-          'admin',
-          'gestor',
-          'master',
-          'administrador',
-          'administradora',
-        }.contains(n)) {
+      'adm',
+      'admin',
+      'gestor',
+      'master',
+      'administrador',
+      'administradora',
+    }.contains(n)) {
       return _full;
     }
     if (n == 'tesoureiro' || n == 'tesouraria') return _tesoureiro;
@@ -297,7 +304,8 @@ class ChurchRolePermissions {
     return _membro;
   }
 
-  static int badgeColorForKey(String roleKey) => snapshotFor(roleKey).badgeColorArgb;
+  static int badgeColorForKey(String roleKey) =>
+      snapshotFor(roleKey).badgeColorArgb;
 
   static bool _hasGranularModule(List<String>? permissions, String moduleKey) {
     if (permissions == null || permissions.isEmpty) return false;
@@ -364,10 +372,10 @@ class ChurchRolePermissions {
     final r = normalize(role);
 
     bool fin() => _shellAllowsFinanceNav(
-          role,
-          memberCanViewFinance: memberCanViewFinance,
-          permissions: permissions,
-        );
+      role,
+      memberCanViewFinance: memberCanViewFinance,
+      permissions: permissions,
+    );
 
     bool pat() {
       if (_hasGranularModule(permissions, 'patrimonio')) return true;
@@ -439,12 +447,11 @@ class ChurchRolePermissions {
       case 11:
         return true;
       case 12:
-        // Escala geral (igreja inteira) ou módulo Escalas para líderes (só departamentos que lideram).
-        if (s.editSchedulesAll) return true;
-        if (r == ChurchRoleKeys.liderDepartamento || r == ChurchRoleKeys.lider) {
-          return true;
-        }
-        return false;
+        // Alias de compatibilidade do índice 11 (Escala unificada).
+        // A decisão entre edição e visualização é feita em
+        // [ChurchSchedulesUnifiedPage]; aqui apenas garante que deep links,
+        // notificações push e cache antigo continuem acessíveis.
+        return true;
       case 13:
         return true;
       case 14:
@@ -458,7 +465,9 @@ class ChurchRolePermissions {
         return s.editAnyMember || s.approvePendingMembers;
       case 15:
         // Cartas apresentação/transferência — alinhado a certificados + granular `cartas_transferencias`.
-        if (_hasGranularModule(permissions, 'cartas_transferencias')) return true;
+        if (_hasGranularModule(permissions, 'cartas_transferencias')) {
+          return true;
+        }
         if (_hasGranularModule(permissions, 'certificados')) return true;
         if (s.restrictedNav) return false;
         if (r == ChurchRoleKeys.tesoureiro || r == ChurchRoleKeys.tesouraria) {
@@ -468,7 +477,9 @@ class ChurchRolePermissions {
       case 16:
         if (_hasGranularModule(permissions, 'relatorios')) return true;
         if (permissions != null &&
-            permissions.any((p) => p.trim().toLowerCase().startsWith('relatorio_'))) {
+            permissions.any(
+              (p) => p.trim().toLowerCase().startsWith('relatorio_'),
+            )) {
           return true;
         }
         return isFinancePanelTeam(role);

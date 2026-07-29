@@ -1,0 +1,1 @@
+Cross-platform Flutter application for church management with Firebase backend, offline-first Hive sync, optional TDLib/Telegram chat integration, and native Android/iOS widgets.

@@ -585,8 +585,9 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
       ],
     );
 
-    if (widget.embeddedInShell)
+    if (widget.embeddedInShell) {
       return ColoredBox(color: const Color(0xFFF8FAFC), child: body);
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text(YahwehContactButtonLabels.yahwehChat),

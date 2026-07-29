@@ -1,4 +1,4 @@
-﻿import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -35,7 +35,7 @@ class FirebaseStorageService {
   }
 
   static final Map<String, String?> _memberPhotoUrlCache = {};
-  static const int _cacheMaxSize = 200;
+  static const int _cacheMaxSize = 500;
 
   static final Map<String, String?> _churchLogoUrlCache = {};
   static const int _churchLogoCacheMax = 64;

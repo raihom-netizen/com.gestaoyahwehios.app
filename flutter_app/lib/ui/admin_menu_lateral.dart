@@ -105,7 +105,7 @@ class AdminMenuLateral extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Painel Admin',
-              style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 11),
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 11),
             ),
             const SizedBox(height: 14),
             _buildContextSelector(),
@@ -154,7 +154,7 @@ class AdminMenuLateral extends StatelessWidget {
         children: [
           Icon(Icons.church_rounded, color: Colors.white70, size: 18),
           const SizedBox(width: 6),
-          Text('Igrejas', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 12, fontWeight: FontWeight.w600)),
+          Text('Igrejas', style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -229,7 +229,7 @@ class AdminMenuLateral extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.85),
+          color: Colors.white.withValues(alpha: 0.85),
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.2,

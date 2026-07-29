@@ -232,6 +232,25 @@ function collectStoragePaths(
   return paths;
 }
 
+function collectEventTemplateStoragePaths(tenantId: string, templateId: string): string[] {
+  return [
+    `igrejas/${tenantId}/eventos/templates/${templateId}.jpg`,
+    `igrejas/${tenantId}/event_templates/${templateId}.jpg`,
+  ];
+}
+
+async function resolveEventTemplateCoverUrl(
+  tenantId: string,
+  templateId: string,
+): Promise<string | null> {
+  const urls = await Promise.all(
+    collectEventTemplateStoragePaths(tenantId, templateId).map((p) =>
+      firebaseDownloadUrlForPath(p)
+    )
+  );
+  return urls.find((u) => u != null) ?? null;
+}
+
 async function firebaseDownloadUrlForPath(objectPath: string): Promise<string | null> {
   const path = objectPath.replace(/^\/+/, "").trim();
   if (!path) return null;
@@ -396,6 +415,23 @@ export async function recomputePublicSiteMediaPrefetch(tenantId: string): Promis
   }
 
   addPrefetch(churchLogoUrl);
+
+  // Prefetch fixed-event template covers used by the public site schedule.
+  try {
+    const templatesSnap = await churchRef
+      .collection("event_templates")
+      .where("active", "==", true)
+      .limit(50)
+      .get();
+    const templateCoverResults = await Promise.all(
+      templatesSnap.docs.map((d) => resolveEventTemplateCoverUrl(tid, d.id))
+    );
+    for (const url of templateCoverResults) {
+      addPrefetch(url);
+    }
+  } catch (e) {
+    functions.logger.warn("publicSiteMediaPrefetch: templates", { tenantId: tid, e });
+  }
 
   const enriched: Record<string, unknown>[] = [];
 

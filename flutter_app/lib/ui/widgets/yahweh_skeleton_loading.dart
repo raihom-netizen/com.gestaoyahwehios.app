@@ -110,8 +110,8 @@ abstract final class YahwehSkeletonLoading {
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: count,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-        itemBuilder: (_, __) => Padding(
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 72),
+        itemBuilder: (_, _) => Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Row(
             children: [

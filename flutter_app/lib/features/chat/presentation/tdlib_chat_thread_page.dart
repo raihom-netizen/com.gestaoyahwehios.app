@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/chat_engine/tdlib_chat_adapter.dart';
 import 'package:gestao_yahweh/core/design_system/app_theme.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
@@ -500,7 +499,7 @@ class _MessageBubble extends StatelessWidget {
             width: 200,
             height: 150,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _buildMediaIcon(icon, label, theme),
+            errorBuilder: (_, _, _) => _buildMediaIcon(icon, label, theme),
           ),
         ),
       );

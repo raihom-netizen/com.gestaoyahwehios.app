@@ -24,7 +24,6 @@ import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Tela interna do sistema para o gestor/adm cadastrar um novo membro.
 /// Fluxo: cria Firebase Auth (UID) → `membros/{uid}` — CPF só como campo, não como id do documento.
@@ -747,7 +746,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _sexo,
+                            initialValue: _sexo,
                             decoration: memberSignupInputDecoration(
                               label: 'Sexo',
                               icon: Icons.wc_rounded,
@@ -794,7 +793,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: MemberSignupPremiumUi.escolaridadeOptions
+                      initialValue: MemberSignupPremiumUi.escolaridadeOptions
                               .contains(_escolaridadeCtrl.text.trim())
                           ? _escolaridadeCtrl.text.trim()
                           : null,
@@ -903,7 +902,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _ufs.contains(_estadoCtrl.text.trim())
+                      initialValue: _ufs.contains(_estadoCtrl.text.trim())
                           ? _estadoCtrl.text.trim()
                           : null,
                       decoration: memberSignupInputDecoration(
@@ -943,7 +942,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 itemCount: _citySuggestions.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                separatorBuilder: (_, _) => const Divider(height: 1),
                                 itemBuilder: (_, i) {
                                   final s = _citySuggestions[i];
                                   return ListTile(
@@ -961,7 +960,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     MemberSignupSectionTitle(title: 'Família'),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: MemberSignupPremiumUi.estadoCivilOptions
+                      initialValue: MemberSignupPremiumUi.estadoCivilOptions
                               .contains(_estadoCivilCtrl.text.trim())
                           ? _estadoCivilCtrl.text.trim()
                           : null,

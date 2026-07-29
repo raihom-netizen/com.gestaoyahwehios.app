@@ -6,9 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
@@ -149,7 +147,7 @@ abstract final class MembroStrictUpdateService {
       await runFirestorePublishWithRecovery(() => docRef.delete());
     }
     throw StateError(
-      '${kDeleteVerifyFailedMessage} (${docRef.path} ainda existe)',
+      '$kDeleteVerifyFailedMessage (${docRef.path} ainda existe)',
     );
   }
 
@@ -352,7 +350,7 @@ abstract final class MembroStrictUpdateService {
       final still = await ref.get(const GetOptions(source: Source.server));
       if (still.exists) {
         throw StateError(
-          '${kDeleteVerifyFailedMessage} Path: ${ref.path}',
+          '$kDeleteVerifyFailedMessage Path: ${ref.path}',
         );
       }
     }

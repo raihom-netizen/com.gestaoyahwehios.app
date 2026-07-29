@@ -10,10 +10,9 @@ abstract final class ModernModuleUI {
   static Color scaffoldBgOf(BuildContext context) =>
       Theme.of(context).scaffoldBackgroundColor;
 
-  static Color cardBg(BuildContext context) =>
-      isDark(context)
-          ? const Color(0xFF1E293B)
-          : Theme.of(context).colorScheme.surface;
+  static Color cardBg(BuildContext context) => isDark(context)
+      ? const Color(0xFF1E293B)
+      : Theme.of(context).colorScheme.surface;
 
   static Color onSurface(BuildContext context) =>
       Theme.of(context).colorScheme.onSurface;
@@ -207,7 +206,8 @@ abstract final class ModernModuleUI {
           ),
           child: Row(
             children: [
-              iconBadge(icon: icon, gradient: gradient, size: compact ? 36 : 44),
+              iconBadge(
+                  icon: icon, gradient: gradient, size: compact ? 36 : 44),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -306,6 +306,56 @@ abstract final class ModernModuleUI {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Botão preenchido com gradiente moderno (Compartilhar / Escolher pasta).
+  static Widget gradientFilledButton({
+    required VoidCallback? onPressed,
+    required IconData icon,
+    required String label,
+    required List<Color> gradient,
+    double height = 54,
+    double fontSize = 15,
+    BorderRadiusGeometry borderRadius =
+        const BorderRadius.all(Radius.circular(16)),
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: borderRadius,
+        boxShadow: [
+          BoxShadow(
+            color: gradient.last.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 22, color: Colors.white),
+        label: Text(
+          label,
+          style: TextStyle(
+            fontSize: fontSize,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.3,
+            color: Colors.white,
+          ),
+        ),
+        style: FilledButton.styleFrom(
+          minimumSize: Size(double.infinity, height),
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: borderRadius),
         ),
       ),
     );

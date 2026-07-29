@@ -23,7 +23,6 @@ import 'member_card_page.dart';
 import 'members_page.dart';
 import 'my_schedules_page.dart';
 import 'notifications_page.dart';
-import 'plans/renew_plan_page.dart';
 import 'schedules_page.dart';
 import 'users_page.dart';
 import 'sistema_informacoes_page.dart';
@@ -33,7 +32,6 @@ import '../widgets/install_pwa_button.dart';
 import '../widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class DashboardPage extends StatefulWidget {
   final String tenantId; // igrejaId
@@ -118,8 +116,9 @@ class _DashboardPageState extends State<DashboardPage> {
   String _normStatus(dynamic raw) {
     final s = (raw ?? '').toString().trim().toLowerCase();
     if (s.isEmpty) return 'ativo';
-    if (s.contains('inativ') || s.contains('bloq') || s.contains('off'))
+    if (s.contains('inativ') || s.contains('bloq') || s.contains('off')) {
       return 'inativo';
+    }
     return 'ativo';
   }
 
@@ -594,9 +593,9 @@ class _DashboardPageState extends State<DashboardPage> {
 
                         final age = ageFromMemberData(data);
                         if (age != null) {
-                          if (age <= 12)
+                          if (age <= 12) {
                             ageBuckets['0-12'] = (ageBuckets['0-12'] ?? 0) + 1;
-                          else if (age <= 17)
+                          } else if (age <= 17)
                             ageBuckets['13-17'] =
                                 (ageBuckets['13-17'] ?? 0) + 1;
                           else if (age <= 25)
@@ -708,7 +707,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                       itemCount: birthdays.length > 10
                                           ? 10
                                           : birthdays.length,
-                                      separatorBuilder: (_, __) =>
+                                      separatorBuilder: (_, _) =>
                                           const SizedBox(width: 12),
                                       itemBuilder: (context, i) {
                                         final b = birthdays[i];
@@ -1189,9 +1188,9 @@ class _LicenseActiveBadge extends StatelessWidget {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
+                color: Colors.white.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: Colors.white.withOpacity(0.5)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1262,7 +1261,7 @@ class _TopBar extends StatelessWidget {
             width: isNarrow ? 38 : 44,
             height: isNarrow ? 38 : 44,
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
+              color: Colors.white.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: ClipRRect(
@@ -1371,7 +1370,7 @@ class _SectionCard extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
-                if (trailing != null) trailing!,
+                ?trailing,
               ],
             ),
             const SizedBox(height: 10),
@@ -1468,7 +1467,7 @@ class _KpiTile extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 22,
             offset: const Offset(0, 8),
           ),
@@ -1480,7 +1479,7 @@ class _KpiTile extends StatelessWidget {
             width: 38,
             height: 38,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.14),
+              color: color.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: color, size: 20),
@@ -1522,11 +1521,12 @@ class _MuralPreview extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: col.watchSafe(),
       builder: (context, snap) {
-        if (!snap.hasData)
+        if (!snap.hasData) {
           return const SizedBox(
             height: 120,
             child: Center(child: CircularProgressIndicator()),
           );
+        }
         final docs = snap.data!.docs;
         if (docs.isEmpty) return const Text('Nenhum aviso publicado ainda.');
 
@@ -1697,8 +1697,8 @@ class _GrowthLineChart extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  const Color(0xFF2563EB).withOpacity(0.18),
-                  const Color(0xFF2563EB).withOpacity(0.03),
+                  const Color(0xFF2563EB).withValues(alpha: 0.18),
+                  const Color(0xFF2563EB).withValues(alpha: 0.03),
                 ],
               ),
             ),
@@ -1870,7 +1870,7 @@ class _BirthdaysDialog extends StatelessWidget {
         child: ListView.separated(
           shrinkWrap: true,
           itemCount: birthdays.length,
-          separatorBuilder: (_, __) => const Divider(height: 12),
+          separatorBuilder: (_, _) => const Divider(height: 12),
           itemBuilder: (context, i) {
             final b = birthdays[i];
             final dt = b['birth'] as DateTime;

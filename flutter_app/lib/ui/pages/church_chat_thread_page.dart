@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'dart:io' show File, Platform;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,7 +12,6 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/church_chat_optimized_payload_cache.dart';
@@ -26,15 +22,15 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatUploadErrorForUser, isFirebaseNoAppError, kFeedPublishQueuedUserMessage;
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+    show
+        formatUploadErrorForUser,
+        isFirebaseNoAppError,
+        kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
-import 'package:gestao_yahweh/services/church_chat_fs.dart'
-    show churchChatReadFileBytes;
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
@@ -48,16 +44,12 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart'
-    hide formatUploadErrorForUser;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
@@ -66,7 +58,6 @@ import 'package:gestao_yahweh/services/church_chat_fast_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
@@ -78,7 +69,6 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_storage_media.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chat_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_voice_bubble.dart';
@@ -90,13 +80,9 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_whatsapp_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/audio_service.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_local_cache_engine.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class _ReplyDraft {
   final String messageId;
@@ -112,11 +98,11 @@ class _ReplyDraft {
   });
 
   Map<String, dynamic> toReplyPayload() => {
-        'messageId': messageId,
-        'senderUid': senderUid,
-        'preview': preview,
-        'type': contentType,
-      };
+    'messageId': messageId,
+    'senderUid': senderUid,
+    'preview': preview,
+    'type': contentType,
+  };
 
   static _ReplyDraft fromMessageDoc(String id, Map<String, dynamic> m) {
     final type = (m['type'] ?? 'text').toString();
@@ -162,10 +148,13 @@ class ChurchChatThreadPage extends StatefulWidget {
   final String title;
   final bool isDepartment;
   final String? peerUid;
+
   /// Papel do utilizador no painel (ex.: `IgrejaCleanShell`) — moderação de mensagens.
   final String memberRole;
+
   /// CPF só dígitos — líder de departamento por CPF.
   final String memberCpfDigits;
+
   /// Doc `departamentos/{id}` quando [isDepartment].
   final String? departmentId;
 
@@ -211,6 +200,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   final ChatAudioService _chatAudio = ChatAudioService();
   bool _voiceRecording = false;
   Future<void>? _voiceStartFuture;
+
   /// Evita `IconButton.onPressed` após soltar o long-press (reiniciava gravação).
   bool _micLongPressActive = false;
   bool _voiceSlideCancel = false;
@@ -220,8 +210,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Duration _voiceElapsed = Duration.zero;
 
   _ReplyDraft? _replyDraft;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _olderMessageDocs = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestRecentDocs = const [];
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _olderMessageDocs =
+      [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestRecentDocs =
+      const [];
   Timer? _messagesPrimeFallbackTimer;
   bool _messagesPrimeInFlight = false;
   bool _loadingMoreHistory = false;
@@ -256,10 +248,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   String? _effectiveTenantId;
 
   String get _tid => ChurchRepository.churchId(
-        (_effectiveTenantId ?? '').trim().isNotEmpty
-            ? _effectiveTenantId!
-            : widget.tenantId.trim(),
-      );
+    (_effectiveTenantId ?? '').trim().isNotEmpty
+        ? _effectiveTenantId!
+        : widget.tenantId.trim(),
+  );
 
   Future<String> _awaitOperationalTenantId() async {
     final cached = (_effectiveTenantId ?? '').trim();
@@ -364,13 +356,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.departmentId != null &&
         widget.departmentId!.isNotEmpty) {
       _deptSub?.cancel();
-      _deptSub = FirestoreStreamUtils.documentWatchBootstrap(
-                    ChurchUiCollections.departamentos(_tid)
-            .doc(widget.departmentId!),
-      ).listen((snap) {
-        if (!mounted) return;
-        setState(() => _departmentData = snap.data());
-      });
+      _deptSub =
+          FirestoreStreamUtils.documentWatchBootstrap(
+            ChurchUiCollections.departamentos(_tid).doc(widget.departmentId!),
+          ).listen((snap) {
+            if (!mounted) return;
+            setState(() => _departmentData = snap.data());
+          });
     }
     unawaited(_loadInitialSenderProfiles());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -402,7 +394,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     _messagesSub = _messagesStream!.listen(
       _onMessagesStreamEvent,
-      onError: (_, __) {
+      onError: (_, _) {
         if (mounted && _latestRecentDocs.isEmpty) {
           setState(() => _messagesStreamReady = true);
         }
@@ -511,7 +503,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   /// Controle Total: `.get()` com cache/retry — não culpa a rede do utilizador.
-  Future<void> _primeRecentMessagesFromCacheOrServer({bool silent = false}) async {
+  Future<void> _primeRecentMessagesFromCacheOrServer({
+    bool silent = false,
+  }) async {
     if (_messagesPrimeInFlight) return;
     _messagesPrimeInFlight = true;
     try {
@@ -758,9 +752,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       titles[e.key.toString()] = e.value.toString();
     }
     if (titles.length == _titlesByUid.length &&
-        titles.entries.every(
-          (e) => _titlesByUid[e.key] == e.value,
-        )) {
+        titles.entries.every((e) => _titlesByUid[e.key] == e.value)) {
       return;
     }
     setState(() => _titlesByUid = titles);
@@ -896,14 +888,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (type == 'text') {
       return '$prefix${(m['text'] ?? '').toString().toLowerCase()}';
     }
-    if (type == 'image') return '$prefix' 'imagem foto imagem';
-    if (type == 'video') return '$prefix' 'vídeo video';
-    if (type == 'audio') return '$prefix' 'áudio audio';
+    if (type == 'image') {
+      return '$prefix'
+          'imagem foto imagem';
+    }
+    if (type == 'video') {
+      return '$prefix'
+          'vídeo video';
+    }
+    if (type == 'audio') {
+      return '$prefix'
+          'áudio audio';
+    }
     if (ChurchChatMessageFields.isDocumentType(type)) {
       final fn = (m['fileName'] ?? '').toString().toLowerCase();
-      return '$prefix' 'documento pdf word excel ficheiro arquivo $fn';
+      return '$prefix'
+          'documento pdf word excel ficheiro arquivo $fn';
     }
-    if (type == 'sticker') return '$prefix' 'figurinha sticker emoji';
+    if (type == 'sticker') {
+      return '$prefix'
+          'figurinha sticker emoji';
+    }
     return '$prefix${type.toLowerCase()}';
   }
 
@@ -922,11 +927,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     return 'Membro';
   }
 
-  Widget _buildReactionsStrip(
-    Map<String, dynamic> m,
-    String myUid,
-    bool mine,
-  ) {
+  Widget _buildReactionsStrip(Map<String, dynamic> m, String myUid, bool mine) {
     final r = m['reactionsByUid'];
     if (r is! Map || r.isEmpty) return const SizedBox.shrink();
     final chips = <Widget>[];
@@ -967,10 +968,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (t.isEmpty) return;
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    unawaited(ChatThreadOperations.clearTypingForMe(
-      tenantId: _tid,
-      threadId: widget.threadId,
-    ));
+    unawaited(
+      ChatThreadOperations.clearTypingForMe(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      ),
+    );
     final replyPayload = _replyDraft?.toReplyPayload();
     final mentions = _mentionedUidsPending.isEmpty
         ? null
@@ -1079,17 +1082,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _sendStickerPick(ChurchStickerPick pick) async {
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    unawaited(ChatThreadOperations.clearTypingForMe(
-      tenantId: _tid,
-      threadId: widget.threadId,
-    ));
+    unawaited(
+      ChatThreadOperations.clearTypingForMe(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      ),
+    );
     final replyPayload = _replyDraft?.toReplyPayload();
     final sp = (pick.storagePath ?? '').trim();
     if (sp.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Figurinha sem caminho no Storage — reenvie ou atualize o app.'),
+            content: Text(
+              'Figurinha sem caminho no Storage — reenvie ou atualize o app.',
+            ),
           ),
         );
       }
@@ -1117,7 +1124,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       onError: (msg) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: ThemeCleanPremium.error),
+          SnackBar(
+            content: Text(msg),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
         );
       },
     );
@@ -1167,11 +1177,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           }
                           final ok =
                               await ChatThreadOperations.setMyReactionOnMessage(
-                            tenantId: _tid,
-                            threadId: widget.threadId,
-                            messageId: messageId,
-                            emoji: next,
-                          );
+                                tenantId: _tid,
+                                threadId: widget.threadId,
+                                messageId: messageId,
+                                emoji: next,
+                              );
                           if (!mounted) return;
                           if (!ok) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1226,8 +1236,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: Row(
                     children: [
-                      Icon(Icons.alternate_email_rounded,
-                          color: ThemeCleanPremium.primary),
+                      Icon(
+                        Icons.alternate_email_rounded,
+                        color: ThemeCleanPremium.primary,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -1252,12 +1264,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           .toString()
                           .trim();
                       final pickName = name.isEmpty ? 'Membro' : name;
-                      final authUid =
-                          (d['authUid'] ?? '').toString().trim();
+                      final authUid = (d['authUid'] ?? '').toString().trim();
                       return ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: ThemeCleanPremium.primary
-                              .withValues(alpha: 0.15),
+                          backgroundColor: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.15,
+                          ),
                           child: Text(
                             pickName.isNotEmpty
                                 ? pickName[0].toUpperCase()
@@ -1286,11 +1298,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           final insert = '@$pickName ';
                           final t = _ctrl.text;
                           final s = _ctrl.selection;
-                          final start =
-                              s.start >= 0 ? s.start : t.length;
+                          final start = s.start >= 0 ? s.start : t.length;
                           final end = s.end >= 0 ? s.end : t.length;
-                          final newText =
-                              t.replaceRange(start, end, insert);
+                          final newText = t.replaceRange(start, end, insert);
                           _ctrl.value = TextEditingValue(
                             text: newText,
                             selection: TextSelection.collapsed(
@@ -1338,8 +1348,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: Icon(Icons.reply_rounded,
-                  color: ThemeCleanPremium.primary),
+              leading: Icon(
+                Icons.reply_rounded,
+                color: ThemeCleanPremium.primary,
+              ),
               title: const Text('Responder'),
               subtitle: const Text('Citar esta mensagem na resposta.'),
               onTap: () {
@@ -1350,8 +1362,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               },
             ),
             ListTile(
-              leading: Icon(Icons.forward_rounded,
-                  color: ThemeCleanPremium.primary),
+              leading: Icon(
+                Icons.forward_rounded,
+                color: ThemeCleanPremium.primary,
+              ),
               title: const Text('Reencaminhar'),
               subtitle: const Text('Enviar cópia para outra conversa.'),
               onTap: () {
@@ -1361,8 +1375,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
             if ((m['type'] ?? 'text').toString() == 'text')
               ListTile(
-                leading: Icon(Icons.copy_rounded,
-                    color: ThemeCleanPremium.primary),
+                leading: Icon(
+                  Icons.copy_rounded,
+                  color: ThemeCleanPremium.primary,
+                ),
                 title: const Text('Copiar texto'),
                 onTap: () async {
                   final tx = (m['text'] ?? '').toString();
@@ -1378,8 +1394,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 },
               ),
             ListTile(
-              leading: Icon(Icons.emoji_emotions_outlined,
-                  color: ThemeCleanPremium.primary),
+              leading: Icon(
+                Icons.emoji_emotions_outlined,
+                color: ThemeCleanPremium.primary,
+              ),
               title: const Text('Reagir'),
               subtitle: const Text('Emoji nesta mensagem.'),
               onTap: () {
@@ -1404,8 +1422,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
               onTap: () async {
                 Navigator.pop(ctx);
-                final starred =
-                    _prefs.isMessageStarred(widget.threadId, messageId);
+                final starred = _prefs.isMessageStarred(
+                  widget.threadId,
+                  messageId,
+                );
                 final ok = await ChurchChatMemberPrefs.setMessageStarred(
                   tenantId: _tid,
                   threadId: widget.threadId,
@@ -1439,24 +1459,30 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
             if (mine)
               ListTile(
-                leading: Icon(Icons.help_outline_rounded,
-                    color: ThemeCleanPremium.primary),
+                leading: Icon(
+                  Icons.help_outline_rounded,
+                  color: ThemeCleanPremium.primary,
+                ),
                 title: const Text('Remover ou ocultar…'),
                 subtitle: const Text(
                   'Cancelar, apagar só para si ou para todos nesta conversa.',
                 ),
                 onTap: () {
                   Navigator.pop(ctx);
-                  unawaited(_showSenderRemovalChoice(
-                    messageId: messageId,
-                    canDeleteForEveryone: canEveryone,
-                  ));
+                  unawaited(
+                    _showSenderRemovalChoice(
+                      messageId: messageId,
+                      canDeleteForEveryone: canEveryone,
+                    ),
+                  );
                 },
               )
             else ...[
               ListTile(
-                leading: Icon(Icons.visibility_off_outlined,
-                    color: ThemeCleanPremium.primary),
+                leading: Icon(
+                  Icons.visibility_off_outlined,
+                  color: ThemeCleanPremium.primary,
+                ),
                 title: const Text('Apagar para mim'),
                 subtitle: const Text(
                   'Some só na sua vista — os outros não são afetados.',
@@ -1468,14 +1494,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
               if (canEveryone)
                 ListTile(
-                  leading: Icon(Icons.delete_forever_rounded,
-                      color: ThemeCleanPremium.error),
+                  leading: Icon(
+                    Icons.delete_forever_rounded,
+                    color: ThemeCleanPremium.error,
+                  ),
                   title: const Text('Apagar para todos'),
                   subtitle: Text(
                     widget.isDepartment
                         ? (senderUid == myUid
-                            ? 'Remove para todos neste grupo.'
-                            : 'Remoção global (moderador: pastor, gestor, ADM ou líder do departamento).')
+                              ? 'Remove para todos neste grupo.'
+                              : 'Remoção global (moderador: pastor, gestor, ADM ou líder do departamento).')
                         : 'Remove para ambos na conversa direta.',
                   ),
                   onTap: () {
@@ -1519,9 +1547,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (!mounted) return;
     if (!done) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não foi possível atualizar a mensagem.'),
-        ),
+        const SnackBar(content: Text('Não foi possível atualizar a mensagem.')),
       );
     }
   }
@@ -1589,7 +1615,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (canDeleteForEveryone)
             TextButton(
               onPressed: () => Navigator.pop(ctx, 'all'),
-              style: TextButton.styleFrom(foregroundColor: ThemeCleanPremium.error),
+              style: TextButton.styleFrom(
+                foregroundColor: ThemeCleanPremium.error,
+              ),
               child: const Text('Apagar para todos'),
             ),
         ],
@@ -1695,8 +1723,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 elevation: 8,
                 shadowColor: Colors.black26,
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 18, horizontal: 6),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 18,
+                    horizontal: 6,
+                  ),
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -1809,18 +1839,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           );
     if (x == null) return;
     // WhatsApp: sem snack «Foto adicionada» — a bolha local já confirma o envio.
-    unawaited(_sendPickedImageFile(
-      x,
-      previewBeforeSend: false,
-    ));
+    unawaited(_sendPickedImageFile(x, previewBeforeSend: false));
   }
 
   Future<void> _pickImagesFromGallery() async {
     _warmChatFirebaseForPicker();
-    final list = await MediaHandlerService.instance.pickAndProcessMultipleImages(
-      module: YahwehMediaModule.chat,
-      context: context,
-    );
+    final list = await MediaHandlerService.instance
+        .pickAndProcessMultipleImages(
+          module: YahwehMediaModule.chat,
+          context: context,
+        );
     if (list.isEmpty) return;
     if (list.length > kChatMaxImagesPerPick) {
       if (mounted) {
@@ -1835,13 +1863,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final albumId = _newAlbumGroupIdIfBatch(capped.length);
     for (var i = 0; i < capped.length; i++) {
       if (!mounted) return;
-      unawaited(_sendPickedImageFile(
-        capped[i],
-        previewBeforeSend: false,
-        albumGroupId: albumId,
-        albumIndex: i,
-        albumCount: capped.length,
-      ));
+      unawaited(
+        _sendPickedImageFile(
+          capped[i],
+          previewBeforeSend: false,
+          albumGroupId: albumId,
+          albumIndex: i,
+          albumCount: capped.length,
+        ),
+      );
     }
   }
 
@@ -1863,9 +1893,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final ok = await showChurchChatMediaPreviewSheet(
         context,
         localPath: !kIsWeb ? x.path : null,
-        previewBytes: kIsWeb
-            ? Uint8List.fromList(await x.readAsBytes())
-            : null,
+        previewBytes: kIsWeb ? Uint8List.fromList(await x.readAsBytes()) : null,
         title: 'Enviar foto',
         isVideo: false,
       );
@@ -1886,22 +1914,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         final bytes = await File(mat).readAsBytes();
         if (bytes.isEmpty) {
           if (mounted) {
-            _showChatAttachmentError(
-              'Foto vazia. Tente outra imagem.',
-            );
+            _showChatAttachmentError('Foto vazia. Tente outra imagem.');
           }
           return;
         }
-        unawaited(_uploadAndSend(
-          bytes,
-          name,
-          mime,
-          kind,
-          fileSizeBytes: bytes.length,
-          albumGroupId: albumGroupId,
-          albumIndex: albumIndex,
-          albumCount: albumCount,
-        ));
+        unawaited(
+          _uploadAndSend(
+            bytes,
+            name,
+            mime,
+            kind,
+            fileSizeBytes: bytes.length,
+            albumGroupId: albumGroupId,
+            albumIndex: albumIndex,
+            albumCount: albumCount,
+          ),
+        );
       } catch (_) {
         if (mounted) {
           _showChatAttachmentError(
@@ -1916,21 +1944,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (previewBeforeSend && kIsWeb) {
       final ok = await showChurchChatMediaPreviewSheet(
         context,
-        previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
+        previewBytes: bytes,
         title: 'Enviar foto',
         isVideo: false,
       );
       if (!ok || !mounted) return;
     }
-    unawaited(_uploadAndSend(
-      bytes,
-      name,
-      mime,
-      kind,
-      albumGroupId: albumGroupId,
-      albumIndex: albumIndex,
-      albumCount: albumCount,
-    ));
+    unawaited(
+      _uploadAndSend(
+        bytes,
+        name,
+        mime,
+        kind,
+        albumGroupId: albumGroupId,
+        albumIndex: albumIndex,
+        albumCount: albumCount,
+      ),
+    );
   }
 
   Future<void> _sendPickedPlatformFile(
@@ -1940,9 +1970,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     int albumIndex = 0,
     int albumCount = 1,
   }) async {
-    final name = f.name.isNotEmpty
-        ? f.name
-        : (defaultFileName ?? 'ficheiro');
+    final name = f.name.isNotEmpty ? f.name : (defaultFileName ?? 'ficheiro');
     final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
     if (blocked != null) {
       _showChatAttachmentError(blocked);
@@ -1983,29 +2011,33 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         }
         return;
       }
-      unawaited(_uploadAndSendFromPath(
-        mat,
-        name,
-        mime,
-        kind,
-        albumGroupId: albumGroupId,
-        albumIndex: albumIndex,
-        albumCount: albumCount,
-      ));
-      return;
-    }
-    if (f.bytes == null || f.bytes!.isEmpty) {
-      try {
-        final fileBytes = await utilitariosReadPlatformFileBytes(f);
-        unawaited(_uploadAndSend(
-          fileBytes,
+      unawaited(
+        _uploadAndSendFromPath(
+          mat,
           name,
           mime,
           kind,
           albumGroupId: albumGroupId,
           albumIndex: albumIndex,
           albumCount: albumCount,
-        ));
+        ),
+      );
+      return;
+    }
+    if (f.bytes == null || f.bytes!.isEmpty) {
+      try {
+        final fileBytes = await utilitariosReadPlatformFileBytes(f);
+        unawaited(
+          _uploadAndSend(
+            fileBytes,
+            name,
+            mime,
+            kind,
+            albumGroupId: albumGroupId,
+            albumIndex: albumIndex,
+            albumCount: albumCount,
+          ),
+        );
         return;
       } catch (_) {
         _showChatAttachmentError(
@@ -2014,15 +2046,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         return;
       }
     }
-    unawaited(_uploadAndSend(
-      f.bytes!,
-      name,
-      mime,
-      kind,
-      albumGroupId: albumGroupId,
-      albumIndex: albumIndex,
-      albumCount: albumCount,
-    ));
+    unawaited(
+      _uploadAndSend(
+        f.bytes!,
+        name,
+        mime,
+        kind,
+        albumGroupId: albumGroupId,
+        albumIndex: albumIndex,
+        albumCount: albumCount,
+      ),
+    );
   }
 
   void _onMemberProfilePhotoSynced() {
@@ -2030,7 +2064,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         MemberProfilePhotoSyncNotifier.instance.lastAuthUid?.trim() ?? '';
     if (uid.isEmpty) return;
     final peer = widget.peerUid?.trim() ?? '';
-    final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
+    final me = firebaseDefaultAuth.currentUser?.uid.trim() ?? '';
     if (uid != peer && uid != me) return;
     unawaited(_refreshSenderProfilesForAuthUids({uid}));
   }
@@ -2075,15 +2109,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _loadSenderProfilesForUids(Set<String> missing) async {
     if (missing.isEmpty) return;
     try {
-      final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
-        tenantId: _tid,
-        authUids: missing,
-      );
+      final loaded =
+          await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
+            tenantId: _tid,
+            authUids: missing,
+          );
       if (!mounted || loaded.isEmpty) return;
-      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-        _tid,
-        loaded.values,
-      );
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(_tid, loaded.values);
       setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
     } catch (e, st) {
       debugPrint('_loadSenderProfilesForUids: $e\n$st');
@@ -2122,7 +2154,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   String? _newAlbumGroupIdIfBatch(int count) {
     if (count < 2) return null;
-    return 'alb_${DateTime.now().millisecondsSinceEpoch}_${count}';
+    return 'alb_${DateTime.now().millisecondsSinceEpoch}_$count';
   }
 
   int? _pendingAlbumAnchorListIndex(String? albumGroupId) {
@@ -2147,7 +2179,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     Future<void>.delayed(const Duration(seconds: 60), () {
       if (!mounted) return;
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      final i = _pendingOutbound.indexWhere(
+        (p) => p.localId == pending.localId,
+      );
       if (i < 0 || _pendingOutbound[i].failed) return;
       if (_pendingOutbound[i].progress >= 0.99) return;
       _pendingOutbound[i].failed = true;
@@ -2175,7 +2209,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     try {
       final preview = await MediaOptimizationService.previewFromPath(path);
       if (preview == null || preview.isEmpty || !mounted) return;
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      final i = _pendingOutbound.indexWhere(
+        (p) => p.localId == pending.localId,
+      );
       if (i < 0) return;
       _pendingOutbound[i].previewBytes = preview;
       if (mounted) setState(() {});
@@ -2203,7 +2239,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         previewBytes: payload.previewBytes,
       );
       if (!mounted) return;
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      final i = _pendingOutbound.indexWhere(
+        (p) => p.localId == pending.localId,
+      );
       if (i < 0) return;
       if (payload.previewBytes != null && payload.previewBytes!.isNotEmpty) {
         _pendingOutbound[i].previewBytes = payload.previewBytes;
@@ -2342,8 +2380,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   void _removePending(String localId) {
     if (!mounted) return;
-    final removed =
-        _pendingOutbound.where((p) => p.localId == localId).toList();
+    final removed = _pendingOutbound
+        .where((p) => p.localId == localId)
+        .toList();
     setState(() => _pendingOutbound.removeWhere((p) => p.localId == localId));
     for (final p in removed) {
       ChurchChatOptimizedPayloadCache.remove(p.localId);
@@ -2380,8 +2419,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (mediaLabel != null) {
       return 'A enviar $mediaLabel... $pct%';
     }
-    final safeName =
-        (fileName ?? p.fileName).trim().isNotEmpty ? (fileName ?? p.fileName) : 'ficheiro';
+    final safeName = (fileName ?? p.fileName).trim().isNotEmpty
+        ? (fileName ?? p.fileName)
+        : 'ficheiro';
     return 'A enviar $safeName... $pct%';
   }
 
@@ -2447,7 +2487,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       try {
         final raw = await XFile(path).readAsBytes();
         if (raw.isNotEmpty) {
-          final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
+          final u8 = raw;
           unawaited(
             ChurchChatPendingMediaCache.put(
               tenantId: _tid,
@@ -2523,11 +2563,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ).catchError((_) {}),
     );
     unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
-    unawaited(_runPendingMediaUpload(
-      pending: pending,
-      bytes: bytes,
-      localPath: localPath,
-    ));
+    unawaited(
+      _runPendingMediaUpload(
+        pending: pending,
+        bytes: bytes,
+        localPath: localPath,
+      ),
+    );
   }
 
   Future<void> _runPendingMediaUpload({
@@ -2536,8 +2578,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     await _awaitOperationalTenantId();
-    final replyTo =
-        pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
+    final replyTo = pending.albumIndex == 0
+        ? _replyDraft?.toReplyPayload()
+        : null;
     final uploadBytes = await _bytesForPendingUpload(
       pending: pending,
       bytes: bytes,
@@ -2594,7 +2637,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             _setPendingProgress(pending.localId, 1.0);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar(kFeedPublishQueuedUserMessage),
+                ThemeCleanPremium.successSnackBar(
+                  kFeedPublishQueuedUserMessage,
+                ),
               );
               setState(() {});
             }
@@ -2613,8 +2658,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           _confirmPendingReplacedByServer(pending.localId);
         },
         onError: (msg) {
-          final i =
-              _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+          final i = _pendingOutbound.indexWhere(
+            (p) => p.localId == pending.localId,
+          );
           if (i >= 0) {
             _pendingOutbound[i].failed = true;
             _pendingOutbound[i].errorMessage = msg;
@@ -2623,12 +2669,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         },
       ).catchError((Object e, StackTrace st) {
         YahwehFlowLog.error('CHAT', e, st);
-        final i =
-            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+        final i = _pendingOutbound.indexWhere(
+          (p) => p.localId == pending.localId,
+        );
         if (i >= 0) {
           _pendingOutbound[i].failed = true;
-          _pendingOutbound[i].errorMessage =
-              formatUploadErrorForUser(e);
+          _pendingOutbound[i].errorMessage = formatUploadErrorForUser(e);
           if (mounted) setState(() {});
         }
       }),
@@ -2669,12 +2715,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    unawaited(ChatThreadOperations.clearTypingForMe(
-      tenantId: _tid,
-      threadId: widget.threadId,
-    ));
+    unawaited(
+      ChatThreadOperations.clearTypingForMe(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      ),
+    );
     final pending = ChurchChatOutboundPending(
-      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_$albumIndex',
       kind: kind,
       fileName: name,
       mime: mime,
@@ -2687,11 +2735,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       albumCount: albumCount,
       voiceDurationMs: voiceDurationMs,
     );
-    unawaited(_enqueueAndUploadPending(
-      pending: pending,
-      bytes: null,
-      localPath: localPath,
-    ));
+    unawaited(
+      _enqueueAndUploadPending(
+        pending: pending,
+        bytes: null,
+        localPath: localPath,
+      ),
+    );
   }
 
   Future<void> _pickDocument() async {
@@ -2722,9 +2772,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _showChatAttachmentError(blocked);
         continue;
       }
-      final docBlocked = ChurchChatAttachmentUtils.blockReasonForDocumentFileName(
-        f.name.isNotEmpty ? f.name : 'ficheiro',
-      );
+      final docBlocked =
+          ChurchChatAttachmentUtils.blockReasonForDocumentFileName(
+            f.name.isNotEmpty ? f.name : 'ficheiro',
+          );
       if (docBlocked != null) {
         _showChatAttachmentError(docBlocked);
         continue;
@@ -2759,7 +2810,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
       unawaited(
-          _sendPickedPlatformFile(files[i], defaultFileName: 'audio_$i.m4a'));
+        _sendPickedPlatformFile(files[i], defaultFileName: 'audio_$i.m4a'),
+      );
     }
   }
 
@@ -2786,14 +2838,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
-    unawaited(ChatThreadOperations.clearTypingForMe(
-      tenantId: _tid,
-      threadId: widget.threadId,
-    ));
+    unawaited(
+      ChatThreadOperations.clearTypingForMe(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      ),
+    );
     final u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final preview = kind == 'image' ? u8 : null;
     final pending = ChurchChatOutboundPending(
-      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_$albumIndex',
       kind: kind,
       fileName: name,
       mime: mime,
@@ -2805,11 +2859,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       albumCount: albumCount,
       voiceDurationMs: voiceDurationMs,
     );
-    unawaited(_enqueueAndUploadPending(
-      pending: pending,
-      bytes: bytes,
-      localPath: null,
-    ));
+    unawaited(
+      _enqueueAndUploadPending(pending: pending, bytes: bytes, localPath: null),
+    );
   }
 
   /// Ampliar foto recém-enviada (bytes locais — instantâneo, sem rede).
@@ -2832,15 +2884,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Map<String, dynamic> _sentDataForPending(
     ChurchChatOutboundPending p,
     String myUid,
-  ) =>
-      {
-        'senderUid': myUid,
-        'type': p.kind,
-        'storagePath': p.storagePath?.trim() ?? '',
-        'deliveryStatus': ChatThreadOperations.deliverySent,
-        'status': ChatThreadOperations.deliverySent,
-        if (p.fileName.trim().isNotEmpty) 'fileName': p.fileName.trim(),
-      };
+  ) => {
+    'senderUid': myUid,
+    'type': p.kind,
+    'storagePath': p.storagePath?.trim() ?? '',
+    'deliveryStatus': ChatThreadOperations.deliverySent,
+    'status': ChatThreadOperations.deliverySent,
+    if (p.fileName.trim().isNotEmpty) 'fileName': p.fileName.trim(),
+  };
 
   Widget _buildPendingOutboundBubble(
     ChurchChatOutboundPending p,
@@ -2869,10 +2920,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ),
               ),
             ),
-          ChurchChatTelegramMessageBody(
-            text: t,
-            mine: true,
-          ),
+          ChurchChatTelegramMessageBody(text: t, mine: true),
         ],
       );
     } else if ((p.kind == 'image' || p.kind == 'video') &&
@@ -2945,7 +2993,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               width: previewSide,
               height: previewSide,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => SizedBox(
+              errorBuilder: (_, _, _) => SizedBox(
                 width: previewSide,
                 height: previewSide * 0.6,
                 child: const Icon(Icons.broken_image_outlined),
@@ -2993,7 +3041,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       body = ValueListenableBuilder<double>(
         valueListenable: p.progressListenable,
         builder: (context, progress, _) {
-          final safeName = p.fileName.trim().isNotEmpty ? p.fileName : 'ficheiro';
+          final safeName = p.fileName.trim().isNotEmpty
+              ? p.fileName
+              : 'ficheiro';
           return Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3001,8 +3051,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 p.failed
                     ? Icons.error_outline_rounded
                     : (p.kind == 'video'
-                        ? Icons.videocam_outlined
-                        : Icons.insert_drive_file_outlined),
+                          ? Icons.videocam_outlined
+                          : Icons.insert_drive_file_outlined),
                 size: 22,
                 color: p.failed
                     ? ThemeCleanPremium.error
@@ -3013,8 +3063,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 child: Text(
                   p.failed
                       ? (p.errorMessage?.trim().isNotEmpty == true
-                          ? p.errorMessage!
-                          : 'Falha no envio')
+                            ? p.errorMessage!
+                            : 'Falha no envio')
                       : safeName,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -3047,84 +3097,89 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             : null,
         onLongPress: canPendingActions
             ? () => _showMessageActions(
-                  sentFid,
-                  _sentDataForPending(p, myUid),
-                  myUid,
-                )
+                sentFid,
+                _sentDataForPending(p, myUid),
+                myUid,
+              )
             : null,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: maxBubbleW),
-        margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          gradient: p.failed
-              ? null
-              : ChurchChatSenderPalette.outgoingBubbleGradient,
-          color: p.failed
-              ? ChurchChatSenderPalette.outgoingBubbleBackground
-                  .withValues(alpha: 0.55)
-              : null,
-          borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(mine: true),
-          border: Border.all(
+        child: Container(
+          constraints: BoxConstraints(maxWidth: maxBubbleW),
+          margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            gradient: p.failed
+                ? null
+                : ChurchChatSenderPalette.outgoingBubbleGradient,
             color: p.failed
-                ? ThemeCleanPremium.error.withValues(alpha: 0.5)
-                : Colors.transparent,
+                ? ChurchChatSenderPalette.outgoingBubbleBackground.withValues(
+                    alpha: 0.55,
+                  )
+                : null,
+            borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(
+              mine: true,
+            ),
+            border: Border.all(
+              color: p.failed
+                  ? ThemeCleanPremium.error.withValues(alpha: 0.5)
+                  : Colors.transparent,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              body,
+              if (isVisualMedia) ...[
+                const SizedBox(height: 8),
+                _buildPendingVisualMediaStatus(p),
+              ],
+              if (p.failed)
+                TextButton(
+                  onPressed: () {
+                    if (p.kind == 'text') {
+                      _retryPendingText(p);
+                      return;
+                    }
+                    p.failed = false;
+                    p.errorMessage = null;
+                    if (mounted) setState(() {});
+                    unawaited(
+                      _runPendingMediaUpload(
+                        pending: p,
+                        bytes: null,
+                        localPath: p.localPath,
+                      ),
+                    );
+                  },
+                  child: const Text('Tentar de novo'),
+                ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _fmtMsgTime(Timestamp.fromDate(p.createdAt)),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: ThemeCleanPremium.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    p.failed
+                        ? Icons.error_outline_rounded
+                        : (p.progress >= 1
+                              ? Icons.done_all_rounded
+                              : Icons.schedule_rounded),
+                    size: 14,
+                    color: p.failed
+                        ? ThemeCleanPremium.error
+                        : ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            body,
-            if (isVisualMedia) ...[
-              const SizedBox(height: 8),
-              _buildPendingVisualMediaStatus(p),
-            ],
-            if (p.failed)
-              TextButton(
-                onPressed: () {
-                  if (p.kind == 'text') {
-                    _retryPendingText(p);
-                    return;
-                  }
-                  p.failed = false;
-                  p.errorMessage = null;
-                  if (mounted) setState(() {});
-                  unawaited(_runPendingMediaUpload(
-                    pending: p,
-                    bytes: null,
-                    localPath: p.localPath,
-                  ));
-                },
-                child: const Text('Tentar de novo'),
-              ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _fmtMsgTime(Timestamp.fromDate(p.createdAt)),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: ThemeCleanPremium.onSurface.withValues(alpha: 0.5),
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  p.failed
-                      ? Icons.error_outline_rounded
-                      : (p.progress >= 1
-                          ? Icons.done_all_rounded
-                          : Icons.schedule_rounded),
-                  size: 14,
-                  color: p.failed
-                      ? ThemeCleanPremium.error
-                      : ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
       ),
     );
   }
@@ -3175,11 +3230,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         icon = Icons.insert_drive_file_rounded;
         break;
     }
-    final ext = ChurchChatAttachmentUtils
-        .extensionOf(p.fileName)
-        .replaceAll('.', '')
-        .trim()
-        .toUpperCase();
+    final ext = ChurchChatAttachmentUtils.extensionOf(
+      p.fileName,
+    ).replaceAll('.', '').trim().toUpperCase();
     return ValueListenableBuilder<double>(
       valueListenable: p.progressListenable,
       builder: (context, progress, _) {
@@ -3192,8 +3245,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         final status = p.failed
             ? (p.errorMessage ?? 'Falha no envio')
             : (p.offlineQueued
-                ? 'Na fila — envia ao voltar online'
-                : (sending ? 'A enviar... $pct%' : 'A processar...'));
+                  ? 'Na fila — envia ao voltar online'
+                  : (sending ? 'A enviar... $pct%' : 'A processar...'));
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -3207,7 +3260,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.7),
+                    color: ThemeCleanPremium.surfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
@@ -3243,7 +3298,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11.5,
-                          color: ThemeCleanPremium.onSurface.withValues(alpha: 0.55),
+                          color: ThemeCleanPremium.onSurface.withValues(
+                            alpha: 0.55,
+                          ),
                         ),
                       ),
                     ],
@@ -3259,8 +3316,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ? null
                     : (sending ? clamped.clamp(0.02, 1.0) : 1.0),
                 minHeight: 4,
-                backgroundColor:
-                    ThemeCleanPremium.onSurface.withValues(alpha: 0.12),
+                backgroundColor: ThemeCleanPremium.onSurface.withValues(
+                  alpha: 0.12,
+                ),
                 color: p.failed
                     ? ThemeCleanPremium.error
                     : ThemeCleanPremium.primary,
@@ -3308,8 +3366,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: ChurchChatSenderPalette.outgoingBubbleBackground
-              .withValues(alpha: failed ? 0.55 : 0.92),
+          color: ChurchChatSenderPalette.outgoingBubbleBackground.withValues(
+            alpha: failed ? 0.55 : 0.92,
+          ),
           borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(mine: true),
         ),
         child: Column(
@@ -3319,10 +3378,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             Stack(
               alignment: Alignment.center,
               children: [
-                ChurchChatAlbumGrid(
-                  items: cells,
-                  maxWidth: maxBubbleW - 8,
-                ),
+                ChurchChatAlbumGrid(items: cells, maxWidth: maxBubbleW - 8),
                 if (!failed && avgProgress < 1)
                   Positioned.fill(
                     child: DecoratedBox(
@@ -3361,8 +3417,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   failed
                       ? Icons.error_outline_rounded
                       : (avgProgress >= 1
-                          ? Icons.done_all_rounded
-                          : Icons.schedule_rounded),
+                            ? Icons.done_all_rounded
+                            : Icons.schedule_rounded),
                   size: 14,
                   color: failed
                       ? ThemeCleanPremium.error
@@ -3471,8 +3527,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             content: Text(
               micDenied
                   ? (kIsWeb
-                      ? 'Microfone bloqueado no navegador. Autorize e tente novamente.'
-                      : 'Microfone bloqueado no iPhone. Ative em Ajustes > Privacidade e Segurança > Microfone.')
+                        ? 'Microfone bloqueado no navegador. Autorize e tente novamente.'
+                        : 'Microfone bloqueado no iPhone. Ative em Ajustes > Privacidade e Segurança > Microfone.')
                   : 'Não foi possível gravar: ${formatUploadErrorForUser(e)}',
             ),
             behavior: SnackBarBehavior.floating,
@@ -3546,7 +3602,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gravação muito curta. Segure o microfone um pouco mais.'),
+            content: Text(
+              'Gravação muito curta. Segure o microfone um pouco mais.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -3572,13 +3630,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final name =
           'voice_${DateTime.now().millisecondsSinceEpoch}.${bytes.length > 4 && bytes[0] == 0x4F && bytes[1] == 0x67 ? 'ogg' : 'm4a'}';
       final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-      unawaited(_uploadAndSend(
-        bytes,
-        name,
-        mime,
-        'audio',
-        voiceDurationMs: recordedMs,
-      ));
+      unawaited(
+        _uploadAndSend(bytes, name, mime, 'audio', voiceDurationMs: recordedMs),
+      );
       return;
     }
     if (voicePath == null || voicePath.isEmpty) {
@@ -3594,7 +3648,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
 
-    final mat = await ChurchChatLocalFileService.materializeLocalPath(voicePath);
+    final mat = await ChurchChatLocalFileService.materializeLocalPath(
+      voicePath,
+    );
     if (mat == null || mat.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3611,13 +3667,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
     final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-    unawaited(_uploadAndSendFromPath(
-      mat,
-      name,
-      mime,
-      'audio',
-      voiceDurationMs: recordedMs,
-    ));
+    unawaited(
+      _uploadAndSendFromPath(
+        mat,
+        name,
+        mime,
+        'audio',
+        voiceDurationMs: recordedMs,
+      ),
+    );
   }
 
   Future<void> _openAttachmentExternally(String rawUrl) async {
@@ -3638,7 +3696,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   @override
   Widget build(BuildContext context) {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    final blockedDm = !widget.isDepartment &&
+    final blockedDm =
+        !widget.isDepartment &&
         widget.peerUid != null &&
         widget.peerUid!.isNotEmpty &&
         _prefs.isBlockedPeer(widget.peerUid!);
@@ -3728,8 +3787,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   );
                 }
               } else if (v == 'starred_msgs') {
-                final ids =
-                    _prefs.starredMessagesInThread(widget.threadId);
+                final ids = _prefs.starredMessagesInThread(widget.threadId);
                 if (!context.mounted) return;
                 await ChurchChatStarredMessagesSheet.show(
                   context,
@@ -3781,9 +3839,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 if (confirm != true || !context.mounted) return;
                 final purged =
                     await ChatThreadOperations.purgeThreadMessagesCompletely(
-                  tenantId: _tid,
-                  threadId: widget.threadId,
-                );
+                      tenantId: _tid,
+                      threadId: widget.threadId,
+                    );
                 await ChurchChatMemberPrefs.setHiddenDmThread(
                   tenantId: _tid,
                   threadId: widget.threadId,
@@ -3922,8 +3980,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 final mode = v == 'alert_sound'
                     ? ChurchChatNotificationPrefs.alertModeSound
                     : v == 'alert_vibrate'
-                        ? ChurchChatNotificationPrefs.alertModeVibrate
-                        : ChurchChatNotificationPrefs.alertModeSilent;
+                    ? ChurchChatNotificationPrefs.alertModeVibrate
+                    : ChurchChatNotificationPrefs.alertModeSilent;
                 await ChurchChatNotificationPrefs.setChatAlertMode(mode: mode);
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -3932,8 +3990,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       mode == ChurchChatNotificationPrefs.alertModeSound
                           ? 'Alerta de conversa: Som + vibrar'
                           : mode == ChurchChatNotificationPrefs.alertModeVibrate
-                              ? 'Alerta de conversa: Só vibrar'
-                              : 'Alerta de conversa: Silencioso',
+                          ? 'Alerta de conversa: Só vibrar'
+                          : 'Alerta de conversa: Silencioso',
                     ),
                   ),
                 );
@@ -4010,14 +4068,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 value: 'starred_msgs',
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.star_purple500_rounded,
-                      color: Color(0xFFF59E0B)),
+                  leading: const Icon(
+                    Icons.star_purple500_rounded,
+                    color: Color(0xFFF59E0B),
+                  ),
                   title: const Text('Mensagens favoritas'),
                   subtitle: Text(
                     _prefs.starredMessagesInThread(widget.threadId).isEmpty
                         ? 'Nenhuma nesta conversa'
                         : '${_prefs.starredMessagesInThread(widget.threadId).length} '
-                            'mensagem(ns)',
+                              'mensagem(ns)',
                     style: const TextStyle(fontSize: 11),
                   ),
                 ),
@@ -4026,8 +4086,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 value: 'mute',
                 child: ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.notifications_off_rounded,
-                      color: ThemeCleanPremium.primary),
+                  leading: Icon(
+                    Icons.notifications_off_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
                   title: Text(
                     _prefs.isMutedThread(widget.threadId)
                         ? 'Ativar alertas desta conversa'
@@ -4076,8 +4138,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   ),
                 ),
-              if (widget.isDepartment &&
-                  (widget.departmentId ?? '').isNotEmpty)
+              if (widget.isDepartment && (widget.departmentId ?? '').isNotEmpty)
                 PopupMenuItem(
                   value: 'dept_members',
                   child: ListTile(
@@ -4100,8 +4161,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   value: 'block',
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.block_rounded,
-                        color: ThemeCleanPremium.error),
+                    leading: Icon(
+                      Icons.block_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
                     title: Text(
                       _prefs.isBlockedPeer(widget.peerUid!)
                           ? 'Desbloquear contacto'
@@ -4176,8 +4239,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 fallbackName: widget.title,
                 radius: 19,
               )
-            else if (widget.peerUid != null &&
-                widget.peerUid!.isNotEmpty)
+            else if (widget.peerUid != null && widget.peerUid!.isNotEmpty)
               ChurchChatPeerAvatar(
                 tenantId: _tid,
                 peerAuthUid: widget.peerUid!,
@@ -4188,9 +4250,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               CircleAvatar(
                 backgroundColor: Colors.white.withValues(alpha: 0.2),
                 child: Text(
-                  widget.title.isNotEmpty
-                      ? widget.title[0].toUpperCase()
-                      : '?',
+                  widget.title.isNotEmpty ? widget.title[0].toUpperCase() : '?',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
@@ -4218,8 +4278,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         color: Colors.white.withValues(alpha: 0.88),
                       ),
                     )
-                  else if (widget.peerUid != null &&
-                      widget.peerUid!.isNotEmpty)
+                  else if (widget.peerUid != null && widget.peerUid!.isNotEmpty)
                     Text(
                       _peerOnline ? 'online' : 'offline',
                       style: TextStyle(
@@ -4244,667 +4303,832 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ),
           Expanded(
             child: ColoredBox(
-        color: ChurchChatWhatsAppTheme.threadBackground,
-        child: Column(
-          children: [
-            if (_searchingMessages)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: ThemeCleanPremium.cardBackground,
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    border: Border.all(
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                    ),
-                    boxShadow: ThemeCleanPremium.softUiCardShadow,
-                  ),
-                  child: TextField(
-                    controller: _msgSearchCtrl,
-                    autofocus: true,
-                    style: TextStyle(color: ThemeCleanPremium.onSurface),
-                    decoration: InputDecoration(
-                      hintText: 'Pesquisar nas mensagens…',
-                      hintStyle: TextStyle(
-                          color: ThemeCleanPremium.onSurfaceVariant),
-                      prefixIcon: Icon(Icons.search_rounded,
-                          color: ThemeCleanPremium.primary),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 12),
-                    ),
-                  ),
-                ),
-              ),
-            if (blockedDm)
-              Material(
-                color: ThemeCleanPremium.error.withValues(alpha: 0.12),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  child: Row(
-                    children: [
-                      Icon(Icons.block_rounded, color: ThemeCleanPremium.error),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Bloqueou este contacto. Abra o menu ⋮ para desbloquear e voltar a enviar.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: ThemeCleanPremium.onSurface,
+              color: ChurchChatWhatsAppTheme.threadBackground,
+              child: Column(
+                children: [
+                  if (_searchingMessages)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: ThemeCleanPremium.cardBackground,
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd,
+                          ),
+                          border: Border.all(
+                            color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.12,
+                            ),
+                          ),
+                          boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        ),
+                        child: TextField(
+                          controller: _msgSearchCtrl,
+                          autofocus: true,
+                          style: TextStyle(color: ThemeCleanPremium.onSurface),
+                          decoration: InputDecoration(
+                            hintText: 'Pesquisar nas mensagens…',
+                            hintStyle: TextStyle(
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
+                            prefixIcon: Icon(
+                              Icons.search_rounded,
+                              color: ThemeCleanPremium.primary,
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            RepaintBoundary(child: _buildTypingStrip(uid)),
-            Expanded(
-              child: MediaQuery.removeViewInsets(
-                context: context,
-                removeBottom: true,
-                child: RepaintBoundary(
-                child: Builder(
-                  builder: (context) {
-                    if (!_messagesStreamReady && _latestRecentDocs.isEmpty) {
-                      return YahwehSkeletonLoading.chatMessages();
-                    }
-                    final titlesByUid = _titlesByUid;
-                    final docsRaw =
-                        _mergeVisibleMessages(_latestRecentDocs);
-                    final visibleDocs = docsRaw
-                        .where((d) => !ChatThreadOperations.messageHiddenForMe(
-                              d.data(),
-                              uid,
-                            ))
-                        .toList();
-                    final hideFirestoreMsgIds = _pendingOutbound
-                        .map((p) => p.firestoreMessageId?.trim() ?? '')
-                        .where((id) => id.isNotEmpty)
-                        .toSet();
-                    final pendingOutgoingTexts = <String>{
-                      for (final p in _pendingOutbound)
-                        if (p.kind == 'text' && !p.failed && !p.cancelled)
-                          (p.textBody ?? '').trim(),
-                    }..removeWhere((s) => s.isEmpty);
-                    final hasActivePending = _pendingOutbound.any(
-                      (p) => !p.failed && !p.cancelled,
-                    );
-                    final pendingMessageIds = _pendingOutbound
-                        .map((p) => p.firestoreMessageId?.trim() ?? '')
-                        .where((id) => id.isNotEmpty)
-                        .toSet();
-                    final pendingStoragePaths = _pendingOutbound
-                        .map((p) => p.storagePath?.trim() ?? '')
-                        .where((sp) => sp.isNotEmpty)
-                        .toSet();
-                    var streamDocs = visibleDocs.where((d) {
-                      if (hideFirestoreMsgIds.contains(d.id)) return false;
-                      final m = d.data();
-                      if (pendingOutgoingTexts.isNotEmpty) {
-                        final sender = (m['senderUid'] ?? '').toString();
-                        if (sender == uid &&
-                            ((m['type'] ?? 'text').toString() == 'text' ||
-                                (m['type'] ?? '').toString() == 'link')) {
-                          final txt = (m['text'] ?? '').toString().trim();
-                          if (pendingOutgoingTexts.contains(txt)) {
-                            return false;
-                          }
-                        }
-                      }
-                      final delivery =
-                          (m['deliveryStatus'] ?? '').toString();
-                      if (delivery == 'uploading' ||
-                          delivery == 'queued' ||
-                          delivery == 'sending') {
-                        final sp =
-                            ChurchChatMessageFields.storagePath(m).trim();
-                        if (sp.isNotEmpty &&
-                            (m['senderUid'] ?? '').toString() == uid) {
-                          unawaited(
-                            ChatStrictPublishService.tryFinalizeIfStorageReady(
-                              tenantId: _tid,
-                              threadId: widget.threadId,
-                              messageId: d.id,
-                              data: m,
-                            ),
-                          );
-                        }
-                        final created = m['createdAt'];
-                        // Só abandona/oculta upload preso se for MENSAGEM MINHA
-                        // e sem mídia resolvível — nunca esconder mídia de
-                        // outro remetente nem mensagem já com storagePath.
-                        if (created is Timestamp &&
-                            (m['senderUid'] ?? '').toString() == uid &&
-                            !ChurchChatMessageFields.hasResolvableMedia(m)) {
-                          final age = DateTime.now()
-                              .difference(created.toDate());
-                          if (age > const Duration(minutes: 12)) {
-                            unawaited(
-                              ChatThreadOperations.abandonMediaUploadMessage(
-                                tenantId: _tid,
-                                threadId: widget.threadId,
-                                messageId: d.id,
-                              ),
-                            );
-                            return false;
-                          }
-                        }
-                        if (hasActivePending &&
-                            (m['senderUid'] ?? '').toString() == uid) {
-                          final storagePath = ChurchChatMessageFields
-                              .storagePath(m)
-                              .trim();
-                          final isSamePending =
-                              pendingMessageIds.contains(d.id) ||
-                                  (storagePath.isNotEmpty &&
-                                      pendingStoragePaths.contains(storagePath));
-                          if (!isSamePending) {
-                            return true;
-                          }
-                          return false;
-                        }
-                      }
-                      return true;
-                    }).toList();
-                    final q = _messageSearchQuery;
-                    final docs = q.isEmpty
-                        ? streamDocs
-                        : streamDocs
-                            .where((d) =>
-                                _messageHaystack(d.data()).contains(q))
-                            .toList();
-                    if (docs.isEmpty && _pendingOutbound.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            q.isEmpty
-                                ? 'Sem mensagens ainda.'
-                                : 'Nenhuma mensagem correspondente.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                    ),
+                  if (blockedDm)
+                    Material(
+                      color: ThemeCleanPremium.error.withValues(alpha: 0.12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
                         ),
-                      );
-                    }
-                    final pendingCount = _pendingOutbound.length;
-                    final historyTail = (_loadingMoreHistory ||
-                            (_hasMoreOlderHistory && docs.isNotEmpty))
-                        ? 1
-                        : 0;
-                    return ListView.builder(
-                      controller: _scroll,
-                      reverse: true,
-                      cacheExtent: 480,
-                      addAutomaticKeepAlives: false,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 10),
-                      itemCount: docs.length + pendingCount + historyTail,
-                      itemBuilder: (_, i) {
-                        if (i >= docs.length + pendingCount) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Center(
-                              child: _loadingMoreHistory
-                                  ? const SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.block_rounded,
+                              color: ThemeCleanPremium.error,
                             ),
-                          );
-                        }
-                        if (i < pendingCount) {
-                          final p = _pendingOutbound[pendingCount - 1 - i];
-                          final anchorIdx =
-                              _pendingAlbumAnchorListIndex(p.albumGroupId);
-                          if (anchorIdx != null &&
-                              _pendingOutbound[anchorIdx] != p) {
-                            return const SizedBox.shrink();
-                          }
-                          if (anchorIdx != null &&
-                              (p.albumGroupId ?? '').isNotEmpty) {
-                            final group = _pendingOutbound
-                                .where((x) => x.albumGroupId == p.albumGroupId)
-                                .toList()
-                              ..sort((a, b) =>
-                                  a.albumIndex.compareTo(b.albumIndex));
-                            return _buildPendingAlbumBubble(group, uid);
-                          }
-                          return _buildPendingOutboundBubble(p, uid);
-                        }
-                        final docIndex = i - pendingCount;
-                        final anchor =
-                            ChurchChatAlbumUtils.anchorDocIndexOrNull(
-                                docs, docIndex);
-                        if (anchor == null) {
-                          return const SizedBox.shrink();
-                        }
-                        final m = docs[docIndex].data();
-                        final albumDocs =
-                            ChurchChatAlbumUtils.albumGroupIdFrom(m) != null
-                                ? ChurchChatAlbumUtils.collectAlbumDocs(
-                                    docs, docIndex)
-                                : null;
-                        final isAlbumBubble =
-                            albumDocs != null && albumDocs.length > 1;
-                        final mine = (m['senderUid'] ?? '').toString() == uid;
-                        final type = (m['type'] ?? 'text').toString();
-                        final createdRaw = m['createdAt'];
-                        Timestamp? ct;
-                        if (createdRaw is Timestamp) ct = createdRaw;
-                        final ps = _threadPeerSeenAt;
-                        final dsRaw = _deliveryStatusForBubble(m);
-                        final peerRead = dsRaw ==
-                                ChatThreadOperations.deliveryRead ||
-                            (ps != null &&
-                                ct != null &&
-                                ps.millisecondsSinceEpoch >=
-                                    ct.millisecondsSinceEpoch);
-                        final messageId = docs[docIndex].id;
-                        DateTime? msgWhen;
-                        if (ct != null) msgWhen = ct.toDate();
-                        DateTime? olderWhen;
-                        if (docIndex + 1 < docs.length) {
-                          final olderRaw = docs[docIndex + 1].data()['createdAt'];
-                          if (olderRaw is Timestamp) {
-                            olderWhen = olderRaw.toDate();
-                          }
-                        }
-                        final showDate = msgWhen != null &&
-                            churchChatNeedsDateSeparator(
-                              olderMessage: olderWhen,
-                              currentMessage: msgWhen,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Bloqueou este contacto. Abra o menu ⋮ para desbloquear e voltar a enviar.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: ThemeCleanPremium.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  RepaintBoundary(child: _buildTypingStrip(uid)),
+                  Expanded(
+                    child: MediaQuery.removeViewInsets(
+                      context: context,
+                      removeBottom: true,
+                      child: RepaintBoundary(
+                        child: Builder(
+                          builder: (context) {
+                            if (!_messagesStreamReady &&
+                                _latestRecentDocs.isEmpty) {
+                              return YahwehSkeletonLoading.chatMessages();
+                            }
+                            final titlesByUid = _titlesByUid;
+                            final docsRaw = _mergeVisibleMessages(
+                              _latestRecentDocs,
                             );
-                        final senderUid =
-                            (m['senderUid'] ?? '').toString();
-                        final senderLabel = _senderDisplayForMessage(
-                          senderUid,
-                          titlesByUid,
-                          m,
-                        );
-                        final groupIncoming =
-                            widget.isDepartment && !mine;
-                        final quoteAccent = (!mine &&
-                                widget.isDepartment)
-                            ? ChurchChatSenderPalette
-                                .nameColorForUid(senderUid)
-                            : null;
-                        final maxBubbleW = _chatBubbleMaxWidth(context);
-                        final bubbleDecoration = mine
-                            ? BoxDecoration(
-                                color: ChurchChatSenderPalette
-                                    .outgoingBubbleBackground,
-                                borderRadius:
-                                    ChurchChatSenderPalette.bubbleBorderRadius(
-                                  mine: true,
-                                ),
-                                boxShadow: ChurchChatSenderPalette.bubbleShadow,
-                              )
-                            : BoxDecoration(
-                                color: groupIncoming
-                                    ? ChurchChatSenderPalette
-                                        .bubbleBackgroundForUid(senderUid)
-                                    : ChurchChatSenderPalette
-                                        .incomingDmBubbleBackground,
-                                borderRadius:
-                                    ChurchChatSenderPalette.bubbleBorderRadius(
-                                  mine: false,
-                                ),
-                                border: Border.all(
-                                  color: groupIncoming
-                                      ? ChurchChatSenderPalette
-                                          .bubbleBorderForUid(senderUid)
-                                      : const Color(0xFFE2E8F0),
-                                  width: 0.6,
-                                ),
-                                boxShadow: ChurchChatSenderPalette.bubbleShadow,
-                              );
-                        final bubbleCard = Container(
-                            constraints: BoxConstraints(maxWidth: maxBubbleW),
-                            margin: EdgeInsets.only(
-                              bottom: 4,
-                              left: mine ? 56 : (groupIncoming ? 0 : 4),
-                              right: mine ? 4 : 56,
-                            ),
-                            padding: EdgeInsets.symmetric(
-                              horizontal: isAlbumBubble ? 4 : 12,
-                              vertical: isAlbumBubble ? 4 : 8,
-                            ),
-                            decoration: bubbleDecoration,
-                            child: Column(
-                              crossAxisAlignment: mine
-                                  ? CrossAxisAlignment.end
-                                  : CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (widget.isDepartment &&
-                                    !mine &&
-                                    senderLabel.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 4),
-                                    child: Text(
-                                      senderLabel,
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w800,
-                                        color: ChurchChatSenderPalette
-                                            .nameColorForUid(senderUid),
+                            final visibleDocs = docsRaw
+                                .where(
+                                  (d) =>
+                                      !ChatThreadOperations.messageHiddenForMe(
+                                        d.data(),
+                                        uid,
                                       ),
+                                )
+                                .toList();
+                            final hideFirestoreMsgIds = _pendingOutbound
+                                .map((p) => p.firestoreMessageId?.trim() ?? '')
+                                .where((id) => id.isNotEmpty)
+                                .toSet();
+                            final pendingOutgoingTexts = <String>{
+                              for (final p in _pendingOutbound)
+                                if (p.kind == 'text' &&
+                                    !p.failed &&
+                                    !p.cancelled)
+                                  (p.textBody ?? '').trim(),
+                            }..removeWhere((s) => s.isEmpty);
+                            final hasActivePending = _pendingOutbound.any(
+                              (p) => !p.failed && !p.cancelled,
+                            );
+                            final pendingMessageIds = _pendingOutbound
+                                .map((p) => p.firestoreMessageId?.trim() ?? '')
+                                .where((id) => id.isNotEmpty)
+                                .toSet();
+                            final pendingStoragePaths = _pendingOutbound
+                                .map((p) => p.storagePath?.trim() ?? '')
+                                .where((sp) => sp.isNotEmpty)
+                                .toSet();
+                            var streamDocs = visibleDocs.where((d) {
+                              if (hideFirestoreMsgIds.contains(d.id)) {
+                                return false;
+                              }
+                              final m = d.data();
+                              if (pendingOutgoingTexts.isNotEmpty) {
+                                final sender = (m['senderUid'] ?? '')
+                                    .toString();
+                                if (sender == uid &&
+                                    ((m['type'] ?? 'text').toString() ==
+                                            'text' ||
+                                        (m['type'] ?? '').toString() ==
+                                            'link')) {
+                                  final txt = (m['text'] ?? '')
+                                      .toString()
+                                      .trim();
+                                  if (pendingOutgoingTexts.contains(txt)) {
+                                    return false;
+                                  }
+                                }
+                              }
+                              final delivery = (m['deliveryStatus'] ?? '')
+                                  .toString();
+                              if (delivery == 'uploading' ||
+                                  delivery == 'queued' ||
+                                  delivery == 'sending') {
+                                final sp = ChurchChatMessageFields.storagePath(
+                                  m,
+                                ).trim();
+                                if (sp.isNotEmpty &&
+                                    (m['senderUid'] ?? '').toString() == uid) {
+                                  unawaited(
+                                    ChatStrictPublishService.tryFinalizeIfStorageReady(
+                                      tenantId: _tid,
+                                      threadId: widget.threadId,
+                                      messageId: d.id,
+                                      data: m,
+                                    ),
+                                  );
+                                }
+                                final created = m['createdAt'];
+                                // Só abandona/oculta upload preso se for MENSAGEM MINHA
+                                // e sem mídia resolvível — nunca esconder mídia de
+                                // outro remetente nem mensagem já com storagePath.
+                                if (created is Timestamp &&
+                                    (m['senderUid'] ?? '').toString() == uid &&
+                                    !ChurchChatMessageFields.hasResolvableMedia(
+                                      m,
+                                    )) {
+                                  final age = DateTime.now().difference(
+                                    created.toDate(),
+                                  );
+                                  if (age > const Duration(minutes: 12)) {
+                                    unawaited(
+                                      ChatThreadOperations.abandonMediaUploadMessage(
+                                        tenantId: _tid,
+                                        threadId: widget.threadId,
+                                        messageId: d.id,
+                                      ),
+                                    );
+                                    return false;
+                                  }
+                                }
+                                if (hasActivePending &&
+                                    (m['senderUid'] ?? '').toString() == uid) {
+                                  final storagePath =
+                                      ChurchChatMessageFields.storagePath(
+                                        m,
+                                      ).trim();
+                                  final isSamePending =
+                                      pendingMessageIds.contains(d.id) ||
+                                      (storagePath.isNotEmpty &&
+                                          pendingStoragePaths.contains(
+                                            storagePath,
+                                          ));
+                                  if (!isSamePending) {
+                                    return true;
+                                  }
+                                  return false;
+                                }
+                              }
+                              return true;
+                            }).toList();
+                            final q = _messageSearchQuery;
+                            final docs = q.isEmpty
+                                ? streamDocs
+                                : streamDocs
+                                      .where(
+                                        (d) => _messageHaystack(
+                                          d.data(),
+                                        ).contains(q),
+                                      )
+                                      .toList();
+                            if (docs.isEmpty && _pendingOutbound.isEmpty) {
+                              return Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    q.isEmpty
+                                        ? 'Sem mensagens ainda.'
+                                        : 'Nenhuma mensagem correspondente.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
-                                _MessageBody(
-                                  messageId: messageId,
-                                  type: type,
-                                  data: m,
-                                  mine: mine,
-                                  tenantId: _tid,
-                                  replyQuoteAccent: quoteAccent,
-                                  onOpenAttachment: _openAttachmentExternally,
-                                  albumDocs: albumDocs,
                                 ),
-                                _buildReactionsStrip(m, uid, mine),
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 5),
-                                  child: Row(
+                              );
+                            }
+                            final pendingCount = _pendingOutbound.length;
+                            final historyTail =
+                                (_loadingMoreHistory ||
+                                    (_hasMoreOlderHistory && docs.isNotEmpty))
+                                ? 1
+                                : 0;
+                            return ListView.builder(
+                              controller: _scroll,
+                              reverse: true,
+                              addAutomaticKeepAlives: false,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                              itemCount:
+                                  docs.length + pendingCount + historyTail,
+                              itemBuilder: (_, i) {
+                                if (i >= docs.length + pendingCount) {
+                                  return Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                    ),
+                                    child: Center(
+                                      child: _loadingMoreHistory
+                                          ? const SizedBox(
+                                              width: 22,
+                                              height: 22,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : const SizedBox.shrink(),
+                                    ),
+                                  );
+                                }
+                                if (i < pendingCount) {
+                                  final p =
+                                      _pendingOutbound[pendingCount - 1 - i];
+                                  final anchorIdx =
+                                      _pendingAlbumAnchorListIndex(
+                                        p.albumGroupId,
+                                      );
+                                  if (anchorIdx != null &&
+                                      _pendingOutbound[anchorIdx] != p) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  if (anchorIdx != null &&
+                                      (p.albumGroupId ?? '').isNotEmpty) {
+                                    final group =
+                                        _pendingOutbound
+                                            .where(
+                                              (x) =>
+                                                  x.albumGroupId ==
+                                                  p.albumGroupId,
+                                            )
+                                            .toList()
+                                          ..sort(
+                                            (a, b) => a.albumIndex.compareTo(
+                                              b.albumIndex,
+                                            ),
+                                          );
+                                    return _buildPendingAlbumBubble(group, uid);
+                                  }
+                                  return _buildPendingOutboundBubble(p, uid);
+                                }
+                                final docIndex = i - pendingCount;
+                                final anchor =
+                                    ChurchChatAlbumUtils.anchorDocIndexOrNull(
+                                      docs,
+                                      docIndex,
+                                    );
+                                if (anchor == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                final m = docs[docIndex].data();
+                                final albumDocs =
+                                    ChurchChatAlbumUtils.albumGroupIdFrom(m) !=
+                                        null
+                                    ? ChurchChatAlbumUtils.collectAlbumDocs(
+                                        docs,
+                                        docIndex,
+                                      )
+                                    : null;
+                                final isAlbumBubble =
+                                    albumDocs != null && albumDocs.length > 1;
+                                final mine =
+                                    (m['senderUid'] ?? '').toString() == uid;
+                                final type = (m['type'] ?? 'text').toString();
+                                final createdRaw = m['createdAt'];
+                                Timestamp? ct;
+                                if (createdRaw is Timestamp) ct = createdRaw;
+                                final ps = _threadPeerSeenAt;
+                                final dsRaw = _deliveryStatusForBubble(m);
+                                final peerRead =
+                                    dsRaw ==
+                                        ChatThreadOperations.deliveryRead ||
+                                    (ps != null &&
+                                        ct != null &&
+                                        ps.millisecondsSinceEpoch >=
+                                            ct.millisecondsSinceEpoch);
+                                final messageId = docs[docIndex].id;
+                                DateTime? msgWhen;
+                                if (ct != null) msgWhen = ct.toDate();
+                                DateTime? olderWhen;
+                                if (docIndex + 1 < docs.length) {
+                                  final olderRaw = docs[docIndex + 1]
+                                      .data()['createdAt'];
+                                  if (olderRaw is Timestamp) {
+                                    olderWhen = olderRaw.toDate();
+                                  }
+                                }
+                                final showDate =
+                                    msgWhen != null &&
+                                    churchChatNeedsDateSeparator(
+                                      olderMessage: olderWhen,
+                                      currentMessage: msgWhen,
+                                    );
+                                final senderUid = (m['senderUid'] ?? '')
+                                    .toString();
+                                final senderLabel = _senderDisplayForMessage(
+                                  senderUid,
+                                  titlesByUid,
+                                  m,
+                                );
+                                final groupIncoming =
+                                    widget.isDepartment && !mine;
+                                final quoteAccent =
+                                    (!mine && widget.isDepartment)
+                                    ? ChurchChatSenderPalette.nameColorForUid(
+                                        senderUid,
+                                      )
+                                    : null;
+                                final maxBubbleW = _chatBubbleMaxWidth(context);
+                                final bubbleDecoration = mine
+                                    ? BoxDecoration(
+                                        color: ChurchChatSenderPalette
+                                            .outgoingBubbleBackground,
+                                        borderRadius:
+                                            ChurchChatSenderPalette.bubbleBorderRadius(
+                                              mine: true,
+                                            ),
+                                        boxShadow: ChurchChatSenderPalette
+                                            .bubbleShadow,
+                                      )
+                                    : BoxDecoration(
+                                        color: groupIncoming
+                                            ? ChurchChatSenderPalette.bubbleBackgroundForUid(
+                                                senderUid,
+                                              )
+                                            : ChurchChatSenderPalette
+                                                  .incomingDmBubbleBackground,
+                                        borderRadius:
+                                            ChurchChatSenderPalette.bubbleBorderRadius(
+                                              mine: false,
+                                            ),
+                                        border: Border.all(
+                                          color: groupIncoming
+                                              ? ChurchChatSenderPalette.bubbleBorderForUid(
+                                                  senderUid,
+                                                )
+                                              : const Color(0xFFE2E8F0),
+                                          width: 0.6,
+                                        ),
+                                        boxShadow: ChurchChatSenderPalette
+                                            .bubbleShadow,
+                                      );
+                                final bubbleCard = Container(
+                                  constraints: BoxConstraints(
+                                    maxWidth: maxBubbleW,
+                                  ),
+                                  margin: EdgeInsets.only(
+                                    bottom: 4,
+                                    left: mine ? 56 : (groupIncoming ? 0 : 4),
+                                    right: mine ? 4 : 56,
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isAlbumBubble ? 4 : 12,
+                                    vertical: isAlbumBubble ? 4 : 8,
+                                  ),
+                                  decoration: bubbleDecoration,
+                                  child: Column(
+                                    crossAxisAlignment: mine
+                                        ? CrossAxisAlignment.end
+                                        : CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      if (_prefs.isMessageStarred(
-                                          widget.threadId, messageId))
-                                        const Padding(
-                                          padding: EdgeInsets.only(right: 4),
-                                          child: Icon(
-                                            Icons.star_rounded,
-                                            size: 14,
-                                            color: Color(0xFFF59E0B),
+                                      if (widget.isDepartment &&
+                                          !mine &&
+                                          senderLabel.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 4,
+                                          ),
+                                          child: Text(
+                                            senderLabel,
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w800,
+                                              color:
+                                                  ChurchChatSenderPalette.nameColorForUid(
+                                                    senderUid,
+                                                  ),
+                                            ),
                                           ),
                                         ),
-                                      if (ct != null)
-                                        Text(
-                                          _fmtMsgTime(ct),
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                            color: mine
-                                                ? ThemeCleanPremium.onSurface
-                                                    .withValues(alpha: 0.55)
-                                                : ThemeCleanPremium
-                                                    .onSurfaceVariant,
-                                          ),
+                                      _MessageBody(
+                                        messageId: messageId,
+                                        type: type,
+                                        data: m,
+                                        mine: mine,
+                                        tenantId: _tid,
+                                        replyQuoteAccent: quoteAccent,
+                                        onOpenAttachment:
+                                            _openAttachmentExternally,
+                                        albumDocs: albumDocs,
+                                      ),
+                                      _buildReactionsStrip(m, uid, mine),
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 5),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (_prefs.isMessageStarred(
+                                              widget.threadId,
+                                              messageId,
+                                            ))
+                                              const Padding(
+                                                padding: EdgeInsets.only(
+                                                  right: 4,
+                                                ),
+                                                child: Icon(
+                                                  Icons.star_rounded,
+                                                  size: 14,
+                                                  color: Color(0xFFF59E0B),
+                                                ),
+                                              ),
+                                            if (ct != null)
+                                              Text(
+                                                _fmtMsgTime(ct),
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w500,
+                                                  color: mine
+                                                      ? ThemeCleanPremium
+                                                            .onSurface
+                                                            .withValues(
+                                                              alpha: 0.55,
+                                                            )
+                                                      : ThemeCleanPremium
+                                                            .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            if (mine) ...[
+                                              const SizedBox(width: 5),
+                                              ChurchChatDeliveryStatusIcon(
+                                                deliveryStatus: peerRead
+                                                    ? ChatThreadOperations
+                                                          .deliveryRead
+                                                    : dsRaw,
+                                                mine: true,
+                                                peerRead:
+                                                    !widget.isDepartment &&
+                                                    widget.peerUid != null &&
+                                                    widget
+                                                        .peerUid!
+                                                        .isNotEmpty &&
+                                                    peerRead,
+                                              ),
+                                            ],
+                                          ],
                                         ),
-                                      if (mine) ...[
-                                        const SizedBox(width: 5),
-                                        ChurchChatDeliveryStatusIcon(
-                                          deliveryStatus: peerRead
-                                              ? ChatThreadOperations.deliveryRead
-                                              : dsRaw,
-                                          mine: true,
-                                          peerRead: !widget.isDepartment &&
-                                              widget.peerUid != null &&
-                                              widget.peerUid!.isNotEmpty &&
-                                              peerRead,
-                                        ),
-                                      ],
+                                      ),
                                     ],
                                   ),
-                                ),
-                              ],
-                            ),
-                          );
-                        return GestureDetector(
-                          onLongPress: () {
-                            if (ChatThreadOperations.messageHiddenForMe(m, uid)) {
-                              return;
-                            }
-                            _showMessageActions(messageId, m, senderUid);
-                          },
-                          onDoubleTap: () {
-                            if (ChatThreadOperations.messageHiddenForMe(m, uid)) {
-                              return;
-                            }
-                            unawaited(
-                              ChatThreadOperations.setMyReactionOnMessage(
-                                tenantId: _tid,
-                                threadId: widget.threadId,
-                                messageId: messageId,
-                                emoji: '❤️',
-                              ),
-                            );
-                          },
-                          child: Column(
-                            crossAxisAlignment: mine
-                                ? CrossAxisAlignment.end
-                                : CrossAxisAlignment.stretch,
-                            children: [
-                              if (showDate && msgWhen != null)
-                                ChurchChatDateSeparatorChip(
-                                  label: churchChatDateSeparatorLabel(msgWhen),
-                                ),
-                              Align(
-                                alignment: mine
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: groupIncoming
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.end,
-                                        children: [
-                                          ChurchChatPeerAvatar(
-                                            tenantId: _tid,
-                                            peerAuthUid: senderUid,
-                                            memberRef:
-                                                _senderMemberByUid[senderUid],
-                                            radius: 16,
+                                );
+                                return GestureDetector(
+                                  onLongPress: () {
+                                    if (ChatThreadOperations.messageHiddenForMe(
+                                      m,
+                                      uid,
+                                    )) {
+                                      return;
+                                    }
+                                    _showMessageActions(
+                                      messageId,
+                                      m,
+                                      senderUid,
+                                    );
+                                  },
+                                  onDoubleTap: () {
+                                    if (ChatThreadOperations.messageHiddenForMe(
+                                      m,
+                                      uid,
+                                    )) {
+                                      return;
+                                    }
+                                    unawaited(
+                                      ChatThreadOperations.setMyReactionOnMessage(
+                                        tenantId: _tid,
+                                        threadId: widget.threadId,
+                                        messageId: messageId,
+                                        emoji: '❤️',
+                                      ),
+                                    );
+                                  },
+                                  child: Column(
+                                    crossAxisAlignment: mine
+                                        ? CrossAxisAlignment.end
+                                        : CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (showDate)
+                                        ChurchChatDateSeparatorChip(
+                                          label: churchChatDateSeparatorLabel(
+                                            msgWhen,
                                           ),
-                                          const SizedBox(width: 6),
-                                          Flexible(child: bubbleCard),
-                                        ],
-                                      )
-                                    : bubbleCard,
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ),
-            ),
-          RepaintBoundary(
-          child: AbsorbPointer(
-            absorbing: blockedDm,
-            child: SafeArea(
-            top: false,
-            child: Material(
-              elevation: 0,
-              color: ChurchChatWhatsAppTheme.inputBarBackground,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildReplyDraftBar(),
-                  if (_voiceRecording)
-                    ChurchChatVoiceRecordingBar(
-                      elapsedLabel: _formatVoiceDuration(_voiceElapsed),
-                      slideCancelArmed: _voiceSlideCancel,
-                      onCancel: () => unawaited(_finishVoiceRecording(send: false)),
-                      onSend: () =>
-                          unawaited(_finishVoiceRecording(send: true)),
-                    ),
-                  Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    onPressed: _voiceRecording ? null : _showAttachmentSheet,
-                    icon: const Icon(
-                      Icons.add_rounded,
-                      color: Color(0xFF54656F),
-                    ),
-                    tooltip: 'Foto, documento ou áudio…',
-                  ),
-                  if (widget.isDepartment &&
-                      (widget.departmentId?.trim().isNotEmpty ?? false))
-                    IconButton(
-                      onPressed: _voiceRecording
-                          ? null
-                          : () => unawaited(_openDeptMentionPicker()),
-                      icon: Icon(
-                        Icons.alternate_email_rounded,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                      tooltip: 'Mencionar membro (@)',
-                    ),
-                  ChurchChatVoiceMicButton(
-                    recording: _voiceRecording,
-                    slideCancelArmed: _voiceSlideCancel,
-                    slideOffsetDx: _voiceSlideOffset,
-                    onWebTap: () => unawaited(_toggleVoiceRecordSend()),
-                    onLongPressStart: kIsWeb
-                        ? null
-                        : (_) {
-                            _micLongPressActive = true;
-                            _voiceSlideCancel = false;
-                            _voiceSlideOffset = 0;
-                            _voiceStartFuture = _startVoiceRecording();
-                            unawaited(_voiceStartFuture);
-                          },
-                    onLongPressMoveUpdate: kIsWeb
-                        ? null
-                        : (details) {
-                            final dx = details.offsetFromOrigin.dx;
-                            setState(() {
-                              _voiceSlideOffset = dx;
-                              _voiceSlideCancel =
-                                  dx < -_voiceCancelSlideThreshold;
-                            });
-                          },
-                    onLongPressEnd: kIsWeb
-                        ? null
-                        : (_) {
-                            final send = !_voiceSlideCancel;
-                            unawaited(_finishVoiceRecording(send: send));
-                            Future<void>.delayed(
-                              const Duration(milliseconds: 250),
-                              () {
-                                if (mounted) {
-                                  setState(() => _micLongPressActive = false);
-                                } else {
-                                  _micLongPressActive = false;
-                                }
+                                        ),
+                                      Align(
+                                        alignment: mine
+                                            ? Alignment.centerRight
+                                            : Alignment.centerLeft,
+                                        child: groupIncoming
+                                            ? Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.end,
+                                                children: [
+                                                  ChurchChatPeerAvatar(
+                                                    tenantId: _tid,
+                                                    peerAuthUid: senderUid,
+                                                    memberRef:
+                                                        _senderMemberByUid[senderUid],
+                                                    radius: 16,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Flexible(child: bubbleCard),
+                                                ],
+                                              )
+                                            : bubbleCard,
+                                      ),
+                                    ],
+                                  ),
+                                );
                               },
                             );
                           },
-                    onLongPressCancel: kIsWeb
-                        ? null
-                        : () {
-                            unawaited(_finishVoiceRecording(send: false));
-                            _micLongPressActive = false;
-                            setState(() {
-                              _voiceSlideCancel = false;
-                              _voiceSlideOffset = 0;
-                            });
-                          },
-                    onTapWhileRecording: () {
-                      if (_micLongPressActive) return;
-                      unawaited(_finishVoiceRecording(send: true));
-                    },
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _ctrl,
-                      minLines: 1,
-                      maxLines: 5,
-                      enabled: !_voiceRecording,
-                      autocorrect: true,
-                      enableSuggestions: true,
-                      smartDashesType: SmartDashesType.enabled,
-                      smartQuotesType: SmartQuotesType.enabled,
-                      /// Sem isto, [inferAndroidSpellCheckConfiguration] mantém spellcheck desligado.
-                      spellCheckConfiguration: const SpellCheckConfiguration(),
-                      textCapitalization: TextCapitalization.sentences,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        color: ThemeCleanPremium.onSurface,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: _voiceRecording
-                            ? 'A gravar…'
-                            : 'Digite uma mensagem',
-                        hintStyle: TextStyle(
-                          color: ThemeCleanPremium.onSurfaceVariant,
                         ),
-                        prefixIcon: _voiceRecording
-                            ? null
-                            : IconButton(
-                                tooltip: 'Emojis e figurinhas',
-                                onPressed: _voiceRecording
-                                    ? null
-                                    : _openExpressionSheet,
-                                icon: const Icon(
-                                  Icons.emoji_emotions_outlined,
-                                  color: Color(0xFF54656F),
+                      ),
+                    ),
+                  ),
+                  RepaintBoundary(
+                    child: AbsorbPointer(
+                      absorbing: blockedDm,
+                      child: SafeArea(
+                        top: false,
+                        child: Material(
+                          elevation: 0,
+                          color: ChurchChatWhatsAppTheme.inputBarBackground,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildReplyDraftBar(),
+                              if (_voiceRecording)
+                                ChurchChatVoiceRecordingBar(
+                                  elapsedLabel: _formatVoiceDuration(
+                                    _voiceElapsed,
+                                  ),
+                                  slideCancelArmed: _voiceSlideCancel,
+                                  onCancel: () => unawaited(
+                                    _finishVoiceRecording(send: false),
+                                  ),
+                                  onSend: () => unawaited(
+                                    _finishVoiceRecording(send: true),
+                                  ),
+                                ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    IconButton(
+                                      onPressed: _voiceRecording
+                                          ? null
+                                          : _showAttachmentSheet,
+                                      icon: const Icon(
+                                        Icons.add_rounded,
+                                        color: Color(0xFF54656F),
+                                      ),
+                                      tooltip: 'Foto, documento ou áudio…',
+                                    ),
+                                    if (widget.isDepartment &&
+                                        (widget.departmentId
+                                                ?.trim()
+                                                .isNotEmpty ??
+                                            false))
+                                      IconButton(
+                                        onPressed: _voiceRecording
+                                            ? null
+                                            : () => unawaited(
+                                                _openDeptMentionPicker(),
+                                              ),
+                                        icon: Icon(
+                                          Icons.alternate_email_rounded,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                        tooltip: 'Mencionar membro (@)',
+                                      ),
+                                    ChurchChatVoiceMicButton(
+                                      recording: _voiceRecording,
+                                      slideCancelArmed: _voiceSlideCancel,
+                                      slideOffsetDx: _voiceSlideOffset,
+                                      onWebTap: () =>
+                                          unawaited(_toggleVoiceRecordSend()),
+                                      onLongPressStart: kIsWeb
+                                          ? null
+                                          : (_) {
+                                              _micLongPressActive = true;
+                                              _voiceSlideCancel = false;
+                                              _voiceSlideOffset = 0;
+                                              _voiceStartFuture =
+                                                  _startVoiceRecording();
+                                              unawaited(_voiceStartFuture);
+                                            },
+                                      onLongPressMoveUpdate: kIsWeb
+                                          ? null
+                                          : (details) {
+                                              final dx =
+                                                  details.offsetFromOrigin.dx;
+                                              setState(() {
+                                                _voiceSlideOffset = dx;
+                                                _voiceSlideCancel =
+                                                    dx <
+                                                    -_voiceCancelSlideThreshold;
+                                              });
+                                            },
+                                      onLongPressEnd: kIsWeb
+                                          ? null
+                                          : (_) {
+                                              final send = !_voiceSlideCancel;
+                                              unawaited(
+                                                _finishVoiceRecording(
+                                                  send: send,
+                                                ),
+                                              );
+                                              Future<void>.delayed(
+                                                const Duration(
+                                                  milliseconds: 250,
+                                                ),
+                                                () {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () =>
+                                                          _micLongPressActive =
+                                                              false,
+                                                    );
+                                                  } else {
+                                                    _micLongPressActive = false;
+                                                  }
+                                                },
+                                              );
+                                            },
+                                      onLongPressCancel: kIsWeb
+                                          ? null
+                                          : () {
+                                              unawaited(
+                                                _finishVoiceRecording(
+                                                  send: false,
+                                                ),
+                                              );
+                                              _micLongPressActive = false;
+                                              setState(() {
+                                                _voiceSlideCancel = false;
+                                                _voiceSlideOffset = 0;
+                                              });
+                                            },
+                                      onTapWhileRecording: () {
+                                        if (_micLongPressActive) return;
+                                        unawaited(
+                                          _finishVoiceRecording(send: true),
+                                        );
+                                      },
+                                    ),
+                                    Expanded(
+                                      child: TextField(
+                                        controller: _ctrl,
+                                        minLines: 1,
+                                        maxLines: 5,
+                                        enabled: !_voiceRecording,
+                                        autocorrect: true,
+                                        enableSuggestions: true,
+                                        smartDashesType:
+                                            SmartDashesType.enabled,
+                                        smartQuotesType:
+                                            SmartQuotesType.enabled,
+
+                                        /// Sem isto, [inferAndroidSpellCheckConfiguration] mantém spellcheck desligado.
+                                        spellCheckConfiguration:
+                                            const SpellCheckConfiguration(),
+                                        textCapitalization:
+                                            TextCapitalization.sentences,
+                                        keyboardType: TextInputType.multiline,
+                                        textInputAction:
+                                            TextInputAction.newline,
+                                        style: TextStyle(
+                                          color: ThemeCleanPremium.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        decoration: InputDecoration(
+                                          hintText: _voiceRecording
+                                              ? 'A gravar…'
+                                              : 'Digite uma mensagem',
+                                          hintStyle: TextStyle(
+                                            color: ThemeCleanPremium
+                                                .onSurfaceVariant,
+                                          ),
+                                          prefixIcon: _voiceRecording
+                                              ? null
+                                              : IconButton(
+                                                  tooltip:
+                                                      'Emojis e figurinhas',
+                                                  onPressed: _voiceRecording
+                                                      ? null
+                                                      : _openExpressionSheet,
+                                                  icon: const Icon(
+                                                    Icons
+                                                        .emoji_emotions_outlined,
+                                                    color: Color(0xFF54656F),
+                                                  ),
+                                                ),
+                                          prefixIconConstraints:
+                                              const BoxConstraints(
+                                                minWidth: 44,
+                                                minHeight: 44,
+                                              ),
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                          border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              24,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              24,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              24,
+                                            ),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 10,
+                                              ),
+                                        ),
+                                        onSubmitted: _voiceRecording
+                                            ? null
+                                            : (_) {
+                                                _sendText();
+                                              },
+                                      ),
+                                    ),
+                                    Material(
+                                      color: const Color(0xFF128C7E),
+                                      shape: const CircleBorder(),
+                                      elevation: 0,
+                                      child: InkWell(
+                                        customBorder: const CircleBorder(),
+                                        onTap: _voiceRecording
+                                            ? null
+                                            : _sendText,
+                                        child: SizedBox(
+                                          width:
+                                              ThemeCleanPremium.minTouchTarget,
+                                          height:
+                                              ThemeCleanPremium.minTouchTarget,
+                                          child: Icon(
+                                            Icons.send_rounded,
+                                            color: _voiceRecording
+                                                ? Colors.white38
+                                                : Colors.white,
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                        prefixIconConstraints: const BoxConstraints(
-                          minWidth: 44,
-                          minHeight: 44,
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 10),
-                      ),
-                      onSubmitted: _voiceRecording
-                          ? null
-                          : (_) {
-                              _sendText();
-                            },
-                    ),
-                  ),
-                  Material(
-                    color: const Color(0xFF128C7E),
-                    shape: const CircleBorder(),
-                    elevation: 0,
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: _voiceRecording ? null : _sendText,
-                      child: SizedBox(
-                        width: ThemeCleanPremium.minTouchTarget,
-                        height: ThemeCleanPremium.minTouchTarget,
-                        child: Icon(
-                          Icons.send_rounded,
-                          color: _voiceRecording
-                              ? Colors.white38
-                              : Colors.white,
-                          size: 22,
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -4912,15 +5136,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ],
               ),
             ),
-                ],
-              ),
-            ),
-          ),
-        ),
-          ),
-        ],
-      ),
-    ),
           ),
         ],
       ),
@@ -4931,10 +5146,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(
-              maxWidth: (MediaQuery.sizeOf(context).width * 0.94)
-                  .clamp(720.0, 1200.0),
-              maxHeight: (MediaQuery.sizeOf(context).height * 0.94)
-                  .clamp(720.0, 980.0),
+              maxWidth: (MediaQuery.sizeOf(context).width * 0.94).clamp(
+                720.0,
+                1200.0,
+              ),
+              maxHeight: (MediaQuery.sizeOf(context).height * 0.94).clamp(
+                720.0,
+                980.0,
+              ),
             ),
             child: Material(
               elevation: 10,
@@ -4968,7 +5187,8 @@ class _ChurchChatTypingPollStrip extends StatefulWidget {
       _ChurchChatTypingPollStripState();
 }
 
-class _ChurchChatTypingPollStripState extends State<_ChurchChatTypingPollStrip> {
+class _ChurchChatTypingPollStripState
+    extends State<_ChurchChatTypingPollStrip> {
   Timer? _pollTimer;
   ChurchChatTypingActivity _activity = const ChurchChatTypingActivity();
   bool _pollInFlight = false;
@@ -5111,10 +5331,7 @@ class _MessageBody extends StatelessWidget {
               : ThemeCleanPremium.surfaceVariant.withValues(alpha: 0.65),
           borderRadius: BorderRadius.circular(6),
           border: Border(
-            left: BorderSide(
-              color: accent.withValues(alpha: 0.85),
-              width: 3,
-            ),
+            left: BorderSide(color: accent.withValues(alpha: 0.85), width: 3),
           ),
         ),
         child: Column(
@@ -5147,9 +5364,9 @@ class _MessageBody extends StatelessWidget {
   }
 
   List<Widget> _quotePrefix(BuildContext context) => [
-        _forwardedQuote(context),
-        _replyQuote(context),
-      ];
+    _forwardedQuote(context),
+    _replyQuote(context),
+  ];
 
   Widget _buildAlbumGrid(BuildContext context) {
     final docs = albumDocs!;
@@ -5167,27 +5384,29 @@ class _MessageBody extends StatelessWidget {
         cells.add(ChurchChatAlbumCell(type: t));
         continue;
       }
-      cells.add(ChurchChatAlbumCell(
-        url: legacyUrl.isEmpty ? null : legacyUrl,
-        storagePath: sp.isEmpty ? null : sp,
-        messageData: dm,
-        tenantId: tenantId,
-        messageId: d.id,
-        type: t == 'video' ? 'video' : 'image',
-        onTap: !hasMedia
-            ? null
-            : () async {
-                final resolved =
-                    await ChurchChatMediaResolver.resolveDownloadUrl(
-                  storagePath: sp.isNotEmpty ? sp : legacyUrl,
-                  tenantId: tenantId,
-                );
-                final zoomUrl = resolved ?? legacyUrl;
-                if (zoomUrl.isNotEmpty && context.mounted) {
-                  await churchChatOpenImageZoom(context, zoomUrl);
-                }
-              },
-      ));
+      cells.add(
+        ChurchChatAlbumCell(
+          url: legacyUrl.isEmpty ? null : legacyUrl,
+          storagePath: sp.isEmpty ? null : sp,
+          messageData: dm,
+          tenantId: tenantId,
+          messageId: d.id,
+          type: t == 'video' ? 'video' : 'image',
+          onTap: !hasMedia
+              ? null
+              : () async {
+                  final resolved =
+                      await ChurchChatMediaResolver.resolveDownloadUrl(
+                        storagePath: sp.isNotEmpty ? sp : legacyUrl,
+                        tenantId: tenantId,
+                      );
+                  final zoomUrl = resolved ?? legacyUrl;
+                  if (zoomUrl.isNotEmpty && context.mounted) {
+                    await churchChatOpenImageZoom(context, zoomUrl);
+                  }
+                },
+        ),
+      );
     }
     final maxW = MediaQuery.sizeOf(context).width * 0.78;
     return ChurchChatAlbumGrid(
@@ -5201,19 +5420,18 @@ class _MessageBody extends StatelessWidget {
   Widget build(BuildContext context) {
     if (albumDocs != null && albumDocs!.length > 1) {
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children: [
-          ..._quotePrefix(context),
-          _buildAlbumGrid(context),
-        ],
+        children: [..._quotePrefix(context), _buildAlbumGrid(context)],
       );
     }
     if (type == 'text' || type == 'link') {
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5227,8 +5445,9 @@ class _MessageBody extends StatelessWidget {
     }
     if (type == 'sticker') {
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5269,12 +5488,13 @@ class _MessageBody extends StatelessWidget {
         final uploadIcon = type == 'audio'
             ? Icons.mic_rounded
             : type == 'image'
-                ? Icons.image_rounded
-                : Icons.cloud_upload_rounded;
+            ? Icons.image_rounded
+            : Icons.cloud_upload_rounded;
         // WhatsApp: bolha discreta (sem «A carregar…» / barra de progresso).
         return Column(
-          crossAxisAlignment:
-              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: mine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             ..._quotePrefix(context),
@@ -5284,8 +5504,9 @@ class _MessageBody extends StatelessWidget {
                 color: mine
                     ? ChurchChatSenderPalette.outgoingBubbleBackground
                     : Colors.white,
-                borderRadius:
-                    ChurchChatSenderPalette.bubbleBorderRadius(mine: mine),
+                borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(
+                  mine: mine,
+                ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -5304,8 +5525,9 @@ class _MessageBody extends StatelessWidget {
         );
       }
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5316,8 +5538,9 @@ class _MessageBody extends StatelessWidget {
     if (type == 'image') {
       final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5344,8 +5567,10 @@ class _MessageBody extends StatelessWidget {
                             width: w,
                             fit: BoxFit.cover,
                             memCacheWidth: (dpr * w).round().clamp(160, 720),
-                            memCacheHeight:
-                                (dpr * w * 0.75).round().clamp(120, 540),
+                            memCacheHeight: (dpr * w * 0.75).round().clamp(
+                              120,
+                              540,
+                            ),
                             borderRadius: BorderRadius.circular(16),
                             onTap: () async {
                               await churchChatOpenReceivedMediaPreview(
@@ -5382,52 +5607,54 @@ class _MessageBody extends StatelessWidget {
                             right: 0,
                             bottom: 0,
                             child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.72),
-                                ],
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withValues(alpha: 0.72),
+                                  ],
+                                ),
                               ),
-                            ),
-                            child: SafeArea(
-                              top: false,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  TextButton.icon(
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    onPressed: () async {
-                                      // Mesmo fluxo do toque na miniatura:
-                                      // resolve original (com fallback) e abre inteira.
-                                      await churchChatOpenReceivedMediaPreview(
-                                        context,
-                                        type: 'image',
-                                        data: data,
-                                        tenantId: tenantId,
-                                        messageId: messageId,
-                                      );
-                                    },
-                                    icon: const Icon(Icons.zoom_in_rounded,
-                                        size: 22),
-                                    label: const Text(
-                                      'Ampliar',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
+                              child: SafeArea(
+                                top: false,
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    TextButton.icon(
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      onPressed: () async {
+                                        // Mesmo fluxo do toque na miniatura:
+                                        // resolve original (com fallback) e abre inteira.
+                                        await churchChatOpenReceivedMediaPreview(
+                                          context,
+                                          type: 'image',
+                                          data: data,
+                                          tenantId: tenantId,
+                                          messageId: messageId,
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.zoom_in_rounded,
+                                        size: 22,
+                                      ),
+                                      label: const Text(
+                                        'Ampliar',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
                   ),
@@ -5441,8 +5668,9 @@ class _MessageBody extends StatelessWidget {
     if (type == 'video') {
       final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5480,8 +5708,9 @@ class _MessageBody extends StatelessWidget {
     }
     if (ChurchChatMessageFields.isDocumentType(type)) {
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5499,8 +5728,9 @@ class _MessageBody extends StatelessWidget {
       final sp = ChurchChatMessageFields.storagePath(data);
       final legacyUrl = ChurchChatMessageFields.mediaUrl(data);
       return Column(
-        crossAxisAlignment:
-            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: mine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
@@ -5514,8 +5744,9 @@ class _MessageBody extends StatelessWidget {
       );
     }
     return Column(
-      crossAxisAlignment:
-          mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment: mine
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         ..._quotePrefix(context),
@@ -5527,8 +5758,7 @@ class _MessageBody extends StatelessWidget {
               tenantId: tenantId,
               messageId: messageId,
             );
-            final openUrl =
-                resolved ?? ChurchChatMessageFields.mediaUrl(data);
+            final openUrl = resolved ?? ChurchChatMessageFields.mediaUrl(data);
             if (openUrl.isNotEmpty) {
               await onOpenAttachment?.call(openUrl);
             }
@@ -5588,10 +5818,7 @@ class _WhatsStyleAttachTile extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [
-                        color,
-                        Color.lerp(color, Colors.black, 0.12)!,
-                      ],
+                      colors: [color, Color.lerp(color, Colors.black, 0.12)!],
                     ),
                     boxShadow: [
                       BoxShadow(

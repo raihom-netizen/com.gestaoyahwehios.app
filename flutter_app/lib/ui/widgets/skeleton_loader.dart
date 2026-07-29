@@ -47,14 +47,14 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
       padding: widget.padding ?? const EdgeInsets.all(ThemeCleanPremium.spaceMd),
       child: ListView.separated(
         itemCount: widget.itemCount,
-        separatorBuilder: (_, __) => const SizedBox(height: ThemeCleanPremium.spaceSm),
+        separatorBuilder: (_, _) => const SizedBox(height: ThemeCleanPremium.spaceSm),
         itemBuilder: (_, i) => AnimatedBuilder(
           animation: _shimmer,
           builder: (_, child) => Container(
             height: widget.itemHeight,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300.withOpacity(
-                0.3 + _shimmer.value * 0.25,
+              color: Colors.grey.shade300.withValues(
+                alpha: 0.3 + _shimmer.value * 0.25,
               ),
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             ),
@@ -69,7 +69,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade400.withOpacity(0.5),
+                      color: Colors.grey.shade400.withValues(alpha: 0.5),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -83,7 +83,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
                           height: 14,
                           width: 140,
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade400.withOpacity(0.5),
+                            color: Colors.grey.shade400.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),
@@ -92,7 +92,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
                           height: 12,
                           width: 200,
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade400.withOpacity(0.4),
+                            color: Colors.grey.shade400.withValues(alpha: 0.4),
                             borderRadius: BorderRadius.circular(4),
                           ),
                         ),

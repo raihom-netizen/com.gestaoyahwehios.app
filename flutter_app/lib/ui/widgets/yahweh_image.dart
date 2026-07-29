@@ -45,7 +45,7 @@ class YahwehImage extends StatelessWidget {
       width: width,
       height: height,
       fit: isLogo ? BoxFit.contain : BoxFit.cover,
-      errorBuilder: (_, __, ___) => Icon(
+      errorBuilder: (_, _, _) => Icon(
         Icons.church_rounded,
         size: isLogo ? 40 : 32,
         color: Colors.grey.shade400,

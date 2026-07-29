@@ -46,7 +46,7 @@ class GestaoYahwehBrandLogo extends StatelessWidget {
       gaplessPlayback: true,
       cacheHeight: cachePx,
       cacheWidth: width != null ? cachePx : null,
-      errorBuilder: (_, __, ___) => Image.asset(
+      errorBuilder: (_, _, _) => Image.asset(
         _syncedAliasAsset,
         height: height,
         width: width,
@@ -56,7 +56,7 @@ class GestaoYahwehBrandLogo extends StatelessWidget {
         gaplessPlayback: true,
         cacheHeight: cachePx,
         cacheWidth: width != null ? cachePx : null,
-        errorBuilder: (_, __, ___) => Icon(
+        errorBuilder: (_, _, _) => Icon(
           Icons.shield_rounded,
           size: height * 0.82,
           color: fallbackIconColor ?? ThemeCleanPremium.primary,

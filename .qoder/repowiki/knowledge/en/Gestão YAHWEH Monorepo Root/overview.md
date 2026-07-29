@@ -1,1 +1,0 @@
-Top-level monorepo orchestrating the Flutter mobile/web app, Firebase Cloud Functions backend, Firestore/Storage rules, and Codemagic CI for building, signing, and releasing the Gestão YAHWEH church management platform.

@@ -178,7 +178,7 @@ class _ChurchSignatoryPickerSheetState extends State<_ChurchSignatoryPickerSheet
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                           itemCount: _filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          separatorBuilder: (_, _) => const SizedBox(height: 8),
                           itemBuilder: (context, i) {
                             final e = _filtered[i];
                             final sel = e.memberId == widget.selectedMemberId;
@@ -309,7 +309,7 @@ Future<({ChurchSignatoryEntry? left, ChurchSignatoryEntry? right, bool digital})
           required ValueChanged<String?> onChanged,
         }) {
           return DropdownButtonFormField<String?>(
-            value: value,
+            initialValue: value,
             isExpanded: true,
             decoration: InputDecoration(
               labelText: label,

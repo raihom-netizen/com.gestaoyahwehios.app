@@ -256,7 +256,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
               key,
               proof.byPlatform[key] == null
                   ? '(ausente — publicar nesta plataforma)'
-                  : '${proof.byPlatform[key]!.capturedAt.toIso8601String()}',
+                  : proof.byPlatform[key]!.capturedAt.toIso8601String(),
             ),
           const SizedBox(height: 12),
           SizedBox(

@@ -1,5 +1,4 @@
 import 'dart:async' show unawaited;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,9 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -19,11 +16,9 @@ import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
@@ -62,8 +57,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:image_picker/image_picker.dart';
 import 'package:lottie/lottie.dart';
 import 'package:skeletonizer/skeletonizer.dart';
-import 'package:gestao_yahweh/debug/agent_debug_log.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class PublicMemberSignupPage extends StatefulWidget {
   /// Slug da igreja (para link público). Se null, use [tenantId].
@@ -434,16 +427,21 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         setState(() => _loadingCep = false);
         return;
       }
-      if (result.logradouro != null && result.logradouro!.isNotEmpty)
+      if (result.logradouro != null && result.logradouro!.isNotEmpty) {
         _enderecoCtrl.text = result.logradouro!;
-      if (result.bairro != null && result.bairro!.isNotEmpty)
+      }
+      if (result.bairro != null && result.bairro!.isNotEmpty) {
         _bairroCtrl.text = result.bairro!;
-      if (result.localidade != null && result.localidade!.isNotEmpty)
+      }
+      if (result.localidade != null && result.localidade!.isNotEmpty) {
         _cityCtrl.text = result.localidade!;
-      if (result.uf != null && result.uf!.isNotEmpty)
+      }
+      if (result.uf != null && result.uf!.isNotEmpty) {
         _estadoCtrl.text = result.uf!;
-      if (result.cep != null && result.cep!.isNotEmpty)
+      }
+      if (result.cep != null && result.cep!.isNotEmpty) {
         _cepCtrl.text = result.cep!;
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1172,12 +1170,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
 
     if (_tenantId == null || _tenantId!.isEmpty) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text(
                   'Igreja não identificada. Recarregue a página ou use o link correto da igreja.')),
         );
+      }
       return;
     }
     if (_tenantBlocked) {
@@ -1678,7 +1677,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       children: [
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _sexo,
+                            initialValue: _sexo,
                             decoration: _signInput(
                                 label: 'Sexo', icon: Icons.wc_rounded),
                             items: const [
@@ -1721,7 +1720,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: MemberSignupPremiumUi.escolaridadeOptions
+                      initialValue: MemberSignupPremiumUi.escolaridadeOptions
                               .contains(_escolaridadeCtrl.text.trim())
                           ? _escolaridadeCtrl.text.trim()
                           : null,
@@ -1818,7 +1817,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _ufs.contains(_estadoCtrl.text.trim())
+                      initialValue: _ufs.contains(_estadoCtrl.text.trim())
                           ? _estadoCtrl.text.trim()
                           : null,
                       decoration: _signInput(
@@ -1864,7 +1863,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 itemCount: _citySuggestions.length,
-                                separatorBuilder: (_, __) =>
+                                separatorBuilder: (_, _) =>
                                     const Divider(height: 1),
                                 itemBuilder: (_, i) {
                                   final s = _citySuggestions[i];
@@ -1889,7 +1888,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: MemberSignupPremiumUi.estadoCivilOptions
+                      initialValue: MemberSignupPremiumUi.estadoCivilOptions
                               .contains(_estadoCivilCtrl.text.trim())
                           ? _estadoCivilCtrl.text.trim()
                           : null,

@@ -22,8 +22,8 @@ class ChurchCertificadosMemberDoc
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
   ChurchCertificadosMemberDoc({
     required this.id,
-    required Map<String, dynamic> data,
-  }) : _data = data;
+    required this._data,
+  });
 
   @override
   final String id;

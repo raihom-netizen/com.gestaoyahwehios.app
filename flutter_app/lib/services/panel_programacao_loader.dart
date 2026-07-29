@@ -39,6 +39,18 @@ abstract final class PanelProgramacaoLoader {
 
   static String _diskBucket(int rangeDays) => 'panel_programacao_$rangeDays';
 
+  /// Invalida cache RAM + disco do painel de programação.
+  static Future<void> clear(String tenantId) async {
+    final tid = ChurchPanelTenant.resolve(tenantId).trim();
+    if (tid.isEmpty) return;
+    _ram.remove(_ramKey(tid, 7));
+    _ram.remove(_ramKey(tid, 15));
+    _ram.remove(_ramKey(tid, 30));
+    await YahwehLocalSnapshotStore.deleteJsonList(tid, _diskBucket(7));
+    await YahwehLocalSnapshotStore.deleteJsonList(tid, _diskBucket(15));
+    await YahwehLocalSnapshotStore.deleteJsonList(tid, _diskBucket(30));
+  }
+
   static List<Map<String, dynamic>>? peekRam(String tenantId, int rangeDays) {
     final e = _ram[_ramKey(tenantId, rangeDays)];
     if (e == null) return null;
@@ -221,7 +233,7 @@ abstract final class PanelProgramacaoLoader {
       if (last != null && FirestoreStreamUtils.isPermissionDenied(last)) {
         return const MergedFirestoreQuerySnapshot([]);
       }
-      if (last != null) throw last!;
+      if (last != null) throw last;
       return const MergedFirestoreQuerySnapshot([]);
     }
   }

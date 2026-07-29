@@ -1,6 +1,7 @@
 ﻿import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { buildGyTokenMessage } from "./notificationBranding";
+import { buildGyNotificationDeepLink } from "./pushNovoConteudo";
 
 const db = admin.firestore();
 
@@ -175,6 +176,37 @@ async function sendEachInBatches(messages: admin.messaging.Message[]): Promise<v
   }
 }
 
+/// Incrementa o contador de não lidas por conversa em `chat_member_prefs/{uid}`.
+/// O Flutter zera ao abrir o thread (`lastReadMessageIds` + `unreadCounts`).
+async function incrementUnreadCounts(
+  tenantId: string,
+  threadId: string,
+  uids: string[]
+): Promise<void> {
+  const unique = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u.length >= 8))];
+  if (!unique.length) return;
+  const step = 500;
+  for (let i = 0; i < unique.length; i += step) {
+    const batch = db.batch();
+    for (const uid of unique.slice(i, i + step)) {
+      const ref = db.collection("igrejas").doc(tenantId).collection("chat_member_prefs").doc(uid);
+      batch.set(
+        ref,
+        {
+          [`unreadCounts.${threadId}`]: admin.firestore.FieldValue.increment(1),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
+    try {
+      await batch.commit();
+    } catch (e) {
+      functions.logger.error("churchChatNotify incrementUnreadCounts", e);
+    }
+  }
+}
+
 function previewFromMessage(msg: Record<string, unknown>): string {
   const mtype = String(msg.type || "text");
   if (mtype === "text") return String(msg.text || "").trim().slice(0, 140);
@@ -295,7 +327,8 @@ export const onChurchChatMessageCreated = functions
                 ? { departmentId: departmentIdForPush }
                 : {}),
             click_action: "FLUTTER_NOTIFICATION_CLICK",
-            ...(wasMentioned ? { chatMention: "1" } : {}),
+            deepLink: buildGyNotificationDeepLink(tenantId, `chat/${threadId}`),
+            ...(wasMentioned ? { chatMention: "1", mentionCount: "1" } : {}),
           },
           module: "chat",
           chatDelivery,
@@ -304,5 +337,9 @@ export const onChurchChatMessageCreated = functions
     }
 
     await sendEachInBatches(messages);
+
+    // Contador de não lidas em background (badge estilo Telegram no hub).
+    await incrementUnreadCounts(tenantId, threadId, recipientPushOn);
+
     return null;
   });

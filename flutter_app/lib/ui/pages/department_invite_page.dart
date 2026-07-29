@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
@@ -9,7 +8,6 @@ import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Link público: `/convite-departamento?tid=&did=` — após login, vincula o membro ao departamento.
 class DepartmentInvitePage extends StatefulWidget {

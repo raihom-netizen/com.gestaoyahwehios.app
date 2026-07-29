@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: deployment_scripts
-title: Deployment & CI/CD Automation Scripts
+title: Gestao YAHWEH Deployment & Build Automation Scripts
 scope:
     - scripts/
 source_files: []

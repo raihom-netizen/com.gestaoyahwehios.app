@@ -1,9 +1,6 @@
 import 'dart:async' show StreamSubscription, TimeoutException, Timer, unawaited;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,9 +11,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
-import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -27,7 +21,6 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
@@ -36,7 +29,6 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
@@ -65,11 +57,9 @@ import 'package:gestao_yahweh/ui/pages/finance_smart_input_page.dart';
 import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
     show RelatorioFinanceiroPage;
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
-import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -270,7 +260,7 @@ Widget _financeBankMiniLogo({
       width: size,
       height: size,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => fallback,
+      errorBuilder: (_, _, _) => fallback,
     ),
   );
 }
@@ -2889,12 +2879,13 @@ class _ResumoTabState extends State<_ResumoTab> {
                           firstDate: start,
                           lastDate: DateTime(2035),
                         );
-                        if (mounted && end != null)
+                        if (mounted && end != null) {
                           setState(() {
                             _periodFilter = 'periodo';
                             _periodStart = start;
                             _periodEnd = end;
                           });
+                        }
                       },
                     ),
                   ],
@@ -3288,7 +3279,7 @@ class _ResumoTabState extends State<_ResumoTab> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                            color: ThemeCleanPremium.primary.withOpacity(0.1),
+                            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(
                                 ThemeCleanPremium.radiusSm)),
                         child: Icon(Icons.account_balance_wallet_rounded,
@@ -3403,18 +3394,18 @@ class _ContaSaldoCard extends StatelessWidget {
             boxShadow: [
               ...ThemeCleanPremium.softUiCardShadow,
               BoxShadow(
-                  color: cor.withOpacity(0.06),
+                  color: cor.withValues(alpha: 0.06),
                   blurRadius: 12,
                   offset: const Offset(0, 4))
             ],
-            border: Border.all(color: cor.withOpacity(0.2)),
+            border: Border.all(color: cor.withValues(alpha: 0.2)),
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                    color: cor.withOpacity(0.12),
+                    color: cor.withValues(alpha: 0.12),
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusSm)),
                 child:
@@ -3906,7 +3897,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                                 .toList();
                             return DropdownButtonFormField<String>(
                               isExpanded: true,
-                              value: cdocs.any((c) => c.id == _filtroContaExtratoGeral)
+                              initialValue: cdocs.any((c) => c.id == _filtroContaExtratoGeral)
                                   ? _filtroContaExtratoGeral
                                   : null,
                               hint: const Text('Todas as contas (extrato geral)'),
@@ -6309,20 +6300,23 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
                                 shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12)),
                                 onSelected: (v) async {
-                                  if (v == 'edit')
+                                  if (v == 'edit') {
                                     _addOuEditar(context,
                                         doc: docs[i], onSaved: _refresh);
+                                  }
                                   if (v == 'toggle') {
                                     await docs[i]
                                         .reference
                                         .update({'ativo': !ativo});
                                     if (mounted) _refresh();
                                   }
-                                  if (v == 'delete')
+                                  if (v == 'delete') {
                                     _excluir(context, docs[i],
                                         onDeleted: _refresh);
-                                  if (v == 'lancar')
+                                  }
+                                  if (v == 'lancar') {
                                     _lancarDespesaFixa(context, d);
+                                  }
                                 },
                                 itemBuilder: (_) => [
                                   const PopupMenuItem(
@@ -6412,8 +6406,9 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
 
     final categoriasList =
         await getCategoriasDespesaForTenant(widget.tenantId);
-    if (categoria.isNotEmpty && !categoriasList.contains(categoria))
+    if (categoria.isNotEmpty && !categoriasList.contains(categoria)) {
       categoria = '';
+    }
 
     var vinculoTipo = 'nenhum';
     String? membroId;
@@ -6461,7 +6456,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: categoria.isNotEmpty ? categoria : null,
+                  initialValue: categoria.isNotEmpty ? categoria : null,
                   decoration: InputDecoration(
                     labelText: 'Categoria',
                     border: OutlineInputBorder(
@@ -6785,8 +6780,9 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
                 final tot = int.tryParse(parcelasCtrl.text);
                 if (tot != null && tot > 0) payload['totalParcelas'] = tot;
                 final part = int.tryParse(aPartirCtrl.text);
-                if (part != null && part >= 1)
+                if (part != null && part >= 1) {
                   payload['aPartirDaParcela'] = part;
+                }
                 Navigator.pop(ctx, payload);
               },
               icon: const Icon(Icons.save_rounded),
@@ -7100,7 +7096,7 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
-              border: Border.all(color: widget.color.withOpacity(0.2)),
+              border: Border.all(color: widget.color.withValues(alpha: 0.2)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -7112,11 +7108,12 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
                 FilledButton.icon(
                   onPressed: () async {
                     await _seedIfEmpty();
-                    if (context.mounted)
+                    if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                           content: Text('Categorias padrão carregadas.',
                               style: TextStyle(color: Colors.white)),
                           backgroundColor: Colors.green));
+                    }
                   },
                   icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
                   label: const Text('Carregar categorias padrão'),
@@ -7131,7 +7128,7 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: widget.color.withOpacity(0.2)),
+            border: Border.all(color: widget.color.withValues(alpha: 0.2)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -7140,7 +7137,7 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.12),
+                  color: widget.color.withValues(alpha: 0.12),
                   borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(ThemeCleanPremium.radiusMd)),
                 ),
@@ -7172,7 +7169,7 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: docs.length,
-                separatorBuilder: (_, __) =>
+                separatorBuilder: (_, _) =>
                     Divider(height: 1, color: Colors.grey.shade200),
                 itemBuilder: (context, i) {
                   final d = docs[i];
@@ -7223,20 +7220,21 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
               child: const Text('Cancelar')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Adicionar'),
             style: FilledButton.styleFrom(
                 backgroundColor: ThemeCleanPremium.primary),
+            child: const Text('Adicionar'),
           ),
         ],
       ),
     );
     if (nome != null && nome.isNotEmpty && context.mounted) {
       await widget.collection.add({'nome': nome, 'ordem': 999});
-      if (context.mounted)
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Categoria adicionada.',
                 style: TextStyle(color: Colors.white)),
             backgroundColor: Colors.green));
+      }
     }
   }
 
@@ -7265,11 +7263,12 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
     );
     if (ok == true) {
       await ref.delete();
-      if (context.mounted)
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Categoria excluída.',
                 style: TextStyle(color: Colors.white)),
             backgroundColor: Colors.green));
+      }
     }
   }
 }
@@ -7821,7 +7820,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<BrasilBancoOption>(
-                      value: bankOptions.contains(bancoSel) ? bancoSel : bankOptions.first,
+                      initialValue: bankOptions.contains(bancoSel) ? bancoSel : bankOptions.first,
                       decoration: const InputDecoration(
                         labelText: 'Banco / instituição',
                         border: OutlineInputBorder(),
@@ -8870,7 +8869,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                   DropdownButtonFormField<String>(
-                    value: cat.isNotEmpty ? cat : null,
+                    initialValue: cat.isNotEmpty ? cat : null,
                     decoration: financePremiumDropdownDecoration(
                       label: 'Categoria',
                       prefixIcon: Icons.category_rounded,
@@ -8961,7 +8960,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     ],
                   if (contas.isNotEmpty)
                     DropdownButtonFormField<String>(
-                      value: contaFieldId != null &&
+                      initialValue: contaFieldId != null &&
                               contas.any((e) => e.id == contaFieldId)
                           ? contaFieldId
                           : null,
@@ -9452,7 +9451,7 @@ void showFinanceLancamentoDetailsBottomSheet(
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12)),
                 child: Icon(
                     isTransfer
@@ -9695,12 +9694,14 @@ double _parseValor(dynamic raw) {
 DateTime _parseDate(dynamic raw) {
   if (raw is Timestamp) return raw.toDate();
   if (raw is DateTime) return raw;
-  if (raw is String && raw.length >= 10)
+  if (raw is String && raw.length >= 10) {
     return DateTime.tryParse(raw.substring(0, 10)) ?? DateTime.now();
+  }
   if (raw is Map) {
     final sec = raw['seconds'] ?? raw['_seconds'];
-    if (sec != null)
+    if (sec != null) {
       return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+    }
   }
   return DateTime.now();
 }

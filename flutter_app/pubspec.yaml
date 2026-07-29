@@ -3,7 +3,7 @@ description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart; marketing fixo 11.2.305 — só .\scripts\bump_build.ps1 (+N).
 # App Store: cada IPA precisa de build (+N) unico; se der 409, incrementar +N.
-version: 11.2.305+2136
+version: 11.2.305+2139
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -106,11 +106,10 @@ dependencies:
   just_audio: ^0.10.5
   audio_waveforms: ^2.0.2
   package_info_plus: ^9.0.1
-  # TDLib (Telegram) — motor opcional FORA do menu principal (Yahweh Chat nativo).
-  # Removido do pubspec de produção: o .a iOS está no .gitignore e o Codemagic
-  # falhava o archive (flutter_libtdjson / libtdjson.a ausente). Para reativar:
-  #   libtdjson: 0.3.0  +  dart run tool/setup_tdlib.dart --ios-only  no CI.
-  # export tdlib_service_io.dart quando os binários estiverem no pipeline.
+  # TDLib (Telegram) — motor nativo do YAHWEH Chat (Android/iOS).
+  # Reativado: executar `dart run tool/setup_tdlib.dart` localmente e no CI
+  # (`--ios-only` antes do `pod install`) para gerar os binários nativos.
+  libtdjson: 0.3.0
   flutter_dotenv: ^6.0.1
 flutter:
   # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.

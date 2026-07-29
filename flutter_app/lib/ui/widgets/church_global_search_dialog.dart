@@ -2,15 +2,12 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {
@@ -119,8 +116,8 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
   String? _loadError;
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _membrosDocs = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _noticiasDocs = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _avisoDocs = [];
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _noticiasDocs = [];
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _avisoDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _patrimonioDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _trocaDocs = [];
 
@@ -536,7 +533,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.12),
+                  color: iconColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, color: iconColor, size: 22),
@@ -586,7 +583,7 @@ Future<void> showChurchGlobalSearchDialog({
 }) {
   return showDialog<void>(
     context: context,
-    barrierColor: Colors.black.withOpacity(0.45),
+    barrierColor: Colors.black.withValues(alpha: 0.45),
     builder: (ctx) => ChurchGlobalSearchDialog(
       tenantId: tenantId,
       userRole: userRole,

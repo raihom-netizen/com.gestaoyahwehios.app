@@ -8,8 +8,6 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 class AttendancePage extends StatefulWidget {
@@ -173,7 +171,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: ThemeCleanPremium.primaryLight.withOpacity(0.1),
+                          color: ThemeCleanPremium.primaryLight.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                         ),
                         child: Icon(Icons.insights_rounded, color: ThemeCleanPremium.primaryLight, size: 22),
@@ -243,7 +241,7 @@ class _AttendancePageState extends State<AttendancePage> {
           vertical: ThemeCleanPremium.spaceMd,
         ),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
+          color: color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
         ),
         child: Column(
@@ -358,7 +356,7 @@ class _AttendancePageState extends State<AttendancePage> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _tipos.length,
-        separatorBuilder: (_, __) =>
+        separatorBuilder: (_, _) =>
             const SizedBox(width: ThemeCleanPremium.spaceXs),
         itemBuilder: (context, i) {
           final t = _tipos[i];
@@ -461,7 +459,7 @@ class _AttendancePageState extends State<AttendancePage> {
                       width: 48,
                       height: 48,
                       decoration: BoxDecoration(
-                        color: _tipoColor(tipo).withOpacity(0.1),
+                        color: _tipoColor(tipo).withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                       ),
                       child: Icon(_tipoIcon(tipo), color: _tipoColor(tipo), size: 22),
@@ -535,7 +533,7 @@ class _AttendancePageState extends State<AttendancePage> {
           Icon(
             Icons.event_busy_rounded,
             size: 64,
-            color: ThemeCleanPremium.onSurfaceVariant.withOpacity(0.3),
+            color: ThemeCleanPremium.onSurfaceVariant.withValues(alpha: 0.3),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
           Text(
@@ -553,7 +551,7 @@ class _AttendancePageState extends State<AttendancePage> {
                 : 'Nenhum evento cadastrado ainda',
             style: TextStyle(
               fontSize: 13,
-              color: ThemeCleanPremium.onSurfaceVariant.withOpacity(0.7),
+              color: ThemeCleanPremium.onSurfaceVariant.withValues(alpha: 0.7),
             ),
           ),
         ],
@@ -603,7 +601,7 @@ class _AttendancePageState extends State<AttendancePage> {
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     DropdownButtonFormField<String>(
-                      value: tipo,
+                      initialValue: tipo,
                       decoration: const InputDecoration(
                         labelText: 'Tipo',
                         prefixIcon: Icon(Icons.category_rounded),
@@ -689,7 +687,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     if (editing) {
-      await doc!.reference.update(payload);
+      await doc.reference.update(payload);
     } else {
       payload['createdAt'] = FieldValue.serverTimestamp();
       await _cultos.add(payload);
@@ -851,7 +849,7 @@ class _AttendancePageState extends State<AttendancePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -865,7 +863,7 @@ class _AttendancePageState extends State<AttendancePage> {
     return Container(
       padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.error.withOpacity(0.06),
+        color: ThemeCleanPremium.error.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
       ),
       child: Row(
@@ -1208,7 +1206,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                   vertical: ThemeCleanPremium.spaceXs,
                 ),
                 decoration: BoxDecoration(
-                  color: ThemeCleanPremium.success.withOpacity(0.08),
+                  color: ThemeCleanPremium.success.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                 ),
                 child: Row(
@@ -1343,14 +1341,14 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                               ),
                               decoration: BoxDecoration(
                                 color: presente
-                                    ? ThemeCleanPremium.success.withOpacity(0.06)
+                                    ? ThemeCleanPremium.success.withValues(alpha: 0.06)
                                     : ThemeCleanPremium.cardBackground,
                                 borderRadius: BorderRadius.circular(
                                   ThemeCleanPremium.radiusMd,
                                 ),
                                 border: Border.all(
                                   color: presente
-                                      ? ThemeCleanPremium.success.withOpacity(0.2)
+                                      ? ThemeCleanPremium.success.withValues(alpha: 0.2)
                                       : Colors.grey.shade200,
                                 ),
                               ),
@@ -1359,8 +1357,8 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                                   CircleAvatar(
                                     radius: 18,
                                     backgroundColor: presente
-                                        ? ThemeCleanPremium.success.withOpacity(0.15)
-                                        : ThemeCleanPremium.primary.withOpacity(0.08),
+                                        ? ThemeCleanPremium.success.withValues(alpha: 0.15)
+                                        : ThemeCleanPremium.primary.withValues(alpha: 0.08),
                                     child: Text(
                                       initials,
                                       style: TextStyle(

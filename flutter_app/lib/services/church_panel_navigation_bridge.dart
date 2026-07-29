@@ -5,10 +5,12 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 class PendingChatThreadOpen {
   final String threadId;
   final String? tenantId;
+
   /// DM — cria/abre mesmo sem doc prévio em `chat_threads`.
   final String? peerUid;
   final String? displayName;
   final String? initialDraftText;
+
   /// Telefone do membro (≥10 dígitos) — opcional (atalhos externos).
   final String? phoneDigits;
 
@@ -25,7 +27,8 @@ class PendingChatThreadOpen {
 /// Encaminha toques em notificações push (FCM) para o módulo certo do painel da igreja.
 class ChurchPanelNavigationBridge {
   ChurchPanelNavigationBridge._();
-  static final ChurchPanelNavigationBridge instance = ChurchPanelNavigationBridge._();
+  static final ChurchPanelNavigationBridge instance =
+      ChurchPanelNavigationBridge._();
 
   int? _pendingShellIndex;
   void Function(int index)? _onNavigate;
@@ -92,6 +95,37 @@ class ChurchPanelNavigationBridge {
     _notifyChatOpenListeners();
   }
 
+  String? _pendingOpenEventDocId;
+  String? _pendingOpenMemberDocId;
+
+  String? consumePendingOpenEventDocId() {
+    final id = _pendingOpenEventDocId;
+    _pendingOpenEventDocId = null;
+    return id;
+  }
+
+  String? consumePendingOpenMemberDocId() {
+    final id = _pendingOpenMemberDocId;
+    _pendingOpenMemberDocId = null;
+    return id;
+  }
+
+  void requestOpenEventDocId(String eventoId) {
+    final id = eventoId.trim();
+    if (id.isEmpty) return;
+    _pendingOpenEventDocId = id;
+    requestNavigateToShellIndex(kChurchShellIndexEvents);
+  }
+
+  void requestOpenMemberDocId(String memberId, {bool publicSignup = false}) {
+    final id = memberId.trim();
+    if (id.isEmpty) return;
+    _pendingOpenMemberDocId = id;
+    requestNavigateToShellIndex(
+      publicSignup ? kChurchShellIndexAprovacoes : kChurchShellIndexMembers,
+    );
+  }
+
   void registerShellNavigator(void Function(int index) onNavigate) {
     _onNavigate = onNavigate;
     final p = _pendingShellIndex;
@@ -123,7 +157,7 @@ class ChurchPanelNavigationBridge {
       case 'novo_evento':
         return kChurchShellIndexEvents;
       case 'nova_escala':
-        return kChurchShellIndexEscalaGeral;
+        return kChurchShellIndexMySchedules;
       case 'escala_publicada':
       case 'escala_lembrete_24h':
       case 'escala_lembrete_1h':
@@ -133,7 +167,7 @@ class ChurchPanelNavigationBridge {
       case 'escala_impedimento':
       case 'escala_troca_concluida':
       case 'escala':
-        return kChurchShellIndexEscalaGeral;
+        return kChurchShellIndexMySchedules;
       case 'fornecedor_agenda_reminder':
         return kChurchShellIndexFornecedores;
       case 'new_member':

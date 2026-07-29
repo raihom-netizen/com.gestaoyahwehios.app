@@ -98,7 +98,7 @@ abstract final class ChurchDepartmentVisualMapper {
   static int _partnerArgb(int argb) {
     final c = Color(_opaqueArgb(argb));
     final d = Color.lerp(c, Colors.black, 0.2) ?? c;
-    return _opaqueArgb(d.value);
+    return _opaqueArgb(d.toARGB32());
   }
 
   /// Par gradiente a partir de `color_hex` (+ opcional secundária) ou `null` para usar legado.

@@ -1,10 +1,8 @@
-import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
@@ -24,7 +22,6 @@ import 'package:gestao_yahweh/ui/pages/finance_page.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 const _categoriasReceitaPadrao = [
   'Dízimos',
@@ -333,7 +330,7 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: categoria.isEmpty ? null : categoria,
+                  initialValue: categoria.isEmpty ? null : categoria,
                   decoration: const InputDecoration(
                     labelText: 'Categoria',
                     border: OutlineInputBorder(),
@@ -345,7 +342,7 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String?>(
-                  value: contaId,
+                  initialValue: contaId,
                   decoration: const InputDecoration(
                     labelText: 'Conta destino (caixa)',
                     border: OutlineInputBorder(),
@@ -1251,7 +1248,7 @@ class _FinanceConciliacaoReceitasTabState
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: contasAtivas.any((c) => c.id == _filtroContaId)
+                          initialValue: contasAtivas.any((c) => c.id == _filtroContaId)
                               ? _filtroContaId
                               : '__geral__',
                           decoration: const InputDecoration(
@@ -1284,7 +1281,7 @@ class _FinanceConciliacaoReceitasTabState
                       const SizedBox(width: 12),
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: cats.contains(_filtroCategoria)
+                          initialValue: cats.contains(_filtroCategoria)
                               ? _filtroCategoria
                               : 'todas',
                           decoration: const InputDecoration(

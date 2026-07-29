@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
@@ -1082,7 +1081,7 @@ class FinancePremiumTransferAccountsSection extends StatelessWidget {
         border: Border.all(color: accent.withValues(alpha: 0.22)),
       ),
       child: DropdownButtonFormField<String>(
-        value: value != null && contas.any((e) => e.id == value) ? value : null,
+        initialValue: value != null && contas.any((e) => e.id == value) ? value : null,
         decoration: financePremiumDropdownDecoration(
           label: label,
           prefixIcon: icon,

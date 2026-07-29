@@ -136,7 +136,9 @@ class MembersLimitService {
         churchIdHint: op,
         limit: limit,
       );
-      for (final d in membrosSnap.items) ids.add(d.id);
+      for (final d in membrosSnap.items) {
+        ids.add(d.id);
+      }
     } catch (_) {}
     try {
       final usersByTenant = await _db
@@ -149,8 +151,12 @@ class MembersLimitService {
           .where('igrejaId', isEqualTo: op)
           .limit(limit)
           .get();
-      for (final d in usersByTenant.docs) ids.add(d.id);
-      for (final d in usersByIgreja.docs) ids.add(d.id);
+      for (final d in usersByTenant.docs) {
+        ids.add(d.id);
+      }
+      for (final d in usersByIgreja.docs) {
+        ids.add(d.id);
+      }
     } catch (_) {}
     return ids.length;
   }

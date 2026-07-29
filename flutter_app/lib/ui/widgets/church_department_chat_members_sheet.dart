@@ -12,7 +12,6 @@ import 'package:gestao_yahweh/ui/widgets/church_department_add_members_sheet.dar
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Lista de membros do departamento + presença + DM (mesmo fluxo do hub do chat).

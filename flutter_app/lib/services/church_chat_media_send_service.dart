@@ -76,20 +76,20 @@ abstract final class ChurchChatMediaSendService {
     if (p.isEmpty) return Uint8List(0);
     if (kIsWeb) {
       final raw = await XFile(p).readAsBytes();
-      return raw is Uint8List ? raw : Uint8List.fromList(raw);
+      return raw;
     }
     return Uint8List.fromList(await File(p).readAsBytes());
   }
 
-  static const Duration kPrepareTimeout = Duration(seconds: 20);
+  static const Duration kPrepareTimeout = Duration(seconds: 10);
   /// Alinhado a [kStorageUploadCompressedImageMaxSeconds] — evita hang de 3 min.
-  static const Duration kStorageImageTimeout = Duration(seconds: 90);
+  static const Duration kStorageImageTimeout = Duration(seconds: 45);
   static const Duration kStorageThumbTimeout = Duration(seconds: 25);
-  static const Duration kStorageVideoTimeout = Duration(seconds: 120);
-  static const Duration kStorageAudioTimeout = Duration(seconds: 90);
-  static const Duration kStorageDocumentTimeout = Duration(seconds: 90);
+  static const Duration kStorageVideoTimeout = Duration(seconds: 60);
+  static const Duration kStorageAudioTimeout = Duration(seconds: 45);
+  static const Duration kStorageDocumentTimeout = Duration(seconds: 45);
   /// Gate Firebase online: 8s (antes 2s → fila fantasma e «enviado» sem upload).
-  static const Duration kOnlineGateTimeout = Duration(seconds: 8);
+  static const Duration kOnlineGateTimeout = Duration(seconds: 3);
 
   static void _mapProgress(
     void Function(double progress)? onProgress,

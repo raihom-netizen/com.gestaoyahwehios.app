@@ -1,5 +1,6 @@
 /// Planos oficiais — mesma lista do site de divulgação.
 /// Usado no painel igreja (Assinatura) e no site público para exibição consistente.
+library;
 
 class PlanoOficial {
   final String id;

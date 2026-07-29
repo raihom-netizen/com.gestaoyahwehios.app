@@ -2,7 +2,6 @@ import 'dart:io' show Platform;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
-import 'package:gestao_yahweh/core/church_panel_paths.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -404,7 +403,7 @@ abstract final class DebugChurchAuditService {
     var fieldCount = 0;
     double? financeSaldo;
 
-    Future<void> _webPause() async {
+    Future<void> webPause() async {
       if (kIsWeb) {
         await Future<void>.delayed(const Duration(milliseconds: 70));
       }
@@ -450,7 +449,7 @@ abstract final class DebugChurchAuditService {
       }
     }
 
-    List<String> _extractNames(
+    List<String> extractNames(
       QuerySnapshot<Map<String, dynamic>> snap, {
       List<String> extraKeys = const [],
     }) {
@@ -490,7 +489,7 @@ abstract final class DebugChurchAuditService {
         );
         sw.stop();
         if (captureNames) {
-          fingerprints[module] = _extractNames(snap, extraKeys: nameKeys);
+          fingerprints[module] = extractNames(snap, extraKeys: nameKeys);
         }
         probes.add(ChurchModuleProbeResult(
           module: module,
@@ -513,7 +512,7 @@ abstract final class DebugChurchAuditService {
     }
 
     await probeDoc('Cadastro Igreja');
-    await _webPause();
+    await webPause();
 
     await probeQuery(
       'Departamentos',
@@ -525,14 +524,14 @@ abstract final class DebugChurchAuditService {
           ),
       captureNames: true,
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Cargos',
       'cargos',
       () => _moduleListSnapshot(ChurchRepository.cargos, churchIdHint: churchId, limit: 200),
       captureNames: true,
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Membros',
       'membros',
@@ -540,7 +539,7 @@ abstract final class DebugChurchAuditService {
       captureNames: true,
       nameKeys: const ['NOME_COMPLETO'],
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Visitantes',
       'visitantes',
@@ -554,13 +553,13 @@ abstract final class DebugChurchAuditService {
       },
       captureNames: true,
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Fornecedores',
       'fornecedores',
       () => _moduleListSnapshot(ChurchRepository.fornecedores, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Financeiro',
       'finance',
@@ -570,49 +569,49 @@ abstract final class DebugChurchAuditService {
       final agg = await ChurchFinanceAggregatesService.readOnce(churchId);
       financeSaldo = agg.saldoAtual;
     } catch (_) {}
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Eventos',
       'eventos',
       () => _moduleListSnapshot(ChurchRepository.eventos, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Avisos',
       'avisos',
       () => _moduleListSnapshot(ChurchRepository.avisos, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Chat',
       'chats',
       () => _moduleListSnapshot(ChurchRepository.chat, churchIdHint: churchId, limit: 50),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Patrimônio',
       'patrimonio',
       () => _moduleListSnapshot(ChurchRepository.patrimonio, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Escalas',
       'escalas',
       () => _moduleListSnapshot(ChurchRepository.escalas, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Agenda',
       'agenda',
       () => _moduleListSnapshot(ChurchRepository.agenda, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Pedidos Oração',
       'pedidosOracao',
       () => _moduleListSnapshot(ChurchRepository.pedidosOracao, churchIdHint: churchId, limit: 200),
     );
-    await _webPause();
+    await webPause();
     await probeQuery(
       'Certificados',
       'certificados_emitidos',

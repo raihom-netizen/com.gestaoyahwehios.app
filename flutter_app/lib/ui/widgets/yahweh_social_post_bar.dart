@@ -10,8 +10,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 
@@ -342,7 +340,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
                           return ListView.separated(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             itemCount: docs.length,
-                            separatorBuilder: (_, __) => Divider(height: 16, color: Colors.grey.shade200),
+                            separatorBuilder: (_, _) => Divider(height: 16, color: Colors.grey.shade200),
                             itemBuilder: (_, i) {
                               final c = docs[i].data();
                               final name =

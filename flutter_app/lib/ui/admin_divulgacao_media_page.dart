@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/marketing_gallery_cms.dart';
@@ -1310,7 +1308,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
                   color: _selectionMode ? const Color(0xFF14532D) : const Color(0xFF475569),
                 ),
                 side: BorderSide(
-                  color: _selectionMode ? _selectionGreen.withOpacity(0.5) : const Color(0xFFE2E8F0),
+                  color: _selectionMode ? _selectionGreen.withValues(alpha: 0.5) : const Color(0xFFE2E8F0),
                 ),
                 onSelected: (_) => _toggleSelectionMode(),
               ),

@@ -24,6 +24,13 @@ private let widgetJsonKey = "widget_events_json"
     if let url = launchOptions?[.url] as? URL {
       pendingDeepLinkPath = Self.pathFrom(url: url)
     }
+    // Universal Link em cold start (NSUserActivityTypeBrowsingWeb).
+    if let activity = launchOptions?[.userActivityDictionary] as? [String: Any],
+       let userActivity = activity["UIApplicationLaunchOptionsUserActivityKey"] as? NSUserActivity,
+       userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+       let url = userActivity.webpageURL {
+      pendingDeepLinkPath = Self.pathFrom(url: url)
+    }
     // Banner/popup com app aberto (paridade Controle Total).
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self
@@ -156,6 +163,25 @@ private let widgetJsonKey = "widget_events_json"
     return super.application(app, open: url, options: options)
   }
 
+  /// Universal Links (iOS 9+) — app já em memória ou restaurado pelo sistema.
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+          let url = userActivity.webpageURL else {
+      return super.application(application, continue: userActivity, restorationHandler: restorationHandler)
+    }
+    let path = Self.pathFrom(url: url)
+    if let path = path, let channel = deepLinkChannel {
+      channel.invokeMethod("onDeepLink", arguments: path)
+    } else {
+      pendingDeepLinkPath = path
+    }
+    return true
+  }
+
   private static func pathFrom(url: URL) -> String? {
     // Deep link do widget: gestaoyahweh://module/N
     if url.scheme?.lowercased() == "gestaoyahweh" {
@@ -163,6 +189,11 @@ private let widgetJsonKey = "widget_events_json"
       if host == "module" {
         let idx = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return "/module/\(idx)"
+      }
+      // gestaoyahweh://igreja/{tenantId}/... → normaliza para /igreja/...
+      if host == "igreja" {
+        let p = url.path.isEmpty ? "/" : url.path
+        return "/igreja\(p)"
       }
       if !url.path.isEmpty {
         return url.path

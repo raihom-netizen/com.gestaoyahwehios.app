@@ -1,5 +1,5 @@
 - Every PowerShell script sets `$ErrorActionPreference = 'Stop'` and resolves the repository root via `Split-Path -Parent $PSScriptRoot` so it runs from any working directory.
 - Long-running or multi-step deployments accept named parameters (often `[switch]` flags) and forward them via hashtable splatting (`@invokeArgs`) to a deeper implementation script rather than parsing `$args` directly.
-- Bash helpers use `set -eu` and `SCRIPT_DIR`/`ROOT` variables derived from `${BASH_SOURCE[0]}` plus fallbacks to `CM_BUILD_DIR`/`FCI_BUILD_DIR`, then `source` sibling helper files instead of importing modules.
+- Bash helpers use `set -eu` and `SCRIPT_DIR`/`ROOT` variables derived from `${BASH_SOURCE[0]}\$` plus fallbacks to `CM_BUILD_DIR`/`FCI_BUILD_DIR`, then `source` sibling helper files instead of importing modules.
 - Data-migration and seed scripts authenticate through the Firebase Admin SDK using `GOOGLE_APPLICATION_CREDENTIALS` and target tenant-scoped collections under `tenants/<tenantId>/...`.
 - Codemagic iOS scripts follow a single-entry pattern: one dispatcher shell script detects the signing mode from environment variables or a marker file and `exec`s into the appropriate specialized helper.

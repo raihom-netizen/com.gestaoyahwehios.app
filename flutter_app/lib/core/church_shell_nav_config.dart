@@ -100,15 +100,18 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ),
   ChurchShellNavEntry(
     Icons.edit_calendar_rounded,
-    'Minha Escala',
+    'Escala',
     Color(0xFF06B6D4),
-    subtitle: 'Seus compromissos na igreja',
+    subtitle: 'Escalas da igreja e seus compromissos',
   ),
+  // Entrada legada / compatibilidade — não aparece no menu lateral
+  // (oculta por [_shouldListNavIndex]), mas mantém o índice 12 estável
+  // para deep links, notificações push e cache antigo.
   ChurchShellNavEntry(
     Icons.view_timeline_rounded,
-    'Escala Geral',
+    'Escala',
     Color(0xFF14B8A6),
-    subtitle: 'Escalas de todos os departamentos',
+    subtitle: 'Escalas da igreja e seus compromissos',
   ),
   ChurchShellNavEntry(
     Icons.badge_rounded,

@@ -6,8 +6,6 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';

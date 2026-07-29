@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
@@ -16,8 +15,6 @@ import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
@@ -40,6 +37,7 @@ Future<void> launchWhatsAppContact(
 class VisitorsPage extends StatefulWidget {
   final String tenantId;
   final String role;
+
   /// Dentro de [IgrejaCleanShell]: remove título duplicado e ajusta [SafeArea].
   final bool embeddedInShell;
   const VisitorsPage({
@@ -144,13 +142,13 @@ Future<void> openChurchVisitorFichaFromDashboard(
   );
   if (!context.mounted) return;
   if (!snap.exists || snap.data() == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Visitante não encontrado.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Visitante não encontrado.')));
     return;
   }
   final visitor = _VisitorData(id: snap.id, data: snap.data()!);
-  final membersRef =       ChurchUiCollections.membros(op);
+  final membersRef = ChurchUiCollections.membros(op);
   final canManage = churchVisitorManagementRole(role);
   final isMobile = ThemeCleanPremium.isMobile(context);
   if (isMobile) {
@@ -239,6 +237,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
     _webLoadCap?.cancel();
     super.dispose();
   }
+
   DateTime? _filtroData;
   int? _filtroDia;
   int? _filtroMes;
@@ -364,12 +363,15 @@ class _VisitorsPageState extends State<VisitorsPage> {
     bool forceServer = false,
   }) async {
     try {
-      final snap = await _loadVisitantes(
-        forceRefresh: forceRefresh,
-        forceServer: forceServer,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
+      final snap =
+          await _loadVisitantes(
+            forceRefresh: forceRefresh,
+            forceServer: forceServer,
+          ).timeout(
+            kIsWeb
+                ? const Duration(seconds: 14)
+                : ChurchPanelReadTimeouts.queryCap,
+          );
       return snap;
     } catch (e) {
       final fallback = _peekInstantVisitantesSnap();
@@ -485,12 +487,19 @@ class _VisitorsPageState extends State<VisitorsPage> {
                       icon: const Icon(Icons.arrow_back_rounded),
                       onPressed: () => Navigator.maybePop(context),
                       tooltip: 'Voltar',
-                      style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(
+                          ThemeCleanPremium.minTouchTarget,
+                          ThemeCleanPremium.minTouchTarget,
+                        ),
+                      ),
                     )
                   : null,
-              title: Text(_selectionMode
-                  ? '${_selectedIds.length} selecionado(s)'
-                  : 'Visitantes / Primeiro Contato'),
+              title: Text(
+                _selectionMode
+                    ? '${_selectedIds.length} selecionado(s)'
+                    : 'Visitantes / Primeiro Contato',
+              ),
               actions: [
                 if (_canManage && _selectionMode) ...[
                   TextButton(
@@ -499,8 +508,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
                   ),
                 ] else if (_canManage) ...[
                   PopupMenuButton<String>(
-                    icon: Icon(Icons.more_vert_rounded,
-                        color: ThemeCleanPremium.primary),
+                    icon: Icon(
+                      Icons.more_vert_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
                     tooltip: 'Mais opções',
                     onSelected: (v) {
                       if (v == 'select') {
@@ -524,11 +535,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
                         value: 'delete_all',
                         child: Row(
                           children: [
-                            Icon(Icons.delete_sweep_rounded,
-                                size: 20, color: ThemeCleanPremium.error),
+                            Icon(
+                              Icons.delete_sweep_rounded,
+                              size: 20,
+                              color: ThemeCleanPremium.error,
+                            ),
                             SizedBox(width: 10),
-                            Text('Excluir todos',
-                                style: TextStyle(color: ThemeCleanPremium.error)),
+                            Text(
+                              'Excluir todos',
+                              style: TextStyle(color: ThemeCleanPremium.error),
+                            ),
                           ],
                         ),
                       ),
@@ -537,8 +553,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
                 ],
                 if (!_selectionMode)
                   IconButton(
-                    icon: Icon(Icons.refresh_rounded,
-                        color: ThemeCleanPremium.primary),
+                    icon: Icon(
+                      Icons.refresh_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
                     onPressed: _refresh,
                     tooltip: 'Atualizar',
                     style: IconButton.styleFrom(
@@ -557,8 +575,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       floatingActionButton: _canManage && !_selectionMode
           ? Container(
               decoration: BoxDecoration(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 gradient: _VisitorsPremiumTheme.heroGradient,
                 boxShadow: [
                   BoxShadow(
@@ -572,9 +589,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
               child: FloatingActionButton.extended(
                 onPressed: () => _openVisitorForm(context),
                 icon: const Icon(Icons.person_add_alt_1_rounded),
-                label: const Text('Novo Visitante',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                label: const Text(
+                  'Novo Visitante',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
                 backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
                 elevation: 0,
@@ -582,8 +600,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
                 focusElevation: 0,
                 highlightElevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusLg,
+                  ),
+                ),
               ),
             )
           : null,
@@ -722,75 +742,73 @@ class _VisitorsPageState extends State<VisitorsPage> {
                             : ThemeCleanPremium.spaceLg,
                       ),
                       sliver: SliverList(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, i) {
-                            final v = filtered[i];
-                            return Padding(
-                              padding: EdgeInsets.only(
-                                bottom: i == filtered.length - 1
-                                    ? 8
-                                    : ThemeCleanPremium.spaceSm,
-                              ),
-                              child: _VisitorModernRow(
-                                visitor: v,
-                                selectionMode: _selectionMode,
-                                selected: _selectedIds.contains(v.id),
-                                canManage: _canManage,
-                                onSelectionChanged: _selectionMode
-                                    ? (sel) => setState(() {
-                                          if (sel) {
-                                            _selectedIds.add(v.id);
-                                          } else {
-                                            _selectedIds.remove(v.id);
-                                          }
-                                        })
-                                    : null,
-                                onTap: () {
-                                  if (_selectionMode) {
-                                    setState(() {
-                                      if (_selectedIds.contains(v.id)) {
-                                        _selectedIds.remove(v.id);
-                                      } else {
+                        delegate: SliverChildBuilderDelegate((context, i) {
+                          final v = filtered[i];
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              bottom: i == filtered.length - 1
+                                  ? 8
+                                  : ThemeCleanPremium.spaceSm,
+                            ),
+                            child: _VisitorModernRow(
+                              visitor: v,
+                              selectionMode: _selectionMode,
+                              selected: _selectedIds.contains(v.id),
+                              canManage: _canManage,
+                              onSelectionChanged: _selectionMode
+                                  ? (sel) => setState(() {
+                                      if (sel) {
                                         _selectedIds.add(v.id);
+                                      } else {
+                                        _selectedIds.remove(v.id);
                                       }
-                                    });
-                                  } else {
-                                    _openVisitorDetails(context, v);
-                                  }
-                                },
-                                onEdit: () =>
-                                    _openVisitorForm(context, visitor: v),
-                                onDelete: () => _confirmDelete(context, v),
-                              ),
-                            );
-                          },
-                          childCount: filtered.length,
-                        ),
+                                    })
+                                  : null,
+                              onTap: () {
+                                if (_selectionMode) {
+                                  setState(() {
+                                    if (_selectedIds.contains(v.id)) {
+                                      _selectedIds.remove(v.id);
+                                    } else {
+                                      _selectedIds.add(v.id);
+                                    }
+                                  });
+                                } else {
+                                  _openVisitorDetails(context, v);
+                                }
+                              },
+                              onEdit: () =>
+                                  _openVisitorForm(context, visitor: v),
+                              onDelete: () => _confirmDelete(context, v),
+                            ),
+                          );
+                        }, childCount: filtered.length),
                       ),
                     ),
                   if (_kpiDrill == _VisitorKpiDrill.none)
-                  SliverPadding(
-                    padding: ThemeCleanPremium.pagePadding(context),
-                    sliver: SliverList(
-                      delegate: SliverChildListDelegate([
-                        const SizedBox(height: ThemeCleanPremium.spaceLg),
-                        _VisitorsReportPanel(
-                          visitors: allVisitors,
-                          year: _reportYear,
-                          month: _reportMonth,
-                          expanded: _reportExpanded,
-                          onToggleExpanded: () => setState(
-                              () => _reportExpanded = !_reportExpanded),
-                          onYearChanged: (y) => setState(() {
-                            _reportYear = y;
-                          }),
-                          onMonthChanged: (m) =>
-                              setState(() => _reportMonth = m),
-                        ),
-                        const SizedBox(height: 80),
-                      ]),
-                    ),
-                  )
+                    SliverPadding(
+                      padding: ThemeCleanPremium.pagePadding(context),
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          _VisitorsReportPanel(
+                            visitors: allVisitors,
+                            year: _reportYear,
+                            month: _reportMonth,
+                            expanded: _reportExpanded,
+                            onToggleExpanded: () => setState(
+                              () => _reportExpanded = !_reportExpanded,
+                            ),
+                            onYearChanged: (y) => setState(() {
+                              _reportYear = y;
+                            }),
+                            onMonthChanged: (m) =>
+                                setState(() => _reportMonth = m),
+                          ),
+                          const SizedBox(height: 80),
+                        ]),
+                      ),
+                    )
                   else
                     const SliverToBoxAdapter(child: SizedBox(height: 80)),
                 ],
@@ -900,7 +918,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             child: const Text('Excluir'),
           ),
         ],
@@ -942,7 +962,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             child: const Text('Excluir todos'),
           ),
         ],
@@ -1024,8 +1046,22 @@ class _VisitorsPageState extends State<VisitorsPage> {
     );
   }
 
-  static const List<String> _mesesAbr = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-  static String _mesAbr(int month) => month >= 1 && month <= 12 ? _mesesAbr[month - 1] : '$month';
+  static const List<String> _mesesAbr = [
+    'Jan',
+    'Fev',
+    'Mar',
+    'Abr',
+    'Mai',
+    'Jun',
+    'Jul',
+    'Ago',
+    'Set',
+    'Out',
+    'Nov',
+    'Dez',
+  ];
+  static String _mesAbr(int month) =>
+      month >= 1 && month <= 12 ? _mesesAbr[month - 1] : '$month';
 
   Widget _buildFiltrosHistorico(BuildContext context, TextTheme tt) {
     final now = DateTime.now();
@@ -1041,56 +1077,123 @@ class _VisitorsPageState extends State<VisitorsPage> {
               hintText: 'Buscar por nome',
               prefixIcon: const Icon(Icons.search_rounded, size: 20),
               isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
             ),
           ),
         ),
         OutlinedButton.icon(
           onPressed: () async {
-            final d = await showDatePicker(context: context, initialDate: _filtroData ?? now, firstDate: DateTime(2020), lastDate: now);
-            if (d != null) setState(() { _filtroData = d; });
+            final d = await showDatePicker(
+              context: context,
+              initialDate: _filtroData ?? now,
+              firstDate: DateTime(2020),
+              lastDate: now,
+            );
+            if (d != null)
+              setState(() {
+                _filtroData = d;
+              });
           },
           icon: const Icon(Icons.calendar_today_rounded, size: 18),
-          label: Text(_filtroData != null ? '${_filtroData!.day.toString().padLeft(2,'0')}/${_filtroData!.month.toString().padLeft(2,'0')}/${_filtroData!.year}' : 'Data'),
-          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+          label: Text(
+            _filtroData != null
+                ? '${_filtroData!.day.toString().padLeft(2, '0')}/${_filtroData!.month.toString().padLeft(2, '0')}/${_filtroData!.year}'
+                : 'Data',
+          ),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          ),
         ),
         DropdownButtonFormField<int?>(
-          value: _filtroDia,
+          initialValue: _filtroDia,
           decoration: InputDecoration(
             labelText: 'Dia',
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            ),
           ),
-          items: [const DropdownMenuItem<int?>(value: null, child: Text('Todos')), ...List.generate(31, (i) => DropdownMenuItem<int?>(value: i + 1, child: Text('${i + 1}')))],
+          items: [
+            const DropdownMenuItem<int?>(value: null, child: Text('Todos')),
+            ...List.generate(
+              31,
+              (i) =>
+                  DropdownMenuItem<int?>(value: i + 1, child: Text('${i + 1}')),
+            ),
+          ],
           onChanged: (v) => setState(() => _filtroDia = v),
         ),
         DropdownButtonFormField<int?>(
-          value: _filtroMes,
+          initialValue: _filtroMes,
           decoration: InputDecoration(
             labelText: 'Mês',
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            ),
           ),
-          items: [const DropdownMenuItem<int?>(value: null, child: Text('Todos')), ...List.generate(12, (i) => DropdownMenuItem<int?>(value: i + 1, child: Text(_mesAbr(i + 1))))],
+          items: [
+            const DropdownMenuItem<int?>(value: null, child: Text('Todos')),
+            ...List.generate(
+              12,
+              (i) => DropdownMenuItem<int?>(
+                value: i + 1,
+                child: Text(_mesAbr(i + 1)),
+              ),
+            ),
+          ],
           onChanged: (v) => setState(() => _filtroMes = v),
         ),
         DropdownButtonFormField<int?>(
-          value: _filtroAno,
+          initialValue: _filtroAno,
           decoration: InputDecoration(
             labelText: 'Ano',
             isDense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            ),
           ),
-          items: [const DropdownMenuItem<int?>(value: null, child: Text('Todos')), ...List.generate(now.year - 2019, (i) => DropdownMenuItem<int?>(value: 2020 + i, child: Text('${2020 + i}')))],
+          items: [
+            const DropdownMenuItem<int?>(value: null, child: Text('Todos')),
+            ...List.generate(
+              now.year - 2019,
+              (i) => DropdownMenuItem<int?>(
+                value: 2020 + i,
+                child: Text('${2020 + i}'),
+              ),
+            ),
+          ],
           onChanged: (v) => setState(() => _filtroAno = v),
         ),
-        if (_filtroData != null || _filtroDia != null || _filtroMes != null || _filtroAno != null)
+        if (_filtroData != null ||
+            _filtroDia != null ||
+            _filtroMes != null ||
+            _filtroAno != null)
           TextButton.icon(
-            onPressed: () => setState(() { _filtroData = null; _filtroDia = null; _filtroMes = null; _filtroAno = null; }),
+            onPressed: () => setState(() {
+              _filtroData = null;
+              _filtroDia = null;
+              _filtroMes = null;
+              _filtroAno = null;
+            }),
             icon: const Icon(Icons.clear_rounded, size: 18),
             label: const Text('Limpar'),
           ),
@@ -1109,7 +1212,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
         onChanged: _scheduleSearchNome,
         decoration: InputDecoration(
           hintText: 'Buscar por nome ou telefone…',
-          prefixIcon: const Icon(Icons.search_rounded, color: ThemeCleanPremium.onSurfaceVariant),
+          prefixIcon: const Icon(
+            Icons.search_rounded,
+            color: ThemeCleanPremium.onSurfaceVariant,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             borderSide: BorderSide.none,
@@ -1120,7 +1226,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            borderSide: const BorderSide(color: ThemeCleanPremium.primaryLight, width: 2),
+            borderSide: const BorderSide(
+              color: ThemeCleanPremium.primaryLight,
+              width: 2,
+            ),
           ),
           filled: true,
           fillColor: ThemeCleanPremium.cardBackground,
@@ -1130,7 +1239,12 @@ class _VisitorsPageState extends State<VisitorsPage> {
   }
 
   Widget _buildEmptyState(TextTheme tt) {
-    final hasFilters = _searchNome.isNotEmpty || _filtroData != null || _filtroDia != null || _filtroMes != null || _filtroAno != null;
+    final hasFilters =
+        _searchNome.isNotEmpty ||
+        _filtroData != null ||
+        _filtroDia != null ||
+        _filtroMes != null ||
+        _filtroAno != null;
     final hasKpi = _kpiDrill != _VisitorKpiDrill.none;
     String title;
     if (hasKpi) {
@@ -1197,7 +1311,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
             Text(
               subtitle,
               textAlign: TextAlign.center,
-              style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
+              style: tt.bodySmall?.copyWith(
+                color: ThemeCleanPremium.onSurfaceVariant,
+              ),
             ),
             if (_canManage && !hasFilters && !hasKpi) ...[
               const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -1205,7 +1321,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
                 onPressed: () => _openVisitorForm(context),
                 style: FilledButton.styleFrom(
                   backgroundColor: _VisitorsPremiumTheme.orange,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
                 ),
                 icon: const Icon(Icons.person_add_alt_1_rounded),
                 label: const Text('Cadastrar primeiro visitante'),
@@ -1247,7 +1366,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
     if (_tab == _TabVisitante.historico) {
       if (_filtroData != null) {
-        final s = DateTime(_filtroData!.year, _filtroData!.month, _filtroData!.day);
+        final s = DateTime(
+          _filtroData!.year,
+          _filtroData!.month,
+          _filtroData!.day,
+        );
         final e = s.add(const Duration(days: 1));
         result = result.where((v) {
           final d = v.createdAt;
@@ -1255,13 +1378,19 @@ class _VisitorsPageState extends State<VisitorsPage> {
         }).toList();
       }
       if (_filtroDia != null) {
-        result = result.where((v) => (v.createdAt?.day ?? 0) == _filtroDia).toList();
+        result = result
+            .where((v) => (v.createdAt?.day ?? 0) == _filtroDia)
+            .toList();
       }
       if (_filtroMes != null) {
-        result = result.where((v) => (v.createdAt?.month ?? 0) == _filtroMes).toList();
+        result = result
+            .where((v) => (v.createdAt?.month ?? 0) == _filtroMes)
+            .toList();
       }
       if (_filtroAno != null) {
-        result = result.where((v) => (v.createdAt?.year ?? 0) == _filtroAno).toList();
+        result = result
+            .where((v) => (v.createdAt?.year ?? 0) == _filtroAno)
+            .toList();
       }
     }
 
@@ -1271,8 +1400,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   /// Lista principal: com filtro KPI (cartões) ignora aba Dia/Histórico — alinhado aos totais.
   List<_VisitorData> _filteredVisitors(List<_VisitorData> all) {
     if (_kpiDrill != _VisitorKpiDrill.none) {
-      var result =
-          all.where((v) => _visitorMatchesKpiDrill(v, _kpiDrill)).toList();
+      var result = all
+          .where((v) => _visitorMatchesKpiDrill(v, _kpiDrill))
+          .toList();
       if (_searchNome.isNotEmpty) {
         result = result.where((v) {
           final name = (v.data['nome'] ?? '').toString().toLowerCase();
@@ -1289,26 +1419,24 @@ class _VisitorsPageState extends State<VisitorsPage> {
   void _openVisitorForm(BuildContext context, {_VisitorData? visitor}) {
     Navigator.of(context)
         .push<bool>(
-      MaterialPageRoute<bool>(
-        fullscreenDialog: ThemeCleanPremium.isMobile(context),
-        builder: (_) => _VisitorFormPage(
-          churchId: _churchId,
-          visitor: visitor,
-        ),
-      ),
-    )
+          MaterialPageRoute<bool>(
+            fullscreenDialog: ThemeCleanPremium.isMobile(context),
+            builder: (_) =>
+                _VisitorFormPage(churchId: _churchId, visitor: visitor),
+          ),
+        )
         .then((saved) {
-      if (!mounted || saved != true) return;
-      // saveVisitor já inseriu no RAM — pinta na hora; sync em background.
-      final instant = _peekInstantVisitantesSnap();
-      if (instant != null) {
-        setState(() {
-          _visitantesLoadPending = false;
-          _visitantesFuture = Future.value(instant);
+          if (!mounted || saved != true) return;
+          // saveVisitor já inseriu no RAM — pinta na hora; sync em background.
+          final instant = _peekInstantVisitantesSnap();
+          if (instant != null) {
+            setState(() {
+              _visitantesLoadPending = false;
+              _visitantesFuture = Future.value(instant);
+            });
+          }
+          unawaited(_refreshVisitantesBackground(forceRefresh: true));
         });
-      }
-      unawaited(_refreshVisitantesBackground(forceRefresh: true));
-    });
   }
 
   // ─── Detalhes ───────────────────────────────────────────────────────────────
@@ -1321,7 +1449,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
             tenantId: widget.tenantId,
             visitor: visitor,
             canManage: _canManage,
-            canConvertVisitor: AppPermissions.canConvertVisitorToMember(widget.role),
+            canConvertVisitor: AppPermissions.canConvertVisitorToMember(
+              widget.role,
+            ),
             membersRef: _membersRef,
           ),
         ),
@@ -1339,7 +1469,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
               tenantId: widget.tenantId,
               visitor: visitor,
               canManage: _canManage,
-              canConvertVisitor: AppPermissions.canConvertVisitorToMember(widget.role),
+              canConvertVisitor: AppPermissions.canConvertVisitorToMember(
+                widget.role,
+              ),
               membersRef: _membersRef,
               isDialog: true,
             ),
@@ -1350,7 +1482,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
   }
 
   // ─── Excluir ────────────────────────────────────────────────────────────────
-  Future<void> _confirmDelete(BuildContext context, _VisitorData visitor) async {
+  Future<void> _confirmDelete(
+    BuildContext context,
+    _VisitorData visitor,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1358,7 +1493,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
         title: const Text('Excluir visitante?'),
-        content: Text('Deseja excluir "${visitor.nome}"? Esta ação não pode ser desfeita.'),
+        content: Text(
+          'Deseja excluir "${visitor.nome}"? Esta ação não pode ser desfeita.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1366,7 +1503,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             child: const Text('Excluir'),
           ),
         ],
@@ -1556,9 +1695,7 @@ class _VisitorsListHeader extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                isDia
-                    ? 'Nomes cadastrados neste dia'
-                    : 'Registros anteriores',
+                isDia ? 'Nomes cadastrados neste dia' : 'Registros anteriores',
                 style: tt.bodySmall?.copyWith(
                   color: ThemeCleanPremium.onSurfaceVariant,
                 ),
@@ -1570,13 +1707,16 @@ class _VisitorsListHeader extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             gradient: isDia ? _VisitorsPremiumTheme.heroGradient : null,
-            color: isDia ? null : ThemeCleanPremium.primary.withValues(alpha: 0.1),
+            color: isDia
+                ? null
+                : ThemeCleanPremium.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
             boxShadow: isDia
                 ? [
                     BoxShadow(
-                      color:
-                          _VisitorsPremiumTheme.orange.withValues(alpha: 0.28),
+                      color: _VisitorsPremiumTheme.orange.withValues(
+                        alpha: 0.28,
+                      ),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -1705,7 +1845,9 @@ class _VisitorModernRow extends StatelessWidget {
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: accent.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(8),
@@ -1742,8 +1884,10 @@ class _VisitorModernRow extends StatelessWidget {
                       IconButton(
                         tooltip: 'Editar',
                         onPressed: onEdit,
-                        icon: Icon(Icons.edit_rounded,
-                            color: ThemeCleanPremium.primary),
+                        icon: Icon(
+                          Icons.edit_rounded,
+                          color: ThemeCleanPremium.primary,
+                        ),
                         constraints: const BoxConstraints(
                           minWidth: 48,
                           minHeight: 48,
@@ -1752,8 +1896,10 @@ class _VisitorModernRow extends StatelessWidget {
                       IconButton(
                         tooltip: 'Excluir',
                         onPressed: onDelete,
-                        icon: const Icon(Icons.delete_outline_rounded,
-                            color: ThemeCleanPremium.error),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: ThemeCleanPremium.error,
+                        ),
                         constraints: const BoxConstraints(
                           minWidth: 48,
                           minHeight: 48,
@@ -1765,7 +1911,9 @@ class _VisitorModernRow extends StatelessWidget {
                         tooltip: 'WhatsApp',
                         onPressed: () => launchWhatsAppContact(phone),
                         icon: const WhatsappBrandIcon(
-                            size: 22, color: Color(0xFF25D366)),
+                          size: 22,
+                          color: Color(0xFF25D366),
+                        ),
                         constraints: const BoxConstraints(
                           minWidth: 48,
                           minHeight: 48,
@@ -1790,12 +1938,17 @@ class _VisitorModernRow extends StatelessWidget {
                       ),
                       OutlinedButton.icon(
                         onPressed: onDelete,
-                        icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                        ),
                         label: const Text('Excluir'),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(0, 44),
                           foregroundColor: ThemeCleanPremium.error,
-                          side: const BorderSide(color: ThemeCleanPremium.error),
+                          side: const BorderSide(
+                            color: ThemeCleanPremium.error,
+                          ),
                         ),
                       ),
                     ],
@@ -1842,7 +1995,9 @@ class _VisitorTabChip extends StatelessWidget {
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.25),
+                      color: _VisitorsPremiumTheme.orange.withValues(
+                        alpha: 0.25,
+                      ),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -1855,7 +2010,9 @@ class _VisitorTabChip extends StatelessWidget {
               Icon(
                 icon,
                 size: 20,
-                color: selected ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+                color: selected
+                    ? Colors.white
+                    : ThemeCleanPremium.onSurfaceVariant,
               ),
               const SizedBox(width: 8),
               Text(
@@ -1863,7 +2020,9 @@ class _VisitorTabChip extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 14,
-                  color: selected ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+                  color: selected
+                      ? Colors.white
+                      : ThemeCleanPremium.onSurfaceVariant,
                 ),
               ),
             ],
@@ -1907,30 +2066,47 @@ class _SummaryCards extends StatelessWidget {
       return d != null && d.isAfter(startOfWeek) && v.status == 'Novo';
     }).length;
 
-    final accompanying =
-        visitors.where((v) => v.status == 'Em acompanhamento').length;
+    final accompanying = visitors
+        .where((v) => v.status == 'Em acompanhamento')
+        .length;
     final converted = visitors.where((v) => v.status == 'Convertido').length;
 
     final cards = <(_SummaryCardData, _VisitorKpiDrill)>[
       (
-        _SummaryCardData('Este Mês', '$thisMonth', Icons.calendar_month_rounded,
-            const Color(0xFF3B82F6)),
-        _VisitorKpiDrill.esteMes
+        _SummaryCardData(
+          'Este Mês',
+          '$thisMonth',
+          Icons.calendar_month_rounded,
+          const Color(0xFF3B82F6),
+        ),
+        _VisitorKpiDrill.esteMes,
       ),
       (
-        _SummaryCardData('Novos (Semana)', '$thisWeekNew',
-            Icons.fiber_new_rounded, const Color(0xFF8B5CF6)),
-        _VisitorKpiDrill.novosSemana
+        _SummaryCardData(
+          'Novos (Semana)',
+          '$thisWeekNew',
+          Icons.fiber_new_rounded,
+          const Color(0xFF8B5CF6),
+        ),
+        _VisitorKpiDrill.novosSemana,
       ),
       (
-        _SummaryCardData('Acompanhamento', '$accompanying',
-            Icons.support_agent_rounded, const Color(0xFFF59E0B)),
-        _VisitorKpiDrill.acompanhamento
+        _SummaryCardData(
+          'Acompanhamento',
+          '$accompanying',
+          Icons.support_agent_rounded,
+          const Color(0xFFF59E0B),
+        ),
+        _VisitorKpiDrill.acompanhamento,
       ),
       (
-        _SummaryCardData('Convertidos', '$converted', Icons.verified_rounded,
-            const Color(0xFF16A34A)),
-        _VisitorKpiDrill.convertidos
+        _SummaryCardData(
+          'Convertidos',
+          '$converted',
+          Icons.verified_rounded,
+          const Color(0xFF16A34A),
+        ),
+        _VisitorKpiDrill.convertidos,
       ),
     ];
 
@@ -1940,7 +2116,7 @@ class _SummaryCards extends StatelessWidget {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: cards.length,
-          separatorBuilder: (_, __) =>
+          separatorBuilder: (_, _) =>
               const SizedBox(width: ThemeCleanPremium.spaceSm),
           itemBuilder: (_, i) => SizedBox(
             width: 164,
@@ -1954,16 +2130,18 @@ class _SummaryCards extends StatelessWidget {
       spacing: ThemeCleanPremium.spaceMd,
       runSpacing: ThemeCleanPremium.spaceMd,
       children: cards
-          .map((e) => SizedBox(
-                width: 200,
-                child: _buildCard(context, e.$1, e.$2),
-              ))
+          .map(
+            (e) => SizedBox(width: 200, child: _buildCard(context, e.$1, e.$2)),
+          )
           .toList(),
     );
   }
 
   Widget _buildCard(
-      BuildContext context, _SummaryCardData c, _VisitorKpiDrill drill) {
+    BuildContext context,
+    _SummaryCardData c,
+    _VisitorKpiDrill drill,
+  ) {
     final selected = selectedDrill == drill;
     return Material(
       color: Colors.transparent,
@@ -2013,7 +2191,8 @@ class _SummaryCards extends StatelessWidget {
                       color: c.color.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                          color: c.color.withValues(alpha: 0.38)),
+                        color: c.color.withValues(alpha: 0.38),
+                      ),
                     ),
                     child: Icon(c.icon, color: c.color, size: 22),
                   ),
@@ -2029,18 +2208,18 @@ class _SummaryCards extends StatelessWidget {
               Text(
                 c.value,
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: ThemeCleanPremium.onSurface,
-                      letterSpacing: -0.5,
-                    ),
+                  fontWeight: FontWeight.w600,
+                  color: ThemeCleanPremium.onSurface,
+                  letterSpacing: -0.5,
+                ),
               ),
               const SizedBox(height: 2),
               Text(
                 c.label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -2111,7 +2290,10 @@ class _KpiDrillHeader extends StatelessWidget {
                 child: IconButton(
                   onPressed: onClose,
                   tooltip: 'Retornar',
-                  icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -2240,7 +2422,7 @@ class _VisitorsReportPanel extends StatelessWidget {
     final maxY = monthCounts.fold<int>(1, (a, b) => a > b ? a : b);
     final maxChart = (maxY * 1.2).ceil().clamp(1, 99999).toDouble();
 
-    const meses = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+    const meses = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 
     return Material(
       color: ThemeCleanPremium.cardBackground,
@@ -2262,8 +2444,11 @@ class _VisitorsReportPanel extends StatelessWidget {
                       color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: Icon(Icons.insights_rounded,
-                        color: ThemeCleanPremium.primary, size: 22),
+                    child: Icon(
+                      Icons.insights_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2308,19 +2493,25 @@ class _VisitorsReportPanel extends StatelessWidget {
                   SizedBox(
                     width: 120,
                     child: DropdownButtonFormField<int>(
-                      value: year,
+                      initialValue: year,
                       decoration: InputDecoration(
                         labelText: 'Ano',
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm),
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
                       ),
                       items: years
-                          .map((y) => DropdownMenuItem(value: y, child: Text('$y')))
+                          .map(
+                            (y) =>
+                                DropdownMenuItem(value: y, child: Text('$y')),
+                          )
                           .toList(),
                       onChanged: (y) {
                         if (y != null) onYearChanged(y);
@@ -2330,20 +2521,25 @@ class _VisitorsReportPanel extends StatelessWidget {
                   SizedBox(
                     width: 120,
                     child: DropdownButtonFormField<int?>(
-                      value: month,
+                      initialValue: month,
                       decoration: InputDecoration(
                         labelText: 'Mês',
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm),
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
                       ),
                       items: [
                         const DropdownMenuItem<int?>(
-                            value: null, child: Text('Todos')),
+                          value: null,
+                          child: Text('Todos'),
+                        ),
                         ...List.generate(
                           12,
                           (i) => DropdownMenuItem<int?>(
@@ -2391,7 +2587,11 @@ class _VisitorsReportPanel extends StatelessWidget {
               child: Container(
                 height: 200,
                 padding: const EdgeInsets.only(
-                    right: 8, top: 8, left: 4, bottom: 4),
+                  right: 8,
+                  top: 8,
+                  left: 4,
+                  bottom: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -2455,9 +2655,11 @@ class _VisitorsReportPanel extends StatelessWidget {
                         ),
                       ),
                       topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false)),
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
                       rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false)),
+                        sideTitles: SideTitles(showTitles: false),
+                      ),
                     ),
                     borderData: FlBorderData(show: false),
                     barGroups: [
@@ -2512,13 +2714,12 @@ class _VisitorCard extends StatelessWidget {
     required this.visitor,
     required this.tenantId,
     required this.canManage,
-    this.selectionMode = false,
-    this.selected = false,
-    this.onSelectionChanged,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
-  });
+  }) : selectionMode = false,
+       selected = false,
+       onSelectionChanged = null;
 
   @override
   Widget build(BuildContext context) {
@@ -2595,128 +2796,214 @@ class _VisitorCard extends StatelessWidget {
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const SizedBox(width: ThemeCleanPremium.spaceXs),
+                                  const SizedBox(
+                                    width: ThemeCleanPremium.spaceXs,
+                                  ),
                                   badge,
                                 ],
                               ),
-                      const SizedBox(height: 4),
-                      if (visitor.telefone.isNotEmpty)
-                        Wrap(
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 8,
-                          runSpacing: 6,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.phone_outlined, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
-                                const SizedBox(width: 4),
-                                ConstrainedBox(
-                                  constraints: const BoxConstraints(maxWidth: 200),
-                                  child: Text(
-                                    visitor.telefone.isEmpty
-                                        ? ''
-                                        : brPhoneMaskLive(visitor.telefone),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            Material(
-                              color: const Color(0xFF25D366),
-                              borderRadius: BorderRadius.circular(10),
-                              child: InkWell(
-                                onTap: () => launchWhatsAppContact(visitor.telefone),
-                                borderRadius: BorderRadius.circular(10),
-                                child: const Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      WhatsappBrandIcon(size: 14, color: Colors.white),
-                                      SizedBox(width: 5),
-                                      Text(
-                                        'WhatsApp',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 11,
+                              const SizedBox(height: 4),
+                              if (visitor.telefone.isNotEmpty)
+                                Wrap(
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.phone_outlined,
+                                          size: 14,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            maxWidth: 200,
+                                          ),
+                                          child: Text(
+                                            visitor.telefone.isEmpty
+                                                ? ''
+                                                : brPhoneMaskLive(
+                                                    visitor.telefone,
+                                                  ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: tt.bodySmall?.copyWith(
+                                              color: ThemeCleanPremium
+                                                  .onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Material(
+                                      color: const Color(0xFF25D366),
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: InkWell(
+                                        onTap: () => launchWhatsAppContact(
+                                          visitor.telefone,
+                                        ),
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              WhatsappBrandIcon(
+                                                size: 14,
+                                                color: Colors.white,
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                'WhatsApp',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      if (visitor.email.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            const Icon(Icons.email_outlined, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(
-                                visitor.email,
-                                style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today_outlined, size: 12, color: Colors.grey.shade400),
-                          const SizedBox(width: 4),
-                          Text(
-                            dateStr,
-                            style: tt.bodySmall?.copyWith(color: Colors.grey.shade500, fontSize: 11),
-                          ),
-                          if (visitor.followupCount > 0) ...[
-                            const SizedBox(width: ThemeCleanPremium.spaceSm),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primaryLight.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
+                              if (visitor.email.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.email_outlined,
+                                      size: 14,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        visitor.email,
+                                        style: tt.bodySmall?.copyWith(
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              Row(
                                 children: [
-                                  const Icon(Icons.forum_outlined, size: 12, color: ThemeCleanPremium.primaryLight),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    '${visitor.followupCount}',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: ThemeCleanPremium.primaryLight),
+                                  Icon(
+                                    Icons.calendar_today_outlined,
+                                    size: 12,
+                                    color: Colors.grey.shade400,
                                   ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    dateStr,
+                                    style: tt.bodySmall?.copyWith(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  if (visitor.followupCount > 0) ...[
+                                    const SizedBox(
+                                      width: ThemeCleanPremium.spaceSm,
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: ThemeCleanPremium.primaryLight
+                                            .withValues(alpha: 0.1),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.forum_outlined,
+                                            size: 12,
+                                            color:
+                                                ThemeCleanPremium.primaryLight,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            '${visitor.followupCount}',
+                                            style: const TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: ThemeCleanPremium
+                                                  .primaryLight,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
+                            ],
+                          ),
+                        ),
+                        if (canManage && !selectionMode)
+                          PopupMenuButton<String>(
+                            icon: const Icon(
+                              Icons.more_vert_rounded,
+                              color: ThemeCleanPremium.onSurfaceVariant,
                             ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (canManage && !selectionMode)
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert_rounded, color: ThemeCleanPremium.onSurfaceVariant),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    onSelected: (v) {
-                      if (v == 'edit') onEdit();
-                      if (v == 'delete') onDelete();
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit_outlined, size: 18), SizedBox(width: 8), Text('Editar')])),
-                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline_rounded, size: 18, color: ThemeCleanPremium.error), SizedBox(width: 8), Text('Excluir', style: TextStyle(color: ThemeCleanPremium.error))])),
-                    ],
-                  ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm,
+                              ),
+                            ),
+                            onSelected: (v) {
+                              if (v == 'edit') onEdit();
+                              if (v == 'delete') onDelete();
+                            },
+                            itemBuilder: (_) => [
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_outlined, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Editar'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: ThemeCleanPremium.error,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Excluir',
+                                      style: TextStyle(
+                                        color: ThemeCleanPremium.error,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                   ),
@@ -2794,7 +3081,10 @@ class _VisitorCard extends StatelessWidget {
         color: bg,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+      child: Text(
+        status,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+      ),
     );
   }
 
@@ -2812,10 +3102,7 @@ class _VisitorFormPage extends StatefulWidget {
   final String churchId;
   final _VisitorData? visitor;
 
-  const _VisitorFormPage({
-    required this.churchId,
-    this.visitor,
-  });
+  const _VisitorFormPage({required this.churchId, this.visitor});
 
   @override
   State<_VisitorFormPage> createState() => _VisitorFormPageState();
@@ -2839,8 +3126,7 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
 
   bool get _isEdit => widget.visitor != null;
 
-  String get _pathLabel =>
-      FirebasePaths.visitantes(widget.churchId.trim());
+  String get _pathLabel => FirebasePaths.visitantes(widget.churchId.trim());
 
   @override
   void initState() {
@@ -2950,9 +3236,7 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
       if (mounted) {
         final friendly = FirestoreWebGuard.isInternalAssertionError(e)
             ? 'Firestore instável na web. Aguarde 2 segundos e toque em Cadastrar novamente.'
-            : (e is TimeoutException
-                ? e.message
-                : 'Erro ao salvar: $e');
+            : (e is TimeoutException ? e.message : 'Erro ao salvar: $e');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(friendly ?? 'Erro ao salvar.'),
@@ -3009,7 +3293,9 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 560),
+            constraints: BoxConstraints(
+              maxWidth: isMobile ? double.infinity : 560,
+            ),
             child: SingleChildScrollView(
               padding: ThemeCleanPremium.pagePadding(context),
               child: Form(
@@ -3021,8 +3307,9 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                       padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusLg,
+                        ),
                         boxShadow: ThemeCleanPremium.softUiCardShadow,
                       ),
                       child: Column(
@@ -3056,7 +3343,8 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                                     Text(
                                       'Registo em $_pathLabel',
                                       style: tt.bodySmall?.copyWith(
-                                        color: ThemeCleanPremium.onSurfaceVariant,
+                                        color:
+                                            ThemeCleanPremium.onSurfaceVariant,
                                       ),
                                     ),
                                   ],
@@ -3082,13 +3370,9 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                             decoration: _fieldDecoration(
                               label: 'Telefone / WhatsApp',
                               icon: Icons.phone_outlined,
-                            ).copyWith(
-                              hintText: '62 9.9170-5247',
-                            ),
+                            ).copyWith(hintText: '62 9.9170-5247'),
                             keyboardType: TextInputType.phone,
-                            inputFormatters: const [
-                              BrPhoneInputFormatter(),
-                            ],
+                            inputFormatters: const [BrPhoneInputFormatter()],
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                           TextFormField(
@@ -3101,7 +3385,7 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                           DropdownButtonFormField<String>(
-                            value: _comoConheceu,
+                            initialValue: _comoConheceu,
                             decoration: _fieldDecoration(
                               label: 'Como conheceu a igreja',
                               icon: Icons.info_outline_rounded,
@@ -3142,13 +3426,15 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
                     const SizedBox(height: ThemeCleanPremium.spaceLg),
                     Container(
                       decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusLg,
+                        ),
                         gradient: _VisitorsPremiumTheme.heroGradient,
                         boxShadow: [
                           BoxShadow(
-                            color: _VisitorsPremiumTheme.orange
-                                .withValues(alpha: 0.35),
+                            color: _VisitorsPremiumTheme.orange.withValues(
+                              alpha: 0.35,
+                            ),
                             blurRadius: 16,
                             offset: const Offset(0, 8),
                           ),
@@ -3209,6 +3495,7 @@ class _VisitorDetailsPage extends StatefulWidget {
   final String tenantId;
   final _VisitorData visitor;
   final bool canManage;
+
   /// Secretariado, gestor, pastor, tesoureiro, ADM — não o papel [membro].
   final bool canConvertVisitor;
   final CollectionReference<Map<String, dynamic>> membersRef;
@@ -3277,7 +3564,8 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
         if (vSnap.hasError) {
           return Center(child: Text('Erro: ${vSnap.error}'));
         }
-        if (vSnap.connectionState == ConnectionState.waiting && !vSnap.hasData) {
+        if (vSnap.connectionState == ConnectionState.waiting &&
+            !vSnap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
 
@@ -3299,7 +3587,10 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                 _buildActionButtons(context, current),
                 const SizedBox(height: ThemeCleanPremium.spaceLg),
               ],
-              Text('Timeline de Follow-up', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                'Timeline de Follow-up',
+                style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _buildFollowupTimeline(context, tt),
             ],
@@ -3348,7 +3639,10 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
             leading: IconButton(
               icon: const Icon(Icons.close_rounded),
               onPressed: () => Navigator.pop(context),
-              constraints: const BoxConstraints(minWidth: ThemeCleanPremium.minTouchTarget, minHeight: ThemeCleanPremium.minTouchTarget),
+              constraints: const BoxConstraints(
+                minWidth: ThemeCleanPremium.minTouchTarget,
+                minHeight: ThemeCleanPremium.minTouchTarget,
+              ),
             ),
           ),
           body: content,
@@ -3357,27 +3651,35 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     }
 
     return Scaffold(
-      appBar: isMobile
-          ? null
-          : AppBar(title: Text(widget.visitor.nome)),
+      appBar: isMobile ? null : AppBar(title: Text(widget.visitor.nome)),
       body: SafeArea(
         child: Column(
           children: [
             if (isMobile)
               Padding(
-                padding: const EdgeInsets.fromLTRB(ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceSm, 0),
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceSm,
+                  ThemeCleanPremium.spaceSm,
+                  ThemeCleanPremium.spaceSm,
+                  0,
+                ),
                 child: Row(
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back_rounded),
                       onPressed: () => Navigator.pop(context),
-                      constraints: const BoxConstraints(minWidth: ThemeCleanPremium.minTouchTarget, minHeight: ThemeCleanPremium.minTouchTarget),
+                      constraints: const BoxConstraints(
+                        minWidth: ThemeCleanPremium.minTouchTarget,
+                        minHeight: ThemeCleanPremium.minTouchTarget,
+                      ),
                     ),
                     const SizedBox(width: ThemeCleanPremium.spaceXs),
                     Expanded(
                       child: Text(
                         widget.visitor.nome,
-                        style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                        style: tt.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -3434,10 +3736,16 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
             children: [
               CircleAvatar(
                 radius: 28,
-                backgroundColor: ThemeCleanPremium.primaryLight.withValues(alpha: 0.14),
+                backgroundColor: ThemeCleanPremium.primaryLight.withValues(
+                  alpha: 0.14,
+                ),
                 child: Text(
                   v.nome.isNotEmpty ? v.nome[0].toUpperCase() : '?',
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: ThemeCleanPremium.primary),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: ThemeCleanPremium.primary,
+                  ),
                 ),
               ),
               const SizedBox(width: ThemeCleanPremium.spaceMd),
@@ -3445,7 +3753,12 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(v.nome, style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(
+                      v.nome,
+                      style: tt.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     const SizedBox(height: 4),
                     _VisitorCard._statusBadge(v.status),
                   ],
@@ -3456,10 +3769,26 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
           const SizedBox(height: ThemeCleanPremium.spaceMd),
           Divider(color: Colors.grey.shade200),
           const SizedBox(height: ThemeCleanPremium.spaceSm),
-          _infoRow(Icons.phone_outlined, 'Telefone', v.telefone.isEmpty ? '—' : brPhoneMaskLive(v.telefone)),
-          _infoRow(Icons.email_outlined, 'E-mail', v.email.isEmpty ? '—' : v.email),
-          _infoRow(Icons.info_outline_rounded, 'Como conheceu', v.comoConheceu.isEmpty ? '—' : v.comoConheceu),
-          _infoRow(Icons.calendar_today_outlined, 'Primeiro contato', _VisitorCard._formatDate(v.createdAt)),
+          _infoRow(
+            Icons.phone_outlined,
+            'Telefone',
+            v.telefone.isEmpty ? '—' : brPhoneMaskLive(v.telefone),
+          ),
+          _infoRow(
+            Icons.email_outlined,
+            'E-mail',
+            v.email.isEmpty ? '—' : v.email,
+          ),
+          _infoRow(
+            Icons.info_outline_rounded,
+            'Como conheceu',
+            v.comoConheceu.isEmpty ? '—' : v.comoConheceu,
+          ),
+          _infoRow(
+            Icons.calendar_today_outlined,
+            'Primeiro contato',
+            _VisitorCard._formatDate(v.createdAt),
+          ),
           if (v.observacoes.isNotEmpty)
             _infoRow(Icons.note_alt_outlined, 'Observações', v.observacoes),
         ],
@@ -3477,9 +3806,24 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
           const SizedBox(width: 8),
           SizedBox(
             width: 110,
-            child: Text(label, style: const TextStyle(fontSize: 13, color: ThemeCleanPremium.onSurfaceVariant, fontWeight: FontWeight.w500)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: ThemeCleanPremium.onSurfaceVariant,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13, color: ThemeCleanPremium.onSurface))),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                color: ThemeCleanPremium.onSurface,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -3487,51 +3831,51 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
 
   Widget _buildActionButtons(BuildContext context, _VisitorData v) {
     Widget waBtn() => Container(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF128C7E), Color(0xFF25D366)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF25D366).withValues(alpha: 0.45),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF128C7E), Color(0xFF25D366)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF25D366).withValues(alpha: 0.45),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              onTap: () => launchWhatsAppContact(v.telefone),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeCleanPremium.spaceMd,
-                  vertical: 14,
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          onTap: () => launchWhatsAppContact(v.telefone),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: ThemeCleanPremium.spaceMd,
+              vertical: 14,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const WhatsappBrandIcon(size: 20, color: Colors.white),
+                const SizedBox(width: 10),
+                Text(
+                  'WhatsApp',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const WhatsappBrandIcon(size: 20, color: Colors.white),
-                    const SizedBox(width: 10),
-                    Text(
-                      'WhatsApp',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
+              ],
             ),
           ),
-        );
+        ),
+      ),
+    );
 
     Widget outlinePremium({
       required VoidCallback onPressed,
@@ -3572,9 +3916,9 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                   Text(
                     label,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: ThemeCleanPremium.primary,
-                        ),
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.primary,
+                    ),
                   ),
                 ],
               ),
@@ -3585,54 +3929,57 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     }
 
     Widget convertBtn() => Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                ThemeCleanPremium.success,
-                ThemeCleanPremium.success.withValues(alpha: 0.85),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            ThemeCleanPremium.success,
+            ThemeCleanPremium.success.withValues(alpha: 0.85),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.success.withValues(alpha: 0.4),
+            blurRadius: 14,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+          onTap: () => _convertToMember(context, v),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: ThemeCleanPremium.spaceMd,
+              vertical: 14,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.verified_rounded,
+                  size: 20,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Converter para Membro',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: [
-              BoxShadow(
-                color: ThemeCleanPremium.success.withValues(alpha: 0.4),
-                blurRadius: 14,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              onTap: () => _convertToMember(context, v),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: ThemeCleanPremium.spaceMd,
-                  vertical: 14,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.verified_rounded,
-                        size: 20, color: Colors.white),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Converter para Membro',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
-        );
+        ),
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3662,10 +4009,15 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Erro ao carregar follow-ups: ${snap.error}', style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13)),
+              Text(
+                'Erro ao carregar follow-ups: ${snap.error}',
+                style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13),
+              ),
               const SizedBox(height: 12),
               TextButton.icon(
-                onPressed: () => setState(() { _followupsFuture = _loadFollowups(); }),
+                onPressed: () => setState(() {
+                  _followupsFuture = _loadFollowups();
+                }),
                 icon: const Icon(Icons.refresh_rounded),
                 label: const Text('Tentar novamente'),
               ),
@@ -3690,9 +4042,18 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
             ),
             child: Column(
               children: [
-                Icon(Icons.forum_outlined, size: 40, color: Colors.grey.shade300),
+                Icon(
+                  Icons.forum_outlined,
+                  size: 40,
+                  color: Colors.grey.shade300,
+                ),
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
-                Text('Nenhum follow-up registrado', style: tt.bodyMedium?.copyWith(color: ThemeCleanPremium.onSurfaceVariant)),
+                Text(
+                  'Nenhum follow-up registrado',
+                  style: tt.bodyMedium?.copyWith(
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           );
@@ -3742,7 +4103,11 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.swap_horiz_rounded, color: Colors.white.withValues(alpha: 0.95), size: 26),
+                    Icon(
+                      Icons.swap_horiz_rounded,
+                      color: Colors.white.withValues(alpha: 0.95),
+                      size: 26,
+                    ),
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
@@ -3763,12 +4128,17 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                   children: statuses.map((s) {
                     return ListTile(
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
                       ),
                       onTap: () => Navigator.pop(ctx, s),
                       leading: _VisitorCard._statusBadge(s),
                       trailing: s == v.status
-                          ? const Icon(Icons.check_rounded, color: ThemeCleanPremium.primary)
+                          ? const Icon(
+                              Icons.check_rounded,
+                              color: ThemeCleanPremium.primary,
+                            )
                           : null,
                     );
                   }).toList(),
@@ -3819,9 +4189,9 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                 child: Text(
                   'Converter para Membro',
                   style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
@@ -3871,13 +4241,22 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Visitante convertido para membro com sucesso!', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text(
+              'Visitante convertido para membro com sucesso!',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e'), backgroundColor: ThemeCleanPremium.error),
+          SnackBar(
+            content: Text('Erro: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
         );
       }
     }
@@ -3896,7 +4275,9 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
       builder: (ctx) => Container(
         decoration: const BoxDecoration(
           color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(ThemeCleanPremium.radiusLg),
+          ),
         ),
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: SingleChildScrollView(
@@ -3907,32 +4288,59 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
             children: [
               Center(
                 child: Container(
-                  width: 40, height: 4, margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(
+                    bottom: ThemeCleanPremium.spaceMd,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-              Text('Novo Follow-up', style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                'Novo Follow-up',
+                style: Theme.of(
+                  ctx,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+              ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               ValueListenableBuilder<String>(
                 valueListenable: tipoCtrl,
-                builder: (_, tipo, __) => DropdownButtonFormField<String>(
-                  value: tipo,
-                  decoration: const InputDecoration(labelText: 'Tipo de contato', prefixIcon: Icon(Icons.category_outlined)),
-                  items: tipos.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                  onChanged: (v) { if (v != null) tipoCtrl.value = v; },
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                builder: (_, tipo, _) => DropdownButtonFormField<String>(
+                  initialValue: tipo,
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo de contato',
+                    prefixIcon: Icon(Icons.category_outlined),
+                  ),
+                  items: tipos
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) tipoCtrl.value = v;
+                  },
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               TextFormField(
                 controller: responsavelCtrl,
-                decoration: const InputDecoration(labelText: 'Responsável', prefixIcon: Icon(Icons.person_outline_rounded)),
+                decoration: const InputDecoration(
+                  labelText: 'Responsável',
+                  prefixIcon: Icon(Icons.person_outline_rounded),
+                ),
                 textCapitalization: TextCapitalization.words,
               ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               TextFormField(
                 controller: notasCtrl,
-                decoration: const InputDecoration(labelText: 'Notas', prefixIcon: Icon(Icons.note_alt_outlined)),
+                decoration: const InputDecoration(
+                  labelText: 'Notas',
+                  prefixIcon: Icon(Icons.note_alt_outlined),
+                ),
                 maxLines: 3,
                 textCapitalization: TextCapitalization.sentences,
               ),
@@ -3971,7 +4379,13 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
 
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Follow-up registrado!', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text(
+            'Follow-up registrado!',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
@@ -4016,15 +4430,15 @@ class _FollowupTimelineItem extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: tipoColor,
                     shape: BoxShape.circle,
-                    border: Border.all(color: tipoColor.withOpacity(0.3), width: 3),
+                    border: Border.all(
+                      color: tipoColor.withValues(alpha: 0.3),
+                      width: 3,
+                    ),
                   ),
                 ),
                 if (!isLast)
                   Expanded(
-                    child: Container(
-                      width: 2,
-                      color: Colors.grey.shade200,
-                    ),
+                    child: Container(width: 2, color: Colors.grey.shade200),
                   ),
               ],
             ),
@@ -4046,22 +4460,50 @@ class _FollowupTimelineItem extends StatelessWidget {
                     children: [
                       Icon(tipoIcon, size: 16, color: tipoColor),
                       const SizedBox(width: 6),
-                      Text(tipo, style: tt.labelLarge?.copyWith(color: tipoColor, fontSize: 13)),
+                      Text(
+                        tipo,
+                        style: tt.labelLarge?.copyWith(
+                          color: tipoColor,
+                          fontSize: 13,
+                        ),
+                      ),
                       const Spacer(),
-                      Text(dateStr, style: tt.bodySmall?.copyWith(color: Colors.grey.shade500, fontSize: 11)),
+                      Text(
+                        dateStr,
+                        style: tt.bodySmall?.copyWith(
+                          color: Colors.grey.shade500,
+                          fontSize: 11,
+                        ),
+                      ),
                     ],
                   ),
                   if (notas.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Text(notas, style: tt.bodyMedium?.copyWith(color: ThemeCleanPremium.onSurface, height: 1.4)),
+                    Text(
+                      notas,
+                      style: tt.bodyMedium?.copyWith(
+                        color: ThemeCleanPremium.onSurface,
+                        height: 1.4,
+                      ),
+                    ),
                   ],
                   if (responsavel.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.person_outline_rounded, size: 12, color: ThemeCleanPremium.onSurfaceVariant),
+                        const Icon(
+                          Icons.person_outline_rounded,
+                          size: 12,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
                         const SizedBox(width: 4),
-                        Text(responsavel, style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant, fontSize: 11)),
+                        Text(
+                          responsavel,
+                          style: tt.bodySmall?.copyWith(
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                            fontSize: 11,
+                          ),
+                        ),
                       ],
                     ),
                   ],
@@ -4076,19 +4518,27 @@ class _FollowupTimelineItem extends StatelessWidget {
 
   static IconData _tipoIcon(String tipo) {
     switch (tipo) {
-      case 'Ligação': return Icons.phone_rounded;
-      case 'WhatsApp': return Icons.chat_rounded;
-      case 'Visita': return Icons.home_rounded;
-      default: return Icons.more_horiz_rounded;
+      case 'Ligação':
+        return Icons.phone_rounded;
+      case 'WhatsApp':
+        return Icons.chat_rounded;
+      case 'Visita':
+        return Icons.home_rounded;
+      default:
+        return Icons.more_horiz_rounded;
     }
   }
 
   static Color _tipoColor(String tipo) {
     switch (tipo) {
-      case 'Ligação': return const Color(0xFF3B82F6);
-      case 'WhatsApp': return const Color(0xFF22C55E);
-      case 'Visita': return const Color(0xFFF59E0B);
-      default: return const Color(0xFF8B5CF6);
+      case 'Ligação':
+        return const Color(0xFF3B82F6);
+      case 'WhatsApp':
+        return const Color(0xFF22C55E);
+      case 'Visita':
+        return const Color(0xFFF59E0B);
+      default:
+        return const Color(0xFF8B5CF6);
     }
   }
 }

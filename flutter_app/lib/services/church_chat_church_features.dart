@@ -18,7 +18,7 @@ abstract final class ChurchChatChurchFeatures {
     final text = message.trim();
     if (text.isEmpty || departmentId.trim().isEmpty) return false;
     try {
-      final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
+      final me = firebaseDefaultAuth.currentUser?.uid.trim() ?? '';
       await ChurchChatService.ensureDepartmentThread(
         tenantId: tenantId,
         departmentId: departmentId,
@@ -92,7 +92,7 @@ abstract final class ChurchChatChurchFeatures {
   }) async {
     if (departmentId.trim().isEmpty) return;
     try {
-      final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
+      final me = firebaseDefaultAuth.currentUser?.uid.trim() ?? '';
       await ChurchChatService.ensureDepartmentThread(
         tenantId: tenantId,
         departmentId: departmentId,

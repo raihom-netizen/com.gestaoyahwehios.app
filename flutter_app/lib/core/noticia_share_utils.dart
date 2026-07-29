@@ -444,7 +444,7 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
 
   final results = await Future.wait<NoticiaShareMediaFile?>([
     ...photoJobs,
-    if (videoJob != null) videoJob,
+    ?videoJob,
   ]);
 
   final photoCount = photoJobs.length;

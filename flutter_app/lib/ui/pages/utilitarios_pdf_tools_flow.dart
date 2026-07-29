@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -52,7 +52,7 @@ class _PdfSource {
 
 class _MergePageItem {
   _MergePageItem({required this.sourceIndex, required this.pageIndex})
-    : thumb = null;
+      : thumb = null;
   final int sourceIndex;
   final int pageIndex;
   Uint8List? thumb;
@@ -120,9 +120,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   int get _singlePdfPageCount => _thumbs.length;
 
   void _syncSplitRangeCtrls() {
-    final from = _splitRangeFrom
-        .clamp(1, math.max(1, _singlePdfPageCount))
-        .toInt();
+    final from =
+        _splitRangeFrom.clamp(1, math.max(1, _singlePdfPageCount)).toInt();
     final to = _splitRangeTo.clamp(1, math.max(1, _singlePdfPageCount)).toInt();
     _splitRangeFrom = from;
     _splitRangeTo = to;
@@ -176,9 +175,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     if (pdf == null || _thumbs.isEmpty) return;
     if (_splitThumbsLoading) return;
     _splitThumbsLoading = true;
-    final thumbWidth = widget.mode == UtilitariosPdfToolMode.split
-        ? 240.0
-        : 360.0;
+    final thumbWidth =
+        widget.mode == UtilitariosPdfToolMode.split ? 240.0 : 360.0;
     final thumbQuality = widget.mode == UtilitariosPdfToolMode.split ? 74 : 82;
     final baseOrder = widget.mode == UtilitariosPdfToolMode.edit
         ? <int>[0, ...List.generate(_thumbs.length - 1, (i) => i + 1)]
@@ -230,28 +228,28 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   int _textColor = 0xFF1E293B;
 
   List<Color> get _gradient => switch (widget.mode) {
-    UtilitariosPdfToolMode.merge => const [
-      Color(0xFF2563EB),
-      Color(0xFF7C3AED),
-      Color(0xFF06B6D4),
-    ],
-    UtilitariosPdfToolMode.split => const [
-      Color(0xFFEA580C),
-      Color(0xFFF97316),
-      Color(0xFFFBBF24),
-    ],
-    UtilitariosPdfToolMode.edit => const [
-      Color(0xFF059669),
-      Color(0xFF10B981),
-      Color(0xFF34D399),
-    ],
-  };
+        UtilitariosPdfToolMode.merge => const [
+            Color(0xFF2563EB),
+            Color(0xFF7C3AED),
+            Color(0xFF06B6D4),
+          ],
+        UtilitariosPdfToolMode.split => const [
+            Color(0xFFEA580C),
+            Color(0xFFF97316),
+            Color(0xFFFBBF24),
+          ],
+        UtilitariosPdfToolMode.edit => const [
+            Color(0xFF059669),
+            Color(0xFF10B981),
+            Color(0xFF34D399),
+          ],
+      };
 
   String get _title => switch (widget.mode) {
-    UtilitariosPdfToolMode.merge => 'Juntar PDF',
-    UtilitariosPdfToolMode.split => 'Dividir PDF',
-    UtilitariosPdfToolMode.edit => 'Editor PDF',
-  };
+        UtilitariosPdfToolMode.merge => 'Juntar PDF',
+        UtilitariosPdfToolMode.split => 'Dividir PDF',
+        UtilitariosPdfToolMode.edit => 'Editor PDF',
+      };
 
   Future<void> _withBusy(String label, Future<void> Function() fn) async {
     setState(() {
@@ -279,10 +277,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   bool get _hasWork => switch (widget.mode) {
-    UtilitariosPdfToolMode.merge => _mergeOrder.isNotEmpty,
-    UtilitariosPdfToolMode.split => _singlePdf != null,
-    UtilitariosPdfToolMode.edit => _singlePdf != null,
-  };
+        UtilitariosPdfToolMode.merge => _mergeOrder.isNotEmpty,
+        UtilitariosPdfToolMode.split => _singlePdf != null,
+        UtilitariosPdfToolMode.edit => _singlePdf != null,
+      };
 
   bool get _hasUnsavedEditWork {
     if (widget.mode != UtilitariosPdfToolMode.edit) return false;
@@ -320,8 +318,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   Future<bool> _confirmDiscard(String message) async {
-    final dirty =
-        _hasUnsavedEditWork ||
+    final dirty = _hasUnsavedEditWork ||
         (widget.mode == UtilitariosPdfToolMode.merge &&
             _mergeOrder.isNotEmpty) ||
         (widget.mode != UtilitariosPdfToolMode.merge && _singlePdf != null);
@@ -386,19 +383,19 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   ButtonStyle _sessionOutlinedStyle() => OutlinedButton.styleFrom(
-    minimumSize: const Size(0, 46),
-    foregroundColor: _gradient.first,
-    side: BorderSide(
-      color: _gradient.first.withValues(alpha: 0.38),
-      width: 1.3,
-    ),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-  );
+        minimumSize: const Size(0, 46),
+        foregroundColor: _gradient.first,
+        side: BorderSide(
+          color: _gradient.first.withValues(alpha: 0.38),
+          width: 1.3,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      );
 
   String get _trocarArquivoLabel => switch (widget.mode) {
-    UtilitariosPdfToolMode.merge => 'Outros PDFs',
-    _ => 'Trocar PDF',
-  };
+        UtilitariosPdfToolMode.merge => 'Outros PDFs',
+        _ => 'Trocar PDF',
+      };
 
   Future<void> _pickPdfs({required bool multiple}) async {
     await _withBusy('Lendo PDF…', () async {
@@ -947,13 +944,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     if (_thumbs.isEmpty) return;
     setState(() {
       if (fromField) {
-        _splitRangeFrom = (_splitRangeFrom + delta)
-            .clamp(1, _singlePdfPageCount)
-            .toInt();
+        _splitRangeFrom =
+            (_splitRangeFrom + delta).clamp(1, _singlePdfPageCount).toInt();
       } else {
-        _splitRangeTo = (_splitRangeTo + delta)
-            .clamp(1, _singlePdfPageCount)
-            .toInt();
+        _splitRangeTo =
+            (_splitRangeTo + delta).clamp(1, _singlePdfPageCount).toInt();
       }
       _applySplitRangeSync();
     });
@@ -978,9 +973,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           pdf,
           page,
         );
-        _editPageAspects[page] = size.width > 0
-            ? size.width / size.height
-            : 1.0;
+        _editPageAspects[page] =
+            size.width > 0 ? size.width / size.height : 1.0;
         final mq = MediaQuery.sizeOf(context);
         final renderWidth = kIsWeb
             ? math.max(UtilitariosLocalService.kPdfRenderWidth, mq.width * 1.35)
@@ -994,10 +988,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       if (_docFields[page].isEmpty) {
         _docFields[page] =
             await UtilitariosLocalService.detectPdfPageTextFields(
-              pdf,
-              page,
-              pageJpeg: _editPageImages[page],
-            );
+          pdf,
+          page,
+          pageJpeg: _editPageImages[page],
+        );
       }
       if (mounted) setState(() {});
     } catch (_) {
@@ -1257,47 +1251,63 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     return pages;
   }
 
-  Future<void> _openEditPreview({bool saveAfter = false}) async {
+  Future<void> _openEditPreview() async {
     final pdf = _singlePdf;
     if (pdf == null || _thumbs.isEmpty) return;
     await _withBusy('Gerando pré-visualização…', () async {
       final pages = await _buildFlattenedPages();
       if (!mounted) return;
-      final shouldSave = await Navigator.of(context).push<bool>(
+      final action = await Navigator.of(context).push<String?>(
         MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => _PdfEditPreviewScreen(
             gradient: _gradient,
             pages: pages,
             fileName: _editedFileName(),
-            openForSave: saveAfter,
           ),
         ),
       );
-      if (shouldSave == true && mounted) {
-        await _exportEditedPdf(pages);
-      }
+      if (action == null || !mounted) return;
+      await _exportEditedPdf(pages, action: action);
     });
   }
 
-  Future<void> _exportEditedPdf(List<Uint8List> pages) async {
+  Future<void> _exportEditedPdf(
+    List<Uint8List> pages, {
+    required String action,
+  }) async {
     await _withBusy('Exportando PDF editado…', () async {
       final out = await UtilitariosLocalService.exportEditedPdfPages(pages);
       if (!mounted) return;
-      Navigator.pop(
-        context,
-        UtilitariosPdfToolResult(
-          bytes: out,
-          fileName: _editedFileName(),
-          mimeType: 'application/pdf',
-          message: 'PDF editado com ${_thumbs.length} página(s).',
+      final fileName = _editedFileName();
+      final ok = await utilitariosSaveOrShareBytes(
+        context: context,
+        bytes: out,
+        fileName: fileName,
+        mimeType: 'application/pdf',
+        preferShare: action == 'share',
+        chooseSaveLocation: action == 'save_folder',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            ok
+                ? (action == 'share'
+                    ? 'Escolha WhatsApp, e-mail ou outro app.'
+                    : 'PDF salvo na pasta escolhida.')
+                : 'Não foi possível exportar o PDF.',
+          ),
+          behavior: SnackBarBehavior.floating,
         ),
       );
+      // Fecha a ferramenta após salvar/compartilhar.
+      if (mounted) Navigator.pop(context);
     });
   }
 
   Future<void> _confirmEdit() async {
-    await _openEditPreview(saveAfter: true);
+    await _openEditPreview();
   }
 
   String _newAnnId() => 'a${DateTime.now().microsecondsSinceEpoch}';
@@ -1944,9 +1954,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final sel = _selectedAnn;
     final fields = _currentFields;
     final pageImage = _editPageImages[_editPage];
-    final aspect = _editPageAspects.length > _editPage
-        ? _editPageAspects[_editPage]
-        : 1.0;
+    final aspect =
+        _editPageAspects.length > _editPage ? _editPageAspects[_editPage] : 1.0;
     return Column(
       children: [
         _buildEditToolbar(fields.length),
@@ -2330,9 +2339,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         children: [
           if (fieldCount > 0) ...[
             FilledButton.tonalIcon(
-              onPressed: _busy
-                  ? null
-                  : () => unawaited(_openFieldsEditorFullscreen()),
+              onPressed:
+                  _busy ? null : () => unawaited(_openFieldsEditorFullscreen()),
               icon: const Icon(Icons.view_list_rounded, size: 22),
               label: Text(
                 'Campos ($fieldCount) — lista editável',
@@ -2467,14 +2475,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   String get _editToolHint => switch (_editTool) {
-    _PdfEditorTool.pickField => 'Toque em Campos para abrir a lista',
-    _PdfEditorTool.select => 'Arraste para mover · toque no campo para editar',
-    _PdfEditorTool.text => 'Toque na página para novo texto',
-    _PdfEditorTool.highlight => 'Toque para destacar trecho',
-    _PdfEditorTool.whiteout => 'Toque para cobrir texto antigo',
-    _PdfEditorTool.check => 'Toque para marcar check',
-    _PdfEditorTool.erase => 'Toque no campo para apagar',
-  };
+        _PdfEditorTool.pickField => 'Toque em Campos para abrir a lista',
+        _PdfEditorTool.select =>
+          'Arraste para mover · toque no campo para editar',
+        _PdfEditorTool.text => 'Toque na página para novo texto',
+        _PdfEditorTool.highlight => 'Toque para destacar trecho',
+        _PdfEditorTool.whiteout => 'Toque para cobrir texto antigo',
+        _PdfEditorTool.check => 'Toque para marcar check',
+        _PdfEditorTool.erase => 'Toque no campo para apagar',
+      };
 
   Widget _toolChip(
     _PdfEditorTool tool,
@@ -2494,9 +2503,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           color: sel ? Colors.white : _gradient.first,
         ),
         label: Text(label),
-        selectedColor: primary
-            ? _gradient.first
-            : _gradient.first.withValues(alpha: 0.85),
+        selectedColor:
+            primary ? _gradient.first : _gradient.first.withValues(alpha: 0.85),
         labelStyle: TextStyle(
           fontWeight: FontWeight.w800,
           fontSize: 12,
@@ -2505,9 +2513,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         onSelected: _busy
             ? null
             : (_) => setState(() {
-                _editTool = tool;
-                _selectedFieldId = null;
-              }),
+                  _editTool = tool;
+                  _selectedFieldId = null;
+                }),
       ),
     );
   }
@@ -2522,15 +2530,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         onSelected: _busy
             ? null
             : (_) => setState(() {
-                _textFontScale = scale;
-                final s = _selectedAnn;
-                if (s != null && s.type == 'text') {
-                  _pushUndo();
-                  final list = _annotations[_editPage];
-                  final i = list.indexWhere((a) => a.id == s.id);
-                  if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
-                }
-              }),
+                  _textFontScale = scale;
+                  final s = _selectedAnn;
+                  if (s != null && s.type == 'text') {
+                    _pushUndo();
+                    final list = _annotations[_editPage];
+                    final i = list.indexWhere((a) => a.id == s.id);
+                    if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
+                  }
+                }),
       ),
     );
   }
@@ -2609,23 +2617,23 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           border: selected
               ? border
               : (a.seamless
-                    ? Border.all(
-                        color: _gradient.first.withValues(alpha: 0.35),
-                        width: 1,
-                      )
-                    : border),
+                  ? Border.all(
+                      color: _gradient.first.withValues(alpha: 0.35),
+                      width: 1,
+                    )
+                  : border),
         ),
         child: selected && !a.seamless
             ? null
             : (a.seamless
-                  ? null
-                  : Center(
-                      child: Icon(
-                        Icons.format_color_reset_rounded,
-                        size: 16,
-                        color: Colors.grey.shade500,
-                      ),
-                    )),
+                ? null
+                : Center(
+                    child: Icon(
+                      Icons.format_color_reset_rounded,
+                      size: 16,
+                      color: Colors.grey.shade500,
+                    ),
+                  )),
       );
     } else if (a.type == 'check') {
       child = Container(
@@ -2646,9 +2654,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       child = Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(3),
-          border: selected
-              ? Border.all(color: _gradient.first, width: 2)
-              : null,
+          border:
+              selected ? Border.all(color: _gradient.first, width: 2) : null,
         ),
         child: selected
             ? Align(
@@ -2673,9 +2680,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             : null,
       );
     } else {
-      final fs = a.fontScale >= 1.35
-          ? 18.0
-          : (a.fontScale >= 1.05 ? 14.0 : 11.0);
+      final fs =
+          a.fontScale >= 1.35 ? 18.0 : (a.fontScale >= 1.05 ? 14.0 : 11.0);
       child = Container(
         padding: EdgeInsets.symmetric(
           horizontal: a.seamless ? 2 : 6,
@@ -2773,10 +2779,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     };
     final confirmLabel = switch (widget.mode) {
       UtilitariosPdfToolMode.edit => 'Salvar PDF',
-      UtilitariosPdfToolMode.split =>
-        _resolveSplitExportOrder().isEmpty
-            ? 'Gerar PDF'
-            : 'Gerar (${_resolveSplitExportOrder().length} pág.)',
+      UtilitariosPdfToolMode.split => _resolveSplitExportOrder().isEmpty
+          ? 'Gerar PDF'
+          : 'Gerar (${_resolveSplitExportOrder().length} pág.)',
       _ => 'Confirmar',
     };
     return SafeArea(
@@ -2834,9 +2839,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               if (widget.mode == UtilitariosPdfToolMode.edit) ...[
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: (!_busy && canConfirm)
-                      ? () => _openEditPreview(saveAfter: false)
-                      : null,
+                  onPressed:
+                      (!_busy && canConfirm) ? () => _openEditPreview() : null,
                   icon: const Icon(Icons.visibility_rounded, size: 20),
                   label: const Text(
                     'Pré-visualizar',
@@ -3346,11 +3350,11 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
                                     child: Text(
                                       excluded
                                           ? (original.isEmpty
-                                                ? '(campo removido)'
-                                                : original)
+                                              ? '(campo removido)'
+                                              : original)
                                           : (text.isEmpty
-                                                ? 'Toque no lápis para editar'
-                                                : text),
+                                              ? 'Toque no lápis para editar'
+                                              : text),
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                         fontSize: 14,
@@ -3434,13 +3438,11 @@ class _PdfEditPreviewScreen extends StatelessWidget {
     required this.gradient,
     required this.pages,
     required this.fileName,
-    this.openForSave = false,
   });
 
   final List<Color> gradient;
   final List<Uint8List> pages;
   final String fileName;
-  final bool openForSave;
 
   @override
   Widget build(BuildContext context) {
@@ -3469,9 +3471,7 @@ class _PdfEditPreviewScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
             color: g.first.withValues(alpha: 0.12),
             child: Text(
-              openForSave
-                  ? 'Revise o documento. Toque em Salvar para exportar ou Voltar para continuar editando.'
-                  : 'Visualização final com todas as edições aplicadas.',
+              'Visualização final com todas as edições aplicadas.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.92),
@@ -3528,7 +3528,7 @@ class _PdfEditPreviewScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   OutlinedButton.icon(
-                    onPressed: () => Navigator.pop(context, false),
+                    onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.edit_rounded, size: 18),
                     label: const Text(
                       'Voltar ao editor',
@@ -3545,20 +3545,73 @@ class _PdfEditPreviewScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.pop(context, true),
-                    icon: const Icon(Icons.ios_share_rounded),
-                    label: Text(
-                      openForSave ? 'Salvar PDF' : 'Salvar e compartilhar',
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                  const SizedBox(height: 10),
+                  // Escolher pasta
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2563EB), Color(0xFF3B82F6)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF2563EB).withValues(alpha: 0.4),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      backgroundColor: g.first,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, 'save_folder'),
+                      icon: const Icon(Icons.folder_open_rounded, size: 22),
+                      label: const Text(
+                        'Escolher pasta',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(54),
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Compartilhar
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF22C55E), Color(0xFF34D399)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF22C55E).withValues(alpha: 0.4),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.pop(context, 'share'),
+                      icon: const Icon(Icons.share_rounded, size: 22),
+                      label: const Text(
+                        'Compartilhar',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w900, fontSize: 16),
+                      ),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(54),
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ),

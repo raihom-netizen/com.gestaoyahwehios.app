@@ -91,7 +91,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
   Future<void> _addOrEdit(BuildContext context, String tid, {QueryDocumentSnapshot<Map<String, dynamic>>? doc}) async {
     final data = doc?.data() ?? {};
     final isEdit = doc != null;
-    final keyCtrl = TextEditingController(text: isEdit ? (data['key'] ?? doc!.id).toString() : '');
+    final keyCtrl = TextEditingController(text: isEdit ? (data['key'] ?? doc.id).toString() : '');
     final labelCtrl = TextEditingController(text: (data['label'] ?? '').toString());
     final descCtrl = TextEditingController(text: (data['descricao'] ?? '').toString());
     var template = (data['permissionTemplate'] ?? data['key'] ?? 'membro').toString().toLowerCase();
@@ -144,7 +144,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: template,
+                    initialValue: template,
                     decoration: InputDecoration(
                       labelText: 'Permissões equivalentes a',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -176,7 +176,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
 
     if (submitted != true || !mounted) return;
 
-    var key = isEdit ? (data['key'] ?? doc!.id).toString().trim() : ChurchFuncoesControleService.slugifyKey(keyCtrl.text);
+    var key = isEdit ? (data['key'] ?? doc.id).toString().trim() : ChurchFuncoesControleService.slugifyKey(keyCtrl.text);
     if (key.isEmpty) key = ChurchFuncoesControleService.slugifyKey(labelCtrl.text);
     if (key.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Informe uma chave válida.'));

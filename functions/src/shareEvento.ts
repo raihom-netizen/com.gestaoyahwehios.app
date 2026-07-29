@@ -434,6 +434,61 @@ function mapsUrlFromDoc(d: DocumentData): string {
   return "";
 }
 
+function snapIsEventTemplate(snap: DocumentSnapshot): boolean {
+  return snap.ref.path.includes("/event_templates/");
+}
+
+function formatTemplateSchedulePt(d: DocumentData): string {
+  const weekday = Number(d.weekday ?? d.weekDay ?? 0);
+  const time = String(d.time || "19:30").trim();
+  const recurrence = String(d.recurrence || "weekly").toLowerCase().trim();
+  const days = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"];
+  const dayName = weekday >= 1 && weekday <= 7 ? days[weekday - 1] : "semana";
+  if (recurrence === "biweekly") return `A cada 15 dias, ${dayName} às ${time}`;
+  if (recurrence === "monthly") return `Mensalmente, ${dayName} às ${time}`;
+  return `Toda ${dayName} às ${time}`;
+}
+
+function buildTemplateDescription(d: DocumentData): string {
+  const parts: string[] = [];
+  parts.push(`🗓️ ${formatTemplateSchedulePt(d)}`);
+  const loc = String(d.location || "").trim();
+  if (loc) parts.push(`📍 ${loc}`);
+  const text = String(d.text || d.body || d.description || "").trim().replace(/\s+/g, " ");
+  if (text) parts.push(text.length > 240 ? `${text.slice(0, 237)}…` : text);
+  return parts.join(" · ");
+}
+
+async function tryResolveTemplateCoverPaths(tenantId: string, templateId: string): Promise<string[]> {
+  const paths = [
+    `igrejas/${tenantId}/eventos/templates/${templateId}.jpg`,
+    `igrejas/${tenantId}/event_templates/${templateId}.jpg`,
+  ];
+  try {
+    const bucket = admin.storage().bucket();
+    const results = await Promise.all(
+      paths.map(async (p) => {
+        try {
+          const file = bucket.file(p);
+          const [exists] = await file.exists();
+          if (!exists) return null;
+          const [signed] = await file.getSignedUrl({
+            action: "read",
+            expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
+          });
+          return signed || null;
+        } catch {
+          return null;
+        }
+      })
+    );
+    return results.filter((u): u is string => typeof u === "string" && u.startsWith("http"));
+  } catch (e) {
+    functions.logger.warn("tryResolveTemplateCoverPaths", { tenantId, templateId, e });
+    return [];
+  }
+}
+
 function buildDescription(d: DocumentData): string {
   const isEvento = String(d.type || "aviso") === "evento";
   const parts: string[] = [];
@@ -599,6 +654,9 @@ export const shareEvento = functions
       if (!snap.exists) {
         snap = await db.doc(`igrejas/${tenantId}/avisos/${e}`).get();
       }
+      if (!snap.exists) {
+        snap = await db.doc(`igrejas/${tenantId}/event_templates/${e}`).get();
+      }
     } catch (err) {
       functions.logger.error("shareEvento firestore", err);
       res.status(500).set("Content-Type", "text/html; charset=utf-8");
@@ -629,10 +687,15 @@ export const shareEvento = functions
       return;
     }
 
-    const isEvento = String(d.type || "") === "evento";
+    const isTemplate = snapIsEventTemplate(snap);
+    const isEvento = String(d.type || "") === "evento" || isTemplate;
     const ogTitle = `${titleRaw} — ${churchName}`;
-    const ogDesc = buildDescription(d);
-    const ogImageRaw = pickOgImage(d, church);
+    const ogDesc = isTemplate ? buildTemplateDescription(d) : buildDescription(d);
+    let ogImageRaw = pickOgImage(d, church);
+    if (isTemplate && ogImageRaw === DEFAULT_OG_IMAGE) {
+      const templateCovers = await tryResolveTemplateCoverPaths(tenantId, e);
+      if (templateCovers.length > 0) ogImageRaw = templateCovers[0];
+    }
 
     // Detect YouTube vs hosted video early so we can sign both URLs in parallel
     let youtubeId: string | null = null;

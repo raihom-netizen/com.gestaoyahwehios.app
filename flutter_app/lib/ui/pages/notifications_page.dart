@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_bank_notification_tile.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -314,7 +313,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     return ListView.separated(
       padding: const EdgeInsets.all(12),
       itemCount: docs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
         final m = docs[i].data();
         final title = (m['title'] ?? 'Notificação').toString();

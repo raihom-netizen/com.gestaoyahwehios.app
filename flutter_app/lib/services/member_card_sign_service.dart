@@ -17,7 +17,7 @@ abstract final class MemberCardSignService {
 
   /// Web: chunks menores evitam INTERNAL ASSERTION no WatchChangeAggregator.
   static const int _kBatchChunkSize = kIsWeb ? 15 : 50;
-  static const Duration _kChunkTimeout = Duration(seconds: kIsWeb ? 32 : 22);
+  static const Duration _kChunkTimeout = Duration(seconds: kIsWeb ? 45 : 35);
 
   static Duration batchCapFor(int count) {
     if (count <= 0) return const Duration(seconds: 30);
@@ -110,7 +110,7 @@ abstract final class MemberCardSignService {
       await col
           .doc(id)
           .set(payload, SetOptions(merge: true))
-          .timeout(const Duration(seconds: kIsWeb ? 14 : 10));
+          .timeout(const Duration(seconds: kIsWeb ? 18 : 15));
     }
 
     Future<void> writeChunkBatch(List<String> chunk) async {
@@ -180,10 +180,21 @@ abstract final class MemberCardSignService {
       }
     }
 
-    if (signedIds.isNotEmpty) {
+    // Verifica no Firestore se os campos realmente persistiram antes de dizer OK.
+    final verifiedIds = await _verifySignaturesPersisted(
+      col: col,
+      signedIds: signedIds,
+      signatoryMemberId: signatory.memberId,
+    );
+
+    // Reconcilia contador com o que de fato foi gravado.
+    ok = verifiedIds.length;
+    fail = memberIds.length - ok;
+
+    if (verifiedIds.isNotEmpty) {
       MembersDirectorySnapshotService.patchMembersSignatureInMemory(
         tenantId: churchId,
-        memberIds: signedIds,
+        memberIds: verifiedIds,
         signatureFields: {
           'carteirinhaAssinadaEm': signedAt,
           'carteirinhaAssinadaPor': signatory.memberId,
@@ -202,7 +213,51 @@ abstract final class MemberCardSignService {
       ok: ok,
       fail: fail,
       lastError: lastError,
-      signedIds: List<String>.unmodifiable(signedIds),
+      signedIds: List<String>.unmodifiable(verifiedIds),
     );
+  }
+
+  /// Lê de volta os documentos assinados e só devolve os IDs onde o campo
+  /// `carteirinhaAssinadaPor` coincide com o signatário (prova de persistência).
+  static Future<List<String>> _verifySignaturesPersisted({
+    required CollectionReference<Map<String, dynamic>> col,
+    required List<String> signedIds,
+    required String signatoryMemberId,
+  }) async {
+    if (signedIds.isEmpty) return const <String>[];
+    final verified = <String>[];
+    final ids = signedIds.toList();
+    // Web: evita muitas leituras simultâneas; mobile: paraleliza leve.
+    final chunkSize = kIsWeb ? 8 : 16;
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, min(i + chunkSize, ids.length));
+      try {
+        final futures = chunk.map((id) async {
+          try {
+            final snap = await col
+                .doc(id)
+                .get(const GetOptions(source: Source.serverAndCache))
+                .timeout(const Duration(seconds: kIsWeb ? 12 : 8));
+            final data = snap.data();
+            if (data == null) return null;
+            final signedBy = (data['carteirinhaAssinadaPor'] ?? '')
+                .toString()
+                .trim();
+            final signedAt = data['carteirinhaAssinadaEm'];
+            if (signedBy.isNotEmpty &&
+                signedBy == signatoryMemberId &&
+                signedAt != null) {
+              return id;
+            }
+            return null;
+          } catch (_) {
+            return null;
+          }
+        });
+        final results = await Future.wait(futures, eagerError: false);
+        verified.addAll(results.whereType<String>());
+      } catch (_) {}
+    }
+    return verified;
   }
 }

@@ -1,9 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
 
 /// Acesso **directo** do painel igreja — Web = Android = iOS.
 ///
@@ -134,7 +131,7 @@ abstract final class ChurchPanelPaths {
       (
         module: 'MEMBROS',
         firestorePath: '$fs/${ChurchDataPaths.membros}',
-        storagePath: '${st}${ChurchStorageLayout.kSegMembros}/',
+        storagePath: '$st${ChurchStorageLayout.kSegMembros}/',
       ),
       (
         module: 'VISITANTES',
@@ -144,7 +141,7 @@ abstract final class ChurchPanelPaths {
       (
         module: 'FORNECEDORES',
         firestorePath: '$fs/${ChurchDataPaths.fornecedores}',
-        storagePath: '${st}${ChurchStorageLayout.kSegFornecedores}/',
+        storagePath: '$st${ChurchStorageLayout.kSegFornecedores}/',
       ),
       (
         module: 'FINANCEIRO',
@@ -155,22 +152,22 @@ abstract final class ChurchPanelPaths {
       (
         module: 'EVENTOS',
         firestorePath: '$fs/${ChurchDataPaths.eventos}',
-        storagePath: '${st}${ChurchStorageLayout.kSegEventos}/',
+        storagePath: '$st${ChurchStorageLayout.kSegEventos}/',
       ),
       (
         module: 'AVISOS',
         firestorePath: '$fs/${ChurchDataPaths.avisos}',
-        storagePath: '${st}${ChurchStorageLayout.kSegAvisos}/',
+        storagePath: '$st${ChurchStorageLayout.kSegAvisos}/',
       ),
       (
         module: 'CHAT',
         firestorePath: '$fs/${ChurchDataPaths.chats}',
-        storagePath: '${st}${ChurchStorageLayout.kSegChatMedia}/',
+        storagePath: '$st${ChurchStorageLayout.kSegChatMedia}/',
       ),
       (
         module: 'PATRIMONIO',
         firestorePath: '$fs/${ChurchDataPaths.patrimonio}',
-        storagePath: '${st}${ChurchStorageLayout.kSegPatrimonio}/',
+        storagePath: '$st${ChurchStorageLayout.kSegPatrimonio}/',
       ),
       (
         module: 'ESCALAS',
@@ -190,7 +187,7 @@ abstract final class ChurchPanelPaths {
       (
         module: 'CERTIFICADOS',
         firestorePath: '$fs/${ChurchDataPaths.certificados}',
-        storagePath: '${st}${ChurchStorageLayout.kSegCertificadosMidia}/',
+        storagePath: '$st${ChurchStorageLayout.kSegCertificadosMidia}/',
       ),
     ];
   }

@@ -53,13 +53,13 @@ abstract final class EcoFireFirestoreMeta {
   }) =>
       {
         'titulo': titulo,
-        if (descricao != null) 'descricao': descricao,
+        'descricao': ?descricao,
         'fotos': fotos,
         if (videoUrl != null && videoUrl.isNotEmpty) 'video': videoUrl,
         if (videoStoragePath != null && videoStoragePath.isNotEmpty)
           'videoStoragePath': videoStoragePath,
         if (thumbUrl != null && thumbUrl.isNotEmpty) 'videoThumbUrl': thumbUrl,
-        if (videoDurationSec != null) 'videoDurationSec': videoDurationSec,
+        'videoDurationSec': ?videoDurationSec,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
       };
 
@@ -70,7 +70,7 @@ abstract final class EcoFireFirestoreMeta {
   }) =>
       {
         'titulo': titulo,
-        if (descricao != null) 'descricao': descricao,
+        'descricao': ?descricao,
         'fotos': fotos,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
       };
@@ -98,7 +98,7 @@ abstract final class EcoFireFirestoreMeta {
         'url': downloadUrl,
         'storagePath': storagePath,
         'tipo': tipo,
-        if (tamanhoBytes != null) 'tamanho': tamanhoBytes,
+        'tamanho': ?tamanhoBytes,
       };
 
   static String cacheBust(String url, [DateTime? at]) {

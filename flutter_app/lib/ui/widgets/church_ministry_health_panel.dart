@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:intl/intl.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
@@ -240,7 +239,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     if (stream == null || !widget.canViewFinance) return;
     _financeStreamSub = stream.listen(
       (snap) => _mergeFinanceIntoState(snap.docs),
-      onError: (_, __) {
+      onError: (_, _) {
         if (!mounted) return;
         setState(() {
           _loading = false;
@@ -1799,7 +1798,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: children.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 10),
+          separatorBuilder: (_, _) => const SizedBox(width: 10),
           itemBuilder: (_, i) => children[i],
         ),
       );

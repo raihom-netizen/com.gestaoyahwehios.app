@@ -44,7 +44,7 @@ abstract final class YahwehSaasVisualShell {
       width: size,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
-      errorBuilder: (_, __, ___) => brandEmblem(size: size),
+      errorBuilder: (_, _, _) => brandEmblem(size: size),
     );
   }
 

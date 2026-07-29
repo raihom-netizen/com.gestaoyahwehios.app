@@ -87,7 +87,7 @@ abstract final class PendingUploadsFirestoreService {
       'updatedAt': FieldValue.serverTimestamp(),
       if (localPath != null && localPath.isNotEmpty) 'localPath': localPath,
       if (alias != null && alias.isNotEmpty) 'canonicalPathHint': alias,
-      if (meta != null) ...meta,
+      ...?meta,
     };
     await _col(canonicalTenant).doc(id).set(data);
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
@@ -154,7 +154,7 @@ abstract final class PendingUploadsFirestoreService {
         status: 'queued',
         meta: {
           'source': 'offline_queue',
-          if (meta != null) ...meta,
+          ...?meta,
         },
       );
     } catch (_) {
@@ -455,7 +455,7 @@ abstract final class PendingUploadsFirestoreService {
         status: 'failed',
         meta: {
           'lastError': error.toString(),
-          if (meta != null) ...meta,
+          ...?meta,
         },
       );
       await markFailed(tenantId, id, error);

@@ -1,4 +1,3 @@
-import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';

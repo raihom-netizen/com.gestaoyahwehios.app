@@ -1,5 +1,4 @@
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -59,7 +58,7 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
         params['targetSlug'] = targetSlug.trim();
       }
       final res = await _callWithTimeoutAndRetry(() => callable.call<Map<String, dynamic>>(params));
-      final data = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      final data = Map<String, dynamic>.from(res.data as Map);
       final ok = data['ok'] == true;
       final msg = (data['message'] ?? 'Concluído.').toString();
       final consolidated = data['consolidatedCount'] ?? 0;
@@ -142,7 +141,7 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
         params['targetSlug'] = targetSlug.trim();
       }
       final res = await _callWithTimeoutAndRetry(() => callable.call<Map<String, dynamic>>(params));
-      final data = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      final data = Map<String, dynamic>.from(res.data as Map);
       final ok = data['ok'] == true;
       final msg = (data['message'] ?? 'Concluído.').toString();
       final usersProcessed = data['usersProcessed'] ?? 0;
@@ -227,7 +226,7 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
           'modules': ['all'],
         }),
       );
-      final data = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      final data = Map<String, dynamic>.from(res.data as Map);
       final msg = (data['message'] ?? '').toString();
       final summary =
           'Igrejas: ${data['tenantsProcessed'] ?? 0} · Membros: ${data['membros'] ?? 0} · '

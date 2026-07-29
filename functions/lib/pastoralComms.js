@@ -1012,6 +1012,7 @@ exports.dailyBirthdayTopicPush = functions
                     tenantId,
                     type: "birthday_daily",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
+                    deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, "aniversariantes"),
                 },
                 module: "aniversario",
             }));

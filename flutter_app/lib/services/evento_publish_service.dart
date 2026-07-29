@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
@@ -28,11 +27,10 @@ abstract final class EventoPublishService {
   static DocumentReference<Map<String, dynamic>> docRef({
     required String churchId,
     required String docId,
-  }) =>
-      EventosPublishVerificationService.eventoDocRef(
-        igrejaId: churchId,
-        docId: docId,
-      );
+  }) => EventosPublishVerificationService.eventoDocRef(
+    igrejaId: churchId,
+    docId: docId,
+  );
 
   static Future<void> ensureReady({String logLabel = 'evento_prepare'}) async {
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
@@ -86,31 +84,50 @@ abstract final class EventoPublishService {
 
     if (hasVideo && localVideo.isNotEmpty) {
       ChurchPublishFlowLog.uploadStart('evento video ${docRef.id}');
-      final uploaded = await VideoHandlerService.instance.compressAndUploadFromPath(
-        localPath: localVideo,
-        tenantId: churchId,
-        eventPostDocId: docRef.id,
-        videoSlotIndex: 0,
-        onUploadProgress: onUploadProgress == null
-            ? null
-            : (p) => onUploadProgress!(0.14 + p.clamp(0.0, 1.0) * 0.24),
-      );
-      if (uploaded == null) {
-        throw StateError('Não foi possível enviar o vídeo do evento.');
+      try {
+        final uploaded = await VideoHandlerService.instance
+            .compressAndUploadFromPath(
+              localPath: localVideo,
+              tenantId: churchId,
+              eventPostDocId: docRef.id,
+              videoSlotIndex: 0,
+              onUploadProgress: onUploadProgress == null
+                  ? null
+                  : (p) => onUploadProgress(0.14 + p.clamp(0.0, 1.0) * 0.24),
+            );
+        if (uploaded != null) {
+          resolvedVideoPath = uploaded.videoStoragePath;
+          payload['videoUrl'] = uploaded.videoUrl;
+          if (uploaded.thumbUrl.isNotEmpty) {
+            payload['thumbUrl'] = uploaded.thumbUrl;
+          }
+          payload['videoPath'] = resolvedVideoPath;
+          payload['videos'] = [
+            {'videoUrl': uploaded.videoUrl, 'thumbUrl': uploaded.thumbUrl},
+          ];
+          ChurchPublishFlowLog.uploadOk('evento video ${docRef.id}');
+        } else if (!hasNewPhotos && existingUrls.isEmpty) {
+          // Sem fotos e vídeo falhou: não há como publicar o evento.
+          throw StateError('Não foi possível enviar o vídeo do evento.');
+        } else {
+          // Há fotos: publica como evento somente fotos (não aborta).
+          ChurchPublishFlowLog.logCatch(
+            StateError('video_upload_empty_fallback'),
+            StackTrace.current,
+            label: 'evento_video_fallback_photo_only',
+          );
+        }
+      } catch (videoErr, videoSt) {
+        if (!hasNewPhotos && existingUrls.isEmpty) {
+          rethrow;
+        }
+        // Fotos existem: continua publicando sem o vídeo.
+        ChurchPublishFlowLog.logCatch(
+          videoErr,
+          videoSt,
+          label: 'evento_video_fallback_photo_only',
+        );
       }
-      resolvedVideoPath = uploaded.videoStoragePath;
-      payload['videoUrl'] = uploaded.videoUrl;
-      if (uploaded.thumbUrl.isNotEmpty) {
-        payload['thumbUrl'] = uploaded.thumbUrl;
-      }
-      payload['videoPath'] = resolvedVideoPath;
-      payload['videos'] = [
-        {
-          'videoUrl': uploaded.videoUrl,
-          'thumbUrl': uploaded.thumbUrl,
-        },
-      ];
-      ChurchPublishFlowLog.uploadOk('evento video ${docRef.id}');
     }
 
     Object? last;
@@ -127,8 +144,9 @@ abstract final class EventoPublishService {
           newImagePaths: newImagePaths,
           publicSite: publicSite,
           hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
-          videoStoragePath:
-              resolvedVideoPath.isNotEmpty ? resolvedVideoPath : null,
+          videoStoragePath: resolvedVideoPath.isNotEmpty
+              ? resolvedVideoPath
+              : null,
           eventStartAt: eventStartAt,
           location: location,
           syncAgenda: syncAgenda,

@@ -35,7 +35,7 @@ class PanelQuickShortcuts extends StatelessWidget {
       onOpenAniversariantesAno,
       onOpenAgenda,
       onOpenOrganograma,
-      if (onOpenPainelCorpoAdmin != null) onOpenPainelCorpoAdmin!,
+      ?onOpenPainelCorpoAdmin,
     ];
     final count = onOpenPainelCorpoAdmin != null ? 4 : 3;
 

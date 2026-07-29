@@ -1,1 +1,0 @@
-Cross-platform Flutter application for church management (Gestão Yahweh) with Firebase backend, offline-first sync via Hive, Telegram/TDLib chat integration, and native widgets on Android/iOS.

@@ -5,8 +5,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap, isValidImageUrl;
 import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 

@@ -1405,7 +1405,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             required ValueChanged<String?> onChanged,
           }) {
             return DropdownButtonFormField<String>(
-              value: value,
+              initialValue: value,
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: label,
@@ -1683,9 +1683,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           tenantId: tid,
           cpfDigits: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
         );
-        if (mounted) setState(() => _managedDeptIds
+        if (mounted) {
+          setState(() => _managedDeptIds
           ..clear()
           ..addAll(s));
+        }
       } catch (_) {}
     });
   }
@@ -2081,7 +2083,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         ),
                         const SizedBox(height: 14),
                         DropdownButtonFormField<String>(
-                          value: preparedByMemberId,
+                          initialValue: preparedByMemberId,
                           isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Quem montou a escala',
@@ -2107,7 +2109,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         ),
                         const SizedBox(height: 12),
                         DropdownButtonFormField<String>(
-                          value: approverMemberId,
+                          initialValue: approverMemberId,
                           isExpanded: true,
                           decoration: InputDecoration(
                             labelText: 'Quem aprova/assina',
@@ -2399,7 +2401,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     for (final esc in recentSnap.docs) {
       if ((esc.data()['departmentId'] ?? '').toString() != deptId) continue;
       final cpfs = ((esc.data()['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-      for (final c in cpfs) freq[c] = (freq[c] ?? 0) + 1;
+      for (final c in cpfs) {
+        freq[c] = (freq[c] ?? 0) + 1;
+      }
     }
 
     final membersForYmds = await _loadScheduleMemberDocs(tid);
@@ -2473,7 +2477,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       );
       final memberFields = EscalaMemberPayload.writeFieldsFromMembers(escalados);
 
-      for (final c in selCpfs) freq[c] = (freq[c] ?? 0) + 1;
+      for (final c in selCpfs) {
+        freq[c] = (freq[c] ?? 0) + 1;
+      }
 
       final ref = instances.doc();
       batch.set(ref, {
@@ -2977,9 +2983,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         Container(
           padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.primary.withOpacity(0.09),
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.09),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: ThemeCleanPremium.primary.withOpacity(0.12)),
+            border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.12)),
           ),
           child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
         ),
@@ -3129,7 +3135,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.primary.withOpacity(0.06),
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
               blurRadius: 24,
               offset: const Offset(0, 10),
             ),
@@ -3386,7 +3392,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
-            color: ThemeCleanPremium.primary.withOpacity(0.06),
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
             blurRadius: 24,
             offset: const Offset(0, 10),
           ),
@@ -3445,7 +3451,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      ThemeCleanPremium.primary.withOpacity(0.08),
+                      ThemeCleanPremium.primary.withValues(alpha: 0.08),
                       Colors.white,
                     ],
                     begin: Alignment.topLeft,
@@ -3454,7 +3460,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   borderRadius:
                       BorderRadius.circular(ThemeCleanPremium.radiusMd),
                   border: Border.all(
-                    color: ThemeCleanPremium.primary.withOpacity(0.16),
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.16),
                   ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
@@ -3518,7 +3524,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ThemeCleanPremium.error,
                       side: BorderSide(
-                        color: ThemeCleanPremium.error.withOpacity(0.45),
+                        color: ThemeCleanPremium.error.withValues(alpha: 0.45),
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
@@ -3550,8 +3556,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     style: FilledButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       backgroundColor: _escalaSelectionMode
-                          ? ThemeCleanPremium.error.withOpacity(0.12)
-                          : ThemeCleanPremium.primary.withOpacity(0.12),
+                          ? ThemeCleanPremium.error.withValues(alpha: 0.12)
+                          : ThemeCleanPremium.primary.withValues(alpha: 0.12),
                       foregroundColor: ThemeCleanPremium.primary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
@@ -3596,9 +3602,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   _escalaSelectionMode = false;
                   _selectedEscalaIds.clear();
                 }
-                if (_schedCalSelected == null) {
-                  _schedCalSelected = DateTime.now();
-                }
+                _schedCalSelected ??= DateTime.now();
               }),
             ),
           ),
@@ -3828,7 +3832,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.07),
+                                color: Colors.black.withValues(alpha: 0.07),
                                 blurRadius: 16,
                                 offset: const Offset(0, -4),
                               ),
@@ -4138,7 +4142,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [ThemeCleanPremium.primary, ThemeCleanPremium.primaryLight], begin: Alignment.topLeft, end: Alignment.bottomRight),
                     borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    boxShadow: [BoxShadow(color: ThemeCleanPremium.primary.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+                    boxShadow: [BoxShadow(color: ThemeCleanPremium.primary.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
                   ),
                   child: Text(
                     'ESCALA — DEPARTAMENTO $deptName — $_periodLabelUppercase',
@@ -4382,7 +4386,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF7C3AED).withOpacity(0.12),
+                              color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(14),
                             ),
                             child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF5B21B6), size: 24),
@@ -4552,7 +4556,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           padding: const EdgeInsets.all(16),
                           child: Row(
                             children: [
-                              CircleAvatar(radius: 22, backgroundColor: ThemeCleanPremium.primary.withOpacity(0.1), child: Text((st.name.isNotEmpty ? st.name[0] : '?').toUpperCase(), style: TextStyle(fontWeight: FontWeight.w800, color: ThemeCleanPremium.primary, fontSize: 16))),
+                              CircleAvatar(radius: 22, backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.1), child: Text((st.name.isNotEmpty ? st.name[0] : '?').toUpperCase(), style: TextStyle(fontWeight: FontWeight.w800, color: ThemeCleanPremium.primary, fontSize: 16))),
                               const SizedBox(width: 14),
                               Expanded(
                                 child: Column(
@@ -4730,7 +4734,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         shrinkWrap: true,
                         padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
                         itemCount: useEscalas ? docs.length : listLines.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
                         itemBuilder: (_, i) {
                           if (useEscalas) {
                             final ed = onEditEscala;
@@ -5208,7 +5212,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                               ),
                               title: const Text('Excluir escalas do ano'),
                               content: DropdownButtonFormField<int>(
-                                value: sel,
+                                initialValue: sel,
                                 decoration: const InputDecoration(
                                   labelText: 'Ano',
                                   border: OutlineInputBorder(),
@@ -6709,7 +6713,7 @@ class _InstanceCard extends StatelessWidget {
             gradient: selectionMode && selected
                 ? LinearGradient(
                     colors: [
-                      ThemeCleanPremium.primary.withOpacity(0.07),
+                      ThemeCleanPremium.primary.withValues(alpha: 0.07),
                       Colors.white,
                     ],
                     begin: Alignment.centerLeft,
@@ -6719,7 +6723,7 @@ class _InstanceCard extends StatelessWidget {
                     ? LinearGradient(
                         colors: [
                           Colors.white,
-                          deptColor.withOpacity(0.04),
+                          deptColor.withValues(alpha: 0.04),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -6731,7 +6735,7 @@ class _InstanceCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
             boxShadow: [
               BoxShadow(
-                color: deptColor.withOpacity(0.08),
+                color: deptColor.withValues(alpha: 0.08),
                 blurRadius: 20,
                 offset: const Offset(0, 8),
               ),
@@ -6739,7 +6743,7 @@ class _InstanceCard extends StatelessWidget {
             ],
             border: selectionMode && selected
                 ? Border.all(
-                    color: ThemeCleanPremium.primary.withOpacity(0.4),
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.4),
                     width: 1.5,
                   )
                 : Border.all(color: const Color(0xFFE2E8F0)),
@@ -6753,11 +6757,11 @@ class _InstanceCard extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [deptColor, deptColor.withOpacity(0.75)],
+                    colors: [deptColor, deptColor.withValues(alpha: 0.75)],
                   ),
                   borderRadius: const BorderRadius.horizontal(left: Radius.circular(ThemeCleanPremium.radiusLg)),
                   boxShadow: [
-                    BoxShadow(color: deptColor.withOpacity(0.35), blurRadius: 8, offset: const Offset(2, 0)),
+                    BoxShadow(color: deptColor.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(2, 0)),
                   ],
                 ),
               ),
@@ -6792,7 +6796,7 @@ class _InstanceCard extends StatelessWidget {
                         if (dateTxt.isNotEmpty)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(color: deptColor.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                            decoration: BoxDecoration(color: deptColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
                             child: Text(dateTxt, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: deptColor)),
                           ),
                       ]),
@@ -6814,7 +6818,7 @@ class _InstanceCard extends StatelessWidget {
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             itemCount: names.length > 8 ? 8 : names.length,
-                            separatorBuilder: (_, __) => const SizedBox(width: 6),
+                            separatorBuilder: (_, _) => const SizedBox(width: 6),
                             itemBuilder: (_, ai) {
                               final nm = names[ai];
                               return Container(
@@ -6825,7 +6829,7 @@ class _InstanceCard extends StatelessWidget {
                                 ),
                                 child: CircleAvatar(
                                   radius: 18,
-                                  backgroundColor: deptColor.withOpacity(0.18),
+                                  backgroundColor: deptColor.withValues(alpha: 0.18),
                                   child: Text(
                                     nm.isNotEmpty ? nm[0].toUpperCase() : '?',
                                     style: TextStyle(
@@ -6949,7 +6953,9 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
           if ((esc.data()['departmentId'] ?? '').toString() != _departmentId) continue;
           final d = esc.data();
           final cpfs = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-          for (final c in cpfs) freq[c] = (freq[c] ?? 0) + 1;
+          for (final c in cpfs) {
+            freq[c] = (freq[c] ?? 0) + 1;
+          }
         }
       } catch (_) {}
 
@@ -6978,10 +6984,12 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
       }
       deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
 
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _deptMembers = deptMembers;
         _loadingMembers = false;
       });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _loadingMembers = false);
@@ -7295,7 +7303,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                             icon: Icons.groups_rounded,
                             children: [
                               DropdownButtonFormField<String>(
-                                value:
+                                initialValue:
                                     _departmentId.isEmpty ? null : _departmentId,
                                 decoration: const InputDecoration(
                                   labelText: 'Vincular ao departamento',
@@ -7903,7 +7911,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
           if (!_saving)
             FilledButton(
               onPressed: _save,
-              style: FilledButton.styleFrom(backgroundColor: Colors.white.withOpacity(0.2)),
+              style: FilledButton.styleFrom(backgroundColor: Colors.white.withValues(alpha: 0.2)),
               child: const Text('Salvar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
             ),
           const SizedBox(width: 12),
@@ -7997,7 +8005,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                       icon: Icons.groups_rounded,
                       children: [
                         DropdownButtonFormField<String>(
-                          value: _departmentId.isEmpty ? null : _departmentId,
+                          initialValue: _departmentId.isEmpty ? null : _departmentId,
                           decoration: const InputDecoration(labelText: 'Departamento', prefixIcon: Icon(Icons.groups_rounded)),
                           items: widget.depts.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
                           onChanged: (v) {
@@ -8047,7 +8055,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.06),
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Row(
@@ -8191,7 +8199,7 @@ class _SectionCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (trailing != null) trailing!,
+            ?trailing,
           ]),
           const SizedBox(height: 14),
           ...children,
@@ -8257,7 +8265,7 @@ class _MemberCheckTile extends StatelessWidget {
     Widget row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
-        color: selected ? ThemeCleanPremium.primary.withOpacity(0.06) : Colors.transparent,
+        color: selected ? ThemeCleanPremium.primary.withValues(alpha: 0.06) : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: toggle,
@@ -8412,9 +8420,9 @@ class _MemberConfirmationTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.06),
+        color: statusColor.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: statusColor.withOpacity(0.2)),
+        border: Border.all(color: statusColor.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -8424,7 +8432,7 @@ class _MemberConfirmationTile extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 16,
-                backgroundColor: statusColor.withOpacity(0.15),
+                backgroundColor: statusColor.withValues(alpha: 0.15),
                 child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(fontWeight: FontWeight.w700, color: statusColor, fontSize: 13)),
               ),
               const SizedBox(width: 12),
@@ -8455,8 +8463,9 @@ class _MemberConfirmationTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   onSelected: (v) {
-                    if (v == 'substituir' && onSubstituir != null) onSubstituir!();
-                    else if (v == 'excluir_membro' && onExcluirMembro != null) onExcluirMembro!();
+                    if (v == 'substituir' && onSubstituir != null) {
+                      onSubstituir!();
+                    } else if (v == 'excluir_membro' && onExcluirMembro != null) onExcluirMembro!();
                     else if (v == 'confirmar_falta') { /* mantém indisponível */ }
                     else onChangeStatus(v);
                   },
@@ -8485,16 +8494,16 @@ class _MemberConfirmationTile extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: ThemeCleanPremium.error.withOpacity(0.08),
+                color: ThemeCleanPremium.error.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: ThemeCleanPremium.error.withOpacity(0.2)),
+                border: Border.all(color: ThemeCleanPremium.error.withValues(alpha: 0.2)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(Icons.info_outline_rounded, size: 14, color: ThemeCleanPremium.error),
                   const SizedBox(width: 6),
-                  Expanded(child: Text('Motivo: ${unavailabilityReason!.trim()}', style: TextStyle(fontSize: 12, color: ThemeCleanPremium.error.withOpacity(0.9)))),
+                  Expanded(child: Text('Motivo: ${unavailabilityReason!.trim()}', style: TextStyle(fontSize: 12, color: ThemeCleanPremium.error.withValues(alpha: 0.9)))),
                 ],
               ),
             ),
@@ -8609,10 +8618,10 @@ class _StatusBadge extends StatelessWidget {
       constraints: const BoxConstraints(minWidth: 96),
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
       decoration: BoxDecoration(
-        color: color.withOpacity(selected ? 0.22 : 0.08),
+        color: color.withValues(alpha: selected ? 0.22 : 0.08),
         borderRadius: BorderRadius.circular(r),
         border: Border.all(
-          color: selected ? color : color.withOpacity(0.2),
+          color: selected ? color : color.withValues(alpha: 0.2),
           width: selected ? 2 : 1,
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
@@ -9127,9 +9136,9 @@ class _ReportMetricCard extends StatelessWidget {
     final content = Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: color.withOpacity(0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Column(
@@ -9147,7 +9156,7 @@ class _ReportMetricCard extends StatelessWidget {
           ),
           if (onTap != null) ...[
             const SizedBox(height: 4),
-            Icon(Icons.open_in_new_rounded, size: 12, color: color.withOpacity(0.65)),
+            Icon(Icons.open_in_new_rounded, size: 12, color: color.withValues(alpha: 0.65)),
           ],
         ],
       ),
@@ -9171,7 +9180,7 @@ class _ReportMetricCard extends StatelessWidget {
           top: 0,
           right: 0,
           child: Material(
-            color: Colors.white.withOpacity(0.92),
+            color: Colors.white.withValues(alpha: 0.92),
             elevation: 1,
             shape: const CircleBorder(),
             child: InkWell(
@@ -9199,7 +9208,7 @@ class _ReportChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withOpacity(0.25))),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withValues(alpha: 0.25))),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Text('$value', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
         const SizedBox(width: 4),
@@ -9243,7 +9252,7 @@ class _InfoChip extends StatelessWidget {
     final c = color ?? Colors.grey.shade700;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: c.withOpacity(0.08), borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         Icon(icon, size: 12, color: c),
         const SizedBox(width: 4),
@@ -9285,7 +9294,7 @@ class _FilterChipDept extends StatelessWidget {
           decoration: BoxDecoration(
             gradient: selected
                 ? LinearGradient(
-                    colors: [c, c.withOpacity(0.88)],
+                    colors: [c, c.withValues(alpha: 0.88)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   )
@@ -9299,14 +9308,14 @@ class _FilterChipDept extends StatelessWidget {
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: c.withOpacity(0.35),
+                      color: c.withValues(alpha: 0.35),
                       blurRadius: 10,
                       offset: const Offset(0, 3),
                     ),
                   ]
                 : [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),

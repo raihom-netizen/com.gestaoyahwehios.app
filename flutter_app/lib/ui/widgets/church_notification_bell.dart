@@ -590,7 +590,7 @@ class _NotificationCenterSheetState extends State<_NotificationCenterSheet> {
       controller: scrollController,
       padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 24),
       itemCount: items.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
         final item = items[i];
         final dt = item.createdAt;

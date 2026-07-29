@@ -15,16 +15,13 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
-import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -771,7 +768,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             leading: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(Icons.light_mode_rounded, color: ThemeCleanPremium.primary),
@@ -829,7 +826,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             secondary: Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(Icons.photo_library_rounded,
@@ -910,7 +907,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
               child: Text(
-                'Versão ${appVersionPanelLabel}',
+                'Versão $appVersionPanelLabel',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -1362,9 +1359,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 margin: const EdgeInsets.only(top: 14),
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: ThemeCleanPremium.success.withOpacity(0.1),
+                  color: ThemeCleanPremium.success.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: ThemeCleanPremium.success.withOpacity(0.3)),
+                  border: Border.all(color: ThemeCleanPremium.success.withValues(alpha: 0.3)),
                 ),
                 child: Row(
                   children: [
@@ -1610,12 +1607,12 @@ class _MiniStatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: ok
-            ? ThemeCleanPremium.success.withOpacity(0.08)
+            ? ThemeCleanPremium.success.withValues(alpha: 0.08)
             : Colors.orange.shade50,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: ok
-              ? ThemeCleanPremium.success.withOpacity(0.35)
+              ? ThemeCleanPremium.success.withValues(alpha: 0.35)
               : Colors.orange.shade200,
         ),
       ),

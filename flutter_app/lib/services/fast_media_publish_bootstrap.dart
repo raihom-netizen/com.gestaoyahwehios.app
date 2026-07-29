@@ -1,5 +1,4 @@
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 /// Pré-aquecimento paralelo — evita fila de `await` antes de cada upload (Controle Total).

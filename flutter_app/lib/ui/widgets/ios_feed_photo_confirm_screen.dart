@@ -51,7 +51,7 @@ class IosFeedPhotoConfirmScreen extends StatelessWidget {
                           fit: BoxFit.contain,
                           cacheWidth: previewW,
                           filterQuality: FilterQuality.medium,
-                          errorBuilder: (_, __, ___) => const Icon(
+                          errorBuilder: (_, _, _) => const Icon(
                             Icons.broken_image_outlined,
                             color: Colors.white54,
                             size: 64,

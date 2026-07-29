@@ -16,6 +16,8 @@ abstract final class ChurchShellIndices {
   static const int pedidosOracao = 9;
   static const int agenda = 10;
   static const int minhaEscala = 11;
+  // Índice 12 mantido como alias de compatibilidade para deep links,
+  // notificações push e cache. O menu lateral exibe apenas o índice 11.
   static const int escalaGeral = 12;
   static const int cartaoMembro = 13;
   static const int certificados = 14;
@@ -43,7 +45,8 @@ const int kChurchShellIndexMySchedules = ChurchShellIndices.minhaEscala;
 const int kChurchShellIndexPatrimonio = ChurchShellIndices.patrimonio;
 const int kChurchShellIndexEscalaGeral = ChurchShellIndices.escalaGeral;
 const int kChurchShellIndexFornecedores = ChurchShellIndices.fornecedores;
-const int kChurchShellIndexChurchLetters = ChurchShellIndices.cartasTransferencias;
+const int kChurchShellIndexChurchLetters =
+    ChurchShellIndices.cartasTransferencias;
 const int kChurchShellIndexChat = ChurchShellIndices.chatIgreja;
 const int kChurchShellIndexUtilitarios = ChurchShellIndices.utilitarios;
 const int kChurchShellIndexConfiguracoes = ChurchShellIndices.configuracoes;

@@ -100,11 +100,9 @@ class SubscriptionGuard {
           c['data_bloqueio'],
           subscription?['data_bloqueio'],
         ) ??
-        (dataVencimento != null
-            ? dataVencimento.add(
+        (dataVencimento?.add(
                 const Duration(days: AppConstants.subscriptionGraceDays),
-              )
-            : null);
+              ));
 
     /// Ecosystem off / planos pagos — (FREE já retornou acima).
     // `status_assinatura: suspended` — só bloqueia se data + carência já passou.

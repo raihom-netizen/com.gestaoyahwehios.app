@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/installed_app_build.dart';
 
-import 'version_service_stub.dart' if (dart.library.html) 'version_service_web.dart' as _reload;
+import 'version_service_stub.dart' if (dart.library.html) 'version_service_web.dart' as reload;
 
 /// URL padrão da app na Google Play — [AppConstants.gestaoYahwehPlayStoreUrl].
 const String kDefaultPlayStoreUrl = AppConstants.gestaoYahwehPlayStoreUrl;
@@ -251,7 +251,7 @@ class VersionService {
         // NUNCA hard-reload silencioso — o utilizador escolhe no diálogo
         // (Atualizar / Cancelar) para não interromper lançamentos.
         final installedBuild = int.tryParse(appBuildNumber) ?? 0;
-        final serverBuild = await _reload.fetchServerBuildNumber();
+        final serverBuild = await reload.fetchServerBuildNumber();
         // Sem version.json ou build remoto == instalado → não avisar.
         if (serverBuild <= 0 || serverBuild <= installedBuild) {
           return const VersionResult();
@@ -300,7 +300,7 @@ class VersionService {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     if (kIsWeb && (url == Uri.base.origin || url.startsWith(Uri.base.origin))) {
-      _reload.reloadWeb();
+      reload.reloadWeb();
       return;
     }
     if (await canLaunchUrl(uri)) {
@@ -310,6 +310,6 @@ class VersionService {
 
   /// Para web: recarrega a página (útil quando forceUpdate e updateUrl é a própria origem).
   static void reloadWeb() {
-    if (kIsWeb) _reload.reloadWeb();
+    if (kIsWeb) reload.reloadWeb();
   }
 }

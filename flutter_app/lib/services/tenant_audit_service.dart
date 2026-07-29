@@ -50,14 +50,14 @@ abstract final class TenantAuditService {
         'acao': action,
         'modulo': module,
         'docPath': docPath,
-        if (docId != null) 'docId': docId,
+        'docId': ?docId,
         'uid': u?.uid,
         'email': u?.email,
         'dispositivo': deviceLabel(),
         'plataforma': kIsWeb ? 'web' : defaultTargetPlatform.name,
         'criadoEm': FieldValue.serverTimestamp(),
-        if (before != null) 'antes': before,
-        if (after != null) 'depois': after,
+        'antes': ?before,
+        'depois': ?after,
       });
     } catch (_) {}
   }

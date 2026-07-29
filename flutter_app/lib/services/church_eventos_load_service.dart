@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -15,7 +14,6 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
-import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -789,7 +787,7 @@ abstract final class ChurchEventosLoadService {
         readSource: 'fallback_mem',
         collectionPath: path,
         fromCache: true,
-        softError: lastError?.toString(),
+        softError: lastError.toString(),
       );
     }
 
@@ -800,7 +798,7 @@ abstract final class ChurchEventosLoadService {
       collectionPath: path,
       softError: lastError is TimeoutException
           ? 'Tempo esgotado ao carregar galeria.'
-          : lastError?.toString(),
+          : lastError.toString(),
     );
   }
 

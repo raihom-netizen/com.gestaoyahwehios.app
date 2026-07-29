@@ -1,12 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -338,7 +335,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                           itemCount: filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 6),
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
                           itemBuilder: (_, i) {
                             final d = filtered[i];
                             final nome = _memberNomeFromData(d.data());
@@ -558,7 +555,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                           itemCount: filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 6),
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
                           itemBuilder: (_, i) {
                             final e = filtered[i];
                             return Material(

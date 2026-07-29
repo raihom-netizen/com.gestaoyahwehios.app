@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: flutter_app
-title: Gestão Yahweh Flutter Mobile App
+title: Gestão Yahweh Flutter App (Church Management)
 scope:
     - flutter_app/
 source_files: []

@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,7 +7,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/global_announcement_overlay.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
@@ -834,7 +832,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                         Switch(
                           value: _active,
                           onChanged: (v) => setState(() => _active = v),
-                          activeTrackColor: ThemeCleanPremium.primary.withOpacity(0.5),
+                          activeTrackColor: ThemeCleanPremium.primary.withValues(alpha: 0.5),
                           activeThumbColor: ThemeCleanPremium.primary,
                         ),
                         const SizedBox(width: 12),
@@ -874,7 +872,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                           label: const Text('Remover aviso'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: ThemeCleanPremium.error,
-                            side: BorderSide(color: ThemeCleanPremium.error.withOpacity(0.7)),
+                            side: BorderSide(color: ThemeCleanPremium.error.withValues(alpha: 0.7)),
                             minimumSize: isMobile ? Size(0, minTouch) : null,
                           ),
                         ),

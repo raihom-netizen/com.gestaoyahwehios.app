@@ -43,7 +43,6 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
 int _compareAgendaDayKeysAscending(String a, String b) {
@@ -3268,7 +3267,7 @@ class _CalendarPageState extends State<CalendarPage>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(type, style: TextStyle(
@@ -4526,7 +4525,7 @@ class _CalendarPageState extends State<CalendarPage>
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.12),
+                    color: color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
                   ),
                   child: Icon(_iconForType(ev.type), color: color),
@@ -5924,9 +5923,9 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               ValueListenableBuilder<int>(
                 valueListenable: categoryListRevision,
-                builder: (_, __, ___) => ValueListenableBuilder<String>(
+                builder: (_, _, _) => ValueListenableBuilder<String>(
                   valueListenable: categoryNotifier,
-                  builder: (_, cat, __) => AgendaCategoryChipGrid(
+                  builder: (_, cat, _) => AgendaCategoryChipGrid(
                     selectedKey: cat,
                     categoryLabels: _categoryLabels,
                     categoryColors: _categoryColors,
@@ -6061,7 +6060,7 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               ValueListenableBuilder<Color>(
                 valueListenable: agendaColorNotifier,
-                builder: (_, picked, __) => AgendaColorPaletteGrid(
+                builder: (_, picked, _) => AgendaColorPaletteGrid(
                   colors: ChurchAgendaCalendarCells.compromissoPalette,
                   selected: picked,
                   onSelected: (c) => agendaColorNotifier.value = c,
@@ -6070,9 +6069,9 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               ValueListenableBuilder<DateTime>(
                 valueListenable: dateStartNotifier,
-                builder: (_, d0, __) => ValueListenableBuilder<DateTime>(
+                builder: (_, d0, _) => ValueListenableBuilder<DateTime>(
                   valueListenable: dateEndNotifier,
-                  builder: (_, d1, ___) => InkWell(
+                  builder: (_, d1, _) => InkWell(
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusSm),
                     onTap: () async {
@@ -6110,7 +6109,7 @@ class _CalendarPageState extends State<CalendarPage>
                   Expanded(
                     child: ValueListenableBuilder<String>(
                       valueListenable: startTimeNotifier,
-                      builder: (_, timeStr, __) => InkWell(
+                      builder: (_, timeStr, _) => InkWell(
                         onTap: () async {
                           final parts = timeStr.split(':');
                           final hour =
@@ -6149,7 +6148,7 @@ class _CalendarPageState extends State<CalendarPage>
                   Expanded(
                     child: ValueListenableBuilder<String>(
                       valueListenable: endTimeNotifier,
-                      builder: (_, timeStr, __) => InkWell(
+                      builder: (_, timeStr, _) => InkWell(
                         onTap: () async {
                           final parts = timeStr.split(':');
                           final hour =
@@ -6266,7 +6265,7 @@ class _CalendarPageState extends State<CalendarPage>
                               const SizedBox(width: 8),
                               ValueListenableBuilder<bool>(
                                 valueListenable: cepLoading,
-                                builder: (_, loading, __) => IconButton.filled(
+                                builder: (_, loading, _) => IconButton.filled(
                                   tooltip: 'Buscar CEP',
                                   onPressed: loading
                                       ? null
@@ -6535,15 +6534,15 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               ValueListenableBuilder<DateTime>(
                 valueListenable: dateStartNotifier,
-                builder: (_, ds, __) => ValueListenableBuilder<DateTime>(
+                builder: (_, ds, _) => ValueListenableBuilder<DateTime>(
                   valueListenable: dateEndNotifier,
-                  builder: (_, de, ___) => ValueListenableBuilder<String>(
+                  builder: (_, de, _) => ValueListenableBuilder<String>(
                     valueListenable: recurrenceNotifier,
-                    builder: (_, rec, __) {
+                    builder: (_, rec, _) {
                       final canRec = isSameDay(ds, de);
                       final v = canRec ? rec : 'none';
                       return DropdownButtonFormField<String>(
-                        value: v,
+                        initialValue: v,
                         decoration: const InputDecoration(
                           labelText: 'Recorrência',
                           prefixIcon: Icon(Icons.repeat_rounded),
@@ -6571,7 +6570,7 @@ class _CalendarPageState extends State<CalendarPage>
               if (existing == null) ...[
                 ValueListenableBuilder<bool>(
                   valueListenable: publishMuralNotifier,
-                  builder: (_, v, __) => SwitchListTile(
+                  builder: (_, v, _) => SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text(
                         'Publicar também no Mural (avisos/eventos)'),
@@ -6586,10 +6585,10 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
                 ValueListenableBuilder<bool>(
                   valueListenable: publishMuralNotifier,
-                  builder: (_, muralOn, __) => muralOn
+                  builder: (_, muralOn, _) => muralOn
                       ? ValueListenableBuilder<bool>(
                           valueListenable: publishSiteNotifier,
-                          builder: (_, siteOn, ___) => SwitchListTile(
+                          builder: (_, siteOn, _) => SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('Visível no site público'),
                             subtitle: const Text(
@@ -6615,7 +6614,7 @@ class _CalendarPageState extends State<CalendarPage>
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               ValueListenableBuilder<bool>(
                 valueListenable: saving,
-                builder: (_, isSaving, __) => FilledButton.icon(
+                builder: (_, isSaving, _) => FilledButton.icon(
                   onPressed: isSaving
                       ? null
                       : () async {
@@ -6799,8 +6798,7 @@ class _CalendarPageState extends State<CalendarPage>
                                         FirebaseAuth.instance.currentUser
                                                 ?.uid ??
                                             '',
-                                    if (muralNoticiaId != null)
-                                      'noticiaId': muralNoticiaId,
+                                    'noticiaId': ?muralNoticiaId,
                                   };
                                   if (_isCustomCategoryKey(cat)) {
                                     final cid = cat
@@ -6854,8 +6852,7 @@ class _CalendarPageState extends State<CalendarPage>
                                         FirebaseAuth.instance.currentUser
                                                 ?.uid ??
                                             '',
-                                    if (muralNoticiaId != null)
-                                      'noticiaId': muralNoticiaId,
+                                    'noticiaId': ?muralNoticiaId,
                                   };
                                   if (_isCustomCategoryKey(cat)) {
                                     final cid = cat

@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
         isFirebaseNoAppError,
         kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
@@ -345,7 +344,7 @@ abstract final class EcofirePublishProgressUi {
             ),
             content: ValueListenableBuilder<double>(
               valueListenable: progress,
-              builder: (_, p, __) {
+              builder: (_, p, _) {
                 final pct = (p * 100).clamp(5, 100).round();
                 final phase = p < 0.88
                     ? uploadLabel

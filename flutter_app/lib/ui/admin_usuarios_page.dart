@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/admin_igreja_usuarios_page.dart';
@@ -249,7 +248,7 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                                     );
                                   },
                                   leading: CircleAvatar(
-                                    backgroundColor: removed ? Colors.grey : ThemeCleanPremium.primary.withOpacity(0.15),
+                                    backgroundColor: removed ? Colors.grey : ThemeCleanPremium.primary.withValues(alpha: 0.15),
                                     child: Icon(
                                       removed ? Icons.block_rounded : Icons.person_rounded,
                                       color: removed ? Colors.grey.shade600 : ThemeCleanPremium.primary,

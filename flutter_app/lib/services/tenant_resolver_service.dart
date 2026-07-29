@@ -804,7 +804,7 @@ class TenantResolverService {
       }
     }
     if (bestData != null && bestScore >= 4) {
-      return (operationalId: bestId, profile: bestData!);
+      return (operationalId: bestId, profile: bestData);
     }
 
     for (final id in cacheCandidates) {
@@ -822,7 +822,7 @@ class TenantResolverService {
       }
     }
     if (bestData != null && bestScore >= 4) {
-      return (operationalId: bestId, profile: bestData!);
+      return (operationalId: bestId, profile: bestData);
     }
     return (operationalId: operational, profile: <String, dynamic>{});
   }

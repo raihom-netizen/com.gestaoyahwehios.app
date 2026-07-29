@@ -1,4 +1,4 @@
-﻿import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:gestao_yahweh/services/relatorio_service.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'utilitarios_web_io_stub.dart'
     if (dart.library.html) 'utilitarios_web_io_web.dart' as web_io;
 
@@ -108,10 +109,11 @@ Future<List<PlatformFile>> utilitariosPickPlatformFiles({
 
     final r = await YahwehFilePicker.pickFiles(
       type: pickType,
-      allowedExtensions:
-          !useAnyPicker && pickType == FileType.custom && allowedExtensions.isNotEmpty
-              ? allowedExtensions
-              : null,
+      allowedExtensions: !useAnyPicker &&
+              pickType == FileType.custom &&
+              allowedExtensions.isNotEmpty
+          ? allowedExtensions
+          : null,
       allowMultiple: allowMultiple,
       withData: useBytes,
       withReadStream: !useBytes,
@@ -195,7 +197,14 @@ Future<String> _copyBytesToTempFile(Uint8List bytes, String name) async {
   return out.path;
 }
 
+/// Escreve bytes num arquivo temporário e retorna o caminho absoluto.
+Future<String> utilitariosWriteBytesToTempFile(Uint8List bytes, String name) =>
+    _copyBytesToTempFile(bytes, name);
+
 /// Salva ou compartilha bytes **localmente** (sem Storage / Cloud).
+///
+/// Quando [chooseSaveLocation] é `true` (mobile), o utilizador escolhe a pasta
+/// antes de salvar via [YahwehFilePicker.saveFile].
 Future<bool> utilitariosSaveOrShareBytes({
   required BuildContext context,
   required Uint8List bytes,
@@ -203,6 +212,7 @@ Future<bool> utilitariosSaveOrShareBytes({
   required String mimeType,
   String shareText = '',
   bool preferShare = false,
+  bool chooseSaveLocation = false,
 }) async {
   final safe = fileName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
   final ext = safe.contains('.') ? safe.split('.').last.toLowerCase() : 'bin';
@@ -230,11 +240,22 @@ Future<bool> utilitariosSaveOrShareBytes({
         allowedExtensions: [ext],
       );
       if (path == null || path.isEmpty) return false;
-      final target =
-          path.toLowerCase().endsWith('.$ext') ? path : '$path.$ext';
+      final target = path.toLowerCase().endsWith('.$ext') ? path : '$path.$ext';
       await File(target).writeAsBytes(bytes, flush: true);
       return true;
     }
+    // Mobile: escolher pasta salva diretamente via YahwehFilePicker (requer bytes).
+    if (chooseSaveLocation) {
+      final picked = await YahwehFilePicker.saveFile(
+        dialogTitle: 'Salvar em…',
+        fileName: safe,
+        type: FileType.custom,
+        allowedExtensions: [ext],
+        bytes: bytes,
+      );
+      return picked != null && picked.isNotEmpty;
+    }
+
     final baseDir = await getApplicationDocumentsDirectory();
     final outDir = Directory('${baseDir.path}/Utilitarios_GestaoYahweh');
     if (!await outDir.exists()) {
@@ -243,7 +264,6 @@ Future<bool> utilitariosSaveOrShareBytes({
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final path = '${outDir.path}/${stamp}_$safe';
     await File(path).writeAsBytes(bytes, flush: true);
-    if (!context.mounted) return true;
     return true;
   }
 
@@ -278,12 +298,79 @@ Future<bool> utilitariosSaveOrShareBytes({
     return result.status != ShareResultStatus.unavailable;
   } catch (_) {
     try {
-      await Share.shareXFiles([xfile], text: shareText.isEmpty ? null : shareText);
+      await Share.shareXFiles([xfile],
+          text: shareText.isEmpty ? null : shareText);
       return true;
     } catch (_) {
       return false;
     }
   }
+}
+
+/// Exibe bottom sheet padronizado com as ações «Compartilhar» e «Escolher pasta».
+///
+/// Retorna `'share'` para compartilhar, `'save_folder'` para salvar com escolha
+/// de pasta, ou `null` se o usuário fechar o sheet.
+Future<String?> utilitariosShowShareSaveActionSheet(
+  BuildContext context, {
+  String title = 'Arquivo pronto',
+  String subtitle = 'Salve na pasta desejada ou compartilhe.',
+  String? fileName,
+  bool showShare = true,
+  bool showSave = true,
+}) async {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      return Container(
+        decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              fileName == null ? subtitle : '$subtitle\n$fileName',
+              style: ModernModuleUI.moduleSubtitleStyle(ctx, fontSize: 12.5),
+            ),
+            const SizedBox(height: 20),
+            if (showSave)
+              ModernModuleUI.gradientFilledButton(
+                onPressed: () => Navigator.pop(ctx, 'save_folder'),
+                icon: Icons.folder_open_rounded,
+                label: 'Escolher pasta',
+                gradient: const [Color(0xFF3B82F6), Color(0xFF2563EB)],
+              ),
+            if (showSave && showShare) const SizedBox(height: 12),
+            if (showShare)
+              ModernModuleUI.gradientFilledButton(
+                onPressed: () => Navigator.pop(ctx, 'share'),
+                icon: Icons.share_rounded,
+                label: 'Compartilhar',
+                gradient: const [Color(0xFF34D399), Color(0xFF22C55E)],
+              ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(
+                'Fechar',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: ModernModuleUI.onSurfaceMuted(ctx),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 String _normalizeMime(String mimeType, String ext) {

@@ -107,6 +107,7 @@ exports.scheduledEventoReminders = functions
                             tenantId,
                             eventoId: doc.id,
                             click_action: "FLUTTER_NOTIFICATION_CLICK",
+                            deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, `evento/${doc.id}`),
                         },
                         module: "evento",
                     }));
@@ -132,6 +133,7 @@ exports.scheduledEventoReminders = functions
                             tenantId,
                             eventoId: doc.id,
                             click_action: "FLUTTER_NOTIFICATION_CLICK",
+                            deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, `evento/${doc.id}`),
                         },
                         module: "evento",
                     }));

@@ -3,9 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
-import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
-import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 
 /// Pré-carga paralela no splash — painel abre com perfil/tenant já em cache.
 abstract final class AppStartupPreheat {

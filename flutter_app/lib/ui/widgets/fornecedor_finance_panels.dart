@@ -12,7 +12,6 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_historico_pdf.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'

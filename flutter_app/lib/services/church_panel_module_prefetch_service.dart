@@ -12,7 +12,6 @@ import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/church_donation_load_service.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -101,13 +100,13 @@ abstract final class ChurchPanelModulePrefetchService {
         unawaited(
           ChurchCadastroLoadService.load(seedTenantId: churchId).then(
             (_) {},
-            onError: (_, __) {},
+            onError: (_, _) {},
           ),
         );
         unawaited(
           ChurchDonationLoadService.load(seedTenantId: churchId).then(
             (_) {},
-            onError: (_, __) {},
+            onError: (_, _) {},
           ),
         );
       }

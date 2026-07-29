@@ -17,7 +17,6 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 

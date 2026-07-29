@@ -137,7 +137,7 @@ List<String> _leftColumnLines(PdfDigitalStampInput input) {
   if (church.isNotEmpty) {
     final wrapped = _wrapWords(church.toUpperCase(), _kWrapMax);
     if (tax.isEmpty) return wrapped;
-    if (wrapped.isEmpty) return ['$tax'];
+    if (wrapped.isEmpty) return [tax];
     final last = wrapped.removeLast();
     return [...wrapped, '$last:$tax'];
   }

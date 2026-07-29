@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/chat_engine/tdlib_chat_adapter.dart';
-import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
 
 /// Gestão de grupos de departamento via Telegram (TDLib).
 ///

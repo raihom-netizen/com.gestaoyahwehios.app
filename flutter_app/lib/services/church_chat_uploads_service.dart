@@ -73,7 +73,7 @@ abstract final class ChurchChatUploadsService {
     if (uploadId.isEmpty) return;
     try {
       await _col(tenantId).doc(uploadId).set({
-        if (status != null) 'status': status,
+        'status': ?status,
         'progress': progress.clamp(0.0, 1.0),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

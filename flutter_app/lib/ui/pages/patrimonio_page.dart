@@ -1,9 +1,6 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/patrimonio_item_photos_editor.dart';
 import 'package:gestao_yahweh/ui/widgets/patrimonio_wisdom_footer_buttons.dart';
@@ -14,7 +11,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         ResilientNetworkImage,
         sanitizeImageUrl;
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -23,31 +19,21 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
-import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
-import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
-import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
@@ -56,9 +42,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
-import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
-import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -66,17 +50,11 @@ import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/core/media_upload_limits.dart'
-    show kMaxPatrimonioPhotosPerItem;
-import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
 import 'package:intl/intl.dart';
@@ -84,12 +62,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
-import 'package:image_picker/image_picker.dart' show ImageSource, XFile;
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
@@ -185,8 +159,9 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
     if (variants is Map) {
       for (final v in variants.values) {
         if (v is Map) {
-          push((v['url'] ?? v['downloadUrl'] ?? v['storagePath'] ?? '')
-              .toString());
+          push(
+            (v['url'] ?? v['downloadUrl'] ?? v['storagePath'] ?? '').toString(),
+          );
         } else {
           push(v?.toString() ?? '');
         }
@@ -200,7 +175,8 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
 /// slides por lista de paths maior que URLs reais (ex.: 1 foto + 5 paths → 1 slide).
 /// Alinha [fotoStoragePaths] ao comprimento das URLs quando possível.
 ({List<String> urls, List<String?> paths}) _patrimonioCarouselSlotsFromData(
-    Map<String, dynamic> m) {
+  Map<String, dynamic> m,
+) {
   // Contrato canônico primeiro: slots foto01..foto05 + foto01Path..foto05Path.
   // Sem isso, itens salvos pelo fluxo novo mostravam só o ícone da categoria.
   final canonical = ChurchCanonicalMediaContract.resolvePatrimonioPhotos(m);
@@ -378,14 +354,17 @@ DateTime? _dataAquisicaoFromPatrimonioMap(Map<String, dynamic> m) {
   return null;
 }
 
-Future<({
-  String signerName,
-  String signerCargo,
-  Uint8List? signerSignatureBytes,
-  bool showDigitalSignature,
-  bool reserveManualSignatureSpace,
-  PdfDigitalStampInput? digitalStamp,
-})?> _pickPatrimonioPdfSigner(
+Future<
+  ({
+    String signerName,
+    String signerCargo,
+    Uint8List? signerSignatureBytes,
+    bool showDigitalSignature,
+    bool reserveManualSignatureSpace,
+    PdfDigitalStampInput? digitalStamp,
+  })?
+>
+_pickPatrimonioPdfSigner(
   BuildContext context, {
   required String tenantId,
   String sheetTitle = 'Assinatura do relatório de patrimônio',
@@ -487,10 +466,8 @@ Future<void> _exportPatrimonioRelatorioPdf({
           extraLines: extraPat,
         ),
       ),
-      footer: (ctx) => PdfSuperPremiumTheme.footer(
-        ctx,
-        churchName: branding.churchName,
-      ),
+      footer: (ctx) =>
+          PdfSuperPremiumTheme.footer(ctx, churchName: branding.churchName),
       build: (ctx) => [
         PdfSuperPremiumTheme.fromTextArray(
           headers: const [
@@ -499,7 +476,7 @@ Future<void> _exportPatrimonioRelatorioPdf({
             'Status',
             'Valor',
             'Localização',
-            'Responsável'
+            'Responsável',
           ],
           data: docs.map((d) {
             final m = d.data();
@@ -524,8 +501,7 @@ Future<void> _exportPatrimonioRelatorioPdf({
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
           digitalStamp: signerCfg.digitalStamp,
-          lineSpaceBeforeBarPt:
-              signerCfg.reserveManualSignatureSpace ? 36 : 22,
+          lineSpaceBeforeBarPt: signerCfg.reserveManualSignatureSpace ? 36 : 22,
         ),
       ],
     ),
@@ -574,7 +550,8 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
     for (final e in rawItens) {
       if (e is Map) {
         final m = Map<String, dynamic>.from(
-            e.map((k, v) => MapEntry(k.toString(), v)));
+          e.map((k, v) => MapEntry(k.toString(), v)),
+        );
         rows.add([
           (m['nome'] ?? '').toString(),
           (m['categoria'] ?? '').toString(),
@@ -597,10 +574,8 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
           extraLines: extraPat,
         ),
       ),
-      footer: (ctx) => PdfSuperPremiumTheme.footer(
-        ctx,
-        churchName: branding.churchName,
-      ),
+      footer: (ctx) =>
+          PdfSuperPremiumTheme.footer(ctx, churchName: branding.churchName),
       build: (ctx) => [
         if (rows.isNotEmpty)
           PdfSuperPremiumTheme.fromTextArray(
@@ -627,7 +602,10 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
             child: pw.Text(
               'Este registo foi criado antes do relatório detalhado por bem. '
               'Mostram-se apenas os totais no cabeçalho.',
-              style: const pw.TextStyle(fontSize: 9.5, color: PdfColors.grey700),
+              style: const pw.TextStyle(
+                fontSize: 9.5,
+                color: PdfColors.grey700,
+              ),
             ),
           ),
         pw.SizedBox(height: 20),
@@ -641,15 +619,16 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
           digitalStamp: signerCfg.digitalStamp,
-          lineSpaceBeforeBarPt:
-              signerCfg.reserveManualSignatureSpace ? 36 : 22,
+          lineSpaceBeforeBarPt: signerCfg.reserveManualSignatureSpace ? 36 : 22,
         ),
       ],
     ),
   );
   final bytes = Uint8List.fromList(await pdf.save());
-  final safeName =
-      titulo.replaceAll(RegExp(r'[^\w\-\s]'), '_').trim().replaceAll(' ', '_');
+  final safeName = titulo
+      .replaceAll(RegExp(r'[^\w\-\s]'), '_')
+      .trim()
+      .replaceAll(' ', '_');
   if (context.mounted) {
     await showPdfActions(
       context,
@@ -669,11 +648,10 @@ abstract final class _PatrimonioRamCache {
   _PatrimonioRamCache._();
 
   static final Map<
-      String,
-      ({
-        QuerySnapshot<Map<String, dynamic>> snap,
-        DateTime at,
-      })> _ram = {};
+    String,
+    ({QuerySnapshot<Map<String, dynamic>> snap, DateTime at})
+  >
+  _ram = {};
 
   static const Duration _ttl = Duration(minutes: 20);
 
@@ -702,8 +680,9 @@ List<QueryDocumentSnapshot<Map<String, dynamic>>> _peekPatrimonioCacheDocs(
   final tid = ChurchRepository.churchId(tenantId).trim();
   if (tid.isEmpty) return const [];
   return ChurchPatrimonioLoadService.peekRamAny(tid) ??
-      _PatrimonioRamCache.peek(tid)?.docs
-          .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+      _PatrimonioRamCache.peek(
+        tid,
+      )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
       const [];
 }
 
@@ -730,7 +709,8 @@ void _prewarmPatrimonioModule(String tenantId) {
 }
 
 /// Abas do cabeçalho — alto contraste sobre fundo primário (segmentos tipo “pill”).
-class PatrimonioModuleTabBar extends StatelessWidget implements PreferredSizeWidget {
+class PatrimonioModuleTabBar extends StatelessWidget
+    implements PreferredSizeWidget {
   final TabController controller;
   final Color? accentColor;
 
@@ -770,6 +750,7 @@ class PatrimonioPage extends StatefulWidget {
 
   /// Pré-preenche a busca do inventário (ex.: busca global).
   final String? initialSearchQuery;
+
   /// Reabre o item onde o utilizador parou.
   final String? initialOpenPatrimonioDocId;
 
@@ -822,19 +803,18 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   bool get _canWrite => AppPermissions.canWritePatrimonio(
-        widget.role,
-        memberCanViewPatrimonio: widget.podeVerPatrimonio,
-        permissions: widget.permissions,
-      );
+    widget.role,
+    memberCanViewPatrimonio: widget.podeVerPatrimonio,
+    permissions: widget.permissions,
+  );
 
-  bool get _canDeletePatrimonio =>
-      AppPermissions.canDeleteAnyChurchRecords(
-        widget.role,
-        permissions: widget.permissions,
-      );
+  bool get _canDeletePatrimonio => AppPermissions.canDeleteAnyChurchRecords(
+    widget.role,
+    permissions: widget.permissions,
+  );
 
   CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchUiCollections.patrimonio(_effectiveTenantId);
+      ChurchUiCollections.patrimonio(_effectiveTenantId);
 
   /// Canónicas + extras, sem duplicar legado — filtros e formulário.
   static List<String> _mergeCategorias(dynamic categoriasExtras) =>
@@ -885,9 +865,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       }
       final data = snap.data();
       if (data == null) return;
-      final hasPhotos =
-          ChurchCanonicalMediaContract.resolvePatrimonioPhotos(data)
-              .any((r) => r.downloadUrl.isNotEmpty);
+      final hasPhotos = ChurchCanonicalMediaContract.resolvePatrimonioPhotos(
+        data,
+      ).any((r) => r.downloadUrl.isNotEmpty);
       final state = (data['photoUploadState'] ?? '').toString();
       if (!hasPhotos && state != 'published') return;
       ChurchPatrimonioLoadService.seedOptimisticDoc(
@@ -927,8 +907,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     _patrimonioRealtimeSubs.clear();
     final db = firebaseDefaultFirestore;
     _patrimonioRealtimeSubs.addAll([
-      _col.limit(1).watchSafe().listen((_) => _schedulePatrimonioRealtimeRefresh()),
-                ChurchUiCollections.config(_effectiveTenantId)
+      _col
+          .limit(1)
+          .watchSafe()
+          .listen((_) => _schedulePatrimonioRealtimeRefresh()),
+      ChurchUiCollections.config(_effectiveTenantId)
           .doc('patrimonio')
           .watchSafe()
           .listen((_) => _schedulePatrimonioRealtimeRefresh()),
@@ -1040,8 +1023,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _loadCategoriasExtras() async {
     try {
-      final list =
-          await PatrimonioCategoriaService.loadCategorias(_effectiveTenantId);
+      final list = await PatrimonioCategoriaService.loadCategorias(
+        _effectiveTenantId,
+      );
       if (!mounted) return;
       setState(() => _categoriasEfetivas = list);
     } catch (_) {
@@ -1107,7 +1091,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadAllPatrimonioDocs() async {
+  _loadAllPatrimonioDocs() async {
     final cached = ChurchPatrimonioLoadService.peekRamAny(_effectiveTenantId);
     if (cached != null && cached.isNotEmpty) return cached;
     final result = await ChurchPatrimonioLoadService.loadAll(
@@ -1171,7 +1155,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     categoria = await showDialog<String>(
       context: context,
       builder: (ctx) {
-        var picked = categoria ??
+        var picked =
+            categoria ??
             (_categoriasEfetivas.isNotEmpty ? _categoriasEfetivas.first : '');
         return StatefulBuilder(
           builder: (context, setDlg) => AlertDialog(
@@ -1180,7 +1165,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             ),
             title: const Text('Excluir por categoria'),
             content: DropdownButtonFormField<String>(
-              value: picked.isEmpty ? null : picked,
+              initialValue: picked.isEmpty ? null : picked,
               decoration: const InputDecoration(
                 labelText: 'Categoria',
                 prefixIcon: Icon(Icons.category_rounded),
@@ -1202,7 +1187,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.error,
                 ),
-                onPressed: picked.isEmpty ? null : () => Navigator.pop(ctx, picked),
+                onPressed: picked.isEmpty
+                    ? null
+                    : () => Navigator.pop(ctx, picked),
                 child: const Text('Continuar'),
               ),
             ],
@@ -1327,9 +1314,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-              'Sem permissão para cadastrar ou editar patrimônio.',
-            ),
+            content: Text('Sem permissão para cadastrar ou editar patrimônio.'),
           ),
         );
       }
@@ -1382,8 +1367,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         _watchPendingPhotosThenRefresh(itemId);
       }
     }
-    if (result == true ||
-        (result is Map && result['ok'] == true)) {
+    if (result == true || (result is Map && result['ok'] == true)) {
       setState(() {});
       unawaited(_loadCategoriasExtras());
       _refreshPatrimonioTabs();
@@ -1408,21 +1392,27 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
-        title: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.error.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.error.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.delete_forever_rounded,
+                color: ThemeCleanPremium.error,
+                size: 22,
+              ),
             ),
-            child: const Icon(Icons.delete_forever_rounded,
-                color: ThemeCleanPremium.error, size: 22),
-          ),
-          const SizedBox(width: 12),
-          const Text('Excluir patrimônio'),
-        ]),
-        content:
-            Text('Deseja excluir "$nome"?\nEsta ação não poderá ser desfeita.'),
+            const SizedBox(width: 12),
+            const Text('Excluir patrimônio'),
+          ],
+        ),
+        content: Text(
+          'Deseja excluir "$nome"?\nEsta ação não poderá ser desfeita.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -1430,7 +1420,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.error),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Excluir'),
           ),
@@ -1441,8 +1432,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       await _deletePatrimonioDoc(doc);
       if (!mounted) return;
       _refreshPatrimonioTabs();
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Patrimônio excluído.'));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.successSnackBar('Patrimônio excluído.'));
     }
   }
 
@@ -1459,24 +1451,31 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
-        title: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.qr_code_rounded,
+                color: ThemeCleanPremium.primary,
+                size: 22,
+              ),
             ),
-            child: const Icon(Icons.qr_code_rounded,
-                color: ThemeCleanPremium.primary, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(nome,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                nome,
                 style: const TextStyle(fontWeight: FontWeight.w700),
                 maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-          ),
-        ]),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
         content: SizedBox(
           width: 260,
           child: Column(
@@ -1486,12 +1485,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   border: Border.all(color: Colors.grey.shade200),
                 ),
                 child: QrImageView(
-                  data: 'PATRIMONIO|${_effectiveTenantId}|${doc.id}|$serie',
+                  data: 'PATRIMONIO|$_effectiveTenantId|${doc.id}|$serie',
                   version: QrVersions.auto,
                   size: 200,
                   gapless: true,
@@ -1501,9 +1501,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               Text(
                 'Nº Série: $serie',
                 style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500),
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -1530,8 +1531,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       final docs = snap.docs;
       if (docs.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Nenhum item de patrimônio para exportar.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nenhum item de patrimônio para exportar.'),
+            ),
+          );
         }
         return;
       }
@@ -1549,8 +1553,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
           SnackBar(
             content: const Text('Erro ao gerar PDF. Tente novamente.'),
             action: SnackBarAction(
-                label: 'Tentar de novo',
-                onPressed: () => _exportPdfFromPage(context)),
+              label: 'Tentar de novo',
+              onPressed: () => _exportPdfFromPage(context),
+            ),
           ),
         );
       }
@@ -1561,10 +1566,12 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     if (!_canWrite) return;
     final m = doc.data() ?? {};
     final nome = (m['nome'] ?? 'Sem nome').toString();
-    final respCtrl =
-        TextEditingController(text: (m['responsavel'] ?? '').toString());
-    final localCtrl =
-        TextEditingController(text: (m['localizacao'] ?? '').toString());
+    final respCtrl = TextEditingController(
+      text: (m['responsavel'] ?? '').toString(),
+    );
+    final localCtrl = TextEditingController(
+      text: (m['localizacao'] ?? '').toString(),
+    );
 
     showDialog(
       context: context,
@@ -1572,30 +1579,37 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
-        title: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.primaryLight.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: ThemeCleanPremium.primaryLight.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.swap_horiz_rounded,
+                color: ThemeCleanPremium.primaryLight,
+                size: 22,
+              ),
             ),
-            child: const Icon(Icons.swap_horiz_rounded,
-                color: ThemeCleanPremium.primaryLight, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Transferir bem'),
-                Text(nome,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Transferir bem'),
+                  Text(
+                    nome,
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                     maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
-              ],
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1635,7 +1649,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 'localizacao': novoLocal,
                 'atualizadoEm': FieldValue.serverTimestamp(),
               });
-              await ChurchUiCollections.subOf(_col.doc(doc.id), 'transferencias').add({
+              await ChurchUiCollections.subOf(
+                _col.doc(doc.id),
+                'transferencias',
+              ).add({
                 'de': antigoResp,
                 'para': novoResp,
                 'localizacao': novoLocal,
@@ -1648,7 +1665,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.successSnackBar(
-                      'Bem transferido com sucesso!'),
+                    'Bem transferido com sucesso!',
+                  ),
                 );
               }
             },
@@ -1663,8 +1681,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Widget _buildDepreciacao(Map<String, dynamic> m, Color cor) {
     final valor = (m['valor'] is num) ? (m['valor'] as num).toDouble() : 0.0;
-    final vidaUtil =
-        (m['vidaUtil'] is num) ? (m['vidaUtil'] as num).toInt() : 0;
+    final vidaUtil = (m['vidaUtil'] is num)
+        ? (m['vidaUtil'] as num).toInt()
+        : 0;
     if (valor <= 0 || vidaUtil <= 0) return const SizedBox.shrink();
     DateTime? aquisicao;
     try {
@@ -1676,63 +1695,104 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final depreciacaoAnual = valor / vidaUtil;
     final depreciacaoTotal = (depreciacaoAnual * anosUsados).clamp(0.0, valor);
     final valorAtual = (valor - depreciacaoTotal).clamp(0.0, valor);
-    final percentVidaUtil =
-        ((vidaUtil - anosUsados) / vidaUtil * 100).clamp(0.0, 100.0);
+    final percentVidaUtil = ((vidaUtil - anosUsados) / vidaUtil * 100).clamp(
+      0.0,
+      100.0,
+    );
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 16, top: 8),
       decoration: BoxDecoration(
-        color: cor.withOpacity(0.04),
+        color: cor.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-        border: Border.all(color: cor.withOpacity(0.15)),
+        border: Border.all(color: cor.withValues(alpha: 0.15)),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Icon(Icons.trending_down_rounded, size: 16, color: cor),
-          const SizedBox(width: 8),
-          Text('Depreciação',
-              style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w800, color: cor)),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(
-              child: Column(children: [
-            Text('Valor Atual',
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-            Text(_fmtMoney(valorAtual),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.trending_down_rounded, size: 16, color: cor),
+              const SizedBox(width: 8),
+              Text(
+                'Depreciação',
                 style: TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w800, color: cor)),
-          ])),
-          Container(width: 1, height: 32, color: Colors.grey.shade300),
-          Expanded(
-              child: Column(children: [
-            Text('Vida Útil Restante',
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
-            Text('${percentVidaUtil.toStringAsFixed(0)}%',
-                style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color:
-                        percentVidaUtil < 20 ? ThemeCleanPremium.error : cor)),
-          ])),
-        ]),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: cor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      'Valor Atual',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    Text(
+                      _fmtMoney(valorAtual),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: cor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(width: 1, height: 32, color: Colors.grey.shade300),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      'Vida Útil Restante',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    Text(
+                      '${percentVidaUtil.toStringAsFixed(0)}%',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: percentVidaUtil < 20
+                            ? ThemeCleanPremium.error
+                            : cor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
               value: percentVidaUtil / 100,
               backgroundColor: Colors.grey.shade200,
               color: percentVidaUtil < 20 ? ThemeCleanPremium.error : cor,
-              minHeight: 6),
-        ),
-        const SizedBox(height: 6),
-        Text(
+              minHeight: 6,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
             'Depreciação: ${_fmtMoney(depreciacaoTotal)} (${anosUsados.toStringAsFixed(1)} anos de $vidaUtil)',
-            style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-      ]),
+            style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1747,81 +1807,111 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(
-            24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
+          24,
+          20,
+          24,
+          MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
         child: SingleChildScrollView(
-            child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
               Center(
-                  child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2)))),
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               const SizedBox(height: 16),
-              Text('Registrar Manutenção',
-                  style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.orange.shade700)),
+              Text(
+                'Registrar Manutenção',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.orange.shade700,
+                ),
+              ),
               const SizedBox(height: 16),
               TextField(
-                  controller: descCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Descrição *',
-                      prefixIcon: Icon(Icons.description_rounded))),
+                controller: descCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Descrição *',
+                  prefixIcon: Icon(Icons.description_rounded),
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
-                  controller: custoCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [BrCurrencyInputFormatter()],
-                  decoration: const InputDecoration(
-                      labelText: 'Custo (R\$)',
-                      prefixIcon: Icon(Icons.payments_rounded))),
+                controller: custoCtrl,
+                keyboardType: TextInputType.number,
+                inputFormatters: [BrCurrencyInputFormatter()],
+                decoration: const InputDecoration(
+                  labelText: 'Custo (R\$)',
+                  prefixIcon: Icon(Icons.payments_rounded),
+                ),
+              ),
               const SizedBox(height: 12),
               TextField(
-                  controller: prestCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Prestador / Técnico',
-                      prefixIcon: Icon(Icons.engineering_rounded))),
+                controller: prestCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Prestador / Técnico',
+                  prefixIcon: Icon(Icons.engineering_rounded),
+                ),
+              ),
               const SizedBox(height: 20),
-              Row(children: [
-                Expanded(
+              Row(
+                children: [
+                  Expanded(
                     child: OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancelar'))),
-                const SizedBox(width: 12),
-                Expanded(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
                     child: FilledButton(
-                  onPressed: () async {
-                    if (descCtrl.text.trim().isEmpty) return;
-                    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-                    final userName =
-                        firebaseDefaultAuth.currentUser?.displayName ??
+                      onPressed: () async {
+                        if (descCtrl.text.trim().isEmpty) return;
+                        final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+                        final userName =
+                            firebaseDefaultAuth.currentUser?.displayName ??
                             'Usuário';
-                    await ChurchUiCollections.subOf(doc.reference, 'manutencoes').add({
-                      'descricao': descCtrl.text.trim(),
-                      'custo': parseBrCurrencyInput(custoCtrl.text),
-                      'prestador': prestCtrl.text.trim(),
-                      'data': FieldValue.serverTimestamp(),
-                      'criadoPorUid': uid,
-                      'criadoPorNome': userName,
-                    });
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    if (mounted)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          ThemeCleanPremium.successSnackBar(
-                              'Manutenção registrada!'));
-                  },
-                  child: const Text('Salvar'),
-                )),
-              ]),
-            ])),
+                        await ChurchUiCollections.subOf(
+                          doc.reference,
+                          'manutencoes',
+                        ).add({
+                          'descricao': descCtrl.text.trim(),
+                          'custo': parseBrCurrencyInput(custoCtrl.text),
+                          'prestador': prestCtrl.text.trim(),
+                          'data': FieldValue.serverTimestamp(),
+                          'criadoPorUid': uid,
+                          'criadoPorNome': userName,
+                        });
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            ThemeCleanPremium.successSnackBar(
+                              'Manutenção registrada!',
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text('Salvar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1852,7 +1942,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     return SingleChildScrollView(
       controller: scrollController,
       padding: EdgeInsets.fromLTRB(
-          ThemeCleanPremium.spaceLg, 8, ThemeCleanPremium.spaceLg, 32),
+        ThemeCleanPremium.spaceLg,
+        8,
+        ThemeCleanPremium.spaceLg,
+        32,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1885,409 +1979,513 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             ],
           ),
           const SizedBox(height: 16),
-                  // Foto em destaque — preview compacto (não gigante na web).
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 200),
-                    child: Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      boxShadow: ThemeCleanPremium.softUiCardShadow,
-                      border: Border.all(color: const Color(0xFFF1F5F9)),
-                      color: const Color(0xFF0F172A),
+          // Foto em destaque — preview compacto (não gigante na web).
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+                color: const Color(0xFF0F172A),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: fotoUrls.isNotEmpty
+                  ? _PatrimonioPhotoCarousel(
+                      key: ValueKey('pat_detail_carousel_${doc.id}'),
+                      urls: fotoUrls,
+                      storagePaths: fotoPaths,
+                      cor: cor,
+                      categoria: categoria,
+                      memCacheWidth: memDetailW,
+                      memCacheHeight: memDetailH,
+                    )
+                  : SizedBox(
+                      height: 160,
+                      child: Center(
+                        child: Icon(
+                          _catIcon(categoria),
+                          size: 48,
+                          color: cor.withValues(alpha: 0.5),
+                        ),
+                      ),
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: fotoUrls.isNotEmpty
-                        ? _PatrimonioPhotoCarousel(
-                            key: ValueKey('pat_detail_carousel_${doc.id}'),
-                            urls: fotoUrls,
-                            storagePaths: fotoPaths,
-                            cor: cor,
-                            categoria: categoria,
-                            memCacheWidth: memDetailW,
-                            memCacheHeight: memDetailH,
-                          )
-                        : SizedBox(
-                            height: 160,
-                            child: Center(
-                                child: Icon(_catIcon(categoria),
-                                    size: 48, color: cor.withOpacity(0.5))),
+            ),
+          ),
+          // Gerir fotos / editar ficam no rodapé da tela full screen.
+          // Header — Super Premium
+          Container(
+            padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+              border: Border.all(color: const Color(0xFFF1F5F9)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: cor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusSm,
+                    ),
+                  ),
+                  child: Icon(_catIcon(categoria), color: cor, size: 28),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        nome,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cor.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm,
+                              ),
+                            ),
+                            child: Text(
+                              categoria,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: cor,
+                              ),
+                            ),
                           ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _statusColor(
+                                status,
+                              ).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm,
+                              ),
+                            ),
+                            child: Text(
+                              _statusLabel(status),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _statusColor(status),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (m['valor'] != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                border: Border.all(color: cor.withValues(alpha: 0.15)),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'Valor do bem',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
                   ),
-                  // Gerir fotos / editar ficam no rodapé da tela full screen.
-                  // Header — Super Premium
-                  Container(
-                    padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                  const SizedBox(height: 6),
+                  Text(
+                    _fmtMoney(m['valor']),
+                    style: TextStyle(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      color: cor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          _DetailItem(
+            icon: Icons.description_outlined,
+            label: 'Descrição',
+            value: (m['descricao'] ?? '').toString(),
+          ),
+          _DetailItem(
+            icon: Icons.calendar_today_rounded,
+            label: 'Data de aquisição',
+            value: _fmtDate(m['dataAquisicao']),
+          ),
+          _DetailItem(
+            icon: Icons.location_on_outlined,
+            label: 'Localização',
+            value: (m['localizacao'] ?? '').toString(),
+          ),
+          _DetailItem(
+            icon: Icons.person_outline_rounded,
+            label: 'Responsável',
+            value: (m['responsavel'] ?? '').toString(),
+          ),
+          _DetailItem(
+            icon: Icons.qr_code_rounded,
+            label: 'Número de série',
+            value: (m['numeroSerie'] ?? '').toString(),
+          ),
+          if (_fmtDate(m['proximaManutencao']).isNotEmpty)
+            _DetailItem(
+              icon: Icons.build_circle_outlined,
+              label: 'Próxima manutenção',
+              value: _fmtDate(m['proximaManutencao']),
+            ),
+          _DetailItem(
+            icon: Icons.notes_rounded,
+            label: 'Observações',
+            value: (m['observacoes'] ?? '').toString(),
+          ),
+
+          // ── Depreciação ──
+          if (m['valor'] != null &&
+              m['vidaUtil'] != null &&
+              m['dataAquisicao'] != null)
+            _buildDepreciacao(m, cor),
+
+          // ── Histórico de Manutenções ──
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(
+                Icons.build_rounded,
+                size: 16,
+                color: Colors.orange.shade700,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Manutenções',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+              const Spacer(),
+              if (_canWrite)
+                TextButton.icon(
+                  onPressed: () => _addManutencao(doc),
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text(
+                    'Registrar',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: ChurchUiCollections.subOf(
+              doc.reference,
+              'manutencoes',
+            ).orderBy('data', descending: true).limit(12).watchSafe(),
+            builder: (context, mSnap) {
+              final mDocs = mSnap.data?.docs ?? [];
+              if (mDocs.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Nenhuma manutenção registrada.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
+                );
+              }
+              return Column(
+                children: mDocs.map((md) {
+                  final mm = md.data();
+                  final desc = (mm['descricao'] ?? '').toString();
+                  final custo = mm['custo'];
+                  final prest = (mm['prestador'] ?? '').toString();
+                  final dt = _fmtDate(mm['data']);
+                  return Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      boxShadow: ThemeCleanPremium.softUiCardShadow,
-                      border: Border.all(color: const Color(0xFFF1F5F9)),
+                      color: Colors.orange.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: Colors.orange.withValues(alpha: 0.15),
+                      ),
                     ),
                     child: Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(14),
+                          width: 4,
+                          height: 40,
                           decoration: BoxDecoration(
-                            color: cor.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
+                            color: Colors.orange.shade400,
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          child:
-                              Icon(_catIcon(categoria), color: cor, size: 28),
                         ),
-                        const SizedBox(width: 16),
+                        const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(nome,
-                                  style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF1E293B),
-                                      letterSpacing: -0.2)),
-                              const SizedBox(height: 8),
-                              Wrap(spacing: 8, runSpacing: 6, children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                      color: cor.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                  child: Text(categoria,
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: cor)),
+                              Text(
+                                desc,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                      color: _statusColor(status)
-                                          .withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                  child: Text(_statusLabel(status),
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                          color: _statusColor(status))),
+                              ),
+                              if (prest.isNotEmpty)
+                                Text(
+                                  'Prestador: $prest',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade600,
+                                  ),
                                 ),
-                              ]),
+                              Row(
+                                children: [
+                                  if (dt.isNotEmpty)
+                                    Text(
+                                      dt,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  if (custo != null) ...[
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _fmtMoney(custo),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.orange.shade800,
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
                             ],
                           ),
                         ),
                       ],
                     ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+
+          // ── Histórico de Transferências ──
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(
+                Icons.swap_horiz_rounded,
+                size: 16,
+                color: const Color(0xFF7C3AED),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Transferências',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF7C3AED),
+                ),
+              ),
+            ],
+          ),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: ChurchUiCollections.subOf(
+              doc.reference,
+              'transferencias',
+            ).orderBy('data', descending: true).limit(5).watchSafe(),
+            builder: (context, tSnap) {
+              final tDocs = tSnap.data?.docs ?? [];
+              if (tDocs.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Nenhuma transferência registrada.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                   ),
-                  const SizedBox(height: 24),
-                  if (m['valor'] != null)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: cor.withOpacity(0.15)),
-                      ),
-                      child: Column(
-                        children: [
-                          Text('Valor do bem',
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.grey.shade600)),
-                          const SizedBox(height: 6),
-                          Text(_fmtMoney(m['valor']),
-                              style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w800,
-                                  color: cor)),
-                        ],
+                );
+              }
+              return Column(
+                children: tDocs.map((td) {
+                  final tm = td.data();
+                  return Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C3AED).withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFF7C3AED).withValues(alpha: 0.15),
                       ),
                     ),
-                  _DetailItem(
-                      icon: Icons.description_outlined,
-                      label: 'Descrição',
-                      value: (m['descricao'] ?? '').toString()),
-                  _DetailItem(
-                      icon: Icons.calendar_today_rounded,
-                      label: 'Data de aquisição',
-                      value: _fmtDate(m['dataAquisicao'])),
-                  _DetailItem(
-                      icon: Icons.location_on_outlined,
-                      label: 'Localização',
-                      value: (m['localizacao'] ?? '').toString()),
-                  _DetailItem(
-                      icon: Icons.person_outline_rounded,
-                      label: 'Responsável',
-                      value: (m['responsavel'] ?? '').toString()),
-                  _DetailItem(
-                      icon: Icons.qr_code_rounded,
-                      label: 'Número de série',
-                      value: (m['numeroSerie'] ?? '').toString()),
-                  if (_fmtDate(m['proximaManutencao']).isNotEmpty)
-                    _DetailItem(
-                        icon: Icons.build_circle_outlined,
-                        label: 'Próxima manutenção',
-                        value: _fmtDate(m['proximaManutencao'])),
-                  _DetailItem(
-                      icon: Icons.notes_rounded,
-                      label: 'Observações',
-                      value: (m['observacoes'] ?? '').toString()),
-
-                  // ── Depreciação ──
-                  if (m['valor'] != null &&
-                      m['vidaUtil'] != null &&
-                      m['dataAquisicao'] != null)
-                    _buildDepreciacao(m, cor),
-
-                  // ── Histórico de Manutenções ──
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Icon(Icons.build_rounded,
-                        size: 16, color: Colors.orange.shade700),
-                    const SizedBox(width: 8),
-                    Text('Manutenções',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.orange.shade700)),
-                    const Spacer(),
-                    if (_canWrite)
-                      TextButton.icon(
-                        onPressed: () => _addManutencao(doc),
-                        icon: const Icon(Icons.add_rounded, size: 16),
-                        label: const Text('Registrar',
-                            style: TextStyle(fontSize: 12)),
-                      ),
-                  ]),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: ChurchUiCollections.subOf(doc.reference, 'manutencoes')
-                        .orderBy('data', descending: true)
-                        .limit(12)
-                        .watchSafe(),
-                    builder: (context, mSnap) {
-                      final mDocs = mSnap.data?.docs ?? [];
-                      if (mDocs.isEmpty)
-                        return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text('Nenhuma manutenção registrada.',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade500)));
-                      return Column(
-                          children: mDocs.map((md) {
-                        final mm = md.data();
-                        final desc = (mm['descricao'] ?? '').toString();
-                        final custo = mm['custo'];
-                        final prest = (mm['prestador'] ?? '').toString();
-                        final dt = _fmtDate(mm['data']);
-                        return Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                              color: Colors.orange.withOpacity(0.04),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: Colors.orange.withOpacity(0.15))),
-                          child: Row(children: [
-                            Container(
-                                width: 4,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                    color: Colors.orange.shade400,
-                                    borderRadius: BorderRadius.circular(2))),
-                            const SizedBox(width: 10),
-                            Expanded(
-                                child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                  Text(desc,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 12)),
-                                  if (prest.isNotEmpty)
-                                    Text('Prestador: $prest',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade600)),
-                                  Row(children: [
-                                    if (dt.isNotEmpty)
-                                      Text(dt,
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: Colors.grey.shade500)),
-                                    if (custo != null) ...[
-                                      const SizedBox(width: 8),
-                                      Text(_fmtMoney(custo),
-                                          style: TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w700,
-                                              color: Colors.orange.shade800))
-                                    ],
-                                  ]),
-                                ])),
-                          ]),
-                        );
-                      }).toList());
-                    },
-                  ),
-
-                  // ── Histórico de Transferências ──
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Icon(Icons.swap_horiz_rounded,
-                        size: 16, color: const Color(0xFF7C3AED)),
-                    const SizedBox(width: 8),
-                    const Text('Transferências',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF7C3AED))),
-                  ]),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: ChurchUiCollections.subOf(doc.reference, 'transferencias')
-                        .orderBy('data', descending: true)
-                        .limit(5)
-                        .watchSafe(),
-                    builder: (context, tSnap) {
-                      final tDocs = tSnap.data?.docs ?? [];
-                      if (tDocs.isEmpty)
-                        return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text('Nenhuma transferência registrada.',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade500)));
-                      return Column(
-                          children: tDocs.map((td) {
-                        final tm = td.data();
-                        return Container(
-                          margin: const EdgeInsets.only(top: 8),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFF7C3AED).withOpacity(0.04),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: const Color(0xFF7C3AED)
-                                      .withOpacity(0.15))),
-                          child: Row(children: [
-                            const Icon(Icons.arrow_forward_rounded,
-                                size: 16, color: Color(0xFF7C3AED)),
-                            const SizedBox(width: 8),
-                            Expanded(
-                                child: RichText(
-                                    text: TextSpan(
-                                        style: const TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.black87),
-                                        children: [
-                                  TextSpan(
-                                      text: (tm['de'] ?? '?').toString(),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700)),
-                                  const TextSpan(text: ' → '),
-                                  TextSpan(
-                                      text: (tm['para'] ?? '?').toString(),
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w700)),
-                                ]))),
-                            Text(_fmtDate(tm['data']),
-                                style: TextStyle(
-                                    fontSize: 10, color: Colors.grey.shade500)),
-                          ]),
-                        );
-                      }).toList());
-                    },
-                  ),
-
-                  const SizedBox(height: 24),
-                  if (_canWrite)
-                    Row(
+                    child: Row(
                       children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              if (sheetContext != null) {
-                                Navigator.pop(sheetContext);
-                              }
-                              _openForm(doc: doc);
-                            },
-                            icon: const Icon(Icons.edit_rounded, size: 18),
-                            label: const Text('Editar'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm),
-                              ),
-                            ),
-                          ),
+                        const Icon(
+                          Icons.arrow_forward_rounded,
+                          size: 16,
+                          color: Color(0xFF7C3AED),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              if (sheetContext != null) {
-                                Navigator.pop(sheetContext);
-                              }
-                              _showQrCode(doc);
-                            },
-                            icon: const Icon(Icons.qr_code_rounded, size: 18),
-                            label: const Text('QR Code'),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm),
+                          child: RichText(
+                            text: TextSpan(
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.black87,
                               ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (_canDeletePatrimonio)
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () {
-                                if (sheetContext != null) {
-                                  Navigator.pop(sheetContext);
-                                }
-                                _excluir(doc);
-                              },
-                              icon: const Icon(Icons.delete_outline_rounded,
-                                  size: 18, color: ThemeCleanPremium.error),
-                              label: const Text('Excluir',
-                                  style: TextStyle(
-                                      color: ThemeCleanPremium.error)),
-                              style: OutlinedButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                side: const BorderSide(
-                                    color: ThemeCleanPremium.error),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
+                              children: [
+                                TextSpan(
+                                  text: (tm['de'] ?? '?').toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
+                                const TextSpan(text: ' → '),
+                                TextSpan(
+                                  text: (tm['para'] ?? '?').toString(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+                        ),
+                        Text(
+                          _fmtDate(tm['data']),
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
                       ],
                     ),
-                ],
-              ),
-            );
+                  );
+                }).toList(),
+              );
+            },
+          ),
+
+          const SizedBox(height: 24),
+          if (_canWrite)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (sheetContext != null) {
+                        Navigator.pop(sheetContext);
+                      }
+                      _openForm(doc: doc);
+                    },
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    label: const Text('Editar'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      if (sheetContext != null) {
+                        Navigator.pop(sheetContext);
+                      }
+                      _showQrCode(doc);
+                    },
+                    icon: const Icon(Icons.qr_code_rounded, size: 18),
+                    label: const Text('QR Code'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (_canDeletePatrimonio)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        if (sheetContext != null) {
+                          Navigator.pop(sheetContext);
+                        }
+                        _excluir(doc);
+                      },
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: ThemeCleanPremium.error,
+                      ),
+                      label: const Text(
+                        'Excluir',
+                        style: TextStyle(color: ThemeCleanPremium.error),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: ThemeCleanPremium.error),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _showDetail(DocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -2338,14 +2536,14 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             onCancel: () => Navigator.pop(ctx),
             onFotos: _canWrite
                 ? () async {
-                    final ok =
-                        await showPatrimonioItemPhotosEditorSheet(
+                    final ok = await showPatrimonioItemPhotosEditorSheet(
                       ctx,
                       churchId: _effectiveTenantId,
                       itemId: liveDoc.id,
                       itemData: liveDoc.data() ?? {},
-                      corePayload:
-                          Map<String, dynamic>.from(liveDoc.data() ?? {}),
+                      corePayload: Map<String, dynamic>.from(
+                        liveDoc.data() ?? {},
+                      ),
                       canChangePhotos: _canWrite,
                       canRemovePhotos: _canWrite,
                       docRef: liveDoc.reference,
@@ -2480,14 +2678,20 @@ class _PatrimonioPageState extends State<PatrimonioPage>
           ? null
           : AppBar(
               elevation: 0,
-              title: const Text('Patrimônio',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700, letterSpacing: -0.2)),
+              title: const Text(
+                'Patrimônio',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.2,
+                ),
+              ),
               bottom: PatrimonioModuleTabBar(controller: _tabCtrl),
               actions: [
                 IconButton(
-                  icon: Icon(Icons.picture_as_pdf_rounded,
-                      color: ThemeCleanPremium.primary),
+                  icon: Icon(
+                    Icons.picture_as_pdf_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
                   onPressed: () => _exportPdfFromPage(context),
                   tooltip: 'Exportar relatório PDF',
                   style: IconButton.styleFrom(
@@ -2503,8 +2707,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 ),
                 if (_canWrite)
                   IconButton(
-                    icon: Icon(Icons.add_circle_outline_rounded,
-                        color: ThemeCleanPremium.primary),
+                    icon: Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
                     onPressed: () => _openForm(),
                     tooltip: 'Novo bem',
                     style: IconButton.styleFrom(
@@ -2523,8 +2729,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       floatingActionButton: _canWrite && !_bensSelectionMode
           ? Container(
               decoration: BoxDecoration(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 gradient: LinearGradient(
                   colors: [
                     moduleAccent,
@@ -2543,9 +2748,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               child: FloatingActionButton.extended(
                 onPressed: () => _openForm(),
                 icon: const Icon(Icons.add_rounded, size: 24),
-                label: const Text('Novo Bem',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                label: const Text(
+                  'Novo Bem',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
                 backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
                 elevation: 0,
@@ -2553,8 +2759,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 focusElevation: 0,
                 highlightElevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusLg,
+                  ),
+                ),
               ),
             )
           : null,
@@ -2565,9 +2773,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 decoration: BoxDecoration(
                   color: Colors.white,
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
-                  border: Border(
-                    top: BorderSide(color: Colors.grey.shade200),
-                  ),
+                  border: Border(top: BorderSide(color: Colors.grey.shade200)),
                 ),
                 child: Row(
                   children: [
@@ -2602,132 +2808,133 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       body: DecoratedBox(
         decoration: churchModuleBodyGradient(moduleAccent),
         child: SafeArea(
-        top: widget.onShellBack == null && !widget.embeddedInShell,
-        child: Column(
-          children: [
-            if (shellChrome)
-              ChurchModuleShellChrome(
-                onBack: widget.onShellBack!,
-                title: 'Patrimônio',
-                icon: moduleEntry.icon,
-                accent: moduleAccent,
-                subtitle: 'Bens · dashboard · inventário',
-                tabController: _tabCtrl,
-                tabs: PatrimonioModuleTabBar._tabs,
-              )
-            else if (isMobile)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      moduleAccent,
-                      Color.lerp(moduleAccent, Colors.white, 0.2)!,
-                    ],
+          top: widget.onShellBack == null && !widget.embeddedInShell,
+          child: Column(
+            children: [
+              if (shellChrome)
+                ChurchModuleShellChrome(
+                  onBack: widget.onShellBack!,
+                  title: 'Patrimônio',
+                  icon: moduleEntry.icon,
+                  accent: moduleAccent,
+                  subtitle: 'Bens · dashboard · inventário',
+                  tabController: _tabCtrl,
+                  tabs: PatrimonioModuleTabBar._tabs,
+                )
+              else if (isMobile)
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        moduleAccent,
+                        Color.lerp(moduleAccent, Colors.white, 0.2)!,
+                      ],
+                    ),
+                  ),
+                  child: PatrimonioModuleTabBar(
+                    controller: _tabCtrl,
+                    accentColor: moduleAccent,
                   ),
                 ),
-                child: PatrimonioModuleTabBar(
+              Expanded(
+                child: TabBarView(
+                  key: ValueKey('patrimonio_tabs_$_effectiveTenantId'),
                   controller: _tabCtrl,
-                  accentColor: moduleAccent,
+                  children: [
+                    _BensTab(
+                      key: _bensTabKey,
+                      tenantId: _effectiveTenantId,
+                      col: _col,
+                      q: _q,
+                      filterCategoria: _filterCategoria,
+                      filterStatus: _filterStatus,
+                      canWrite: _canWrite,
+                      canDelete: _canDeletePatrimonio,
+                      categorias: _categoriasEfetivas,
+                      statusList: _statusList,
+                      searchController: _searchCtrl,
+                      catIcon: _catIcon,
+                      catColor: _catColor,
+                      statusLabel: _statusLabel,
+                      statusColor: _statusColor,
+                      fmtMoney: _fmtMoney,
+                      fmtDate: _fmtDate,
+                      onSearchChanged: (v) {
+                        _searchDebounce?.cancel();
+                        _searchDebounce = Timer(
+                          const Duration(milliseconds: 500),
+                          () {
+                            if (!mounted) return;
+                            final next = v.trim().toLowerCase();
+                            if (next == _q) return;
+                            setState(() => _q = next);
+                          },
+                        );
+                      },
+                      onCategoriaChanged: (v) =>
+                          setState(() => _filterCategoria = v),
+                      onStatusChanged: (v) => setState(() => _filterStatus = v),
+                      onOpenForm: (doc) => _openForm(doc: doc),
+                      onExcluir: _excluir,
+                      onShowDetail: _onBemTapped,
+                      onShowQrCode: _showQrCode,
+                      onTransferir: _showTransferir,
+                      selectionMode: _bensSelectionMode,
+                      selectedIds: _bensSelectedIds,
+                      onToggleSelect: _toggleBensSelect,
+                      onStartSelection: _canDeletePatrimonio
+                          ? () => setState(() => _bensSelectionMode = true)
+                          : null,
+                      onExcluirPorCategoria: _canDeletePatrimonio
+                          ? _excluirPatrimonioPorCategoria
+                          : null,
+                    ),
+                    _DashboardTab(
+                      key: _dashboardTabKey,
+                      col: _col,
+                      categorias: _categoriasEfetivas,
+                      statusList: _statusList,
+                      catColor: _catColor,
+                      statusLabel: _statusLabel,
+                      statusColor: _statusColor,
+                      fmtMoney: _fmtMoney,
+                      tenantId: _effectiveTenantId,
+                      onBemSelected: (doc) {
+                        if (_canWrite) {
+                          _openForm(doc: doc);
+                        } else {
+                          _onBemTapped(doc);
+                        }
+                      },
+                    ),
+                    _RelatoriosPatrimonioTab(
+                      col: _col,
+                      categorias: _categoriasEfetivas,
+                      statusLabel: _statusLabel,
+                      fmtMoney: _fmtMoney,
+                      fmtDate: _fmtDate,
+                      tenantId: _effectiveTenantId,
+                    ),
+                    _InventarioTab(
+                      key: _inventarioTabKey,
+                      col: _col,
+                      canWrite: _canWrite,
+                      categorias: _categoriasEfetivas,
+                      statusList: _statusList,
+                      catIcon: _catIcon,
+                      catColor: _catColor,
+                      statusLabel: _statusLabel,
+                      statusColor: _statusColor,
+                      fmtMoney: _fmtMoney,
+                      fmtDate: _fmtDate,
+                      tenantId: _effectiveTenantId,
+                    ),
+                  ],
                 ),
               ),
-            Expanded(
-              child: TabBarView(
-                key: ValueKey('patrimonio_tabs_$_effectiveTenantId'),
-                controller: _tabCtrl,
-                children: [
-                  _BensTab(
-                    key: _bensTabKey,
-                    tenantId: _effectiveTenantId,
-                    col: _col,
-                    q: _q,
-                    filterCategoria: _filterCategoria,
-                    filterStatus: _filterStatus,
-                    canWrite: _canWrite,
-                    canDelete: _canDeletePatrimonio,
-                    categorias: _categoriasEfetivas,
-                    statusList: _statusList,
-                    searchController: _searchCtrl,
-                    catIcon: _catIcon,
-                    catColor: _catColor,
-                    statusLabel: _statusLabel,
-                    statusColor: _statusColor,
-                    fmtMoney: _fmtMoney,
-                    fmtDate: _fmtDate,
-                    onSearchChanged: (v) {
-                      _searchDebounce?.cancel();
-                      _searchDebounce = Timer(
-                        const Duration(milliseconds: 500),
-                        () {
-                          if (!mounted) return;
-                          final next = v.trim().toLowerCase();
-                          if (next == _q) return;
-                          setState(() => _q = next);
-                        },
-                      );
-                    },
-                    onCategoriaChanged: (v) =>
-                        setState(() => _filterCategoria = v),
-                    onStatusChanged: (v) => setState(() => _filterStatus = v),
-                    onOpenForm: (doc) => _openForm(doc: doc),
-                    onExcluir: _excluir,
-                    onShowDetail: _onBemTapped,
-                    onShowQrCode: _showQrCode,
-                    onTransferir: _showTransferir,
-                    selectionMode: _bensSelectionMode,
-                    selectedIds: _bensSelectedIds,
-                    onToggleSelect: _toggleBensSelect,
-                    onStartSelection: _canDeletePatrimonio
-                        ? () => setState(() => _bensSelectionMode = true)
-                        : null,
-                    onExcluirPorCategoria:
-                        _canDeletePatrimonio ? _excluirPatrimonioPorCategoria : null,
-                  ),
-                  _DashboardTab(
-                    key: _dashboardTabKey,
-                    col: _col,
-                    categorias: _categoriasEfetivas,
-                    statusList: _statusList,
-                    catColor: _catColor,
-                    statusLabel: _statusLabel,
-                    statusColor: _statusColor,
-                    fmtMoney: _fmtMoney,
-                    tenantId: _effectiveTenantId,
-                    onBemSelected: (doc) {
-                      if (_canWrite) {
-                        _openForm(doc: doc);
-                      } else {
-                        _onBemTapped(doc);
-                      }
-                    },
-                  ),
-                  _RelatoriosPatrimonioTab(
-                    col: _col,
-                    categorias: _categoriasEfetivas,
-                    statusLabel: _statusLabel,
-                    fmtMoney: _fmtMoney,
-                    fmtDate: _fmtDate,
-                    tenantId: _effectiveTenantId,
-                  ),
-                  _InventarioTab(
-                    key: _inventarioTabKey,
-                    col: _col,
-                    canWrite: _canWrite,
-                    categorias: _categoriasEfetivas,
-                    statusList: _statusList,
-                    catIcon: _catIcon,
-                    catColor: _catColor,
-                    statusLabel: _statusLabel,
-                    statusColor: _statusColor,
-                    fmtMoney: _fmtMoney,
-                    fmtDate: _fmtDate,
-                    tenantId: _effectiveTenantId,
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -2808,6 +3015,7 @@ class _BensTab extends StatefulWidget {
 class _BensTabState extends State<_BensTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   String? _lastLoadHint;
+
   /// Lista compacta por padrão; galeria em grade se o utilizador alternar.
   bool _galleryView = false;
   static const int _pageSize = YahwehPerformanceV4.patrimonioListPageSize;
@@ -2840,19 +3048,21 @@ class _BensTabState extends State<_BensTab> {
   }
 
   void _applyPatrimonioSort(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     DateTime? ts(dynamic v) {
       if (v is Timestamp) return v.toDate();
       if (v is DateTime) return v;
       return null;
     }
 
-    int nameCmp(QueryDocumentSnapshot<Map<String, dynamic>> a,
-        QueryDocumentSnapshot<Map<String, dynamic>> b) {
-      return (a.data()['nome'] ?? '')
-          .toString()
-          .toLowerCase()
-          .compareTo((b.data()['nome'] ?? '').toString().toLowerCase());
+    int nameCmp(
+      QueryDocumentSnapshot<Map<String, dynamic>> a,
+      QueryDocumentSnapshot<Map<String, dynamic>> b,
+    ) {
+      return (a.data()['nome'] ?? '').toString().toLowerCase().compareTo(
+        (b.data()['nome'] ?? '').toString().toLowerCase(),
+      );
     }
 
     docs.sort((a, b) {
@@ -2890,16 +3100,19 @@ class _BensTabState extends State<_BensTab> {
     _loadedDocs.clear();
     final seeded =
         ChurchPatrimonioLoadService.peekRamAny(tid) ??
-            _PatrimonioRamCache.peek(tid)?.docs
-                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
-            const [];
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const [];
     _loadedDocs.addAll(seeded);
     _lastCursor = _loadedDocs.isNotEmpty ? _loadedDocs.last : null;
     _hasMorePages = _loadedDocs.length >= _pageSize;
   }
 
   QuerySnapshot<Map<String, dynamic>> _snapshotFromLoadedDocs() =>
-      MergedFirestoreQuerySnapshot(List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_loadedDocs));
+      MergedFirestoreQuerySnapshot(
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_loadedDocs),
+      );
 
   void _bindPatrimonioLoad({bool forceFresh = false}) {
     // Stale-while-revalidate (igual Dashboard/Inventário): nunca flash vazio no refresh.
@@ -2937,20 +3150,21 @@ class _BensTabState extends State<_BensTab> {
       if (forceFresh) {
         await ChurchPatrimonioLoadService.invalidate(tid);
       }
-      final result = await ChurchPatrimonioLoadService.loadAll(
-        seedTenantId: tid,
-        forceRefresh: forceFresh,
-        forceServer: forceFresh,
-      ).timeout(
-        ChurchPanelReadTimeouts.queryCap,
-        onTimeout: () => ChurchPatrimonioLoadResult(
-          churchId: tid,
-          docs: const [],
-          readSource: 'timeout',
-          collectionPath: FirebasePaths.patrimonio(tid),
-          softError: 'Tempo esgotado ao carregar patrimônio.',
-        ),
-      );
+      final result =
+          await ChurchPatrimonioLoadService.loadAll(
+            seedTenantId: tid,
+            forceRefresh: forceFresh,
+            forceServer: forceFresh,
+          ).timeout(
+            ChurchPanelReadTimeouts.queryCap,
+            onTimeout: () => ChurchPatrimonioLoadResult(
+              churchId: tid,
+              docs: const [],
+              readSource: 'timeout',
+              collectionPath: FirebasePaths.patrimonio(tid),
+              softError: 'Tempo esgotado ao carregar patrimônio.',
+            ),
+          );
       if (!mounted || generation != _fetchGeneration) return;
       if (result.docs.isNotEmpty) {
         _loadedDocs
@@ -2959,7 +3173,8 @@ class _BensTabState extends State<_BensTab> {
         _lastCursor = result.docs.isNotEmpty ? result.docs.last : null;
         _hasMorePages =
             result.docs.length >= ChurchPatrimonioLoadService.kDefaultAllLimit;
-        _lastLoadHint = '${FirebasePaths.patrimonio(tid)} '
+        _lastLoadHint =
+            '${FirebasePaths.patrimonio(tid)} '
             '(${result.readSource}, ${result.docs.length} bens)';
         final snap = _snapshotFromLoadedDocs();
         _PatrimonioRamCache.store(tid, snap);
@@ -2967,7 +3182,8 @@ class _BensTabState extends State<_BensTab> {
       } else if (_loadedDocs.isEmpty) {
         _seedFromLocalCaches();
         setState(() {
-          _lastLoadHint = result.softError ??
+          _lastLoadHint =
+              result.softError ??
               '${FirebasePaths.patrimonio(tid)} (${result.readSource}, 0 bens)';
           _future = Future.value(_snapshotFromLoadedDocs());
         });
@@ -3016,8 +3232,7 @@ class _BensTabState extends State<_BensTab> {
           _loadedDocs.add(d);
         }
       }
-      _lastCursor =
-          page.docs.isNotEmpty ? page.docs.last : _lastCursor;
+      _lastCursor = page.docs.isNotEmpty ? page.docs.last : _lastCursor;
       _hasMorePages = page.docs.length >= _pageSize;
       _PatrimonioRamCache.store(tid, _snapshotFromLoadedDocs());
       setState(() {
@@ -3036,8 +3251,7 @@ class _BensTabState extends State<_BensTab> {
     setState(() => _bindPatrimonioLoad(forceFresh: forceServer));
   }
 
-  String _selectedCountLabel() =>
-      '${widget.selectedIds.length} selecionado(s)';
+  String _selectedCountLabel() => '${widget.selectedIds.length} selecionado(s)';
 
   /// Busca + filtros como slivers: rolagem única evita scroll “travado” (web / shell / mobile).
   List<Widget> _bensTabHeaderSlivers() {
@@ -3090,8 +3304,12 @@ class _BensTabState extends State<_BensTab> {
         ),
       SliverToBoxAdapter(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
-              ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 0),
+          padding: EdgeInsets.fromLTRB(
+            ThemeCleanPremium.spaceLg,
+            ThemeCleanPremium.spaceSm,
+            ThemeCleanPremium.spaceLg,
+            0,
+          ),
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
@@ -3122,24 +3340,31 @@ class _BensTabState extends State<_BensTab> {
                         : null,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(
-                          ThemeCleanPremium.radiusSm),
+                        ThemeCleanPremium.radiusSm,
+                      ),
                       borderSide: BorderSide.none,
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(
-                          ThemeCleanPremium.radiusSm),
+                        ThemeCleanPremium.radiusSm,
+                      ),
                       borderSide: BorderSide.none,
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(
-                          ThemeCleanPremium.radiusSm),
+                        ThemeCleanPremium.radiusSm,
+                      ),
                       borderSide: const BorderSide(
-                          color: ThemeCleanPremium.primaryLight, width: 2),
+                        color: ThemeCleanPremium.primaryLight,
+                        width: 2,
+                      ),
                     ),
                     filled: true,
                     fillColor: ThemeCleanPremium.surfaceVariant,
                     contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 14),
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
                   ),
                   onChanged: widget.onSearchChanged,
                 ),
@@ -3161,8 +3386,11 @@ class _BensTabState extends State<_BensTab> {
                           onPressed: widget.selectionMode
                               ? null
                               : widget.onExcluirPorCategoria,
-                          icon: Icon(Icons.delete_sweep_rounded,
-                              size: 18, color: Colors.red.shade400),
+                          icon: Icon(
+                            Icons.delete_sweep_rounded,
+                            size: 18,
+                            color: Colors.red.shade400,
+                          ),
                           label: Text(
                             'Excluir categoria',
                             style: TextStyle(color: Colors.red.shade400),
@@ -3199,33 +3427,41 @@ class _BensTabState extends State<_BensTab> {
                       child: SegmentedButton<bool>(
                         style: SegmentedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 8),
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                           visualDensity: VisualDensity.compact,
                           side: BorderSide(
-                            color: ThemeCleanPremium.primary
-                                .withValues(alpha: 0.35),
+                            color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.35,
+                            ),
                             width: 1.2,
                           ),
                           selectedBackgroundColor: ThemeCleanPremium.primary,
                           selectedForegroundColor: Colors.white,
                           foregroundColor: ThemeCleanPremium.onSurface,
                           backgroundColor: Colors.white,
-                          shadowColor:
-                              ThemeCleanPremium.primary.withValues(alpha: 0.22),
+                          shadowColor: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.22,
+                          ),
                           elevation: 1,
                         ),
                         showSelectedIcon: false,
                         segments: const [
                           ButtonSegment<bool>(
                             value: false,
-                            label: Text('Lista',
-                                style: TextStyle(fontWeight: FontWeight.w800)),
+                            label: Text(
+                              'Lista',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
                             icon: Icon(Icons.view_list_rounded, size: 18),
                           ),
                           ButtonSegment<bool>(
                             value: true,
-                            label: Text('Galeria',
-                                style: TextStyle(fontWeight: FontWeight.w800)),
+                            label: Text(
+                              'Galeria',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
                             icon: Icon(Icons.grid_view_rounded, size: 18),
                           ),
                         ],
@@ -3245,17 +3481,18 @@ class _BensTabState extends State<_BensTab> {
       ),
       SliverToBoxAdapter(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
-              ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 0),
+          padding: EdgeInsets.fromLTRB(
+            ThemeCleanPremium.spaceLg,
+            ThemeCleanPremium.spaceSm,
+            ThemeCleanPremium.spaceLg,
+            0,
+          ),
           child: Container(
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  Colors.white,
-                  Color(0xFFF8FAFC),
-                ],
+                colors: [Colors.white, Color(0xFFF8FAFC)],
               ),
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
@@ -3280,14 +3517,17 @@ class _BensTabState extends State<_BensTab> {
                         selected: filterCategoria.isEmpty,
                         onTap: () => widget.onCategoriaChanged(''),
                       ),
-                      ...categorias.map((c) => _FilterChipPremium(
-                            label: c,
-                            icon: catIcon(c),
-                            color: catColor(c),
-                            selected: filterCategoria == c,
-                            onTap: () => widget.onCategoriaChanged(
-                                filterCategoria == c ? '' : c),
-                          )),
+                      ...categorias.map(
+                        (c) => _FilterChipPremium(
+                          label: c,
+                          icon: catIcon(c),
+                          color: catColor(c),
+                          selected: filterCategoria == c,
+                          onTap: () => widget.onCategoriaChanged(
+                            filterCategoria == c ? '' : c,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -3308,15 +3548,18 @@ class _BensTabState extends State<_BensTab> {
                         selected: filterStatus.isEmpty,
                         onTap: () => widget.onStatusChanged(''),
                       ),
-                      ...statusList.map((s) => _FilterChipPremium(
-                            label: s['label']!,
-                            icon: _statusChipIcon(s['key']!),
-                            small: true,
-                            color: statusColor(s['key']),
-                            selected: filterStatus == s['key'],
-                            onTap: () => widget.onStatusChanged(
-                                filterStatus == s['key'] ? '' : s['key']!),
-                          )),
+                      ...statusList.map(
+                        (s) => _FilterChipPremium(
+                          label: s['label']!,
+                          icon: _statusChipIcon(s['key']!),
+                          small: true,
+                          color: statusColor(s['key']),
+                          selected: filterStatus == s['key'],
+                          onTap: () => widget.onStatusChanged(
+                            filterStatus == s['key'] ? '' : s['key']!,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -3352,8 +3595,7 @@ class _BensTabState extends State<_BensTab> {
                         small: true,
                         color: ThemeCleanPremium.primary,
                         selected: _sortMode == 'conferencia',
-                        onTap: () =>
-                            setState(() => _sortMode = 'conferencia'),
+                        onTap: () => setState(() => _sortMode = 'conferencia'),
                       ),
                     ],
                   ),
@@ -3462,20 +3704,24 @@ class _BensTabState extends State<_BensTab> {
         }
         if (filterCategoria.isNotEmpty) {
           docs = docs
-              .where((d) =>
-                  (d.data()['categoria'] ?? '').toString() == filterCategoria)
+              .where(
+                (d) =>
+                    (d.data()['categoria'] ?? '').toString() == filterCategoria,
+              )
               .toList();
         }
         if (filterStatus.isNotEmpty) {
           docs = docs
               .where(
-                  (d) => (d.data()['status'] ?? '').toString() == filterStatus)
+                (d) => (d.data()['status'] ?? '').toString() == filterStatus,
+              )
               .toList();
         }
         _applyPatrimonioSort(docs);
 
         if (allDocs.isEmpty) {
-          final loadFailed = _lastLoadHint != null &&
+          final loadFailed =
+              _lastLoadHint != null &&
               (_lastLoadHint!.toLowerCase().contains('tempo esgotado') ||
                   _lastLoadHint!.toLowerCase().contains('erro') ||
                   _lastLoadHint!.toLowerCase().contains('falha') ||
@@ -3496,45 +3742,55 @@ class _BensTabState extends State<_BensTab> {
                   ),
                 )
               else
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.inventory_2_outlined,
-                          size: 64, color: Colors.grey.shade300),
-                      const SizedBox(height: 16),
-                      Text('Nenhum patrimônio cadastrado',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade500)),
-                      const SizedBox(height: 6),
-                      Text('Cadastre bens usando o botão abaixo',
-                          style: TextStyle(
-                              fontSize: 13, color: Colors.grey.shade400)),
-                      if (_lastLoadHint != null) ...[
-                        const SizedBox(height: 12),
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.inventory_2_outlined,
+                          size: 64,
+                          color: Colors.grey.shade300,
+                        ),
+                        const SizedBox(height: 16),
                         Text(
-                          _lastLoadHint!,
-                          textAlign: TextAlign.center,
+                          'Nenhum patrimônio cadastrado',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             color: Colors.grey.shade500,
                           ),
                         ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Cadastre bens usando o botão abaixo',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        if (_lastLoadHint != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            _lastLoadHint!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        OutlinedButton.icon(
+                          onPressed: () => refresh(forceServer: true),
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Atualizar lista'),
+                        ),
                       ],
-                      const SizedBox(height: 16),
-                      OutlinedButton.icon(
-                        onPressed: () => refresh(forceServer: true),
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('Atualizar lista'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
             ],
           );
         }
@@ -3551,8 +3807,11 @@ class _BensTabState extends State<_BensTab> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.search_off_rounded,
-                          size: 48, color: Colors.grey.shade300),
+                      Icon(
+                        Icons.search_off_rounded,
+                        size: 48,
+                        color: Colors.grey.shade300,
+                      ),
                       const SizedBox(height: 12),
                       Text(
                         '${allDocs.length} bem(ns) no total — nenhum com estes filtros',
@@ -3591,8 +3850,11 @@ class _BensTabState extends State<_BensTab> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final w = constraints.maxWidth;
-            final crossCount =
-                w >= 1100 ? 4 : w >= 700 ? 3 : 2;
+            final crossCount = w >= 1100
+                ? 4
+                : w >= 700
+                ? 3
+                : 2;
 
             final contentSlivers = <Widget>[
               ..._bensTabHeaderSlivers(),
@@ -3617,34 +3879,48 @@ class _BensTabState extends State<_BensTab> {
               if (manutCount > 0)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                        ThemeCleanPremium.spaceLg, ThemeCleanPremium.spaceSm),
+                    padding: EdgeInsets.fromLTRB(
+                      ThemeCleanPremium.spaceLg,
+                      0,
+                      ThemeCleanPremium.spaceLg,
+                      ThemeCleanPremium.spaceSm,
+                    ),
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.amber.shade50,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
                         border: Border.all(color: Colors.amber.shade300),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.warning_amber_rounded,
-                              color: Colors.amber.shade800, size: 20),
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: Colors.amber.shade800,
+                            size: 20,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               '$manutCount ${manutCount == 1 ? 'bem precisa' : 'bens precisam'} de manutenção',
                               style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.amber.shade900),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.amber.shade900,
+                              ),
                             ),
                           ),
-                          Icon(Icons.chevron_right_rounded,
-                              color: Colors.amber.shade700, size: 20),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: Colors.amber.shade700,
+                            size: 20,
+                          ),
                         ],
                       ),
                     ),
@@ -3653,13 +3929,18 @@ class _BensTabState extends State<_BensTab> {
               if (reparoCount > 0)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                        ThemeCleanPremium.spaceLg, ThemeCleanPremium.spaceSm),
+                    padding: EdgeInsets.fromLTRB(
+                      ThemeCleanPremium.spaceLg,
+                      0,
+                      ThemeCleanPremium.spaceLg,
+                      ThemeCleanPremium.spaceSm,
+                    ),
                     child: Material(
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm),
+                          ThemeCleanPremium.radiusSm,
+                        ),
                         onTap: () => onStatusChanged(
                           filterStatus == 'precisa_reparo'
                               ? ''
@@ -3668,31 +3949,42 @@ class _BensTabState extends State<_BensTab> {
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.deepOrange.shade50,
                             borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                            border:
-                                Border.all(color: Colors.deepOrange.shade200),
+                              ThemeCleanPremium.radiusSm,
+                            ),
+                            border: Border.all(
+                              color: Colors.deepOrange.shade200,
+                            ),
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.handyman_rounded,
-                                  color: Colors.deepOrange.shade800, size: 20),
+                              Icon(
+                                Icons.handyman_rounded,
+                                color: Colors.deepOrange.shade800,
+                                size: 20,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   '$reparoCount ${reparoCount == 1 ? 'item' : 'itens'} marcados como “Precisa de Reparo”'
                                   '${filterStatus == 'precisa_reparo' ? ' (filtro ativo)' : ' — toque para filtrar'}',
                                   style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.deepOrange.shade900),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.deepOrange.shade900,
+                                  ),
                                 ),
                               ),
-                              Icon(Icons.touch_app_rounded,
-                                  color: Colors.deepOrange.shade700, size: 20),
+                              Icon(
+                                Icons.touch_app_rounded,
+                                color: Colors.deepOrange.shade700,
+                                size: 20,
+                              ),
                             ],
                           ),
                         ),
@@ -3703,25 +3995,30 @@ class _BensTabState extends State<_BensTab> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
-                      horizontal: ThemeCleanPremium.spaceLg),
+                    horizontal: ThemeCleanPremium.spaceLg,
+                  ),
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: ThemeCleanPremium.spaceMd,
-                        vertical: ThemeCleanPremium.spaceSm),
+                      horizontal: ThemeCleanPremium.spaceMd,
+                      vertical: ThemeCleanPremium.spaceSm,
+                    ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
                           ThemeCleanPremium.primary.withValues(alpha: 0.07),
-                          ThemeCleanPremium.primaryLight.withValues(alpha: 0.04),
+                          ThemeCleanPremium.primaryLight.withValues(
+                            alpha: 0.04,
+                          ),
                           Colors.white,
                         ],
                         stops: const [0.0, 0.45, 1.0],
                       ),
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
                       border: Border.all(
                         color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                       ),
@@ -3732,31 +4029,41 @@ class _BensTabState extends State<_BensTab> {
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: ThemeCleanPremium.primary
-                                .withValues(alpha: 0.12),
+                            color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.12,
+                            ),
                             borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
+                              ThemeCleanPremium.radiusSm,
+                            ),
                           ),
-                          child: Icon(Icons.inventory_2_rounded,
-                              size: 20,
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.9)),
+                          child: Icon(
+                            Icons.inventory_2_rounded,
+                            size: 20,
+                            color: ThemeCleanPremium.primary.withValues(
+                              alpha: 0.9,
+                            ),
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Text(
-                            '${docs.length} ite${docs.length == 1 ? 'm' : 'ns'}',
-                            style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.1,
-                                color: ThemeCleanPremium.onSurface)),
+                          '${docs.length} ite${docs.length == 1 ? 'm' : 'ns'}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.1,
+                            color: ThemeCleanPremium.onSurface,
+                          ),
+                        ),
                         const Spacer(),
-                        Text('Total: ${fmtMoney(totalValor)}',
-                            style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.2,
-                                color: ThemeCleanPremium.primary)),
+                        Text(
+                          'Total: ${fmtMoney(totalValor)}',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -3773,14 +4080,20 @@ class _BensTabState extends State<_BensTab> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.search_off_rounded,
-                            size: 48, color: Colors.grey.shade300),
+                        Icon(
+                          Icons.search_off_rounded,
+                          size: 48,
+                          color: Colors.grey.shade300,
+                        ),
                         const SizedBox(height: 12),
-                        Text('Nenhum resultado para os filtros',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade500)),
+                        Text(
+                          'Nenhum resultado para os filtros',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -3789,8 +4102,12 @@ class _BensTabState extends State<_BensTab> {
             } else if (!_galleryView) {
               contentSlivers.add(
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                      ThemeCleanPremium.spaceLg, 88),
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceLg,
+                    0,
+                    ThemeCleanPremium.spaceLg,
+                    88,
+                  ),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
                       (context, i) => Padding(
@@ -3798,7 +4115,8 @@ class _BensTabState extends State<_BensTab> {
                         child: _PatrimonioCard(
                           key: ValueKey('list_${docs[i].id}'),
                           doc: docs[i],
-                          selected: widget.selectionMode &&
+                          selected:
+                              widget.selectionMode &&
                               widget.selectedIds.contains(docs[i].id),
                           catIcon: catIcon,
                           catColor: catColor,
@@ -3812,20 +4130,21 @@ class _BensTabState extends State<_BensTab> {
                               onShowDetail(docs[i]);
                             }
                           },
-                          onLongPress: widget.canWrite &&
-                                  widget.onStartSelection != null
+                          onLongPress:
+                              widget.canWrite && widget.onStartSelection != null
                               ? () {
                                   widget.onStartSelection!();
                                   widget.onToggleSelect(docs[i].id);
                                 }
                               : null,
-                          onEdit:
-                              canWrite ? () => onOpenForm(docs[i]) : null,
-                          onDelete:
-                              widget.canDelete ? () => onExcluir(docs[i]) : null,
+                          onEdit: canWrite ? () => onOpenForm(docs[i]) : null,
+                          onDelete: widget.canDelete
+                              ? () => onExcluir(docs[i])
+                              : null,
                           onQrCode: () => onShowQrCode(docs[i]),
-                          onTransferir:
-                              canWrite ? () => onTransferir(docs[i]) : null,
+                          onTransferir: canWrite
+                              ? () => onTransferir(docs[i])
+                              : null,
                         ),
                       ),
                       childCount: docs.length,
@@ -3848,11 +4167,14 @@ class _BensTabState extends State<_BensTab> {
             } else {
               contentSlivers.add(
                 SliverPadding(
-                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                      ThemeCleanPremium.spaceLg, 88),
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceLg,
+                    0,
+                    ThemeCleanPremium.spaceLg,
+                    88,
+                  ),
                   sliver: SliverGrid(
-                    gridDelegate:
-                        SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: crossCount,
                       mainAxisSpacing: 12,
                       crossAxisSpacing: 12,
@@ -3862,7 +4184,8 @@ class _BensTabState extends State<_BensTab> {
                       (context, i) => _PatrimonioGalleryTile(
                         key: ValueKey('grid_${docs[i].id}'),
                         doc: docs[i],
-                        selected: widget.selectionMode &&
+                        selected:
+                            widget.selectionMode &&
                             widget.selectedIds.contains(docs[i].id),
                         catIcon: catIcon,
                         catColor: catColor,
@@ -3876,18 +4199,21 @@ class _BensTabState extends State<_BensTab> {
                             onShowDetail(docs[i]);
                           }
                         },
-                        onLongPress: widget.canWrite &&
-                                widget.onStartSelection != null
+                        onLongPress:
+                            widget.canWrite && widget.onStartSelection != null
                             ? () {
                                 widget.onStartSelection!();
                                 widget.onToggleSelect(docs[i].id);
                               }
                             : null,
                         onEdit: canWrite ? () => onOpenForm(docs[i]) : null,
-                        onDelete: widget.canDelete ? () => onExcluir(docs[i]) : null,
+                        onDelete: widget.canDelete
+                            ? () => onExcluir(docs[i])
+                            : null,
                         onQrCode: () => onShowQrCode(docs[i]),
-                        onTransferir:
-                            canWrite ? () => onTransferir(docs[i]) : null,
+                        onTransferir: canWrite
+                            ? () => onTransferir(docs[i])
+                            : null,
                       ),
                       childCount: docs.length,
                     ),
@@ -3911,7 +4237,6 @@ class _BensTabState extends State<_BensTab> {
             return CustomScrollView(
               primary: false,
               physics: const AlwaysScrollableScrollPhysics(),
-              cacheExtent: 650,
               slivers: contentSlivers,
             );
           },
@@ -3970,10 +4295,8 @@ class _PatrimonioCard extends StatelessWidget {
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
     // Upload em background: mostra bytes locais até as URLs chegarem no doc.
-    final cardChurchId = (m['churchId'] ?? m['tenantId'] ?? '')
-            .toString()
-            .trim()
-            .isNotEmpty
+    final cardChurchId =
+        (m['churchId'] ?? m['tenantId'] ?? '').toString().trim().isNotEmpty
         ? (m['churchId'] ?? m['tenantId'] ?? '').toString().trim()
         : (doc.reference.parent.parent?.id ?? '');
     final pendingThumb = slots.urls.isEmpty && cardChurchId.isNotEmpty
@@ -3990,49 +4313,50 @@ class _PatrimonioCard extends StatelessWidget {
     final dprList = MediaQuery.devicePixelRatioOf(context);
     const thumbSize = 76.0;
     // Lista do inventário: decode menor = scroll mais rápido (foto principal continua no detalhe).
-    final memListThumb    = (thumbSize * dprList).round().clamp(120, 600);
+    final memListThumb = (thumbSize * dprList).round().clamp(120, 600);
 
     // Alerta de manutenção próxima / vencida
     final proxManut = m['proximaManutencao'];
     DateTime? proxDate;
     if (proxManut is Timestamp) proxDate = proxManut.toDate();
     if (proxManut is DateTime) proxDate = proxManut;
-    final needsMaint = proxDate != null &&
+    final needsMaint =
+        proxDate != null &&
         proxDate.isBefore(DateTime.now().add(const Duration(days: 7)));
 
     Widget photoLoadingPlaceholder() => Container(
-          width: thumbSize,
-          height: thumbSize,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [cor.withOpacity(0.15), cor.withOpacity(0.05)],
-            ),
-          ),
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.2,
-              color: cor.withOpacity(0.7),
-            ),
-          ),
-        );
+      width: thumbSize,
+      height: thumbSize,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [cor.withValues(alpha: 0.15), cor.withValues(alpha: 0.05)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.2,
+          color: cor.withValues(alpha: 0.7),
+        ),
+      ),
+    );
 
     Widget photoPlaceholder() => Container(
-          width: thumbSize,
-          height: thumbSize,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [cor.withOpacity(0.15), cor.withOpacity(0.05)],
-            ),
-          ),
-          child: Center(child: Icon(catIcon(categoria), color: cor, size: 28)),
-        );
+      width: thumbSize,
+      height: thumbSize,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [cor.withValues(alpha: 0.15), cor.withValues(alpha: 0.05)],
+        ),
+      ),
+      child: Center(child: Icon(catIcon(categoria), color: cor, size: 28)),
+    );
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -4083,21 +4407,21 @@ class _PatrimonioCard extends StatelessWidget {
                               gaplessPlayback: true,
                             )
                           : hasPhoto
-                              ? FotoPatrimonioWidget(
-                                  key: ValueKey('pat_thumb_${doc.id}'),
-                                  storagePath: thumbPath,
-                                  candidateUrls: thumbUrl.isNotEmpty
-                                      ? [thumbUrl]
-                                      : <String>[],
-                                  fit: BoxFit.cover,
-                                  width: thumbSize,
-                                  height: thumbSize,
-                                  memCacheWidth: memListThumb,
-                                  memCacheHeight: memListThumb,
-                                  placeholder: photoLoadingPlaceholder(),
-                                  errorWidget: photoPlaceholder(),
-                                )
-                              : photoPlaceholder(),
+                          ? FotoPatrimonioWidget(
+                              key: ValueKey('pat_thumb_${doc.id}'),
+                              storagePath: thumbPath,
+                              candidateUrls: thumbUrl.isNotEmpty
+                                  ? [thumbUrl]
+                                  : <String>[],
+                              fit: BoxFit.cover,
+                              width: thumbSize,
+                              height: thumbSize,
+                              memCacheWidth: memListThumb,
+                              memCacheHeight: memListThumb,
+                              placeholder: photoLoadingPlaceholder(),
+                              errorWidget: photoPlaceholder(),
+                            )
+                          : photoPlaceholder(),
                     ),
                   ),
                 ),
@@ -4112,23 +4436,28 @@ class _PatrimonioCard extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: Text(nome,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 15,
-                                  letterSpacing: -0.2,
-                                  height: 1.2,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              nome,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 15,
+                                letterSpacing: -0.2,
+                                height: 1.2,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           if (needsMaint)
                             Padding(
                               padding: const EdgeInsets.only(left: 6),
                               child: Tooltip(
                                 message: 'Manutenção pendente',
-                                child: Icon(Icons.warning_amber_rounded,
-                                    size: 18, color: Colors.amber.shade700),
+                                child: Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 18,
+                                  color: Colors.amber.shade700,
+                                ),
                               ),
                             ),
                         ],
@@ -4140,30 +4469,40 @@ class _PatrimonioCard extends StatelessWidget {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: cor.withOpacity(0.1),
+                              color: cor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(categoria,
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: cor)),
+                            child: Text(
+                              categoria,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: cor,
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: stColor.withOpacity(0.1),
+                              color: stColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: Text(statusLabel(status),
-                                style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: stColor)),
+                            child: Text(
+                              statusLabel(status),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: stColor,
+                              ),
+                            ),
                           ),
                         ],
                       ),
@@ -4171,11 +4510,14 @@ class _PatrimonioCard extends StatelessWidget {
 
                       // Valor
                       if (valor != null)
-                        Text(fmtMoney(valor),
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 14,
-                                color: ThemeCleanPremium.primary)),
+                        Text(
+                          fmtMoney(valor),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                        ),
 
                       // Localização e responsável
                       if (local.isNotEmpty || resp.isNotEmpty)
@@ -4184,31 +4526,43 @@ class _PatrimonioCard extends StatelessWidget {
                           child: Row(
                             children: [
                               if (local.isNotEmpty) ...[
-                                Icon(Icons.location_on_outlined,
-                                    size: 12, color: Colors.grey.shade500),
+                                Icon(
+                                  Icons.location_on_outlined,
+                                  size: 12,
+                                  color: Colors.grey.shade500,
+                                ),
                                 const SizedBox(width: 3),
                                 Flexible(
-                                  child: Text(local,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade600),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
+                                  child: Text(
+                                    local,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
                               if (local.isNotEmpty && resp.isNotEmpty)
                                 const SizedBox(width: 10),
                               if (resp.isNotEmpty) ...[
-                                Icon(Icons.person_outline_rounded,
-                                    size: 12, color: Colors.grey.shade500),
+                                Icon(
+                                  Icons.person_outline_rounded,
+                                  size: 12,
+                                  color: Colors.grey.shade500,
+                                ),
                                 const SizedBox(width: 3),
                                 Flexible(
-                                  child: Text(resp,
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade600),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
+                                  child: Text(
+                                    resp,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
                             ],
@@ -4220,10 +4574,14 @@ class _PatrimonioCard extends StatelessWidget {
 
                 // Popup menu
                 PopupMenuButton<String>(
-                  icon: Icon(Icons.more_vert_rounded,
-                      color: Colors.grey.shade400, size: 20),
+                  icon: Icon(
+                    Icons.more_vert_rounded,
+                    color: Colors.grey.shade400,
+                    size: 20,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   onSelected: (v) {
                     if (v == 'edit') {
                       onEdit?.call();
@@ -4239,39 +4597,52 @@ class _PatrimonioCard extends StatelessWidget {
                     if (onEdit != null)
                       const PopupMenuItem(
                         value: 'edit',
-                        child: Row(children: [
-                          Icon(Icons.edit_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('Editar'),
-                        ]),
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Editar'),
+                          ],
+                        ),
                       ),
                     const PopupMenuItem(
                       value: 'qr',
-                      child: Row(children: [
-                        Icon(Icons.qr_code_rounded, size: 18),
-                        SizedBox(width: 8),
-                        Text('QR Code'),
-                      ]),
+                      child: Row(
+                        children: [
+                          Icon(Icons.qr_code_rounded, size: 18),
+                          SizedBox(width: 8),
+                          Text('QR Code'),
+                        ],
+                      ),
                     ),
                     if (onTransferir != null)
                       const PopupMenuItem(
                         value: 'transfer',
-                        child: Row(children: [
-                          Icon(Icons.swap_horiz_rounded, size: 18),
-                          SizedBox(width: 8),
-                          Text('Transferir'),
-                        ]),
+                        child: Row(
+                          children: [
+                            Icon(Icons.swap_horiz_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Transferir'),
+                          ],
+                        ),
                       ),
                     if (onDelete != null)
                       PopupMenuItem(
                         value: 'delete',
-                        child: Row(children: [
-                          Icon(Icons.delete_outline_rounded,
-                              size: 18, color: Colors.red.shade400),
-                          const SizedBox(width: 8),
-                          Text('Excluir',
-                              style: TextStyle(color: Colors.red.shade400)),
-                        ]),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline_rounded,
+                              size: 18,
+                              color: Colors.red.shade400,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Excluir',
+                              style: TextStyle(color: Colors.red.shade400),
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -4326,8 +4697,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final valor = m['valor'];
     final cor = catColor(categoria);
     final stColor = statusColor(status);
-    final churchId =
-        (m['churchId'] ?? m['tenantId'] ?? '').toString().trim();
+    final churchId = (m['churchId'] ?? m['tenantId'] ?? '').toString().trim();
     final pendingThumb = churchId.isNotEmpty
         ? PatrimonioPendingPhotosCache.firstThumb(churchId, doc.id)
         : null;
@@ -4342,43 +4712,44 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final thumbPath = thumb.path;
     final dpr = MediaQuery.devicePixelRatioOf(context);
     const thumbH = 120.0;
+
     /// Miniaturas do grid: decode ~300px (memória leve na lista/galeria).
     const kGridMemPx = 300;
     final memThumb = (kGridMemPx * dpr).round().clamp(240, 600);
 
     Widget photoLoading() => Container(
-          height: thumbH,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [cor.withOpacity(0.15), cor.withOpacity(0.05)],
-            ),
-          ),
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.2,
-              color: cor.withOpacity(0.7),
-            ),
-          ),
-        );
+      height: thumbH,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [cor.withValues(alpha: 0.15), cor.withValues(alpha: 0.05)],
+        ),
+      ),
+      alignment: Alignment.center,
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.2,
+          color: cor.withValues(alpha: 0.7),
+        ),
+      ),
+    );
 
     Widget photoPh() => Container(
-          height: thumbH,
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [cor.withOpacity(0.15), cor.withOpacity(0.05)],
-            ),
-          ),
-          child: Center(child: Icon(catIcon(categoria), color: cor, size: 40)),
-        );
+      height: thumbH,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [cor.withValues(alpha: 0.15), cor.withValues(alpha: 0.05)],
+        ),
+      ),
+      child: Center(child: Icon(catIcon(categoria), color: cor, size: 40)),
+    );
 
     return Material(
       color: Colors.transparent,
@@ -4430,8 +4801,9 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                         ? FotoPatrimonioWidget(
                             key: ValueKey('gal_${doc.id}'),
                             storagePath: thumbPath,
-                            candidateUrls:
-                                thumbUrl.isNotEmpty ? [thumbUrl] : <String>[],
+                            candidateUrls: thumbUrl.isNotEmpty
+                                ? [thumbUrl]
+                                : <String>[],
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: thumbH,
@@ -4445,7 +4817,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                       top: 6,
                       right: 4,
                       child: Material(
-                        color: Colors.white.withOpacity(0.94),
+                        color: Colors.white.withValues(alpha: 0.94),
                         elevation: 0,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -4456,10 +4828,14 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                             minWidth: 40,
                             minHeight: 40,
                           ),
-                          icon: Icon(Icons.more_vert_rounded,
-                              color: Colors.grey.shade600, size: 20),
+                          icon: Icon(
+                            Icons.more_vert_rounded,
+                            color: Colors.grey.shade600,
+                            size: 20,
+                          ),
                           shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           onSelected: (v) {
                             if (v == 'edit') {
                               onEdit?.call();
@@ -4475,40 +4851,54 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                             if (onEdit != null)
                               const PopupMenuItem(
                                 value: 'edit',
-                                child: Row(children: [
-                                  Icon(Icons.edit_rounded, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Editar'),
-                                ]),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit_rounded, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Editar'),
+                                  ],
+                                ),
                               ),
                             const PopupMenuItem(
                               value: 'qr',
-                              child: Row(children: [
-                                Icon(Icons.qr_code_rounded, size: 18),
-                                SizedBox(width: 8),
-                                Text('QR Code'),
-                              ]),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.qr_code_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('QR Code'),
+                                ],
+                              ),
                             ),
                             if (onTransferir != null)
                               const PopupMenuItem(
                                 value: 'transfer',
-                                child: Row(children: [
-                                  Icon(Icons.swap_horiz_rounded, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Transferir'),
-                                ]),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.swap_horiz_rounded, size: 18),
+                                    SizedBox(width: 8),
+                                    Text('Transferir'),
+                                  ],
+                                ),
                               ),
                             if (onDelete != null)
                               PopupMenuItem(
                                 value: 'delete',
-                                child: Row(children: [
-                                  Icon(Icons.delete_outline_rounded,
-                                      size: 18, color: Colors.red.shade400),
-                                  const SizedBox(width: 8),
-                                  Text('Excluir',
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 18,
+                                      color: Colors.red.shade400,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Excluir',
                                       style: TextStyle(
-                                          color: Colors.red.shade400)),
-                                ]),
+                                        color: Colors.red.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                           ],
                         ),
@@ -4540,9 +4930,11 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 3),
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: cor.withOpacity(0.1),
+                              color: cor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -4556,9 +4948,11 @@ class _PatrimonioGalleryTile extends StatelessWidget {
                           ),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 3),
+                              horizontal: 7,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
-                              color: stColor.withOpacity(0.1),
+                              color: stColor.withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -4643,18 +5037,21 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
     final tid = _tenantId;
     final seeded =
         ChurchPatrimonioLoadService.peekRamAny(tid) ??
-            _PatrimonioRamCache.peek(tid)?.docs
-                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
-            const [];
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const [];
     _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
     unawaited(_fetchRelatorios(forceFresh: forceFresh));
   }
 
   Future<void> _fetchRelatorios({bool forceFresh = false}) async {
     final tid = _tenantId;
-    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
-        _PatrimonioRamCache.peek(tid)?.docs
-            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+    var cached =
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
       if (tid.isEmpty) {
@@ -4765,9 +5162,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
       lines.add('Ano (aquisição): $_filtroAno');
     }
     if (_filtroMes != null) {
-      lines.add(
-        'Mês (aquisição): ${_mesesNomes[_filtroMes! - 1]}',
-      );
+      lines.add('Mês (aquisição): ${_mesesNomes[_filtroMes! - 1]}');
     }
     if (_aquisicaoInicio != null) {
       lines.add('Aquisição de: ${_fmtD(_aquisicaoInicio!)}');
@@ -4858,12 +5253,16 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                   gradient: LinearGradient(
                     colors: [
                       ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.08),
+                      ThemeCleanPremium.navSidebarAccent.withValues(
+                        alpha: 0.08,
+                      ),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   border: Border.all(
                     color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
                   ),
@@ -4921,15 +5320,18 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                   SizedBox(
                     width: 220,
                     child: DropdownButtonFormField<String>(
-                      value: _filtroCategoria.isEmpty ? null : _filtroCategoria,
+                      initialValue: _filtroCategoria.isEmpty
+                          ? null
+                          : _filtroCategoria,
                       isExpanded: true,
                       decoration: InputDecoration(
                         labelText: 'Categoria',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
                       ),
                       items: [
@@ -4951,14 +5353,15 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                   SizedBox(
                     width: 120,
                     child: DropdownButtonFormField<int?>(
-                      value: _filtroAno,
+                      initialValue: _filtroAno,
                       decoration: InputDecoration(
                         labelText: 'Ano',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
                       ),
                       items: [
@@ -4979,14 +5382,15 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                   SizedBox(
                     width: 120,
                     child: DropdownButtonFormField<int?>(
-                      value: _filtroMes,
+                      initialValue: _filtroMes,
                       decoration: InputDecoration(
                         labelText: 'Mês',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
                       ),
                       items: [
@@ -5024,7 +5428,9 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ThemeCleanPremium.primary,
                       side: BorderSide(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                        color: ThemeCleanPremium.primary.withValues(
+                          alpha: 0.45,
+                        ),
                         width: 1.4,
                       ),
                       padding: const EdgeInsets.symmetric(
@@ -5052,7 +5458,9 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ThemeCleanPremium.primary,
                       side: BorderSide(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
+                        color: ThemeCleanPremium.primary.withValues(
+                          alpha: 0.45,
+                        ),
                         width: 1.4,
                       ),
                       padding: const EdgeInsets.symmetric(
@@ -5080,7 +5488,9 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   border: Border.all(
                     color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
                   ),
@@ -5088,8 +5498,10 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.inventory_2_rounded,
-                        color: ThemeCleanPremium.primary),
+                    Icon(
+                      Icons.inventory_2_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -5118,10 +5530,13 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                     backgroundColor: ThemeCleanPremium.primary,
                     foregroundColor: Colors.white,
                     elevation: 2,
-                    shadowColor: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                    shadowColor: ThemeCleanPremium.primary.withValues(
+                      alpha: 0.35,
+                    ),
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
                     ),
                   ),
                 ),
@@ -5153,13 +5568,16 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                   final cat = (m['categoria'] ?? '').toString();
                   final st = widget.statusLabel((m['status'] ?? '').toString());
                   final aq = _dataAquisicaoFromPatrimonioMap(m);
-                  final aqStr = aq != null ? widget.fmtDate(Timestamp.fromDate(aq)) : '—';
+                  final aqStr = aq != null
+                      ? widget.fmtDate(Timestamp.fromDate(aq))
+                      : '—';
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Material(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
@@ -5167,8 +5585,9 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                           vertical: 12,
                         ),
                         decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                           border: Border.all(color: Colors.grey.shade200),
                         ),
                         child: Row(
@@ -5290,8 +5709,10 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                   IconButton(
                     tooltip: 'Exportar PDF',
                     onPressed: () => _export(context),
-                    icon: Icon(Icons.picture_as_pdf_rounded,
-                        color: ThemeCleanPremium.primary),
+                    icon: Icon(
+                      Icons.picture_as_pdf_rounded,
+                      color: ThemeCleanPremium.primary,
+                    ),
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: ThemeCleanPremium.primary,
@@ -5325,7 +5746,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                   : ListView.separated(
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                       itemCount: docs.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 6),
+                      separatorBuilder: (_, _) => const SizedBox(height: 6),
                       itemBuilder: (context, i) {
                         final d = docs[i];
                         final m = d.data();
@@ -5334,11 +5755,13 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                         final st = statusLabel((m['status'] ?? '').toString());
                         return Material(
                           color: ThemeCleanPremium.cardBackground,
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                           child: InkWell(
-                            borderRadius:
-                                BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm,
+                            ),
                             onTap: () => onBemSelected(d),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
@@ -5347,10 +5770,12 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                               ),
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm),
+                                  ThemeCleanPremium.radiusSm,
+                                ),
                                 border: Border.all(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12),
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
                                 ),
                               ),
                               child: Row(
@@ -5387,8 +5812,10 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(width: 4),
-                                  Icon(Icons.chevron_right_rounded,
-                                      color: Colors.grey.shade400),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.grey.shade400,
+                                  ),
                                 ],
                               ),
                             ),
@@ -5468,18 +5895,21 @@ class _DashboardTabState extends State<_DashboardTab> {
     final tid = _tenantId;
     final seeded =
         ChurchPatrimonioLoadService.peekRamAny(tid) ??
-            _PatrimonioRamCache.peek(tid)?.docs
-                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
-            const [];
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const [];
     _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
     unawaited(_fetchDashboard(forceFresh: forceFresh));
   }
 
   Future<void> _fetchDashboard({bool forceFresh = false}) async {
     final tid = _tenantId;
-    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
-        _PatrimonioRamCache.peek(tid)?.docs
-            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+    var cached =
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
       if (tid.isEmpty) {
@@ -5591,8 +6021,9 @@ class _DashboardTabState extends State<_DashboardTab> {
           }
         }
 
-        final avgDep =
-            countDepreciacao > 0 ? (somaDepreciacao / countDepreciacao) : 0.0;
+        final avgDep = countDepreciacao > 0
+            ? (somaDepreciacao / countDepreciacao)
+            : 0.0;
 
         final manutencaoDocs = docs.where((d) {
           final st = (d.data()['status'] ?? 'bom').toString();
@@ -5645,20 +6076,26 @@ class _DashboardTabState extends State<_DashboardTab> {
                   child: Icon(icon, color: color, size: 22),
                 ),
                 const SizedBox(height: 12),
-                Text(title,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w600)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
-                  child: Text(value,
-                      style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          color: ThemeCleanPremium.onSurface)),
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: ThemeCleanPremium.onSurface,
+                    ),
+                  ),
                 ),
                 if (onTap != null) ...[
                   const SizedBox(height: 10),
@@ -5685,8 +6122,7 @@ class _DashboardTabState extends State<_DashboardTab> {
             return Container(
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
                 boxShadow: ThemeCleanPremium.softUiCardShadow,
               ),
               child: inner,
@@ -5702,8 +6138,9 @@ class _DashboardTabState extends State<_DashboardTab> {
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               child: Ink(
                 decoration: BoxDecoration(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                   border: Border.all(color: color.withValues(alpha: 0.35)),
                 ),
@@ -5720,16 +6157,19 @@ class _DashboardTabState extends State<_DashboardTab> {
           if (val > 0) {
             activeCats.add(cat);
             final pct = valorTotal > 0 ? (val / valorTotal * 100) : 0.0;
-            pieEntries.add(PieChartSectionData(
-              value: val,
-              title: '${pct.toStringAsFixed(0)}%',
-              color: catColor(cat),
-              radius: 52,
-              titleStyle: const TextStyle(
+            pieEntries.add(
+              PieChartSectionData(
+                value: val,
+                title: '${pct.toStringAsFixed(0)}%',
+                color: catColor(cat),
+                radius: 52,
+                titleStyle: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: Colors.white),
-            ));
+                  color: Colors.white,
+                ),
+              ),
+            );
           }
         });
 
@@ -5740,18 +6180,21 @@ class _DashboardTabState extends State<_DashboardTab> {
           final key = statusList[i]['key']!;
           final count = statusCounts[key] ?? 0;
           if (count > maxCount) maxCount = count;
-          barGroups.add(BarChartGroupData(
-            x: i,
-            barRods: [
-              BarChartRodData(
-                toY: count.toDouble(),
-                color: statusColor(key),
-                width: 28,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(8)),
-              ),
-            ],
-          ));
+          barGroups.add(
+            BarChartGroupData(
+              x: i,
+              barRods: [
+                BarChartRodData(
+                  toY: count.toDouble(),
+                  color: statusColor(key),
+                  width: 28,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(8),
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         return SingleChildScrollView(
@@ -5768,8 +6211,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                     hasLocalData: true,
                     isSyncing: false,
                     showStaleCache: true,
-                    errorTitle:
-                        'Não foi possível carregar os dados do painel',
+                    errorTitle: 'Não foi possível carregar os dados do painel',
                     onRetry: refresh,
                   ),
                 ),
@@ -5796,9 +6238,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                           onTap: () => openKpiList(
                             title: 'Todos os bens',
                             list: docs,
-                            pdfLines: const [
-                              'Origem: painel — Total de bens',
-                            ],
+                            pdfLines: const ['Origem: painel — Total de bens'],
                             pdfFilename: 'patrimonio_lista_total.pdf',
                           ),
                         ),
@@ -5856,22 +6296,30 @@ class _DashboardTabState extends State<_DashboardTab> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Distribuição por Categoria',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface)),
+                    const Text(
+                      'Distribuição por Categoria',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text('Valor total por categoria',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500)),
+                    Text(
+                      'Valor total por categoria',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
                     const SizedBox(height: 20),
                     if (pieEntries.isEmpty)
                       SizedBox(
@@ -5880,12 +6328,16 @@ class _DashboardTabState extends State<_DashboardTab> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.pie_chart_outline_rounded,
-                                  size: 48, color: Colors.grey.shade300),
+                              Icon(
+                                Icons.pie_chart_outline_rounded,
+                                size: 48,
+                                color: Colors.grey.shade300,
+                              ),
                               const SizedBox(height: 8),
-                              Text('Sem dados para exibir',
-                                  style:
-                                      TextStyle(color: Colors.grey.shade400)),
+                              Text(
+                                'Sem dados para exibir',
+                                style: TextStyle(color: Colors.grey.shade400),
+                              ),
                             ],
                           ),
                         ),
@@ -5916,7 +6368,8 @@ class _DashboardTabState extends State<_DashboardTab> {
                                     final val = catValues[cat] ?? 0;
                                     return Padding(
                                       padding: const EdgeInsets.symmetric(
-                                          vertical: 3),
+                                        vertical: 3,
+                                      ),
                                       child: Row(
                                         children: [
                                           Container(
@@ -5931,15 +6384,15 @@ class _DashboardTabState extends State<_DashboardTab> {
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
-                                                '$cat · ${fmtMoney(val)}',
-                                                style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade700,
-                                                    fontWeight:
-                                                        FontWeight.w500),
-                                                maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis),
+                                              '$cat · ${fmtMoney(val)}',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade700,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -5962,30 +6415,39 @@ class _DashboardTabState extends State<_DashboardTab> {
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Status dos Bens',
-                        style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface)),
+                    const Text(
+                      'Status dos Bens',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text('Quantidade por condição',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade500)),
+                    Text(
+                      'Quantidade por condição',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
                     const SizedBox(height: 20),
                     SizedBox(
                       height: 200,
                       child: barGroups.isEmpty
                           ? Center(
-                              child: Text('Sem dados',
-                                  style:
-                                      TextStyle(color: Colors.grey.shade400)),
+                              child: Text(
+                                'Sem dados',
+                                style: TextStyle(color: Colors.grey.shade400),
+                              ),
                             )
                           : BarChart(
                               BarChartData(
@@ -6001,14 +6463,16 @@ class _DashboardTabState extends State<_DashboardTab> {
                                         final i = value.toInt();
                                         if (i >= 0 && i < statusList.length) {
                                           return Padding(
-                                            padding:
-                                                const EdgeInsets.only(top: 8),
+                                            padding: const EdgeInsets.only(
+                                              top: 8,
+                                            ),
                                             child: Text(
                                               statusList[i]['label']!,
                                               style: TextStyle(
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.grey.shade600),
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey.shade600,
+                                              ),
                                             ),
                                           );
                                         }
@@ -6022,21 +6486,24 @@ class _DashboardTabState extends State<_DashboardTab> {
                                       reservedSize: 30,
                                       getTitlesWidget: (value, meta) {
                                         if (value == value.roundToDouble()) {
-                                          return Text('${value.toInt()}',
-                                              style: TextStyle(
-                                                  fontSize: 10,
-                                                  color: Colors.grey.shade500));
+                                          return Text(
+                                            '${value.toInt()}',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.grey.shade500,
+                                            ),
+                                          );
                                         }
                                         return const SizedBox.shrink();
                                       },
                                     ),
                                   ),
                                   topTitles: const AxisTitles(
-                                      sideTitles:
-                                          SideTitles(showTitles: false)),
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
                                   rightTitles: const AxisTitles(
-                                      sideTitles:
-                                          SideTitles(showTitles: false)),
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
                                 ),
                                 gridData: FlGridData(
                                   show: true,
@@ -6062,9 +6529,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                 stream: FirestoreStreamUtils.queryOneShot(
                   ChurchUiCollections.patrimonioInventarioHistorico(
                     ChurchRepository.churchId(widget.tenantId),
-                  )
-                      .orderBy('finalizadoEm', descending: true)
-                      .limit(48),
+                  ).orderBy('finalizadoEm', descending: true).limit(48),
                 ),
                 builder: (context, hSnap) {
                   final hList = hSnap.data?.docs ?? [];
@@ -6073,11 +6538,10 @@ class _DashboardTabState extends State<_DashboardTab> {
                   for (var i = 5; i >= 0; i--) {
                     final d = DateTime(now.year, now.month - i, 1);
                     monthKeys.add(
-                        '${d.year}-${d.month.toString().padLeft(2, '0')}');
+                      '${d.year}-${d.month.toString().padLeft(2, '0')}',
+                    );
                   }
-                  final counts = <String, int>{
-                    for (final k in monthKeys) k: 0,
-                  };
+                  final counts = <String, int>{for (final k in monthKeys) k: 0};
                   for (final d in hList) {
                     final m = d.data();
                     final ts = m['finalizadoEm'];
@@ -6104,11 +6568,15 @@ class _DashboardTabState extends State<_DashboardTab> {
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
                       boxShadow: ThemeCleanPremium.softUiCardShadow,
                       border: Border.all(
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.08)),
+                        color: ThemeCleanPremium.primary.withValues(
+                          alpha: 0.08,
+                        ),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -6121,8 +6589,11 @@ class _DashboardTabState extends State<_DashboardTab> {
                                 color: lineColor.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
                               ),
-                              child: Icon(Icons.show_chart_rounded,
-                                  color: lineColor, size: 22),
+                              child: Icon(
+                                Icons.show_chart_rounded,
+                                color: lineColor,
+                                size: 22,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             const Expanded(
@@ -6185,11 +6656,11 @@ class _DashboardTabState extends State<_DashboardTab> {
                                 titlesData: FlTitlesData(
                                   show: true,
                                   topTitles: const AxisTitles(
-                                      sideTitles:
-                                          SideTitles(showTitles: false)),
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
                                   rightTitles: const AxisTitles(
-                                      sideTitles:
-                                          SideTitles(showTitles: false)),
+                                    sideTitles: SideTitles(showTitles: false),
+                                  ),
                                   bottomTitles: AxisTitles(
                                     sideTitles: SideTitles(
                                       showTitles: true,
@@ -6214,11 +6685,12 @@ class _DashboardTabState extends State<_DashboardTab> {
                                           'Set',
                                           'Out',
                                           'Nov',
-                                          'Dez'
+                                          'Dez',
                                         ];
                                         return Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 8),
+                                          padding: const EdgeInsets.only(
+                                            top: 8,
+                                          ),
                                           child: Text(
                                             meses[mo],
                                             style: TextStyle(
@@ -6263,11 +6735,11 @@ class _DashboardTabState extends State<_DashboardTab> {
                                       show: true,
                                       getDotPainter: (s, p, b, i) =>
                                           FlDotCirclePainter(
-                                        radius: 4,
-                                        color: lineColor,
-                                        strokeWidth: 2,
-                                        strokeColor: Colors.white,
-                                      ),
+                                            radius: 4,
+                                            color: lineColor,
+                                            strokeWidth: 2,
+                                            strokeColor: Colors.white,
+                                          ),
                                     ),
                                     belowBarData: BarAreaData(
                                       show: true,
@@ -6320,14 +6792,16 @@ class _DashboardTabState extends State<_DashboardTab> {
                 child: FilledButton.icon(
                   onPressed: () => _exportPdf(context, docs),
                   icon: const Icon(Icons.picture_as_pdf_rounded),
-                  label: const Text('Exportar Relatório PDF',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                  label: const Text(
+                    'Exportar Relatório PDF',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: ThemeCleanPremium.primary,
                     shape: RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
                     ),
                   ),
                 ),
@@ -6408,18 +6882,21 @@ class _InventarioTabState extends State<_InventarioTab> {
     final tid = _tenantId;
     final seeded =
         ChurchPatrimonioLoadService.peekRamAny(tid) ??
-            _PatrimonioRamCache.peek(tid)?.docs
-                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
-            const [];
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const [];
     _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
     unawaited(_fetchInventario(forceFresh: forceFresh));
   }
 
   Future<void> _fetchInventario({bool forceFresh = false}) async {
     final tid = _tenantId;
-    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
-        _PatrimonioRamCache.peek(tid)?.docs
-            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+    var cached =
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(
+          tid,
+        )?.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
         const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
       if (tid.isEmpty) {
@@ -6439,7 +6916,8 @@ class _InventarioTabState extends State<_InventarioTab> {
       if (result.docs.isNotEmpty) {
         _PatrimonioRamCache.store(tid, result.snapshot);
         setState(() {
-          _loadHint = '${FirebasePaths.patrimonio(tid)} '
+          _loadHint =
+              '${FirebasePaths.patrimonio(tid)} '
               '(${result.readSource}, ${result.docs.length} bens)';
           _future = Future.value(result.snapshot);
         });
@@ -6472,7 +6950,8 @@ class _InventarioTabState extends State<_InventarioTab> {
   }
 
   Future<void> _marcarConferido(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final nome = firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
     await doc.reference.update({
@@ -6491,7 +6970,8 @@ class _InventarioTabState extends State<_InventarioTab> {
   }
 
   Future<void> _finalizarConferencia(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) async {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
     final total = docs.length;
     final conferidos = _conferidos.length;
     final pendentes = total - conferidos;
@@ -6502,30 +6982,41 @@ class _InventarioTabState extends State<_InventarioTab> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Conferência Finalizada'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(Icons.check_circle_rounded,
-              color: ThemeCleanPremium.success, size: 56),
-          const SizedBox(height: 16),
-          Text('$conferidos de $total bens conferidos',
-              style:
-                  const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-          if (pendentes > 0)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text('$pendentes bens NÃO conferidos',
-                  style: TextStyle(
-                      color: Colors.orange.shade700,
-                      fontWeight: FontWeight.w600)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle_rounded,
+              color: ThemeCleanPremium.success,
+              size: 56,
             ),
-          const SizedBox(height: 12),
-          Text(
-            'Um registro será salvo no histórico de inventários.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-        ]),
+            const SizedBox(height: 16),
+            Text(
+              '$conferidos de $total bens conferidos',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            if (pendentes > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '$pendentes bens NÃO conferidos',
+                  style: TextStyle(
+                    color: Colors.orange.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+            Text(
+              'Um registro será salvo no histórico de inventários.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
         actions: [
           FilledButton(
             onPressed: () async {
@@ -6544,16 +7035,18 @@ class _InventarioTabState extends State<_InventarioTab> {
                   });
                 }
                 final op = ChurchRepository.churchId(widget.tenantId);
-                await ChurchUiCollections.patrimonioInventarioHistorico(op)
-                    .add({
+                await ChurchUiCollections.patrimonioInventarioHistorico(
+                  op,
+                ).add({
                   'churchId': op,
                   'tenantId': op,
                   'finalizadoEm': FieldValue.serverTimestamp(),
                   'totalBens': total,
                   'conferidos': conferidos,
                   'pendentes': pendentes,
-                  'percentualConferido':
-                      total > 0 ? (100.0 * conferidos / total) : 0.0,
+                  'percentualConferido': total > 0
+                      ? (100.0 * conferidos / total)
+                      : 0.0,
                   'criadoPorUid': uid,
                   'criadoPorNome': nome,
                   'titulo':
@@ -6568,7 +7061,8 @@ class _InventarioTabState extends State<_InventarioTab> {
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     SnackBar(
                       content: const Text(
-                          'Não foi possível gravar o histórico. Verifique permissões.'),
+                        'Não foi possível gravar o histórico. Verifique permissões.',
+                      ),
                       backgroundColor: ThemeCleanPremium.error,
                     ),
                   );
@@ -6613,16 +7107,26 @@ class _InventarioTabState extends State<_InventarioTab> {
         }
         if (docs.isEmpty) {
           return Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.inventory_2_outlined,
-                size: 64, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text('Nenhum patrimônio cadastrado',
-                style: TextStyle(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 64,
+                  color: Colors.grey.shade300,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Nenhum patrimônio cadastrado',
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade500)),
-          ]));
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
 
         final now = DateTime.now();
@@ -6667,28 +7171,36 @@ class _InventarioTabState extends State<_InventarioTab> {
             ),
             const SizedBox(height: 16),
             // Summary cards
-            Row(children: [
-              Expanded(
+            Row(
+              children: [
+                Expanded(
                   child: _MiniSummary(
-                      icon: Icons.inventory_2_rounded,
-                      label: 'Total',
-                      value: '${docs.length}',
-                      color: ThemeCleanPremium.primary)),
-              const SizedBox(width: 10),
-              Expanded(
+                    icon: Icons.inventory_2_rounded,
+                    label: 'Total',
+                    value: '${docs.length}',
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
                   child: _MiniSummary(
-                      icon: Icons.check_circle_rounded,
-                      label: 'Conferidos (90d)',
-                      value: '$conferidosRecente',
-                      color: ThemeCleanPremium.success)),
-              const SizedBox(width: 10),
-              Expanded(
+                    icon: Icons.check_circle_rounded,
+                    label: 'Conferidos (90d)',
+                    value: '$conferidosRecente',
+                    color: ThemeCleanPremium.success,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
                   child: _MiniSummary(
-                      icon: Icons.warning_rounded,
-                      label: 'Pendentes',
-                      value: '$semConferencia',
-                      color: Colors.orange.shade700)),
-            ]),
+                    icon: Icons.warning_rounded,
+                    label: 'Pendentes',
+                    value: '$semConferencia',
+                    color: Colors.orange.shade700,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
 
             // Action button
@@ -6698,13 +7210,17 @@ class _InventarioTabState extends State<_InventarioTab> {
                 child: FilledButton.icon(
                   onPressed: _iniciarConferencia,
                   icon: const Icon(Icons.fact_check_rounded),
-                  label: const Text('Iniciar Conferência',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  label: const Text(
+                    'Iniciar Conferência',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   style: FilledButton.styleFrom(
                     backgroundColor: ThemeCleanPremium.primary,
                     shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -6712,28 +7228,40 @@ class _InventarioTabState extends State<_InventarioTab> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: ThemeCleanPremium.primary.withOpacity(0.06),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  border: Border.all(
-                      color: ThemeCleanPremium.primary.withOpacity(0.15)),
-                ),
-                child: Row(children: [
-                  Icon(Icons.fact_check_rounded,
-                      color: ThemeCleanPremium.primary, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                      child: Text(
-                          'Conferência em andamento — ${_conferidos.length}/${docs.length}',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: ThemeCleanPremium.primary))),
-                  TextButton(
-                    onPressed: () => _finalizarConferencia(docs),
-                    child: const Text('Finalizar',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
                   ),
-                ]),
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.fact_check_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Conferência em andamento — ${_conferidos.length}/${docs.length}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: ThemeCleanPremium.primary,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => _finalizarConferencia(docs),
+                      child: const Text(
+                        'Finalizar',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
             const SizedBox(height: 12),
@@ -6777,7 +7305,8 @@ class _InventarioHistoricoSection extends StatefulWidget {
       _InventarioHistoricoSectionState();
 }
 
-class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection> {
+class _InventarioHistoricoSectionState
+    extends State<_InventarioHistoricoSection> {
   int? _filtroAno;
   int? _filtroMes;
   int? _filtroDia;
@@ -6792,12 +7321,13 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
     _historicoFuture = _loadHistorico();
   }
 
-  Future<ChurchPatrimonioLoadResult> _loadHistorico({bool forceFresh = false}) =>
-      ChurchPatrimonioLoadService.loadInventarioHistorico(
-        seedTenantId: _tenantId,
-        forceRefresh: forceFresh,
-        forceServer: forceFresh,
-      );
+  Future<ChurchPatrimonioLoadResult> _loadHistorico({
+    bool forceFresh = false,
+  }) => ChurchPatrimonioLoadService.loadInventarioHistorico(
+    seedTenantId: _tenantId,
+    forceRefresh: forceFresh,
+    forceServer: forceFresh,
+  );
 
   void _refreshHistorico() {
     setState(() {
@@ -6809,7 +7339,8 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
     final m = d.data();
     final ts = m['finalizadoEm'];
     if (ts is! Timestamp) {
-      return _filtroCategoria.isEmpty && _filtroAno == null &&
+      return _filtroCategoria.isEmpty &&
+          _filtroAno == null &&
           _filtroMes == null &&
           _filtroDia == null;
     }
@@ -6821,8 +7352,7 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
     final itens = m['itens'];
     if (itens is! List) return false;
     for (final e in itens) {
-      if (e is Map &&
-          (e['categoria'] ?? '').toString() == _filtroCategoria) {
+      if (e is Map && (e['categoria'] ?? '').toString() == _filtroCategoria) {
         return true;
       }
     }
@@ -6849,7 +7379,8 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
     return FutureBuilder<ChurchPatrimonioLoadResult>(
       future: _historicoFuture,
       builder: (context, hSnap) {
-        if (hSnap.connectionState == ConnectionState.waiting && !hSnap.hasData) {
+        if (hSnap.connectionState == ConnectionState.waiting &&
+            !hSnap.hasData) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(child: CircularProgressIndicator()),
@@ -6886,7 +7417,8 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
             border: Border.all(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.12)),
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -6899,8 +7431,11 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                       color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.history_rounded,
-                        color: ThemeCleanPremium.primary, size: 22),
+                    child: Icon(
+                      Icons.history_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 22,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -6973,8 +7508,9 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                               DropdownMenuItem<int?>(
                                 value: m,
                                 child: Text(
-                                  DateFormat.MMM('pt_BR')
-                                      .format(DateTime(2024, m)),
+                                  DateFormat.MMM(
+                                    'pt_BR',
+                                  ).format(DateTime(2024, m)),
                                 ),
                               ),
                           ],
@@ -7019,15 +7555,11 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                             for (final c in widget.categorias)
                               DropdownMenuItem<String?>(
                                 value: c,
-                                child: Text(
-                                  c,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                                child: Text(c, overflow: TextOverflow.ellipsis),
                               ),
                           ],
-                          onChanged: (v) => setState(
-                            () => _filtroCategoria = v ?? '',
-                          ),
+                          onChanged: (v) =>
+                              setState(() => _filtroCategoria = v ?? ''),
                         ),
                       ),
                       TextButton.icon(
@@ -7037,7 +7569,10 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                           _filtroDia = null;
                           _filtroCategoria = '';
                         }),
-                        icon: const Icon(Icons.filter_alt_off_rounded, size: 18),
+                        icon: const Icon(
+                          Icons.filter_alt_off_rounded,
+                          size: 18,
+                        ),
                         label: const Text('Limpar'),
                       ),
                     ],
@@ -7078,20 +7613,25 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 12),
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.success
-                                      .withValues(alpha: 0.12),
+                                  color: ThemeCleanPremium.success.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: Icon(Icons.picture_as_pdf_outlined,
-                                    size: 20,
-                                    color: ThemeCleanPremium.success),
+                                child: Icon(
+                                  Icons.picture_as_pdf_outlined,
+                                  size: 20,
+                                  color: ThemeCleanPremium.success,
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Expanded(
@@ -7138,8 +7678,10 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
                                   ],
                                 ),
                               ),
-                              Icon(Icons.chevron_right_rounded,
-                                  color: Colors.grey.shade400),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: Colors.grey.shade400,
+                              ),
                             ],
                           ),
                         ),
@@ -7241,8 +7783,11 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
     if (itens is List) {
       for (final e in itens) {
         if (e is Map) {
-          rows.add(Map<String, dynamic>.from(
-              e.map((k, v) => MapEntry(k.toString(), v))));
+          rows.add(
+            Map<String, dynamic>.from(
+              e.map((k, v) => MapEntry(k.toString(), v)),
+            ),
+          );
         }
       }
     }
@@ -7360,8 +7905,11 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.person_rounded,
-                            color: Colors.white, size: 22),
+                        const Icon(
+                          Icons.person_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -7382,9 +7930,7 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Text(
-            rows.isEmpty
-                ? 'Detalhe por bem'
-                : 'Bens (${rows.length})',
+            rows.isEmpty ? 'Detalhe por bem' : 'Bens (${rows.length})',
             style: const TextStyle(
               fontWeight: FontWeight.w900,
               fontSize: 16,
@@ -7465,7 +8011,9 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
                           Row(
                             children: [
                               Icon(
-                                ok ? Icons.verified_rounded : Icons.help_outline,
+                                ok
+                                    ? Icons.verified_rounded
+                                    : Icons.help_outline,
                                 size: 16,
                                 color: ok
                                     ? ThemeCleanPremium.success
@@ -7530,8 +8078,11 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Icon(Icons.draw_rounded,
-                        color: ThemeCleanPremium.primary, size: 22),
+                    Icon(
+                      Icons.draw_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 22,
+                    ),
                     const SizedBox(width: 8),
                     const Text(
                       'Validação pastoral',
@@ -7637,11 +8188,12 @@ class _MiniSummary extends StatelessWidget {
   final IconData icon;
   final String label, value;
   final Color color;
-  const _MiniSummary(
-      {required this.icon,
-      required this.label,
-      required this.value,
-      required this.color});
+  const _MiniSummary({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -7652,16 +8204,25 @@ class _MiniSummary extends StatelessWidget {
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
-      child: Column(children: [
-        Icon(icon, color: color, size: 22),
-        const SizedBox(height: 4),
-        Text(value,
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 22),
+          const SizedBox(height: 4),
+          Text(
+            value,
             style: TextStyle(
-                fontSize: 18, fontWeight: FontWeight.w800, color: color)),
-        Text(label,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
             style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
-            textAlign: TextAlign.center),
-      ]),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -7698,64 +8259,90 @@ class _ConferenciaItem extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: jaConferido
-            ? ThemeCleanPremium.success.withOpacity(0.04)
+            ? ThemeCleanPremium.success.withValues(alpha: 0.04)
             : Colors.white,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
         border: jaConferido
-            ? Border.all(color: ThemeCleanPremium.success.withOpacity(0.3))
+            ? Border.all(
+                color: ThemeCleanPremium.success.withValues(alpha: 0.3),
+              )
             : null,
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-                color: cor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10)),
-            child: Icon(catIcon(cat), color: cor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Text(nome,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 13)),
-                if (local.isNotEmpty)
-                  Text(local,
-                      style:
-                          TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                if (ucDate.isNotEmpty)
-                  Text(
-                      'Última: $ucDate${ucPor.isNotEmpty ? ' por $ucPor' : ''}',
-                      style:
-                          TextStyle(fontSize: 10, color: Colors.grey.shade500))
-                else
-                  Text('Nunca conferido',
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.orange.shade700,
-                          fontWeight: FontWeight.w600)),
-              ])),
-          if (conferindo && !jaConferido)
-            FilledButton.icon(
-              onPressed: onConferir,
-              icon: const Icon(Icons.check_rounded, size: 16),
-              label: const Text('OK', style: TextStyle(fontSize: 12)),
-              style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.success,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                minimumSize: const Size(48, 36),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: cor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
               ),
-            )
-          else if (jaConferido)
-            const Icon(Icons.check_circle_rounded,
-                color: ThemeCleanPremium.success, size: 24),
-        ]),
+              child: Icon(catIcon(cat), color: cor, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nome,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (local.isNotEmpty)
+                    Text(
+                      local,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  if (ucDate.isNotEmpty)
+                    Text(
+                      'Última: $ucDate${ucPor.isNotEmpty ? ' por $ucPor' : ''}',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade500,
+                      ),
+                    )
+                  else
+                    Text(
+                      'Nunca conferido',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.orange.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (conferindo && !jaConferido)
+              FilledButton.icon(
+                onPressed: onConferir,
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: const Text('OK', style: TextStyle(fontSize: 12)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.success,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  minimumSize: const Size(48, 36),
+                ),
+              )
+            else if (jaConferido)
+              const Icon(
+                Icons.check_circle_rounded,
+                color: ThemeCleanPremium.success,
+                size: 24,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -7810,14 +8397,15 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
 
   void _openFullscreenZoom() {
     if (widget.urls.isEmpty) return;
-    final i =
-        (_controller.page ?? 0).round().clamp(0, widget.urls.length - 1);
-    unawaited(_PatrimonioFullscreenGallery.open(
-      context,
-      urls: widget.urls,
-      storagePaths: widget.storagePaths,
-      initialIndex: i,
-    ));
+    final i = (_controller.page ?? 0).round().clamp(0, widget.urls.length - 1);
+    unawaited(
+      _PatrimonioFullscreenGallery.open(
+        context,
+        urls: widget.urls,
+        storagePaths: widget.storagePaths,
+        initialIndex: i,
+      ),
+    );
   }
 
   @override
@@ -7836,17 +8424,15 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
         itemCount: widget.urls.length,
         itemBuilder: (_, i) {
           final raw = widget.urls[i];
-          final path =
-              i < widget.storagePaths.length ? widget.storagePaths[i] : null;
+          final path = i < widget.storagePaths.length
+              ? widget.storagePaths[i]
+              : null;
           return FotoPatrimonioWidget(
             key: ValueKey('pat_photo_${raw}_${path}_$i'),
             storagePath: path,
             candidateUrls: [
               if (raw.isNotEmpty) raw,
-              if (path != null &&
-                  path.isNotEmpty &&
-                  path != raw)
-                path,
+              if (path != null && path.isNotEmpty && path != raw) path,
             ],
             fit: BoxFit.contain,
             width: double.infinity,
@@ -7854,24 +8440,24 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
             memCacheWidth: widget.memCacheWidth,
             memCacheHeight: widget.memCacheHeight,
             placeholder: Container(
-              color: widget.cor.withOpacity(0.08),
+              color: widget.cor.withValues(alpha: 0.08),
               alignment: Alignment.center,
               child: SizedBox(
                 width: 28,
                 height: 28,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.2,
-                  color: widget.cor.withOpacity(0.45),
+                  color: widget.cor.withValues(alpha: 0.45),
                 ),
               ),
             ),
             errorWidget: Container(
-              color: widget.cor.withOpacity(0.08),
+              color: widget.cor.withValues(alpha: 0.08),
               child: Center(
                 child: Icon(
                   _PatrimonioPageState._catIcon(widget.categoria),
                   size: 56,
-                  color: widget.cor.withOpacity(0.5),
+                  color: widget.cor.withValues(alpha: 0.5),
                 ),
               ),
             ),
@@ -7907,8 +8493,11 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
                                 minWidth: 40,
                                 minHeight: 40,
                               ),
-                              icon: Icon(Icons.chevron_left_rounded,
-                                  color: widget.cor, size: 28),
+                              icon: Icon(
+                                Icons.chevron_left_rounded,
+                                color: widget.cor,
+                                size: 28,
+                              ),
                               onPressed: () {
                                 final i = _controller.page?.round() ?? 0;
                                 _goToPage(i - 1);
@@ -7929,8 +8518,11 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
                                 minWidth: 40,
                                 minHeight: 40,
                               ),
-                              icon: Icon(Icons.chevron_right_rounded,
-                                  color: widget.cor, size: 28),
+                              icon: Icon(
+                                Icons.chevron_right_rounded,
+                                color: widget.cor,
+                                size: 28,
+                              ),
                               onPressed: () {
                                 final i = _controller.page?.round() ?? 0;
                                 _goToPage(i + 1);
@@ -7999,7 +8591,8 @@ class _PatrimonioFullscreenGallery extends StatefulWidget {
       _PatrimonioFullscreenGalleryState();
 }
 
-class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGallery> {
+class _PatrimonioFullscreenGalleryState
+    extends State<_PatrimonioFullscreenGallery> {
   late final PageController _pageController;
   late int _current;
 
@@ -8029,8 +8622,10 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
           title: const Text('Fotos'),
         ),
         body: const Center(
-          child: Text('Nenhuma imagem',
-              style: TextStyle(color: Colors.white54)),
+          child: Text(
+            'Nenhuma imagem',
+            style: TextStyle(color: Colors.white54),
+          ),
         ),
       );
     }
@@ -8056,8 +8651,11 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
               if (raw.isEmpty && (path == null || path.isEmpty)) {
                 return PhotoViewGalleryPageOptions.customChild(
                   child: const Center(
-                    child: Icon(Icons.broken_image_rounded,
-                        color: Colors.white54, size: 64),
+                    child: Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                      size: 64,
+                    ),
                   ),
                   minScale: PhotoViewComputedScale.contained,
                   maxScale: PhotoViewComputedScale.contained,
@@ -8069,10 +8667,7 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
                   storagePath: path,
                   candidateUrls: [
                     if (raw.isNotEmpty) raw,
-                    if (path != null &&
-                        path.isNotEmpty &&
-                        path != raw)
-                      path,
+                    if (path != null && path.isNotEmpty && path != raw) path,
                   ],
                   width: sz.width,
                   height: h,
@@ -8081,8 +8676,11 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
                   fit: BoxFit.contain,
                   placeholder: const ColoredBox(color: Colors.black),
                   errorWidget: const Center(
-                    child: Icon(Icons.broken_image_rounded,
-                        color: Colors.white54, size: 64),
+                    child: Icon(
+                      Icons.broken_image_rounded,
+                      color: Colors.white54,
+                      size: 64,
+                    ),
                   ),
                 ),
                 minScale: PhotoViewComputedScale.contained,
@@ -8099,8 +8697,10 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
               color: Colors.black45,
               borderRadius: BorderRadius.circular(20),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 child: Text(
                   '${_current + 1} / ${widget.urls.length}',
                   style: const TextStyle(color: Colors.white70, fontSize: 14),
@@ -8118,8 +8718,11 @@ class _PatrimonioFullscreenGalleryState extends State<_PatrimonioFullscreenGalle
               child: IconButton(
                 tooltip: 'Fechar',
                 onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close_rounded,
-                    color: Colors.white, size: 26),
+                icon: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
               ),
             ),
           ),
@@ -8177,17 +8780,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     {
       'key': 'precisa_reparo',
       'label': 'Precisa de Reparo',
-      'icon': Icons.handyman_outlined
+      'icon': Icons.handyman_outlined,
     },
     {
       'key': 'em_manutencao',
       'label': 'Em manutenção',
-      'icon': Icons.build_circle_outlined
+      'icon': Icons.build_circle_outlined,
     },
     {
       'key': 'danificado',
       'label': 'Danificado',
-      'icon': Icons.warning_amber_rounded
+      'icon': Icons.warning_amber_rounded,
     },
     {'key': 'obsoleto', 'label': 'Obsoleto', 'icon': Icons.cancel_outlined},
   ];
@@ -8207,29 +8810,34 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       vd = parseBrCurrencyInput(vn.toString());
     }
     _valor = TextEditingController(
-        text: vd != null && vd > 0 ? formatBrCurrencyInitial(vd) : '');
-    _local =
-        TextEditingController(text: (data['localizacao'] ?? '').toString());
+      text: vd != null && vd > 0 ? formatBrCurrencyInitial(vd) : '',
+    );
+    _local = TextEditingController(
+      text: (data['localizacao'] ?? '').toString(),
+    );
     _resp = TextEditingController(text: (data['responsavel'] ?? '').toString());
-    _serie =
-        TextEditingController(text: (data['numeroSerie'] ?? '').toString());
+    _serie = TextEditingController(
+      text: (data['numeroSerie'] ?? '').toString(),
+    );
     _obs = TextEditingController(text: (data['observacoes'] ?? '').toString());
-    _vidaUtil =
-        TextEditingController(text: (data['vidaUtil'] ?? '').toString());
+    _vidaUtil = TextEditingController(
+      text: (data['vidaUtil'] ?? '').toString(),
+    );
     _codigo = TextEditingController(
-        text: (data['codigoPatrimonio'] ?? data['codigo_patrimonio'] ?? '')
-            .toString());
+      text: (data['codigoPatrimonio'] ?? data['codigo_patrimonio'] ?? '')
+          .toString(),
+    );
     _categoriasOpcoes = List<String>.from(widget.categorias);
     var cat = PatrimonioCategoriaService.normalizar(
-        (data['categoria'] ?? 'Som').toString());
+      (data['categoria'] ?? 'Som').toString(),
+    );
     if (!_categoriasOpcoes.contains(cat)) {
       cat = _categoriasOpcoes.contains('Outro')
           ? 'Outro'
           : (_categoriasOpcoes.isNotEmpty ? _categoriasOpcoes.first : 'Outro');
     }
     _categoria = cat;
-    _status = (data['status'] ??
-            (widget.doc == null ? 'novo' : 'bom'))
+    _status = (data['status'] ?? (widget.doc == null ? 'novo' : 'bom'))
         .toString();
     if (widget.doc == null) {
       _dataAquisicao = DateTime.now();
@@ -8276,8 +8884,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                   color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.category_rounded,
-                    color: ThemeCleanPremium.primary, size: 22),
+                child: Icon(
+                  Icons.category_rounded,
+                  color: ThemeCleanPremium.primary,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
               const Expanded(child: Text('Nova categoria')),
@@ -8292,8 +8903,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               filled: true,
               fillColor: ThemeCleanPremium.surfaceVariant,
               border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
                 borderSide: BorderSide.none,
               ),
             ),
@@ -8380,10 +8990,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Categoria',
-                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      )),
+              Text(
+                'Categoria',
+                style: Theme.of(
+                  ctx,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 4),
               Text(
                 'Escolha ou cadastre uma categoria para o bem.',
@@ -8402,8 +9014,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                       label: Text(c),
                       selected: _categoria == c,
                       onSelected: (_) => Navigator.pop(ctx, c),
-                      selectedColor:
-                          _PatrimonioPageState._catColor(c).withValues(alpha: 0.2),
+                      selectedColor: _PatrimonioPageState._catColor(
+                        c,
+                      ).withValues(alpha: 0.2),
                       labelStyle: TextStyle(
                         fontWeight: _categoria == c
                             ? FontWeight.w700
@@ -8454,7 +9067,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Informe a data de aquisição (campo obrigatório).')),
+          content: Text('Informe a data de aquisição (campo obrigatório).'),
+        ),
       );
       return;
     }
@@ -8491,8 +9105,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         'codigoPatrimonio': _codigo.text.trim(),
         'valor': valor,
         'vidaUtil': vidaUtil,
-        'dataAquisicao':
-            _dataAquisicao != null ? Timestamp.fromDate(_dataAquisicao!) : null,
+        'dataAquisicao': _dataAquisicao != null
+            ? Timestamp.fromDate(_dataAquisicao!)
+            : null,
         'proximaManutencao': _proximaManutencao != null
             ? Timestamp.fromDate(_proximaManutencao!)
             : null,
@@ -8517,7 +9132,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final itemId = _itemRef.id;
       final prev = widget.doc?.data();
 
-      final photoSnap = editor?.snapshot ??
+      final photoSnap =
+          editor?.snapshot ??
           PatrimonioItemPhotosSnapshot(
             slotUrls: List<String>.filled(
               PatrimonioItemPhotosEditor.maxPhotos,
@@ -8534,17 +9150,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final uploadsBySlot = photoSnap.uploadsBySlot;
 
       if (uploadsBySlot.isEmpty && widget.doc != null && prev != null) {
-        final oldList = PatrimonioPhotoFields.urlsFromData(prev)
-            .map((e) => sanitizeImageUrl(e))
-            .where((e) => e.isNotEmpty)
-            .toList();
+        final oldList = PatrimonioPhotoFields.urlsFromData(
+          prev,
+        ).map((e) => sanitizeImageUrl(e)).where((e) => e.isNotEmpty).toList();
         final oldSet = oldList.toSet();
         final newSet = indexedSlotUrls
             .map((e) => sanitizeImageUrl(e))
             .where((e) => e.isNotEmpty)
             .toSet();
         await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-            oldSet.difference(newSet));
+          oldSet.difference(newSet),
+        );
         final oldFirst = oldList.isEmpty ? '' : oldList.first;
         final newUrls = indexedSlotUrls
             .map((e) => sanitizeImageUrl(e))
@@ -8554,11 +9170,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         if (oldFirst.isNotEmpty && oldFirst != newFirst) {
           await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
             FirebaseStorageCleanupService.urlsFromVariantMap(
-                prev['imageVariants']),
+              prev['imageVariants'],
+            ),
           );
           await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
             FirebaseStorageCleanupService.urlsFromVariantMap(
-                prev['fotoVariants']),
+              prev['fotoVariants'],
+            ),
           );
         }
       }
@@ -8782,85 +9400,101 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
               // ── Identificação ──
               _SectionHeader(
-                  title: 'Identificação',
-                  icon: Icons.badge_rounded,
-                  color: cor),
+                title: 'Identificação',
+                icon: Icons.badge_rounded,
+                color: cor,
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                TextFormField(
+              _FormCard(
+                children: [
+                  TextFormField(
                     controller: _nome,
                     decoration: const InputDecoration(
-                        labelText: 'Nome do bem *',
-                        prefixIcon: Icon(Icons.label_rounded)),
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Obrigatório' : null),
-                const SizedBox(height: 14),
-                InkWell(
-                  onTap: _saving ? null : _openCategoriaPicker,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Categoria *',
-                      prefixIcon: Icon(Icons.category_rounded),
+                      labelText: 'Nome do bem *',
+                      prefixIcon: Icon(Icons.label_rounded),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _categoria,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Obrigatório' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  InkWell(
+                    onTap: _saving ? null : _openCategoriaPicker,
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusMd,
+                    ),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Categoria *',
+                        prefixIcon: Icon(Icons.category_rounded),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _categoria,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                        ),
-                        Icon(Icons.expand_more_rounded,
-                            color: ThemeCleanPremium.onSurfaceVariant),
-                      ],
+                          Icon(
+                            Icons.expand_more_rounded,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _codigo,
                     textCapitalization: TextCapitalization.characters,
                     decoration: const InputDecoration(
-                        labelText: 'Código de patrimônio',
-                        hintText: 'Opcional — útil em buscas e etiquetas',
-                        prefixIcon: Icon(Icons.tag_rounded)),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
+                      labelText: 'Código de patrimônio',
+                      hintText: 'Opcional — útil em buscas e etiquetas',
+                      prefixIcon: Icon(Icons.tag_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _desc,
                     maxLines: 3,
                     decoration: const InputDecoration(
-                        labelText: 'Descrição',
-                        prefixIcon: Icon(Icons.description_rounded),
-                        alignLabelWithHint: true)),
-                const SizedBox(height: 14),
-                TextFormField(
+                      labelText: 'Descrição',
+                      prefixIcon: Icon(Icons.description_rounded),
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _serie,
                     decoration: const InputDecoration(
-                        labelText: 'Número de série',
-                        prefixIcon: Icon(Icons.qr_code_rounded))),
-              ]),
+                      labelText: 'Número de série',
+                      prefixIcon: Icon(Icons.qr_code_rounded),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Financeiro + Depreciação ──
               _SectionHeader(
-                  title: 'Financeiro & Depreciação',
-                  icon: Icons.attach_money_rounded,
-                  color: ThemeCleanPremium.success),
+                title: 'Financeiro & Depreciação',
+                icon: Icons.attach_money_rounded,
+                color: ThemeCleanPremium.success,
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                TextFormField(
+              _FormCard(
+                children: [
+                  TextFormField(
                     controller: _valor,
                     keyboardType: TextInputType.number,
                     inputFormatters: [BrCurrencyInputFormatter()],
                     decoration: const InputDecoration(
-                        labelText: 'Valor de compra (R\$) *',
-                        prefixIcon: Icon(Icons.payments_rounded)),
+                      labelText: 'Valor de compra (R\$) *',
+                      prefixIcon: Icon(Icons.payments_rounded),
+                    ),
                     validator: (v) {
                       if (v == null || v.trim().isEmpty) {
                         return 'Informe o valor de compra';
@@ -8868,153 +9502,197 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                       final n = parseBrCurrencyInput(v);
                       if (n < 0) return 'Valor inválido';
                       return null;
-                    }),
-                const SizedBox(height: 14),
-                TextFormField(
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _vidaUtil,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(
-                        labelText: 'Vida útil (anos)',
-                        prefixIcon: Icon(Icons.timelapse_rounded),
-                        hintText: 'Ex: 5, 10, 15')),
-                const SizedBox(height: 14),
-                GestureDetector(
-                  onTap: () async {
-                    final d = await showDatePicker(
+                      labelText: 'Vida útil (anos)',
+                      prefixIcon: Icon(Icons.timelapse_rounded),
+                      hintText: 'Ex: 5, 10, 15',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
                         context: context,
                         initialDate: _dataAquisicao ?? DateTime.now(),
                         firstDate: DateTime(1950),
-                        lastDate:
-                            DateTime.now().add(const Duration(days: 365)));
-                    if (d != null) setState(() => _dataAquisicao = d);
-                  },
-                  child: AbsorbPointer(
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (d != null) setState(() => _dataAquisicao = d);
+                    },
+                    child: AbsorbPointer(
                       child: TextFormField(
-                    decoration: const InputDecoration(
-                        labelText: 'Data de aquisição *',
-                        prefixIcon: Icon(Icons.calendar_month_rounded),
-                        hintText: 'Toque para escolher',
+                        decoration: const InputDecoration(
+                          labelText: 'Data de aquisição *',
+                          prefixIcon: Icon(Icons.calendar_month_rounded),
+                          hintText: 'Toque para escolher',
+                        ),
+                        controller: TextEditingController(
+                          text: _dataAquisicao != null
+                              ? DateFormat('dd/MM/yyyy').format(_dataAquisicao!)
+                              : '',
+                        ),
                       ),
-                    controller: TextEditingController(
-                        text: _dataAquisicao != null
-                            ? DateFormat('dd/MM/yyyy').format(_dataAquisicao!)
-                            : ''),
-                  )),
-                ),
-              ]),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Localização ──
               _SectionHeader(
-                  title: 'Localização e Responsável',
-                  icon: Icons.location_on_rounded,
-                  color: const Color(0xFF7C3AED)),
+                title: 'Localização e Responsável',
+                icon: Icons.location_on_rounded,
+                color: const Color(0xFF7C3AED),
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                TextFormField(
+              _FormCard(
+                children: [
+                  TextFormField(
                     controller: _local,
                     decoration: const InputDecoration(
-                        labelText: 'Localização',
-                        prefixIcon: Icon(Icons.place_rounded))),
-                const SizedBox(height: 14),
-                TextFormField(
+                      labelText: 'Localização',
+                      prefixIcon: Icon(Icons.place_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
                     controller: _resp,
                     decoration: const InputDecoration(
-                        labelText: 'Responsável',
-                        prefixIcon: Icon(Icons.person_rounded))),
-              ]),
+                      labelText: 'Responsável',
+                      prefixIcon: Icon(Icons.person_rounded),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Manutenção ──
               _SectionHeader(
-                  title: 'Manutenção Programada',
-                  icon: Icons.build_rounded,
-                  color: Colors.orange.shade700),
+                title: 'Manutenção Programada',
+                icon: Icons.build_rounded,
+                color: Colors.orange.shade700,
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                GestureDetector(
-                  onTap: () async {
-                    final d = await showDatePicker(
+              _FormCard(
+                children: [
+                  GestureDetector(
+                    onTap: () async {
+                      final d = await showDatePicker(
                         context: context,
-                        initialDate: _proximaManutencao ??
+                        initialDate:
+                            _proximaManutencao ??
                             DateTime.now().add(const Duration(days: 90)),
                         firstDate: DateTime.now(),
-                        lastDate:
-                            DateTime.now().add(const Duration(days: 365 * 5)));
-                    if (d != null) setState(() => _proximaManutencao = d);
-                  },
-                  child: AbsorbPointer(
+                        lastDate: DateTime.now().add(
+                          const Duration(days: 365 * 5),
+                        ),
+                      );
+                      if (d != null) setState(() => _proximaManutencao = d);
+                    },
+                    child: AbsorbPointer(
                       child: TextFormField(
-                    decoration: InputDecoration(
-                      labelText: 'Próxima manutenção',
-                      prefixIcon: const Icon(Icons.event_rounded),
-                      suffixIcon: _proximaManutencao != null
-                          ? IconButton(
-                              icon: const Icon(Icons.clear_rounded, size: 18),
-                              onPressed: () =>
-                                  setState(() => _proximaManutencao = null))
-                          : null,
+                        decoration: InputDecoration(
+                          labelText: 'Próxima manutenção',
+                          prefixIcon: const Icon(Icons.event_rounded),
+                          suffixIcon: _proximaManutencao != null
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear_rounded,
+                                    size: 18,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _proximaManutencao = null),
+                                )
+                              : null,
+                        ),
+                        controller: TextEditingController(
+                          text: _proximaManutencao != null
+                              ? DateFormat(
+                                  'dd/MM/yyyy',
+                                ).format(_proximaManutencao!)
+                              : '',
+                        ),
+                      ),
                     ),
-                    controller: TextEditingController(
-                        text: _proximaManutencao != null
-                            ? DateFormat('dd/MM/yyyy')
-                                .format(_proximaManutencao!)
-                            : ''),
-                  )),
-                ),
-              ]),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Status ──
               _SectionHeader(
-                  title: 'Status',
-                  icon: Icons.flag_rounded,
-                  color: Colors.orange.shade700),
+                title: 'Status',
+                icon: Icons.flag_rounded,
+                color: Colors.orange.shade700,
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                Wrap(
+              _FormCard(
+                children: [
+                  Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: _statusOptions.map((s) {
                       final selected = _status == s['key'];
                       final c = _statusColorFromKey(s['key'] as String);
                       return ChoiceChip(
-                        avatar: Icon(s['icon'] as IconData,
-                            size: 18, color: selected ? Colors.white : c),
-                        label: Text(s['label'] as String,
-                            style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: selected ? Colors.white : c)),
+                        avatar: Icon(
+                          s['icon'] as IconData,
+                          size: 18,
+                          color: selected ? Colors.white : c,
+                        ),
+                        label: Text(
+                          s['label'] as String,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: selected ? Colors.white : c,
+                          ),
+                        ),
                         selected: selected,
                         selectedColor: c,
-                        backgroundColor: c.withOpacity(0.08),
+                        backgroundColor: c.withValues(alpha: 0.08),
                         onSelected: (_) =>
                             setState(() => _status = s['key'] as String),
                         side: BorderSide.none,
                       );
-                    }).toList()),
-              ]),
+                    }).toList(),
+                  ),
+                ],
+              ),
               const SizedBox(height: 20),
 
               // ── Observações ──
               _SectionHeader(
-                  title: 'Observações',
-                  icon: Icons.notes_rounded,
-                  color: Colors.grey.shade600),
+                title: 'Observações',
+                icon: Icons.notes_rounded,
+                color: Colors.grey.shade600,
+              ),
               const SizedBox(height: 10),
-              _FormCard(children: [
-                TextFormField(
+              _FormCard(
+                children: [
+                  TextFormField(
                     controller: _obs,
                     maxLines: 4,
                     decoration: const InputDecoration(
-                        labelText: 'Observações', alignLabelWithHint: true)),
-              ]),
+                      labelText: 'Observações',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
 
               if (_photosEditorKey.currentState?.isBusy == true) ...[
                 LinearProgressIndicator(
                   minHeight: 4,
-                  backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  backgroundColor: ThemeCleanPremium.primary.withValues(
+                    alpha: 0.12,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -9035,9 +9713,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: LinearProgressIndicator(
-                    value: _uploadProgress > 0 ? _uploadProgress.clamp(0.0, 1.0) : null,
+                    value: _uploadProgress > 0
+                        ? _uploadProgress.clamp(0.0, 1.0)
+                        : null,
                     minHeight: 10,
-                    backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    backgroundColor: ThemeCleanPremium.primary.withValues(
+                      alpha: 0.12,
+                    ),
                     color: ThemeCleanPremium.primary,
                   ),
                 ),
@@ -9076,23 +9758,35 @@ class _SectionHeader extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color color;
-  const _SectionHeader(
-      {required this.title, required this.icon, required this.color});
+  const _SectionHeader({
+    required this.title,
+    required this.icon,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Row(children: [
-      Container(
+    return Row(
+      children: [
+        Container(
           padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8)),
-          child: Icon(icon, color: color, size: 18)),
-      const SizedBox(width: 10),
-      Text(title,
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 18),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
           style: TextStyle(
-              fontSize: 14, fontWeight: FontWeight.w800, color: color)),
-    ]);
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -9105,11 +9799,14 @@ class _FormCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-          boxShadow: ThemeCleanPremium.softUiCardShadow),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
       child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
     );
   }
 }
@@ -9121,13 +9818,14 @@ class _FilterChipPremium extends StatelessWidget {
   final Color? color;
   final bool small;
   final IconData? icon;
-  const _FilterChipPremium(
-      {required this.label,
-      required this.selected,
-      required this.onTap,
-      this.color,
-      this.small = false,
-      this.icon});
+  const _FilterChipPremium({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.color,
+    this.small = false,
+    this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -9153,9 +9851,7 @@ class _FilterChipPremium extends StatelessWidget {
                   : null,
               color: selected ? null : Colors.white,
               border: Border.all(
-                color: selected
-                    ? Colors.transparent
-                    : const Color(0xFFE8EDF5),
+                color: selected ? Colors.transparent : const Color(0xFFE8EDF5),
                 width: 1.1,
               ),
               boxShadow: selected
@@ -9182,11 +9878,7 @@ class _FilterChipPremium extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (icon != null) ...[
-                  Icon(
-                    icon,
-                    size: small ? 15.5 : 17,
-                    color: iconColor,
-                  ),
+                  Icon(icon, size: small ? 15.5 : 17, color: iconColor),
                   SizedBox(width: small ? 5 : 6),
                 ],
                 Text(
@@ -9212,29 +9904,41 @@ class _FilterChipPremium extends StatelessWidget {
 class _DetailItem extends StatelessWidget {
   final IconData icon;
   final String label, value;
-  const _DetailItem(
-      {required this.icon, required this.label, required this.value});
+  const _DetailItem({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (value.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, size: 18, color: Colors.grey.shade500),
-        const SizedBox(width: 10),
-        Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label,
-              style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.grey.shade500,
-                  fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 14)),
-        ])),
-      ]),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade500),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontSize: 14)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

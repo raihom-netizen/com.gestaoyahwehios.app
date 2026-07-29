@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:gestao_yahweh/core/yahweh_design_system.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 export 'package:gestao_yahweh/core/yahweh_design_system.dart' show YahwehDesignSystem;

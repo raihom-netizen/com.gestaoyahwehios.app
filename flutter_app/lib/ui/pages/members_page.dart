@@ -1,16 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:ui' show ImageByteFormat;
 
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
@@ -24,7 +20,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -51,8 +46,6 @@ import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
-import 'package:gestao_yahweh/services/media_upload_service.dart';
-import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
@@ -61,8 +54,6 @@ import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/services/member_nameless_purge_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
-import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
@@ -73,14 +64,12 @@ import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
@@ -93,7 +82,6 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
-import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:shimmer/shimmer.dart';
@@ -111,14 +99,11 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
-import 'member_card_page.dart';
 import 'member_card_cnh_nav.dart';
 import 'change_password_page.dart';
 import 'internal_new_member_page.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
@@ -206,12 +191,12 @@ class _MembersPageState extends State<MembersPage> {
   late final TextEditingController _searchCtrl;
   final ScrollController _membersScrollController = ScrollController();
   bool _didBootstrapOpenMemberSheet = false;
-  bool _linkCardExpanded = false;
+  final bool _linkCardExpanded = false;
 
   /// Legado (acordeões removidos — mantido para não quebrar saves de estado).
-  bool _filtrosExpanded = false;
-  bool _buscaRapidosExpanded = false;
-  bool _funcoesPermExpanded = false;
+  final bool _filtrosExpanded = false;
+  final bool _buscaRapidosExpanded = false;
+  final bool _funcoesPermExpanded = false;
 
   /// 0 = lista + filtros; 1 = painel estatístico (gráficos e números).
   int _membersMainTabIndex = 0;
@@ -556,18 +541,20 @@ class _MembersPageState extends State<MembersPage> {
   static int? _parseIdade(dynamic raw) {
     if (raw == null) return null;
     DateTime? dt;
-    if (raw is Timestamp)
+    if (raw is Timestamp) {
       dt = raw.toDate();
-    else if (raw is Map) {
+    } else if (raw is Map) {
       final sec = raw['seconds'] ?? raw['_seconds'];
-      if (sec != null)
+      if (sec != null) {
         dt = DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+      }
     }
     if (dt == null) return null;
     final now = DateTime.now();
     int age = now.year - dt.year;
-    if (now.month < dt.month || (now.month == dt.month && now.day < dt.day))
+    if (now.month < dt.month || (now.month == dt.month && now.day < dt.day)) {
       age--;
+    }
     return age;
   }
 
@@ -667,8 +654,9 @@ class _MembersPageState extends State<MembersPage> {
     if (_filtroDepartamento != 'todos') {
       out = out.where((m) {
         final depts = m.data['DEPARTAMENTOS'] ?? m.data['departamentos'];
-        if (depts is List)
+        if (depts is List) {
           return depts.any((x) => x.toString() == _filtroDepartamento);
+        }
         final d =
             (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '').toString();
         return d == _filtroDepartamento ||
@@ -2231,12 +2219,14 @@ class _MembersPageState extends State<MembersPage> {
         final data = d.data();
         final name = (data['name'] ?? d.id).toString().trim();
         final key = (data['key'] ?? d.id).toString().trim();
-        if (key.isNotEmpty && name.isNotEmpty)
+        if (key.isNotEmpty && name.isNotEmpty) {
           list.add((key: key, label: name));
+        }
       }
       for (final k in ['membro', 'adm', 'gestor']) {
-        if (!list.any((e) => e.key == k))
+        if (!list.any((e) => e.key == k)) {
           list.add((key: k, label: _funcaoLabel(k)));
+        }
       }
       list.sort(
           (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
@@ -2655,7 +2645,7 @@ class _MembersPageState extends State<MembersPage> {
             d,
             photo.isNotEmpty ||
                 _optimisticProfilePhotoBytes.containsKey(member.id)) ??
-        ThemeCleanPremium.primary.withOpacity(0.1);
+        ThemeCleanPremium.primary.withValues(alpha: 0.1);
     final photoTenantId = _storageTenantIdForMemberPhotos(d);
     final profissao = _str(d, 'PROFISSAO', 'profissao');
     final dataBatismo =
@@ -2784,9 +2774,9 @@ class _MembersPageState extends State<MembersPage> {
                                     gradient: LinearGradient(
                                       colors: [
                                         ThemeCleanPremium.primary
-                                            .withOpacity(0.5),
+                                            .withValues(alpha: 0.5),
                                         ThemeCleanPremium.primary
-                                            .withOpacity(0.15),
+                                            .withValues(alpha: 0.15),
                                       ],
                                     ),
                                   ),
@@ -2800,9 +2790,9 @@ class _MembersPageState extends State<MembersPage> {
                                     end: Alignment.bottomRight,
                                     colors: [
                                       ThemeCleanPremium.primary
-                                          .withOpacity(0.5),
+                                          .withValues(alpha: 0.5),
                                       ThemeCleanPremium.primary
-                                          .withOpacity(0.14),
+                                          .withValues(alpha: 0.14),
                                     ],
                                   ),
                                 ),
@@ -3314,10 +3304,11 @@ class _MembersPageState extends State<MembersPage> {
     }
     if (funcoesSelecionadas.isEmpty) {
       final f = _str(d, 'FUNCAO', 'funcao', 'CARGO', 'cargo', 'role').trim();
-      if (f.isNotEmpty)
+      if (f.isNotEmpty) {
         funcoesSelecionadas = [f];
-      else
+      } else {
         funcoesSelecionadas = [_normalizeFuncao(f)]; // fallback legado
+      }
     }
     if (funcoesSelecionadas.isEmpty) funcoesSelecionadas = ['membro'];
     final funcoesNotifier =
@@ -3348,8 +3339,8 @@ class _MembersPageState extends State<MembersPage> {
     bool podeVerFornecedores = d['podeVerFornecedores'] == true;
     bool podeEmitirRelatoriosCompletos =
         d['podeEmitirRelatoriosCompletos'] == true;
-    bool _loadingCep = false;
-    bool _pickingProfilePhoto = false;
+    bool loadingCep = false;
+    bool pickingProfilePhoto = false;
 
     /// Uma leitura por abertura do diálogo — evita novo Future a cada setDlg (checkboxes / toggles).
     final canTransferChurch = _canTransferMember;
@@ -3365,7 +3356,7 @@ class _MembersPageState extends State<MembersPage> {
         builder: (ctx, setDlg) {
           final isMob = MediaQuery.of(ctx).size.width < 600;
           final avatarBg = _avatarColor(d, currentPhoto.isNotEmpty) ??
-              ThemeCleanPremium.primary.withOpacity(0.1);
+              ThemeCleanPremium.primary.withValues(alpha: 0.1);
           return Dialog(
             insetPadding: isMob
                 ? const EdgeInsets.symmetric(horizontal: 8, vertical: 24)
@@ -3385,7 +3376,7 @@ class _MembersPageState extends State<MembersPage> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: ThemeCleanPremium.primary.withOpacity(0.06),
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
                       borderRadius:
                           const BorderRadius.vertical(top: Radius.circular(20)),
                     ),
@@ -3433,8 +3424,8 @@ class _MembersPageState extends State<MembersPage> {
                           // Foto (toque para trocar)
                           GestureDetector(
                             onTap: () async {
-                              if (_pickingProfilePhoto) return;
-                              setDlg(() => _pickingProfilePhoto = true);
+                              if (pickingProfilePhoto) return;
+                              setDlg(() => pickingProfilePhoto = true);
                               try {
                                 final picked =
                                     await MemberProfilePhotoPickService
@@ -3464,7 +3455,7 @@ class _MembersPageState extends State<MembersPage> {
                                 }
                               } finally {
                                 if (!ctx.mounted) return;
-                                setDlg(() => _pickingProfilePhoto = false);
+                                setDlg(() => pickingProfilePhoto = false);
                               }
                             },
                             child: Stack(
@@ -3472,7 +3463,7 @@ class _MembersPageState extends State<MembersPage> {
                               children: [
                                 ValueListenableBuilder<Uint8List?>(
                                   valueListenable: profilePhotoPreview,
-                                  builder: (_, preview, __) {
+                                  builder: (_, preview, _) {
                                     final localBytes =
                                         preview ?? newPhotoBytes;
                                     if (localBytes != null &&
@@ -3545,7 +3536,7 @@ class _MembersPageState extends State<MembersPage> {
                                 label: const Text('Remover foto'),
                               ),
                             ),
-                          if (_pickingProfilePhoto)
+                          if (pickingProfilePhoto)
                             const Padding(
                               padding: EdgeInsets.only(top: 10),
                               child: LinearProgressIndicator(minHeight: 3),
@@ -3643,8 +3634,9 @@ class _MembersPageState extends State<MembersPage> {
                                   firstDate: DateTime(1920),
                                   lastDate: DateTime.now(),
                                 );
-                                if (picked != null)
+                                if (picked != null) {
                                   setDlg(() => nascimento = picked);
+                                }
                               },
                               child: InputDecorator(
                                 decoration: InputDecoration(
@@ -3669,7 +3661,7 @@ class _MembersPageState extends State<MembersPage> {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: DropdownButtonFormField<String>(
-                              value: sexo.isNotEmpty ? sexo : null,
+                              initialValue: sexo.isNotEmpty ? sexo : null,
                               decoration: InputDecoration(
                                 labelText: 'Sexo',
                                 border: OutlineInputBorder(
@@ -3733,8 +3725,9 @@ class _MembersPageState extends State<MembersPage> {
                             FutureBuilder<List<MapEntry<String, String>>>(
                               future: tenantsForTransferFuture,
                               builder: (ctx, snap) {
-                                if (!snap.hasData)
+                                if (!snap.hasData) {
                                   return const SizedBox(height: 0);
+                                }
                                 final tenants = snap.data!;
                                 final hasCurrent = tenants.any(
                                     (e) => e.key == selectedTenantIdForEdit);
@@ -3749,7 +3742,7 @@ class _MembersPageState extends State<MembersPage> {
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: DropdownButtonFormField<String>(
                                     isExpanded: true,
-                                    value: list.any((e) =>
+                                    initialValue: list.any((e) =>
                                             e.key == selectedTenantIdForEdit)
                                         ? selectedTenantIdForEdit
                                         : null,
@@ -3834,7 +3827,7 @@ class _MembersPageState extends State<MembersPage> {
                                       return ValueListenableBuilder<
                                           List<String>>(
                                         valueListenable: funcoesNotifier,
-                                        builder: (_, selList, __) => Wrap(
+                                        builder: (_, selList, _) => Wrap(
                                           spacing: 8,
                                           runSpacing: 6,
                                           children: cargos.map((c) {
@@ -3870,8 +3863,9 @@ class _MembersPageState extends State<MembersPage> {
                                                           funcoesNotifier
                                                               .value);
                                                   if (sel) {
-                                                    if (!list.contains(c.key))
+                                                    if (!list.contains(c.key)) {
                                                       list.add(c.key);
+                                                    }
                                                   } else {
                                                     list.remove(c.key);
                                                     if (list.isEmpty) {
@@ -4041,12 +4035,13 @@ class _MembersPageState extends State<MembersPage> {
                                                     .successSnackBar(
                                                         'Senha redefinida. Senha temporária: $tempPassword — avise o membro ou peça que use "Esqueci minha senha".'));
                                           } catch (e) {
-                                            if (ctx.mounted)
+                                            if (ctx.mounted) {
                                               ScaffoldMessenger.of(context)
                                                   .showSnackBar(
                                                       ThemeCleanPremium
                                                           .feedbackSnackBar(
                                                               'Erro: $e'));
+                                            }
                                           }
                                         },
                                         icon: const Icon(
@@ -4062,7 +4057,7 @@ class _MembersPageState extends State<MembersPage> {
                           if (staffEdit)
                             ValueListenableBuilder<List<String>>(
                               valueListenable: funcoesNotifier,
-                              builder: (_, funcList, __) {
+                              builder: (_, funcList, _) {
                                 if (!memberNeedsAssinaturaFieldFromFuncoes(
                                     funcList)) {
                                   return const SizedBox.shrink();
@@ -4094,7 +4089,7 @@ class _MembersPageState extends State<MembersPage> {
                                                 decoration: BoxDecoration(
                                                   color: ThemeCleanPremium
                                                       .primary
-                                                      .withOpacity(0.08),
+                                                      .withValues(alpha: 0.08),
                                                   borderRadius:
                                                       BorderRadius.circular(12),
                                                 ),
@@ -4221,7 +4216,9 @@ class _MembersPageState extends State<MembersPage> {
                                                           maxWidth: 600,
                                                           imageQuality: 90);
                                                   if (file == null ||
-                                                      !ctx.mounted) return;
+                                                      !ctx.mounted) {
+                                                    return;
+                                                  }
                                                   final bytes =
                                                       await file.readAsBytes();
                                                   setDlg(() {
@@ -4370,7 +4367,7 @@ class _MembersPageState extends State<MembersPage> {
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: DropdownButtonFormField<String>(
-                              value: estadoCivilSelected,
+                              initialValue: estadoCivilSelected,
                               decoration: InputDecoration(
                                 labelText: 'Estado Civil',
                                 border: OutlineInputBorder(
@@ -4470,7 +4467,7 @@ class _MembersPageState extends State<MembersPage> {
                                   width: 140,
                                   height: 48,
                                   child: OutlinedButton.icon(
-                                    onPressed: _loadingCep
+                                    onPressed: loadingCep
                                         ? null
                                         : () async {
                                             final cepDigits = cepCtrl.text
@@ -4501,7 +4498,7 @@ class _MembersPageState extends State<MembersPage> {
                                               );
                                               return;
                                             }
-                                            setDlg(() => _loadingCep = true);
+                                            setDlg(() => loadingCep = true);
                                             try {
                                               final resultCep =
                                                   await fetchCep(cepDigits);
@@ -4516,7 +4513,7 @@ class _MembersPageState extends State<MembersPage> {
                                                 return;
                                               }
                                               setDlg(() {
-                                                _loadingCep = false;
+                                                loadingCep = false;
                                                 cepCtrl.text =
                                                     (resultCep.cep ?? cepDigits)
                                                         .toString();
@@ -4546,15 +4543,16 @@ class _MembersPageState extends State<MembersPage> {
                                                 );
                                               }
                                             } finally {
-                                              if (mounted)
+                                              if (mounted) {
                                                 setDlg(
-                                                    () => _loadingCep = false);
+                                                    () => loadingCep = false);
+                                              }
                                             }
                                           },
                                     icon: const Icon(Icons.my_location_rounded,
                                         size: 18),
                                     label: Text(
-                                      _loadingCep ? 'Buscando...' : 'Localizar',
+                                      loadingCep ? 'Buscando...' : 'Localizar',
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                           fontWeight: FontWeight.w600),
@@ -4565,7 +4563,7 @@ class _MembersPageState extends State<MembersPage> {
                                           ThemeCleanPremium.primary,
                                       side: BorderSide(
                                           color: ThemeCleanPremium.primary
-                                              .withOpacity(0.25)),
+                                              .withValues(alpha: 0.25)),
                                       shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(
                                               ThemeCleanPremium.radiusSm)),
@@ -4800,7 +4798,7 @@ class _MembersPageState extends State<MembersPage> {
     if (!mounted) return;
     profilePhotoPreview.dispose();
     if (dialogResult == null || dialogResult is! Map) return;
-    final result = Map<String, dynamic>.from(dialogResult as Map);
+    final result = Map<String, dynamic>.from(dialogResult);
     if (result['saved'] != true) return;
 
     final nameToSave =
@@ -5153,8 +5151,9 @@ class _MembersPageState extends State<MembersPage> {
       updates['podeVerFornecedores'] = false;
       updates['podeEmitirRelatoriosCompletos'] = false;
     }
-    if (nascimento != null)
+    if (nascimento != null) {
       updates['DATA_NASCIMENTO'] = Timestamp.fromDate(nascimento!);
+    }
     if (newAssinaturaBytes != null) {
       try {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5183,14 +5182,16 @@ class _MembersPageState extends State<MembersPage> {
         );
         updates['assinaturaStoragePath'] = uploaded.storagePath;
         updates['assinaturaUrl'] = uploaded.downloadUrl;
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar('Assinatura enviada.'));
+        }
       } catch (e) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar(
                   'Erro ao enviar assinatura: ${ChurchMediaUploadFacade.mensagemAmigavel(e)}'));
+        }
       }
     }
     if (removeAssinatura) {
@@ -5360,10 +5361,11 @@ class _MembersPageState extends State<MembersPage> {
             } catch (_) {}
           }
         }
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar(
                   'Membro transferido para a nova igreja. Atualize a lista.'));
+        }
       }
       final newPassword =
           (result['password'] ?? passwordCtrl.text).toString().trim();
@@ -5657,9 +5659,10 @@ class _MembersPageState extends State<MembersPage> {
             .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar('Erro ao criar login: $e'));
+      }
     }
   }
 
@@ -5753,9 +5756,10 @@ class _MembersPageState extends State<MembersPage> {
             .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar('Erro ao redefinir senha: $e'));
+      }
     }
   }
 
@@ -5980,7 +5984,7 @@ class _MembersPageState extends State<MembersPage> {
                                     radius: 28,
                                     backgroundColor: avatarColor ??
                                         ThemeCleanPremium.primary
-                                            .withOpacity(0.1),
+                                            .withValues(alpha: 0.1),
                                     tenantId: photoTenantId,
                                     memberId: docs[i].id,
                                     cpfDigits: cpfDigits,
@@ -6085,12 +6089,15 @@ class _MembersPageState extends State<MembersPage> {
                                         unawaited(_openMemberProfilePhotoEditor(
                                             context, docs[i]));
                                       }
-                                      if (v == 'edit')
+                                      if (v == 'edit') {
                                         _editMember(context, docs[i]);
-                                      if (v == 'delete')
+                                      }
+                                      if (v == 'delete') {
                                         _deleteMember(context, docs[i]);
-                                      if (v == 'approve')
+                                      }
+                                      if (v == 'approve') {
                                         _aprovarMembrosPorIds({docs[i].id});
+                                      }
                                       if (v == 'card') {
                                         openMemberCardCnhFullscreen(
                                           context,
@@ -6120,8 +6127,9 @@ class _MembersPageState extends State<MembersPage> {
                                                 Map<String, dynamic>.from(
                                                     data));
                                       }
-                                      if (v == 'password')
+                                      if (v == 'password') {
                                         _redefinirSenhaMembro(context, docs[i]);
+                                      }
                                     },
                                     itemBuilder: (_) => [
                                       if (_canApprovePending && isPendingRow)
@@ -6323,7 +6331,7 @@ class _MembersPageState extends State<MembersPage> {
                               name: name,
                               radius: 28,
                               backgroundColor: avatarColor ??
-                                  ThemeCleanPremium.primary.withOpacity(0.1),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.1),
                               tenantId: photoTenantId,
                               memberId: member.id,
                               cpfDigits: cpfDigits,
@@ -6419,8 +6427,9 @@ class _MembersPageState extends State<MembersPage> {
                                       context, member));
                                 }
                                 if (v == 'edit') _editMember(context, member);
-                                if (v == 'delete')
+                                if (v == 'delete') {
                                   _deleteMember(context, member);
+                                }
                                 if (v == 'approve') {
                                   _aprovarMembrosPorIds({member.id});
                                 }
@@ -6668,14 +6677,16 @@ class _MembersPageState extends State<MembersPage> {
       await Share.share(sb.toString(),
           subject: 'Membros - Gestão YAHWEH',
           sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1));
-      if (context.mounted)
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
                 'Exportados ${docs.length} membros (CSV).'));
+      }
     } catch (e) {
-      if (context.mounted)
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar('Erro ao exportar: $e'));
+      }
     }
   }
 
@@ -6762,13 +6773,15 @@ class _MembersPageState extends State<MembersPage> {
         ),
       );
       final bytes = Uint8List.fromList(await pdf.save());
-      if (context.mounted)
+      if (context.mounted) {
         await showPdfActions(context,
             bytes: bytes, filename: 'membros_relatorio.pdf');
+      }
     } catch (e) {
-      if (context.mounted)
+      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar('Erro ao exportar PDF: $e'));
+      }
     }
   }
 
@@ -6871,7 +6884,7 @@ class _MembersPageState extends State<MembersPage> {
                       SizedBox(
                         width: narrow ? double.infinity : 220,
                         child: DropdownButtonFormField<String>(
-                          value: _filtroDepartamento,
+                          initialValue: _filtroDepartamento,
                           decoration: fieldDeco.copyWith(
                             labelText: 'Departamento',
                             prefixIcon: Icon(
@@ -6896,7 +6909,7 @@ class _MembersPageState extends State<MembersPage> {
                       SizedBox(
                         width: narrow ? double.infinity : 160,
                         child: DropdownButtonFormField<int?>(
-                          value: _filtroAniversarioMes,
+                          initialValue: _filtroAniversarioMes,
                           decoration: fieldDeco.copyWith(
                             labelText: 'Aniversário',
                             prefixIcon: Icon(
@@ -7621,9 +7634,15 @@ class _MembersPageState extends State<MembersPage> {
         }
 
         // list[0]..[3] são mesmas fontes mescladas (membros igreja); um loop evita merge quadruplicado.
-        for (final d in list[0].docs) putOrMerge(d, _MemberDoc.fromQueryDoc);
-        for (final d in list[4].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
-        for (final d in list[5].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
+        for (final d in list[0].docs) {
+          putOrMerge(d, _MemberDoc.fromQueryDoc);
+        }
+        for (final d in list[4].docs) {
+          putOrMerge(d, _MemberDoc.fromUserDoc);
+        }
+        for (final d in list[5].docs) {
+          putOrMerge(d, _MemberDoc.fromUserDoc);
+        }
         final allDocs = _mergeMembersListWithDirectoryCache(
           combined.values
               .map(_memberWithOptimisticOverlay)
@@ -8571,7 +8590,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                         24 + widget.padding.bottom,
                       ),
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 4),
+                      separatorBuilder: (_, _) => const SizedBox(height: 4),
                       itemBuilder: (context, i) =>
                           widget.buildMemberTile(context, filtered[i]),
                     ),
@@ -9457,13 +9476,11 @@ class _CollapsibleSection extends StatelessWidget {
 
   const _CollapsibleSection({
     required this.title,
-    this.subtitle,
     required this.icon,
     required this.expanded,
     required this.onToggle,
     required this.child,
-    this.badgeCount = 0,
-  });
+  }) : subtitle = null, badgeCount = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -9696,7 +9713,7 @@ class _DetailRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(icon,
-              size: 18, color: ThemeCleanPremium.primary.withOpacity(0.7)),
+              size: 18, color: ThemeCleanPremium.primary.withValues(alpha: 0.7)),
           const SizedBox(width: 12),
           SizedBox(
             width: 100,
@@ -9798,7 +9815,7 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
               border: Border.all(
-                  color: ThemeCleanPremium.primary.withOpacity(0.15)),
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.15)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -9941,13 +9958,13 @@ class _MembersLimitBanner extends StatelessWidget {
     Color bg;
     IconData icon;
     if (isBlocked) {
-      bg = ThemeCleanPremium.error.withOpacity(0.15);
+      bg = ThemeCleanPremium.error.withValues(alpha: 0.15);
       icon = Icons.block_rounded;
     } else if (isWarning) {
       bg = Colors.orange.shade100;
       icon = Icons.warning_amber_rounded;
     } else {
-      bg = ThemeCleanPremium.primary.withOpacity(0.08);
+      bg = ThemeCleanPremium.primary.withValues(alpha: 0.08);
       icon = Icons.people_rounded;
     }
     return Material(
@@ -10203,10 +10220,10 @@ String _str(Map<String, dynamic> d, String key1,
     [String? key2, String? key3, String? key4, String? key5]) {
   final keys = [
     key1,
-    if (key2 != null) key2,
-    if (key3 != null) key3,
-    if (key4 != null) key4,
-    if (key5 != null) key5,
+    ?key2,
+    ?key3,
+    ?key4,
+    ?key5,
   ];
   return FirestoreMapFields.pickString(d, keys);
 }
@@ -10229,7 +10246,9 @@ int? _idadeFromBirthMemberEdit(DateTime birth) {
   final now = DateTime.now();
   var age = now.year - birth.year;
   if (now.month < birth.month ||
-      (now.month == birth.month && now.day < birth.day)) age--;
+      (now.month == birth.month && now.day < birth.day)) {
+    age--;
+  }
   return age;
 }
 
@@ -10268,8 +10287,9 @@ DateTime? _parseDate(dynamic raw) {
   if (raw is DateTime) return raw;
   if (raw is Map) {
     final sec = raw['seconds'] ?? raw['_seconds'];
-    if (sec != null)
+    if (sec != null) {
       return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
+    }
   }
   return null;
 }
@@ -10436,8 +10456,7 @@ class _MemberAvatar extends StatelessWidget {
 // ignore: subtype_of_sealed_class
 class _CachedMemberQueryDoc
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  _CachedMemberQueryDoc({required this.id, required Map<String, dynamic> data})
-      : _data = data;
+  _CachedMemberQueryDoc({required this.id, required this._data});
 
   @override
   final String id;

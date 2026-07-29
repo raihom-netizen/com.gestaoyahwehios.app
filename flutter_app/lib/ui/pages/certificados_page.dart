@@ -1,5 +1,4 @@
 import 'dart:async' show Timer, unawaited;
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, listEquals;
@@ -8,7 +7,6 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:flutter/painting.dart' show imageCache;
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
@@ -33,12 +31,10 @@ import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
-import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
-import 'package:gestao_yahweh/services/certificate_cloud_pdf_service.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -49,7 +45,6 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_digital_signature_stamp_preview.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
@@ -85,7 +80,6 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart'
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -1724,7 +1718,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
-                          ThemeCleanPremium.primary.withOpacity(0.07),
+                          ThemeCleanPremium.primary.withValues(alpha: 0.07),
                           Colors.white,
                         ],
                         begin: Alignment.topLeft,
@@ -1734,7 +1728,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           BorderRadius.circular(ThemeCleanPremium.radiusMd),
                       boxShadow: ThemeCleanPremium.softUiCardShadow,
                       border: Border.all(
-                        color: ThemeCleanPremium.primary.withOpacity(0.14),
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
                       ),
                     ),
                     child: Row(
@@ -1830,7 +1824,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         foregroundColor: ThemeCleanPremium.primary,
                         side: BorderSide(
                             color:
-                                ThemeCleanPremium.primary.withOpacity(0.4)),
+                                ThemeCleanPremium.primary.withValues(alpha: 0.4)),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         minimumSize: ThemeCleanPremium.isMobile(context)
                             ? const Size(0, ThemeCleanPremium.minTouchTarget)
@@ -2036,7 +2030,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                 : 'Emitir vários'),
                             selected: _batchMode,
                             selectedColor:
-                                ThemeCleanPremium.primary.withOpacity(0.18),
+                                ThemeCleanPremium.primary.withValues(alpha: 0.18),
                             checkmarkColor: ThemeCleanPremium.primary,
                             onSelected: (v) async {
                               if (v) {
@@ -2564,7 +2558,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           child: AlertDialog(
             content: ValueListenableBuilder<String>(
               valueListenable: phase,
-              builder: (_, msg, __) => Column(
+              builder: (_, msg, _) => Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const SizedBox(
@@ -3204,7 +3198,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         children: [
                           Text(
                             '$selectedCount membro(s) · '
-                            '${distinctTemplateCount == 1 ? 'mesmo modelo' : '${distinctTemplateCount} modelos diferentes'}',
+                            '${distinctTemplateCount == 1 ? 'mesmo modelo' : '$distinctTemplateCount modelos diferentes'}',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -3250,7 +3244,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: signatureModeBatch,
+                      initialValue: signatureModeBatch,
                       decoration: InputDecoration(
                         labelText: 'Assinatura no PDF em lote',
                         filled: true,
@@ -3332,7 +3326,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
             ),
             content: ValueListenableBuilder<String>(
               valueListenable: phase,
-              builder: (_, msg, __) {
+              builder: (_, msg, _) {
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4134,7 +4128,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         itemCount: kCertificateVisualTemplates.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
                         itemBuilder: (context, vi) {
                           final vt = kCertificateVisualTemplates[vi];
                           final sel = visualId == vt.id;
@@ -4247,7 +4241,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusMd),
                         boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: cor.withOpacity(0.2)),
+                        border: Border.all(color: cor.withValues(alpha: 0.2)),
                       ),
                       child: Material(
                         color: Colors.transparent,
@@ -4283,7 +4277,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                 Container(
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                      color: cor.withOpacity(0.12),
+                                      color: cor.withValues(alpha: 0.12),
                                       borderRadius: BorderRadius.circular(
                                           ThemeCleanPremium.radiusSm)),
                                   child:
@@ -4309,7 +4303,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                   ),
                                 ),
                                 Icon(Icons.arrow_forward_ios_rounded,
-                                    size: 16, color: cor.withOpacity(0.5)),
+                                    size: 16, color: cor.withValues(alpha: 0.5)),
                               ],
                             ),
                           ),
@@ -5092,15 +5086,17 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
       Map? data;
       if (templates is Map) {
         data = templates[t.id] is Map ? templates[t.id] as Map : null;
-        if (data == null && t.id == 'apresentacao')
+        if (data == null && t.id == 'apresentacao') {
           data = templates['dedicacao'] is Map
               ? templates['dedicacao'] as Map
               : null;
+        }
       }
       String hex = (data?['corPrimaria'] ?? '').toString().trim();
       if (hex.startsWith('#')) hex = hex.substring(1);
-      if (hex.length != 6)
-        hex = t.cor.value.toRadixString(16).padLeft(8, '0').substring(2);
+      if (hex.length != 6) {
+        hex = t.cor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2);
+      }
       _corByTemplate[t.id] = hex;
       String textHex = (data?['corTexto'] ?? '').toString().trim();
       if (textHex.startsWith('#')) textHex = textHex.substring(1);
@@ -5136,9 +5132,15 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
     for (final c in _slotCargoCtrls) {
       c.dispose();
     }
-    for (final c in _tituloByTemplate.values) c.dispose();
-    for (final c in _subtituloByTemplate.values) c.dispose();
-    for (final c in _textoByTemplate.values) c.dispose();
+    for (final c in _tituloByTemplate.values) {
+      c.dispose();
+    }
+    for (final c in _subtituloByTemplate.values) {
+      c.dispose();
+    }
+    for (final c in _textoByTemplate.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -5152,7 +5154,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
         final subtitulo = _subtituloByTemplate[t.id]?.text.trim() ?? '';
         final texto = _textoByTemplate[t.id]?.text.trim() ?? t.textoModelo;
         final cor = _corByTemplate[t.id] ??
-            t.cor.value.toRadixString(16).padLeft(8, '0').substring(2);
+            t.cor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2);
         final corTexto = _corTextoByTemplate[t.id] ?? '1E1E1E';
         final fontStyle = _fontStyleByTemplate[t.id] ?? 'moderna';
         templates[t.id] = {
@@ -5299,7 +5301,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                           foregroundColor: ThemeCleanPremium.primary,
                           side: BorderSide(
                               color:
-                                  ThemeCleanPremium.primary.withOpacity(0.6)),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.6)),
                         ),
                       ),
                       OutlinedButton.icon(
@@ -5320,7 +5322,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                           foregroundColor: ThemeCleanPremium.primary,
                           side: BorderSide(
                               color:
-                                  ThemeCleanPremium.primary.withOpacity(0.6)),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.6)),
                         ),
                       ),
                     ],
@@ -5471,7 +5473,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       ),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String?>(
-                        value: _slotMemberIds[i],
+                        initialValue: _slotMemberIds[i],
                         isExpanded: true,
                         decoration: InputDecoration(
                           labelText: 'Membro',
@@ -5562,7 +5564,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             const SizedBox(height: ThemeCleanPremium.spaceMd),
             ..._templates.map((t) {
               final corHex = _corByTemplate[t.id] ??
-                  t.cor.value.toRadixString(16).padLeft(8, '0').substring(2);
+                  t.cor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2);
               final corAtual = Color(int.parse('FF$corHex', radix: 16));
               final corTextoHex = _corTextoByTemplate[t.id] ?? '1E1E1E';
               final corTextoAtual = Color(int.parse('FF$corTextoHex', radix: 16));
@@ -5576,7 +5578,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                   borderRadius:
                       BorderRadius.circular(ThemeCleanPremium.radiusMd),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
-                  border: Border.all(color: corAtual.withOpacity(0.25)),
+                  border: Border.all(color: corAtual.withValues(alpha: 0.25)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -5586,7 +5588,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                              color: corAtual.withOpacity(0.12),
+                              color: corAtual.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(
                                   ThemeCleanPremium.radiusSm)),
                           child: Icon(t.icon, color: corAtual, size: 24),
@@ -5607,7 +5609,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                             color: Colors.grey.shade700)),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: fontStyleAtual,
+                      initialValue: fontStyleAtual,
                       decoration: InputDecoration(
                         filled: true,
                         fillColor: const Color(0xFFF8FAFC),
@@ -5641,7 +5643,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       spacing: 10,
                       runSpacing: 10,
                       children: _certificadoCores.map((c) {
-                        final hex = c.value
+                        final hex = c.toARGB32()
                             .toRadixString(16)
                             .padLeft(8, '0')
                             .substring(2);
@@ -5663,7 +5665,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                                   width: selected ? 3 : 1),
                               boxShadow: [
                                 BoxShadow(
-                                    color: Colors.black.withOpacity(0.06),
+                                    color: Colors.black.withValues(alpha: 0.06),
                                     blurRadius: 6,
                                     offset: const Offset(0, 2))
                               ],
@@ -5683,7 +5685,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       spacing: 10,
                       runSpacing: 10,
                       children: _certificadoCores.map((c) {
-                        final hex = c.value
+                        final hex = c.toARGB32()
                             .toRadixString(16)
                             .padLeft(8, '0')
                             .substring(2);
@@ -5820,7 +5822,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                             _tituloByTemplate[t.id]?.text = t.nome;
                             _subtituloByTemplate[t.id]?.text = t.subtituloPadrao;
                             _textoByTemplate[t.id]?.text = t.textoModelo;
-                            _corByTemplate[t.id] = t.cor.value
+                            _corByTemplate[t.id] = t.cor.toARGB32()
                                 .toRadixString(16)
                                 .padLeft(8, '0')
                                 .substring(2);
@@ -5908,10 +5910,10 @@ class _CertificatePdfProgressShell extends StatelessWidget {
               builder: (context, titleText, _) {
                 return ValueListenableBuilder<String>(
                   valueListenable: phase,
-                  builder: (context, msg, __) {
+                  builder: (context, msg, _) {
                     return ValueListenableBuilder<double>(
                       valueListenable: progress01,
-                      builder: (context, v, ___) {
+                      builder: (context, v, _) {
                         final ind = v.clamp(0.0, 1.0);
                         final pctLabel = (ind * 100).clamp(0, 100).round();
                         final icon = _iconForPhase(msg);
@@ -6815,7 +6817,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: kCertificateVisualTemplates.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
                   itemBuilder: (context, vi) {
                     final vt = kCertificateVisualTemplates[vi];
                     final sel = _visualTemplateId == vt.id;
@@ -6881,7 +6883,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               _SectionLabel(label: 'Estilo da fonte'),
               DropdownButtonFormField<String>(
-                value: _fontStyleId,
+                initialValue: _fontStyleId,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
@@ -6903,7 +6905,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               _SectionLabel(label: 'Modo de assinatura para impressão'),
               DropdownButtonFormField<String>(
-                value: _signatureMode,
+                initialValue: _signatureMode,
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFFF8FAFC),
@@ -7042,7 +7044,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                                 padding: const EdgeInsets.only(
                                     left: 38, right: 8, bottom: 8),
                                 child: DropdownButtonFormField<String>(
-                                  value: _selectedCargoByMemberId[o.memberId] ??
+                                  initialValue: _selectedCargoByMemberId[o.memberId] ??
                                       o.cargoOptions.first,
                                   decoration: InputDecoration(
                                     labelText:
@@ -7187,7 +7189,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ThemeCleanPremium.primary,
                       side: BorderSide(
-                        color: ThemeCleanPremium.primary.withOpacity(0.45),
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
                       ),
                     ),
                   ),
@@ -8197,7 +8199,7 @@ class _CertificadosEmitidosHistoricoViewState
         Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.primary.withOpacity(0.1),
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
           ),
           child: Icon(icon, color: ThemeCleanPremium.primary, size: 22),
@@ -8303,7 +8305,7 @@ class _CertificadosEmitidosHistoricoViewState
               primary: false,
               physics: const ClampingScrollPhysics(),
               itemCount: entries.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
               itemBuilder: (context, i) {
                 final e = entries[i];
                 final label = rotulos[e.key] ?? e.key;
@@ -8607,7 +8609,7 @@ class _CertificadosEmitidosHistoricoViewState
                         gradient: LinearGradient(
                           colors: [
                             Colors.white,
-                            ThemeCleanPremium.primary.withOpacity(0.04),
+                            ThemeCleanPremium.primary.withValues(alpha: 0.04),
                           ],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
@@ -8640,7 +8642,7 @@ class _CertificadosEmitidosHistoricoViewState
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 6),
                                 decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.primary.withOpacity(0.1),
+                                  color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -8849,7 +8851,7 @@ class _CertificadosEmitidosHistoricoViewState
                               final twoCol = c.maxWidth > 520;
                               final children = <Widget>[
                                 DropdownButtonFormField<String?>(
-                                  value: _tipoFiltroKey,
+                                  initialValue: _tipoFiltroKey,
                                   isExpanded: true,
                                   decoration: InputDecoration(
                                     labelText: 'Tipo de certificado',
@@ -8885,7 +8887,7 @@ class _CertificadosEmitidosHistoricoViewState
                                       setState(() => _tipoFiltroKey = v),
                                 ),
                                 DropdownButtonFormField<int?>(
-                                  value: _anoFiltro,
+                                  initialValue: _anoFiltro,
                                   isExpanded: true,
                                   decoration: InputDecoration(
                                     labelText: 'Ano de emissão',
@@ -8922,7 +8924,7 @@ class _CertificadosEmitidosHistoricoViewState
                                   }),
                                 ),
                                 DropdownButtonFormField<int?>(
-                                  value: _mesFiltro,
+                                  initialValue: _mesFiltro,
                                   isExpanded: true,
                                   decoration: InputDecoration(
                                     labelText: 'Mês de emissão',
@@ -9207,7 +9209,7 @@ class _CertificadosEmitidosHistoricoViewState
                               gradient: LinearGradient(
                                 colors: [
                                   Colors.white,
-                                  ThemeCleanPremium.primary.withOpacity(0.035),
+                                  ThemeCleanPremium.primary.withValues(alpha: 0.035),
                                 ],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
@@ -9217,7 +9219,7 @@ class _CertificadosEmitidosHistoricoViewState
                               boxShadow: ThemeCleanPremium.softUiCardShadow,
                               border: Border.all(
                                 color: ThemeCleanPremium.primary
-                                    .withOpacity(0.11),
+                                    .withValues(alpha: 0.11),
                               ),
                             ),
                             child: Column(
@@ -9231,7 +9233,7 @@ class _CertificadosEmitidosHistoricoViewState
                                   ),
                                   leading: CircleAvatar(
                                     backgroundColor: ThemeCleanPremium.primary
-                                        .withOpacity(0.12),
+                                        .withValues(alpha: 0.12),
                                     child: Icon(
                                       Icons.workspace_premium_rounded,
                                       color: ThemeCleanPremium.primary,
@@ -9523,8 +9525,7 @@ class _CertMembersSnapshotMetadata implements SnapshotMetadata {
 // ignore: subtype_of_sealed_class
 class _CertCachedMemberQueryDoc
     implements QueryDocumentSnapshot<Map<String, dynamic>> {
-  _CertCachedMemberQueryDoc({required this.id, required Map<String, dynamic> data})
-      : _data = data;
+  _CertCachedMemberQueryDoc({required this.id, required this._data});
 
   @override
   final String id;

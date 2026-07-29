@@ -50,7 +50,7 @@ class DashboardPage extends StatelessWidget {
                         height: 44,
                         width: 44,
                         decoration: BoxDecoration(
-                          color: cs.primary.withOpacity(0.12),
+                          color: cs.primary.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Icon(Icons.person, color: cs.primary),
@@ -76,7 +76,7 @@ class DashboardPage extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: cs.primary.withOpacity(0.10),
+                            color: cs.primary.withValues(alpha: 0.10),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -144,7 +144,7 @@ class _KpiCard extends StatelessWidget {
             height: 38,
             width: 38,
             decoration: BoxDecoration(
-              color: cs.primary.withOpacity(0.12),
+              color: cs.primary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(icon, color: cs.primary, size: 20),

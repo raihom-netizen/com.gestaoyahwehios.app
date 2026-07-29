@@ -7,10 +7,9 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 /// Orquestra gravação local → UI → rede (padrão Controle Total).
 class SyncRepository {
   SyncRepository({
-    required LocalRepository local,
-    required RemoteRepository remote,
-  })  : _local = local,
-        _remote = remote;
+    required this._local,
+    required this._remote,
+  });
 
   final LocalRepository _local;
   final RemoteRepository _remote;

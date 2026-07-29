@@ -108,7 +108,7 @@ Future<Uint8List> buildScheduleEscalaPdf({
                   width: 160,
                   height: 38,
                   child: pw.Image(
-                    pw.MemoryImage(signatureBytes!),
+                    pw.MemoryImage(signatureBytes),
                     fit: pw.BoxFit.contain,
                   ),
                 ),
@@ -141,9 +141,9 @@ Future<Uint8List> buildScheduleEscalaPdf({
   }
 
   final sigBytes = (preparedBySignatureBytes != null &&
-          preparedBySignatureBytes!.length > 24)
+          preparedBySignatureBytes.length > 24)
       ? preparedBySignatureBytes
-      : ((approverSignatureBytes != null && approverSignatureBytes!.length > 24)
+      : ((approverSignatureBytes != null && approverSignatureBytes.length > 24)
           ? approverSignatureBytes
           : null);
   final combinedSignerLabel = () {

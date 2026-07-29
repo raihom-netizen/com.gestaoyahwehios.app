@@ -6,7 +6,8 @@ import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart' show YahwehMediaModule;
+import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart'
+    show YahwehMediaModule;
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
@@ -176,7 +177,13 @@ abstract final class ChurchMediaUploadFacade {
         error: e,
         stack: st,
       );
-      unawaited(CrashlyticsService.record(e, st, reason: 'church_media_upload_$logLabel'));
+      unawaited(
+        CrashlyticsService.record(
+          e,
+          st,
+          reason: 'church_media_upload_$logLabel',
+        ),
+      );
       rethrow;
     }
   }
@@ -192,7 +199,10 @@ abstract final class ChurchMediaUploadFacade {
     await ensureReady();
 
     final concurrency = mediaFeedUploadMaxConcurrent.clamp(1, 8);
-    final results = List<ChurchMediaUploadBatchResult?>.filled(items.length, null);
+    final results = List<ChurchMediaUploadBatchResult?>.filled(
+      items.length,
+      null,
+    );
     var completed = 0;
     var nextIndex = 0;
 
@@ -250,13 +260,16 @@ abstract final class ChurchMediaUploadFacade {
   static Future<void> ensureModuleReady(
     YahwehMediaModule module, {
     bool withPhotos = true,
-  }) =>
-      ensureReady(module: module, withPhotos: withPhotos);
+  }) => ensureReady(module: module, withPhotos: withPhotos);
 
   /// Mensagem amigável com código real — use no `catch` das telas.
-  static String mensagemAmigavel(Object error) => formatUploadErrorForUser(error);
+  static String mensagemAmigavel(Object error) =>
+      formatUploadErrorForUser(error);
 
   /// Chat / ficheiros genéricos — bytes → putData (padrão CT).
+  ///
+  /// Usa [YahwehMediaUploadPipeline] por baixo, mas força o warmup unificado
+  /// ([ensureReady]) para evitar fila de awaits antes do upload.
   static Future<String> uploadFromPipeline({
     required Uint8List bytes,
     required String storagePath,

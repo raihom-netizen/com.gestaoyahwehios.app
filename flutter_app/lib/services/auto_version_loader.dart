@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:gestao_yahweh/app_version.dart';
 
 import 'auto_version_loader_stub.dart'
-    if (dart.library.html) 'auto_version_loader_web.dart' as _reload;
+    if (dart.library.html) 'auto_version_loader_web.dart' as reload;
 
 /// Compara versões "a.b.c" ou "a.b.c+x". Retorna > 0 se server > current.
 int _compareVersions(String server, String current) {
@@ -51,7 +51,7 @@ Future<void> checkAndReloadIfNewVersion() async {
     if (current.isEmpty) return;
     // Só recarrega se o servidor tiver versão MAIS NOVA (evita reload quando version.json está atrás)
     if (_compareVersions(serverVersion, current) > 0) {
-      _reload.reloadToNewVersion();
+      reload.reloadToNewVersion();
     }
   } catch (_) {}
 }

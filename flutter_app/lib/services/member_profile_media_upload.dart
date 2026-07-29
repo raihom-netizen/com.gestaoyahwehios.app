@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
@@ -34,19 +33,15 @@ abstract final class MemberProfileMediaUpload {
     );
 
     await ensureUploadReady(requireAuth: requireAuth);
-    final uploaded = await ChurchCentralStorageUpload.uploadImageAtPath(
+    final uploaded = await ChurchMediaUploadFacade.uploadImageAtPath(
       storagePath: storagePath,
       rawBytes: bytes,
       logLabel: 'membro_profile_photo',
       alreadyCompressed: true,
       compressForFeed: false,
       onProgress: onProgress,
-      requireAuth: requireAuth,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto demorou demais. Verifique a rede.',
-      ),
+      timeout: uploadTimeout,
+      skipEnsureReady: true,
     );
     return uploaded.downloadUrl;
   }
@@ -63,19 +58,15 @@ abstract final class MemberProfileMediaUpload {
       churchId.trim(),
       storageFolderId.trim(),
     );
-    final uploaded = await ChurchCentralStorageUpload.uploadImageAtPath(
+    final uploaded = await ChurchMediaUploadFacade.uploadImageAtPath(
       storagePath: path,
       rawBytes: fullBytes,
       logLabel: 'membro_profile',
       alreadyCompressed: true,
       compressForFeed: false,
       onProgress: onProgress,
-      requireAuth: requireAuth,
-    ).timeout(
-      uploadTimeout,
-      onTimeout: () => throw TimeoutException(
-        'Upload da foto demorou demais. Verifique a rede.',
-      ),
+      timeout: uploadTimeout,
+      skipEnsureReady: true,
     );
     return uploaded.downloadUrl;
   }
