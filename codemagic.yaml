@@ -280,6 +280,14 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_ensure_deployment_target_15.sh"
+      # TDLib iOS: baixa libtdjson-static.xcframework e patcha o Podfile (deve rodar ANTES do pod install).
+      # Sem este passo flutter_libtdjson falha: Build input file cannot be found: libtdjson.a
+      - name: Setup TDLib iOS (xcframework estatico, antes do CocoaPods)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT/flutter_app"
+          dart run tool/setup_tdlib.dart --ios-only
       - name: CocoaPods
         script: |
           set -e
