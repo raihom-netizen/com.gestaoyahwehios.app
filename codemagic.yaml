@@ -197,6 +197,15 @@ workflows:
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           export APP_STORE_CONNECT_KEY_IDENTIFIER APP_STORE_CONNECT_ISSUER_ID APP_GROUP_ID
           bash "$ROOT/scripts/codemagic_ios_register_app_groups_via_xcode.sh"
+      # Associated Domains: obrigatorio para Universal Links (deep links de notificacoes).
+      # Sem esta capability o perfil nao inclui com.apple.developer.associated-domains
+      # e o Xcode falha: Provisioning profile doesn't include the Associated Domains capability.
+      - name: Ativar Associated Domains no App ID (API Apple)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export IOS_BUNDLE_ID="${IOS_BUNDLE_ID:-$BUNDLE_ID}"
+          python3 "$ROOT/scripts/codemagic_ios_enable_associated_domains.py"
       - name: Remover perfis App Store antigos (força perfil com capabilities atuais)
         script: |
           set -e
