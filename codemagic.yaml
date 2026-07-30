@@ -162,32 +162,12 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          cd "$ROOT"
-          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
-          if [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ]; then
-            echo "TDLib iOS explicitamente ativado; mantendo plugin nativo."
-            exit 0
-          fi
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          manifest = Path('.flutter-plugins-dependencies')
-          data = json.loads(manifest.read_text(encoding='utf-8'))
-          ios_plugins = data.get('plugins', {}).get('ios', [])
-          before = len(ios_plugins)
-          data['plugins']['ios'] = [
-              plugin for plugin in ios_plugins
-              if plugin.get('name') != 'libtdjson'
-          ]
-          manifest.write_text(
-              json.dumps(data, separators=(',', ':')),
-              encoding='utf-8',
-          )
-          removed = before - len(data['plugins']['ios'])
-          print(f'TDLib iOS removido do manifesto nativo: {removed} entrada(s).')
-          PY
-          echo "iOS seguirá com Yahweh Chat Firebase; Android mantém TDLib."
+          case "$(cat /tmp/cm_yw_layout)" in
+            mono) FLUTTER_DIR="$ROOT/flutter_app" ;;
+            root) FLUTTER_DIR="$ROOT" ;;
+            *) echo "ERRO: layout"; exit 1 ;;
+          esac
+          bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR"
       - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e

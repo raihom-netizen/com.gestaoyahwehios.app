@@ -40,6 +40,7 @@ fi
 echo "=== pod install (Crashlytics) — $IOS_DIR ==="
 bash "$ROOT/scripts/codemagic_ios_ensure_deployment_target_15.sh"
 (cd "$FLUTTER_DIR" && flutter pub get)
+bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR"
 (cd "$FLUTTER_DIR" && flutter config --no-enable-swift-package-manager 2>/dev/null || true)
 rm -rf "$IOS_DIR/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm" 2>/dev/null || true
 
